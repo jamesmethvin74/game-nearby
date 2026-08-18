@@ -38,16 +38,22 @@ main { width: min(760px, 100%); margin: 0 auto; padding: 14px; }
 .text-btn { color: var(--blue); font-weight: 700; }
 .icon-btn { width: 42px; height: 42px; border-radius: 12px; background: #0b1d33; border: 1px solid var(--line); font-size: 1.35rem; color: var(--ink); }
 .event-list { display: grid; gap: 10px; }
-.event-card { overflow: hidden; padding: 0; }
+.event-card { overflow: hidden; padding: 0; transition: border-color .2s ease, background .2s ease, box-shadow .2s ease; }
 .event-card.priority { background: linear-gradient(140deg,#142b50,#171f46); border-color: #385a88; }
+.event-card.away-game { background: linear-gradient(155deg,#2a1720,#321b24); border-color: #8a475b; box-shadow: 0 14px 34px rgba(34,8,16,.38); }
+.event-card.away-game.priority { background: linear-gradient(145deg,#281a35,#3a1d2d); border-color: #9b5871; }
+.event-card.away-game .team-badge { background: linear-gradient(135deg,#9f3157,#6f2747); }
 .event-main { display: grid; grid-template-columns: 54px 1fr auto; gap: 12px; align-items: center; padding: 14px; }
 .team-badge { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; font-weight: 900; color: #fff; background: linear-gradient(135deg,#1d4ed8,#4338ca); box-shadow: 0 8px 18px rgba(0,0,0,.22); }
 .event-card.priority .team-badge { background: linear-gradient(135deg,#2563eb,#6d28d9); }
+.home-away-badge { display: inline-flex; align-items: center; width: fit-content; margin-top: 5px; padding: 3px 7px; border-radius: 999px; font-size: .65rem; font-weight: 900; letter-spacing: .09em; background: rgba(77,163,255,.13); color: #88c8ff; border: 1px solid rgba(77,163,255,.34); }
+.away-game .home-away-badge { background: rgba(255,112,145,.12); color: #ff9bb4; border-color: rgba(255,112,145,.36); }
 .event-meta { color: var(--muted); font-size: .82rem; margin-top: 4px; line-height: 1.35; }
 .event-meta a { display: inline-block; position: relative; z-index: 2; text-decoration: underline; text-underline-offset: 2px; padding: 3px 0; }
 .event-title { font-weight: 800; line-height: 1.2; color: #fff; }
 .distance { color: #b8c9db; font-size: .8rem; white-space: nowrap; }
 .event-actions { display: flex; border-top: 1px solid var(--line); background: rgba(3,12,24,.18); position: relative; z-index: 3; }
+.away-game .event-actions { background: rgba(36,8,17,.22); border-top-color: #74384b; }
 .event-actions a { flex: 1; min-height: 46px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 4; text-align: center; text-decoration: none; color: #70b8ff; font-size: .84rem; font-weight: 750; padding: 12px 6px; }
 .event-actions a:hover,.event-actions a:focus-visible { background: rgba(77,163,255,.12); outline: none; }
 .event-actions a:active { background: rgba(77,163,255,.2); }
