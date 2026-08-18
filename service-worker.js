@@ -1,5 +1,5 @@
-const CACHE="game-nearby-v5";
-const ASSETS=["./","./index.html","./styles.css?v=5","./app.js?v=5","./tickets.js?v=5","./manifest.json?v=5"];
+const CACHE="game-nearby-v7";
+const ASSETS=["./","./index.html","./styles.css?v=7","./app.js?v=7","./manifest.json?v=7"];
 
 self.addEventListener("install",event=>{
   event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)));
@@ -15,7 +15,6 @@ self.addEventListener("activate",event=>{
 
 self.addEventListener("fetch",event=>{
   if (event.request.method !== "GET") return;
-
   event.respondWith(
     fetch(event.request)
       .then(response=>{
