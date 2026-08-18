@@ -1,4 +1,5 @@
 const CONWAY={lat:35.0887,lon:-92.4421,label:"Conway, Arkansas"};
+const CONWAY_TICKETS_URL="https://gofan.co/school/AR4663";
 
 const teams=[
   {id:"uca",name:"UCA Bears",short:"UCA"},
@@ -42,11 +43,10 @@ const MAXPREPS_VOLLEYBALL="https://www.maxpreps.com/ar/conway/conway-wampus-cats
 
 function ev(id,{sport,gender,opponent,date,home=true,loc,venue,source="official",sourceUrl,notes=""}){
   const p=loc||LOC.conway;
-  return {id,teamId:"conway",team:"Conway Wampus Cats",sport,gender,level:"high-school",opponent,date,home,lat:p.lat,lon:p.lon,venue:venue||p.venue,source,sourceUrl,notes,tickets:"#"};
+  return {id,teamId:"conway",team:"Conway Wampus Cats",sport,gender,level:"high-school",opponent,date,home,lat:p.lat,lon:p.lon,venue:venue||p.venue,source,sourceUrl,notes};
 }
 
 const events=[
-  // FOOTBALL — Conway Athletics official 2026-27 varsity schedule.
   ev("fb-0818",{sport:"football",gender:"boys",opponent:"Morrilton",date:"2026-08-18T18:00:00-05:00",home:true,loc:LOC.footballHome,venue:"John McConnell Stadium",sourceUrl:OFFICIAL_FOOTBALL,notes:"Benefit Game"}),
   ev("fb-0828",{sport:"football",gender:"boys",opponent:"Capital High School (MO)",date:"2026-08-28T19:00:00-05:00",home:true,loc:LOC.footballHome,venue:"John McConnell Stadium",sourceUrl:OFFICIAL_FOOTBALL}),
   ev("fb-0904",{sport:"football",gender:"boys",opponent:"Bentonville",date:"2026-09-04T19:00:00-05:00",home:true,loc:LOC.footballHome,venue:"John McConnell Stadium",sourceUrl:OFFICIAL_FOOTBALL}),
@@ -58,8 +58,6 @@ const events=[
   ev("fb-1023",{sport:"football",gender:"boys",opponent:"Pulaski Academy",date:"2026-10-23T19:00:00-05:00",home:false,loc:LOC.littleRock,venue:"Pulaski Academy",sourceUrl:OFFICIAL_FOOTBALL}),
   ev("fb-1030",{sport:"football",gender:"boys",opponent:"Little Rock Christian",date:"2026-10-30T19:00:00-05:00",home:true,loc:LOC.footballHome,venue:"John McConnell Stadium",sourceUrl:OFFICIAL_FOOTBALL}),
   ev("fb-1106",{sport:"football",gender:"boys",opponent:"Bryant",date:"2026-11-06T19:00:00-06:00",home:false,loc:LOC.bryant,sourceUrl:OFFICIAL_FOOTBALL}),
-
-  // BOYS BASKETBALL — 2026-27 schedule currently published by MaxPreps.
   ev("bb-b-1112",{sport:"basketball",gender:"boys",opponent:"Fayetteville",date:"2026-11-12T18:00:00-06:00",home:false,loc:LOC.fayetteville,source:"secondary",sourceUrl:MAXPREPS_BOYS_BASKETBALL}),
   ev("bb-b-1117",{sport:"basketball",gender:"boys",opponent:"Springdale",date:"2026-11-17T19:00:00-06:00",home:false,loc:LOC.springdale,source:"secondary",sourceUrl:MAXPREPS_BOYS_BASKETBALL}),
   ev("bb-b-1119",{sport:"basketball",gender:"boys",opponent:"Russellville",date:"2026-11-19T19:00:00-06:00",home:false,loc:LOC.russellville,source:"secondary",sourceUrl:MAXPREPS_BOYS_BASKETBALL}),
@@ -82,13 +80,9 @@ const events=[
   ev("bb-b-0219",{sport:"basketball",gender:"boys",opponent:"Little Rock Central",date:"2027-02-19T19:30:00-06:00",home:true,loc:LOC.basketballHome,source:"secondary",sourceUrl:MAXPREPS_BOYS_BASKETBALL}),
   ev("bb-b-0223",{sport:"basketball",gender:"boys",opponent:"Jonesboro",date:"2027-02-23T18:00:00-06:00",home:false,loc:LOC.jonesboro,source:"secondary",sourceUrl:MAXPREPS_BOYS_BASKETBALL}),
   ev("bb-b-0226",{sport:"basketball",gender:"boys",opponent:"Bryant",date:"2027-02-26T19:00:00-06:00",home:true,loc:LOC.basketballHome,source:"secondary",sourceUrl:MAXPREPS_BOYS_BASKETBALL}),
-
-  // GIRLS BASKETBALL — only currently verifiable published 2026-27 games. Do not infer missing games.
   ev("bb-g-1117",{sport:"basketball",gender:"girls",opponent:"Springdale",date:"2026-11-17T18:00:00-06:00",home:false,loc:LOC.springdale,source:"secondary",sourceUrl:MAXPREPS_GIRLS_BASKETBALL}),
   ev("bb-g-1120",{sport:"basketball",gender:"girls",opponent:"Robinson",date:"2026-11-20T18:00:00-06:00",home:true,loc:LOC.basketballHome,source:"secondary",sourceUrl:MAXPREPS_GIRLS_BASKETBALL}),
   ev("bb-g-1121",{sport:"basketball",gender:"girls",opponent:"Pulaski Academy",date:"2026-11-21T15:00:00-06:00",home:true,loc:LOC.basketballHome,source:"secondary",sourceUrl:MAXPREPS_GIRLS_BASKETBALL}),
-
-  // VOLLEYBALL — current 2026-27 varsity schedule published by MaxPreps.
   ev("vb-0824",{sport:"volleyball",gender:"girls",opponent:"Benton",date:"2026-08-24T18:00:00-05:00",home:true,loc:LOC.volleyballHome,source:"secondary",sourceUrl:MAXPREPS_VOLLEYBALL}),
   ev("vb-0827",{sport:"volleyball",gender:"girls",opponent:"Greenwood",date:"2026-08-27T18:00:00-05:00",home:false,loc:LOC.greenwood,source:"secondary",sourceUrl:MAXPREPS_VOLLEYBALL}),
   ev("vb-0831",{sport:"volleyball",gender:"girls",opponent:"Lakeside",date:"2026-08-31T18:00:00-05:00",home:true,loc:LOC.volleyballHome,source:"secondary",sourceUrl:MAXPREPS_VOLLEYBALL}),
@@ -128,7 +122,13 @@ function calendarUrl(event){const start=new Date(event.date),end=new Date(start.
 function badgeFor(teamId){return teams.find(t=>t.id===teamId)?.short||"★";}
 function capitalize(value){return value.charAt(0).toUpperCase()+value.slice(1);}
 function sourceLabel(event){return event.source==="official"?"Official Conway Athletics":"Schedule source: MaxPreps";}
-function eventCard(event,priority=false){const dist=haversineMiles(center,event),matchup=`${event.home?"vs.":"at"} ${event.opponent}`;return `<article class="event-card ${priority?"priority":""}"><div class="event-main"><div class="team-badge">${badgeFor(event.teamId)}</div><div><div class="event-title">${event.team}</div><div>${capitalize(event.gender)} ${capitalize(event.sport)} · ${matchup}</div><div class="event-meta">${formatEventDate(event.date)} · ${event.venue}${event.notes?` · ${event.notes}`:""}</div><div class="event-meta"><a href="${event.sourceUrl}" target="_blank" rel="noopener">${sourceLabel(event)}</a></div></div><div class="distance">${dist.toFixed(1)} mi</div></div><div class="event-actions"><a href="${directionsUrl(event)}" target="_blank" rel="noopener">Directions</a><a href="${calendarUrl(event)}" target="_blank" rel="noopener">Calendar</a></div></article>`;}
+function eventCard(event,priority=false){
+  const dist=haversineMiles(center,event);
+  const matchup=`${event.home?"vs.":"at"} ${event.opponent}`;
+  const locationClass=event.home?"home-game":"away-game";
+  const locationLabel=event.home?"HOME":"AWAY";
+  return `<article class="event-card ${priority?"priority ":""}${locationClass}"><div class="event-main"><div class="team-badge">${badgeFor(event.teamId)}</div><div><div class="event-title">${event.team}</div><span class="home-away-badge">${locationLabel}</span><div>${capitalize(event.gender)} ${capitalize(event.sport)} · ${matchup}</div><div class="event-meta">${formatEventDate(event.date)} · ${event.venue}${event.notes?` · ${event.notes}`:""}</div><div class="event-meta"><a href="${event.sourceUrl}" target="_blank" rel="noopener">${sourceLabel(event)}</a></div></div><div class="distance">${dist.toFixed(1)} mi</div></div><div class="event-actions"><a href="${directionsUrl(event)}" target="_blank" rel="noopener">Directions</a><a class="ticket-action" href="${CONWAY_TICKETS_URL}" target="_blank" rel="noopener">Tickets</a><a href="${calendarUrl(event)}" target="_blank" rel="noopener">Calendar</a></div></article>`;
+}
 function matchesFilter(event){return currentFilter==="all"||event.level===currentFilter||event.sport===currentFilter;}
 function isUpcoming(event){return new Date(event.date).getTime()>=Date.now()-3*60*60*1000;}
 function render(){const radius=Number(radiusEl.value),visible=events.filter(isUpcoming).map(e=>({...e,distance:haversineMiles(center,e)})).filter(e=>e.distance<=radius&&matchesFilter(e)).sort((a,b)=>new Date(a.date)-new Date(b.date)||a.distance-b.distance),priority=visible.filter(e=>followed.includes(e.teamId)),others=visible.filter(e=>!followed.includes(e.teamId));followedEventsEl.innerHTML=priority.length?priority.map(e=>eventCard(e,true)).join(""):`<div class="empty">No followed teams have upcoming games inside ${radius} miles.</div>`;otherEventsEl.innerHTML=others.length?others.map(e=>eventCard(e)).join(""):`<div class="empty">No other upcoming games match these filters.</div>`;resultCountEl.textContent=`${visible.length} event${visible.length===1?"":"s"}`;}
@@ -140,5 +140,4 @@ function openTeams(){renderTeamChoices();dialog.showModal();}
 document.querySelector("#editTeamsBtn").addEventListener("click",openTeams);
 document.querySelector("#teamsNav").addEventListener("click",openTeams);
 document.querySelector("#saveTeamsBtn").addEventListener("click",()=>{followed=[...teamChoicesEl.querySelectorAll("input:checked")].map(i=>i.value);localStorage.setItem("followedTeams",JSON.stringify(followed));render();});
-if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js"));}
 render();
