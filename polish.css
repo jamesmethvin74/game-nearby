@@ -1,0 +1,108 @@
+:root{
+  --surface-1:#0b1b2e;
+  --surface-2:#10243d;
+  --surface-3:#152d4b;
+  --text-soft:#b7c6d8;
+  --cyan:#6ec1ff;
+  --gold:#f5c35b;
+  --away:#8f4059;
+}
+
+body{background:radial-gradient(circle at 20% 0%,#12345e 0,#08172a 28rem,#06111f 65rem);}
+.app-header{padding:20px 20px 16px;background:rgba(6,17,31,.93);box-shadow:0 10px 30px rgba(0,0,0,.16);}
+.app-header h1{font-size:1.72rem;letter-spacing:-.045em;}
+.controls{background:linear-gradient(150deg,rgba(20,48,81,.98),rgba(9,28,49,.98));border-color:#315272;}
+.filter{background:#0a1a2d;border-color:#29445e;}
+.filter.active{box-shadow:0 6px 18px rgba(37,99,235,.28);}
+
+.event-list{gap:14px;}
+.event-card{
+  position:relative;
+  overflow:hidden;
+  border-radius:22px;
+  background:linear-gradient(155deg,#132c4b 0%,#0d2038 72%);
+  border:1px solid #315275;
+  box-shadow:0 16px 34px rgba(0,0,0,.26);
+}
+.event-card::before{
+  content:"";
+  position:absolute;
+  inset:0 auto 0 0;
+  width:4px;
+  background:linear-gradient(#65b8ff,#356ee8);
+}
+.event-card.priority{background:linear-gradient(145deg,#17345a,#111f41);border-color:#456b9c;}
+.event-card.away-game{background:linear-gradient(150deg,#321c27,#21141c);border-color:#8b4961;}
+.event-card.away-game::before{background:linear-gradient(#e882a1,#a33e61);}
+
+.event-main{
+  display:grid;
+  grid-template-columns:58px minmax(0,1fr) 68px;
+  gap:14px;
+  align-items:start;
+  padding:17px 17px 13px 18px;
+}
+.team-badge{
+  width:58px;height:58px;border-radius:17px;
+  font-size:1.05rem;
+  background:linear-gradient(145deg,#246be8,#5934d7);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 10px 24px rgba(0,0,0,.3);
+}
+.event-card.away-game .team-badge{background:linear-gradient(145deg,#bd476c,#722943);}
+.event-title{font-size:1.03rem;letter-spacing:-.015em;margin-bottom:3px;}
+.matchup-line{font-size:.97rem;line-height:1.3;color:#f3f7fb;}
+.home-away-badge{margin:0 6px 0 0;vertical-align:2px;padding:3px 7px;font-size:.6rem;}
+.event-meta{font-size:.78rem;line-height:1.4;margin-top:5px;color:#9eb1c7;}
+.event-meta.source-row{margin-top:8px;}
+.event-meta.source-row a{font-size:.75rem;color:#6dbaff;text-decoration:none;border-bottom:1px solid rgba(109,186,255,.35);padding-bottom:1px;}
+
+.sport-mark{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:62px;}
+.sport-icon{
+  width:58px;height:58px;border-radius:18px;
+  display:grid;place-items:center;
+  background:rgba(86,168,255,.11);
+  border:1px solid rgba(110,193,255,.28);
+  color:#8dd0ff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.away-game .sport-icon{background:rgba(232,130,161,.09);border-color:rgba(232,130,161,.3);color:#f0a3ba;}
+.sport-icon svg{width:32px;height:32px;display:block;}
+.distance{font-size:.72rem;color:#a9bad0;font-weight:700;text-align:center;}
+
+.team-status{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  margin:0 14px 14px 18px;
+  border:1px solid rgba(80,119,158,.45);
+  background:rgba(3,15,28,.32);
+  border-radius:14px;
+  overflow:hidden;
+}
+.away-game .team-status{border-color:rgba(153,74,101,.5);background:rgba(28,8,15,.3);}
+.status-cell{padding:9px 10px;min-width:0;}
+.status-cell+.status-cell{border-left:1px solid rgba(80,119,158,.35);}
+.away-game .status-cell+.status-cell{border-left-color:rgba(153,74,101,.42);}
+.status-label{display:block;color:#7f98b2;font-size:.59rem;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:2px;}
+.status-value{display:block;color:#f7fbff;font-size:.78rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.status-value.conference{font-size:.72rem;color:#c5d4e5;}
+
+.event-actions{background:rgba(2,12,23,.35);}
+.event-actions a{min-height:48px;font-size:.8rem;letter-spacing:.01em;}
+.event-actions .ticket-action{color:var(--gold);}
+
+.team-choice{transition:border-color .15s ease,background .15s ease;}
+.team-choice:has(input:checked){border-color:#4c8bd1;background:#102b49;}
+
+@media(max-width:520px){
+  .event-main{grid-template-columns:52px minmax(0,1fr) 56px;gap:11px;padding:15px 14px 12px 16px;}
+  .team-badge{width:52px;height:52px;border-radius:15px;}
+  .sport-icon{width:52px;height:52px;border-radius:16px;}
+  .sport-icon svg{width:29px;height:29px;}
+  .event-title{font-size:1rem;}
+  .matchup-line{font-size:.92rem;}
+  .team-status{margin:0 12px 12px 16px;}
+  .status-cell{padding:8px 7px;}
+  .status-value{font-size:.72rem;}
+  .status-value.conference{font-size:.66rem;}
+}
