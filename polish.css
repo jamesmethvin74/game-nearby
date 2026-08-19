@@ -10,7 +10,15 @@
 
 body{background:radial-gradient(circle at 20% 0%,#12345e 0,#08172a 28rem,#06111f 65rem);}
 .app-header{padding:20px 20px 16px;background:rgba(6,17,31,.93);box-shadow:0 10px 30px rgba(0,0,0,.16);}
-.app-header h1{font-size:1.72rem;letter-spacing:-.045em;}
+.branded-header{gap:14px;}
+.brand-lockup{display:flex;align-items:center;gap:12px;min-width:0;}
+.brand-icon{width:54px;height:54px;border-radius:15px;display:block;flex:0 0 auto;box-shadow:0 8px 22px rgba(0,0,0,.28);}
+.brand-copy{min-width:0;}
+.app-header .brand-copy h1{font-size:1.48rem;line-height:1;letter-spacing:-.045em;white-space:nowrap;}
+.brand-local{color:#79cbd8;font-weight:760;}
+.brand-bleachers{color:#fff;font-weight:900;}
+.brand-ar{color:#f3f6fa;font-weight:900;}
+.brand-tagline{margin-top:5px;color:#aab9ca;font-size:.76rem;letter-spacing:.005em;white-space:nowrap;}
 .controls{background:linear-gradient(150deg,rgba(20,48,81,.98),rgba(9,28,49,.98));border-color:#315272;}
 .filter{background:#0a1a2d;border-color:#29445e;}
 .filter.active{box-shadow:0 6px 18px rgba(37,99,235,.28);}
@@ -95,6 +103,11 @@ body{background:radial-gradient(circle at 20% 0%,#12345e 0,#08172a 28rem,#06111f
 .team-choice:has(input:checked){border-color:#4c8bd1;background:#102b49;}
 
 @media(max-width:520px){
+  .app-header{padding:14px 14px 12px;}
+  .brand-lockup{gap:9px;}
+  .brand-icon{width:46px;height:46px;border-radius:13px;}
+  .app-header .brand-copy h1{font-size:1.22rem;}
+  .brand-tagline{font-size:.66rem;margin-top:4px;}
   .event-main{grid-template-columns:52px minmax(0,1fr) 56px;gap:11px;padding:15px 14px 12px 16px;}
   .team-badge{width:52px;height:52px;border-radius:15px;}
   .sport-icon{width:52px;height:52px;border-radius:16px;}
