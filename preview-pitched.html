@@ -15,19 +15,20 @@
       document.documentElement.dataset.theme = "light";
     }
   </script>
-  <link rel="icon" href="assets/localbleachersar-icon.jpg?v=19" type="image/jpeg" />
-  <link rel="apple-touch-icon" href="assets/localbleachersar-icon.jpg?v=19" />
-  <link rel="stylesheet" href="styles.css?v=19" />
-  <link rel="stylesheet" href="polish.css?v=19" />
-  <link rel="stylesheet" href="brand-exact.css?v=19" />
-  <link rel="stylesheet" href="preview-pitched-layout.css?v=19" />
+  <link rel="icon" href="/game-nearby/localbleachersar-icon.jpg?v=20" type="image/jpeg" />
+  <link rel="apple-touch-icon" href="/game-nearby/localbleachersar-icon.jpg?v=20" />
+  <link rel="stylesheet" href="styles.css?v=20" />
+  <link rel="stylesheet" href="polish.css?v=20" />
+  <link rel="stylesheet" href="brand-exact.css?v=20" />
+  <link rel="stylesheet" href="preview-pitched-layout.css?v=20" />
 </head>
 <body>
   <header class="app-header branded-header">
     <button id="menuBtn" class="header-btn" aria-label="Open menu">
       <span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span>
     </button>
-    <img class="brand-full-logo" src="assets/localbleachersar-logo.jpg?v=19" alt="LocalBleachersAR — Find the game. Join the crowd." />
+    <img id="brandLogo" class="brand-full-logo" src="/game-nearby/localbleachersar-logo.jpg?v=20" alt="LocalBleachersAR — Find the game. Join the crowd." onerror="this.style.display='none';document.getElementById('brandFallback').style.display='flex'" />
+    <span id="brandFallback" aria-label="LocalBleachersAR — Find the game. Join the crowd." style="display:none;justify-self:center;flex-direction:column;align-items:center;line-height:1.05;color:var(--pitch-ink);font-weight:900;font-size:1rem;white-space:nowrap">LocalBleachersAR<small style="margin-top:4px;font-size:.58rem;font-weight:650;color:var(--pitch-muted)">Find the game. Join the crowd.</small></span>
     <div class="header-actions">
       <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
       <button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button>
@@ -140,11 +141,11 @@
       });
     }
   </script>
-  <script src="app.js?v=19"></script>
-  <script src="school-expansion.js?v=19"></script>
-  <script src="school-ticket-links.js?v=19"></script>
-  <script src="school-follow-logic.js?v=19"></script>
-  <script src="polish.js?v=19"></script>
-  <script src="preview-pitched-layout.js?v=19"></script>
+  <script src="app.js?v=20"></script>
+  <script src="school-expansion.js?v=20"></script>
+  <script src="school-ticket-links.js?v=20"></script>
+  <script src="school-follow-logic.js?v=20"></script>
+  <script src="polish.js?v=20"></script>
+  <script src="preview-pitched-layout.js?v=20"></script>
 </body>
 </html>
