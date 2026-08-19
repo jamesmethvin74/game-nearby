@@ -8,8 +8,8 @@
   "theme_color": "#071426",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/jamesmethvin74/game-nearby/main/assets/localbleachersar-icon.jpg?v=17",
-      "sizes": "512x512",
+      "src": "assets/localbleachersar-icon.jpg?v=22",
+      "sizes": "1254x1254",
       "type": "image/jpeg",
       "purpose": "any maskable"
     }
