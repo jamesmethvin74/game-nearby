@@ -8,7 +8,7 @@
   "theme_color": "#071426",
   "icons": [
     {
-      "src": "assets/localbleachersar-icon.jpg",
+      "src": "https://raw.githubusercontent.com/jamesmethvin74/game-nearby/main/assets/localbleachersar-icon.jpg?v=17",
       "sizes": "512x512",
       "type": "image/jpeg",
       "purpose": "any maskable"
