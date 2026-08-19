@@ -15,20 +15,19 @@
       document.documentElement.dataset.theme = "light";
     }
   </script>
-  <link rel="icon" href="assets/localbleachersar-icon.jpg?v=21" type="image/jpeg" />
-  <link rel="apple-touch-icon" href="assets/localbleachersar-icon.jpg?v=21" />
-  <link rel="stylesheet" href="styles.css?v=21" />
-  <link rel="stylesheet" href="polish.css?v=21" />
-  <link rel="stylesheet" href="brand-exact.css?v=21" />
-  <link rel="stylesheet" href="preview-pitched-layout.css?v=21" />
+  <link rel="icon" href="assets/localbleachersar-icon.jpg?v=22" type="image/jpeg" />
+  <link rel="apple-touch-icon" href="assets/localbleachersar-icon.jpg?v=22" />
+  <link rel="stylesheet" href="styles.css?v=22" />
+  <link rel="stylesheet" href="polish.css?v=22" />
+  <link rel="stylesheet" href="brand-exact.css?v=22" />
+  <link rel="stylesheet" href="preview-pitched-layout.css?v=22" />
 </head>
 <body>
   <header class="app-header branded-header">
     <button id="menuBtn" class="header-btn" aria-label="Open menu">
       <span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span>
     </button>
-    <img id="brandLogo" class="brand-full-logo" src="https://cdn.jsdelivr.net/gh/jamesmethvin74/game-nearby@97e2a7b907f71815ae3c4a4aca4ea466e041682b/assets/localbleachersar-logo.jpg" alt="LocalBleachersAR — Find the game. Join the crowd." />
-    <span id="brandFallback" aria-label="LocalBleachersAR — Find the game. Join the crowd." hidden style="justify-self:center;flex-direction:column;align-items:center;line-height:1.05;color:var(--pitch-ink);font-weight:900;font-size:1rem;white-space:nowrap">LocalBleachersAR<small style="margin-top:4px;font-size:.58rem;font-weight:650;color:var(--pitch-muted)">Find the game. Join the crowd.</small></span>
+    <img class="brand-full-logo" src="assets/localbleachersar-logo.jpg?v=22" alt="LocalBleachersAR — Find the game. Join the crowd." />
     <div class="header-actions">
       <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
       <button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button>
@@ -135,34 +134,17 @@
   </dialog>
 
   <script>
-    (() => {
-      const logo = document.getElementById("brandLogo");
-      const fallback = document.getElementById("brandFallback");
-      if (!logo || !fallback) return;
-      logo.addEventListener("error", () => {
-        if (logo.dataset.localFallback !== "1") {
-          logo.dataset.localFallback = "1";
-          logo.src = "assets/localbleachersar-logo.jpg?v=21";
-          return;
-        }
-        logo.hidden = true;
-        fallback.hidden = false;
-        fallback.style.display = "flex";
-      });
-    })();
-  </script>
-  <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.getRegistrations().then(registrations => {
         registrations.forEach(registration => registration.unregister());
       });
     }
   </script>
-  <script src="app.js?v=21"></script>
-  <script src="school-expansion.js?v=21"></script>
-  <script src="school-ticket-links.js?v=21"></script>
-  <script src="school-follow-logic.js?v=21"></script>
-  <script src="polish.js?v=21"></script>
-  <script src="preview-pitched-layout.js?v=21"></script>
+  <script src="app.js?v=22"></script>
+  <script src="school-expansion.js?v=22"></script>
+  <script src="school-ticket-links.js?v=22"></script>
+  <script src="school-follow-logic.js?v=22"></script>
+  <script src="polish.js?v=22"></script>
+  <script src="preview-pitched-layout.js?v=22"></script>
 </body>
 </html>
