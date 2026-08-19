@@ -1,9 +1,17 @@
 {
-  "name": "Game Nearby",
-  "short_name": "GameNearby",
+  "name": "LocalBleachersAR",
+  "short_name": "LocalBleachersAR",
+  "description": "Find the game. Join the crowd. Arkansas high school and college sports nearby.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#071426",
   "theme_color": "#071426",
-  "icons": []
+  "icons": [
+    {
+      "src": "app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }
