@@ -1,3 +1,3 @@
 .branded-header{justify-content:space-between;align-items:center;min-height:98px;padding:10px 16px;}
-.brand-full-logo{display:block;height:76px;width:auto;max-width:calc(100vw - 92px);object-fit:contain;object-position:left center;flex:0 1 auto;}
+.brand-full-logo{display:block;height:76px;width:auto;max-width:calc(100vw - 92px);object-fit:contain;object-position:left center;flex:0 1 auto;content:url("assets/localbleachersar-logo.jpg");}
 @media(max-width:520px){.branded-header{min-height:86px;padding:8px 14px}.brand-full-logo{height:68px;max-width:calc(100vw - 82px)}}
