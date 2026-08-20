@@ -1,3 +1,4 @@
-.branded-header{justify-content:space-between;align-items:center;min-height:98px;padding:10px 16px;}
-.brand-full-logo{display:block;height:76px;width:auto;max-width:calc(100vw - 92px);object-fit:contain;object-position:left center;flex:0 1 auto;}
-@media(max-width:520px){.branded-header{min-height:86px;padding:8px 14px}.brand-full-logo{height:68px;max-width:calc(100vw - 82px)}}
+.branded-header{position:relative;justify-content:space-between;align-items:center;min-height:86px;padding:8px 14px;}
+.brand-full-logo{display:none!important;}
+.branded-header::before{content:"LocalBleachersAR";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);min-height:48px;display:flex;align-items:center;padding-left:56px;background-image:url("assets/localbleachersar-icon-v23.jpg");background-repeat:no-repeat;background-position:left center;background-size:46px 46px;color:var(--pitch-ink,#fff);font-size:20px;font-weight:900;letter-spacing:-.35px;line-height:1;white-space:nowrap;}
+@media(max-width:520px){.branded-header{min-height:82px;padding:8px 12px}.branded-header::before{min-height:44px;padding-left:51px;background-size:42px 42px;font-size:18px;letter-spacing:-.25px}}
