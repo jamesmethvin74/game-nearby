@@ -1,19 +1,24 @@
 (() => {
   const MASCOTS = {
     uca: { icon: "🐻", label: "Bears", className: "uca", mark: "assets/team-uca.webp" },
-    conway: { icon: "🐯", label: "Wampus Cats", className: "conway", mark: "assets/team-conway.webp" },
-    greenbrier: { icon: "🐆", label: "Panthers", className: "greenbrier", mark: "assets/team-greenbrier.webp" },
-    vilonia: { icon: "🦅", label: "Eagles", className: "vilonia" },
-    hendrix: { icon: "⚔", label: "Warriors", className: "hendrix" },
-    cbc: { icon: "🐎", label: "Mustangs", className: "cbc" },
-    mayflower: { icon: "🦅", label: "Eagles", className: "mayflower" },
-    maumelle: { icon: "🐝", label: "Hornets", className: "maumelle" },
-    morrilton: { icon: "Ⓜ", label: "Devil Dogs", className: "morrilton", mark: "assets/team-morrilton.webp" }
+    conway: { icon: "🐯", label: "Wampus Cats", className: "conway", mark: "https://5starassets.blob.core.windows.net/article-photos/2482279/5a127846-cdce-4734-8209-7e28b361eb10_640x480.jpg" },
+    greenbrier: { icon: "🐆", label: "Panthers", className: "greenbrier", mark: "https://5starassets.blob.core.windows.net/athleticsites/2484829/273/images/1a83fa41-fdc1-47c8-9594-8b4884c167c8.png" },
+    vilonia: { icon: "🦅", label: "Eagles", className: "vilonia", mark: "https://cmsv2-assets.apptegy.net/uploads/27614/logo/30427/Vilonia_School_District_AR_logo.png" },
+    hendrix: { icon: "⚔", label: "Warriors", className: "hendrix", mark: "https://dxbhsrqyrr690.cloudfront.net/sidearm.nextgen.sites/hendrix.sidearmsports.com/images/responsive_2023/logo_main.png" },
+    cbc: { icon: "🐎", label: "Mustangs", className: "cbc", mark: "https://static.wixstatic.com/media/c13f88_4bfbbeb6499d408e86dfae8d386843fd~mv2.png/v1/fill/w_1844%2Ch_1391%2Cal_c/CBC%20MustangHeadRGB.png" },
+    mayflower: { icon: "🦅", label: "Eagles", className: "mayflower", mark: "https://cmsv2-assets.apptegy.net/uploads/8151/file/2478643/ed1774ac-7cfb-4020-9b46-13ad2f6a77b4.png" },
+    maumelle: { icon: "🐝", label: "Hornets", className: "maumelle", mark: "https://3290e177b2fd5f573818-64f3acf27ad03d71638c9614decd2d36.ssl.cf1.rackcdn.com/article/image/large_f944a35a-5c3d-4a03-9b29-e149a444cc25.png" },
+    morrilton: { icon: "Ⓜ", label: "Devil Dogs", className: "morrilton", mark: "https://5starassets.blob.core.windows.net/article-photos/2484894/6B78332D565A552A1FF8D9B8613ADBCC.png" }
   };
   const compactDate = (iso) => new Date(iso).toLocaleString([], {weekday:"short",hour:"numeric",minute:"2-digit"});
   const sameLocalDate = (a,b) => a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
   const timingLabel = (event) => {const date=new Date(event.date),today=new Date();if(sameLocalDate(date,today))return "GAME TODAY";const tomorrow=new Date(today);tomorrow.setDate(tomorrow.getDate()+1);if(sameLocalDate(date,tomorrow))return "GAME TOMORROW";return "NEXT GAME";};
-  const mascotBadge = (event) => {const mascot=MASCOTS[event.teamId];if(!mascot)return `<div class="team-badge">${badgeFor(event.teamId)}</div>`;if(mascot.mark)return `<div class="team-badge team-mascot mascot-${mascot.className}"><img class="team-mark-img" src="${mascot.mark}" alt="${mascot.label} logo" /></div>`;return `<div class="team-badge team-mascot mascot-${mascot.className}" role="img" aria-label="${mascot.label} mascot">${mascot.icon}</div>`;};
+  const mascotBadge = (event) => {
+    const mascot=MASCOTS[event.teamId];
+    if(!mascot)return `<div class="team-badge">${badgeFor(event.teamId)}</div>`;
+    if(mascot.mark)return `<div class="team-badge team-mascot mascot-${mascot.className}"><img class="team-mark-img" src="${mascot.mark}" alt="${mascot.label} logo" referrerpolicy="no-referrer" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false" /><span class="team-mark-fallback" role="img" aria-label="${mascot.label} mascot" hidden>${mascot.icon}</span></div>`;
+    return `<div class="team-badge team-mascot mascot-${mascot.className}" role="img" aria-label="${mascot.label} mascot">${mascot.icon}</div>`;
+  };
   const statusFor = (event) => typeof getTeamStatus==="function"?getTeamStatus(event):{overall:"—",conference:"—",standing:"Not posted",conferenceName:"Conference"};
   const miniStatus = (status) => `<div class="mini-status" aria-label="Team record and standing"><span>${status.overall} overall</span><span>${status.conference} conf.</span><span>${status.standing}</span></div>`;
 
