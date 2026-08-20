@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v2";
+const CACHE_NAME = "localbleachersar-shell-v35";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -15,9 +15,9 @@ const CORE_ASSETS = [
   "./polish.js",
   "./pitched-layout.js",
   "./reference-layout.js",
-  "./assets/app-icon-192.png",
-  "./assets/app-icon-512.png",
-  "./assets/splash-logo.jpg"
+  "./assets/app-icon-192-v35.png",
+  "./assets/app-icon-512-v35.png",
+  "./assets/splash-logo-v35.webp"
 ];
 
 self.addEventListener("install", event => {
@@ -47,7 +47,7 @@ self.addEventListener("fetch", event => {
       const cached = await caches.match(event.request, {ignoreSearch:true});
       if (cached) return cached;
       if (event.request.mode === "navigate") return caches.match("./index.html");
-      throw new Error("Network unavailable and no cached response.");
+      return new Response("Offline", {status: 503, headers: {"Content-Type": "text/plain"}});
     }
   })());
 });
