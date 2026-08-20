@@ -1,14 +1,19 @@
 {
+  "id": "./",
   "name": "LocalBleachersAR",
   "short_name": "LocalBleachersAR",
   "description": "Find the game. Join the crowd. Arkansas high school and college sports nearby.",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "background_color": "#071426",
   "theme_color": "#071426",
+  "categories": ["sports", "lifestyle"],
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "assets/localbleachersar-icon.jpg?v=22",
+      "src": "assets/localbleachersar-icon.jpg?v=33",
       "sizes": "1254x1254",
       "type": "image/jpeg",
       "purpose": "any maskable"
