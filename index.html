@@ -14,16 +14,16 @@
       document.documentElement.dataset.theme = "light";
     }
   </script>
-  <link rel="manifest" href="manifest.json?v=27" />
-  <link rel="stylesheet" href="styles.css?v=27" />
-  <link rel="stylesheet" href="polish.css?v=27" />
-  <link rel="stylesheet" href="brand-exact.css?v=27" />
-  <link rel="stylesheet" href="pitched-layout.css?v=27" />
+  <link rel="manifest" href="manifest.json?v=28" />
+  <link rel="stylesheet" href="styles.css?v=28" />
+  <link rel="stylesheet" href="polish.css?v=28" />
+  <link rel="stylesheet" href="brand-exact.css?v=28" />
+  <link rel="stylesheet" href="pitched-layout.css?v=28" />
 </head>
 <body>
   <header class="app-header branded-header">
     <button id="menuBtn" class="header-btn" aria-label="Open menu"><span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span></button>
-    <div class="brand-lockup" aria-label="LocalBleachersAR"><img id="brandMark" class="brand-mark" alt="" aria-hidden="true" hidden /><span class="brand-name">LocalBleachersAR</span></div>
+    <div class="brand-lockup" aria-label="LocalBleachersAR"><span class="brand-name">LocalBleachersAR</span></div>
     <div class="header-actions"><button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button><button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button></div>
   </header>
   <main>
@@ -38,16 +38,7 @@
   </main>
   <nav class="bottom-nav" aria-label="Primary navigation"><button class="nav-item active" type="button">⌂<span>Home</span></button><button id="teamsNav" class="nav-item" type="button">☆<span>Teams</span></button><button class="nav-item" type="button">⌖<span>Map</span></button><button id="alertsNav" class="nav-item" type="button">♧<span>Alerts</span></button><button class="nav-item" type="button">•••<span>More</span></button></nav>
   <dialog id="teamsDialog"><form method="dialog" class="dialog-card"><div class="dialog-header"><div><p class="eyebrow">PERSONALIZE</p><h2>Follow teams</h2></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div><div id="teamChoices" class="team-choices"></div><button id="saveTeamsBtn" value="default" class="primary-btn">Save teams</button></form></dialog>
-  <script>
-    (() => {
-      const mark = document.getElementById("brandMark");
-      fetch("assets/localbleachersar-header-icon.b64?v=27", { cache: "no-store" })
-        .then(r => { if (!r.ok) throw new Error(`brand ${r.status}`); return r.text(); })
-        .then(b64 => { mark.src = `data:image/webp;base64,${b64.trim()}`; mark.hidden = false; })
-        .catch(() => { mark.hidden = true; });
-    })();
-    if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}
-  </script>
-  <script src="app.js?v=27"></script><script src="school-expansion.js?v=27"></script><script src="school-ticket-links.js?v=27"></script><script src="school-follow-logic.js?v=27"></script><script src="polish.js?v=27"></script><script src="pitched-layout.js?v=27"></script>
+  <script>if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}</script>
+  <script src="app.js?v=28"></script><script src="school-expansion.js?v=28"></script><script src="school-ticket-links.js?v=28"></script><script src="school-follow-logic.js?v=28"></script><script src="polish.js?v=28"></script><script src="pitched-layout.js?v=28"></script>
 </body>
 </html>
