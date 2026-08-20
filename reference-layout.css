@@ -3,6 +3,10 @@
 #followedEvents{display:flex!important;gap:10px!important;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:none;padding:0 1px 5px;}
 #followedEvents::-webkit-scrollbar{display:none;}
 #followedEvents>.event-card.priority{flex:0 0 calc(100% - 2px);min-width:calc(100% - 2px);scroll-snap-align:start;}
+.followed-pager{display:flex;justify-content:center;align-items:center;gap:6px;min-height:18px;margin:0 0 2px;}
+.followed-pager[hidden]{display:none!important;}
+.followed-dot{width:7px;height:7px;padding:0;border:0;border-radius:999px;background:var(--pitch-line);opacity:.9;transition:width .16s ease,background .16s ease;}
+.followed-dot.active{width:18px;background:var(--pitch-blue);}
 .event-card.priority{padding-top:31px!important;border-radius:14px!important;}
 .event-card.priority .event-main{grid-template-columns:68px minmax(0,1fr) auto!important;gap:11px!important;padding:8px 14px 13px!important;}
 .event-card.priority .game-label{left:92px!important;top:9px!important;font-size:.58rem!important;}
