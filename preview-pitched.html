@@ -17,17 +17,17 @@
   </script>
   <link rel="icon" href="assets/localbleachersar-icon-v23.jpg" type="image/jpeg" />
   <link rel="apple-touch-icon" href="assets/localbleachersar-icon-v23.jpg" />
-  <link rel="stylesheet" href="styles.css?v=23" />
-  <link rel="stylesheet" href="polish.css?v=23" />
-  <link rel="stylesheet" href="brand-exact.css?v=23" />
-  <link rel="stylesheet" href="preview-pitched-layout.css?v=23" />
+  <link rel="stylesheet" href="styles.css?v=24" />
+  <link rel="stylesheet" href="polish.css?v=24" />
+  <link rel="stylesheet" href="brand-exact.css?v=24" />
+  <link rel="stylesheet" href="preview-pitched-layout.css?v=24" />
 </head>
 <body>
   <header class="app-header branded-header">
     <button id="menuBtn" class="header-btn" aria-label="Open menu">
       <span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span>
     </button>
-    <img class="brand-full-logo" src="assets/localbleachersar-logo-v23.jpg" alt="LocalBleachersAR — Find the game. Join the crowd." />
+    <img class="brand-full-logo" src="assets/localbleachersar-logo-final.jpg" alt="LocalBleachersAR" />
     <div class="header-actions">
       <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
       <button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button>
@@ -135,16 +135,14 @@
 
   <script>
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(registration => registration.unregister());
-      });
+      navigator.serviceWorker.getRegistrations().then(registrations => registrations.forEach(registration => registration.unregister()));
     }
   </script>
-  <script src="app.js?v=23"></script>
-  <script src="school-expansion.js?v=23"></script>
-  <script src="school-ticket-links.js?v=23"></script>
-  <script src="school-follow-logic.js?v=23"></script>
-  <script src="polish.js?v=23"></script>
-  <script src="preview-pitched-layout.js?v=23"></script>
+  <script src="app.js?v=24"></script>
+  <script src="school-expansion.js?v=24"></script>
+  <script src="school-ticket-links.js?v=24"></script>
+  <script src="school-follow-logic.js?v=24"></script>
+  <script src="polish.js?v=24"></script>
+  <script src="preview-pitched-layout.js?v=24"></script>
 </body>
 </html>
