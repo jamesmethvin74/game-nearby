@@ -3,106 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#071426" />
+  <meta name="theme-color" content="#ffffff" />
   <meta name="description" content="LocalBleachersAR — Find the game. Join the crowd. Arkansas high school and college sports nearby." />
   <title>LocalBleachersAR</title>
-  <link rel="icon" href="https://raw.githubusercontent.com/jamesmethvin74/game-nearby/main/assets/localbleachersar-icon.jpg?v=17" type="image/jpeg" />
-  <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/jamesmethvin74/game-nearby/main/assets/localbleachersar-icon.jpg?v=17" />
-  <link rel="manifest" href="manifest.json?v=17" />
-  <link rel="stylesheet" href="styles.css?v=17" />
-  <link rel="stylesheet" href="polish.css?v=17" />
-  <link rel="stylesheet" href="brand-exact.css?v=17" />
-</head>
-<body>
-  <header class="app-header branded-header">
-    <img class="brand-full-logo" src="https://raw.githubusercontent.com/jamesmethvin74/game-nearby/main/assets/localbleachersar-logo.jpg?v=17" alt="LocalBleachersAR — Find the game. Join the crowd." />
-    <button id="locateBtn" class="icon-btn" aria-label="Use my location">◎</button>
-  </header>
-
-  <main>
-    <section class="controls card">
-      <div class="location-row">
-        <div>
-          <span class="label">Search center</span>
-          <strong id="locationLabel">Conway, Arkansas</strong>
-        </div>
-        <div class="radius-control">
-          <label for="radius">Radius</label>
-          <select id="radius">
-            <option value="10">10 mi</option>
-            <option value="25" selected>25 mi</option>
-            <option value="50">50 mi</option>
-            <option value="100">100 mi</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="filters">
-        <button class="filter active" data-filter="all">All</button>
-        <button class="filter" data-filter="high-school">High school</button>
-        <button class="filter" data-filter="college">College</button>
-        <button class="filter" data-filter="football">Football</button>
-        <button class="filter" data-filter="basketball">Basketball</button>
-        <button class="filter" data-filter="volleyball">Volleyball</button>
-        <button class="filter" data-filter="soccer">Soccer</button>
-      </div>
-    </section>
-
-    <section class="followed">
-      <div class="section-title">
-        <div>
-          <p class="eyebrow">PRIORITY</p>
-          <h2>Your schools nearby</h2>
-        </div>
-        <button id="editTeamsBtn" class="text-btn">Edit schools</button>
-      </div>
-      <div id="followedEvents" class="event-list"></div>
-    </section>
-
-    <section>
-      <div class="section-title">
-        <div>
-          <p class="eyebrow">EXPLORE</p>
-          <h2>Other games nearby</h2>
-        </div>
-        <span id="resultCount" class="count-pill"></span>
-      </div>
-      <div id="otherEvents" class="event-list"></div>
-    </section>
-  </main>
-
-  <nav class="bottom-nav">
-    <button class="nav-item active">⌂<span>Home</span></button>
-    <button id="teamsNav" class="nav-item">★<span>Schools</span></button>
-    <button class="nav-item">⌖<span>Map</span></button>
-    <button class="nav-item">☰<span>More</span></button>
-  </nav>
-
-  <dialog id="teamsDialog">
-    <form method="dialog" class="dialog-card">
-      <div class="dialog-header">
-        <div>
-          <p class="eyebrow">PERSONALIZE</p>
-          <h2>Follow schools</h2>
-        </div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
-      </div>
-      <div id="teamChoices" class="team-choices"></div>
-      <button id="saveTeamsBtn" value="default" class="primary-btn">Save schools</button>
-    </form>
-  </dialog>
-
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(registration => registration.unregister());
-      });
-    }
-  </script>
-  <script src="app.js?v=17"></script>
-  <script src="school-expansion.js?v=17"></script>
-  <script src="school-ticket-links.js?v=17"></script>
-  <script src="school-follow-logic.js?v=17"></script>
-  <script src="polish.js?v=17"></script>
-</body>
-</html>
+  <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
+  <link rel="manifest" href="manifest.json?v=32" /><link rel="stylesheet" href="styles.css?v=32" /><link rel="stylesheet" href="polish.css?v=32" /><link rel="stylesheet" href="brand-exact.css?v=32" /><link rel="stylesheet" href="pitched-layout.css?v=32" /><link rel="stylesheet" href="reference-layout.css?v=32" />
+</head><body>
+  <header class="app-header branded-header"><button id="menuBtn" class="header-btn" aria-label="Open menu"><span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span></button><div class="brand-lockup" aria-label="LocalBleachersAR"><span class="brand-name"><span class="brand-local">Local</span><span class="brand-core">Bleachers</span><span class="brand-ar">AR</span></span></div><div class="header-actions"><button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button><button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button></div></header>
+  <main><section class="discovery-panel" aria-label="Find nearby games"><div class="location-strip"><div class="location-summary"><span class="location-pin" aria-hidden="true">●</span><div class="location-copy"><strong id="locationLabel">Conway, Arkansas</strong></div></div><div class="radius-control"><label for="radius">Radius:</label><select id="radius"><option value="10">10 miles</option><option value="25" selected>25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></div></div><div class="date-filters" aria-label="Date filters"><button class="date-filter active" type="button" data-date-filter="upcoming">Upcoming</button><button class="date-filter" type="button" data-date-filter="today">Today</button><button class="date-filter" type="button" data-date-filter="tomorrow">Tomorrow</button><button class="date-filter" type="button" data-date-filter="weekend">This Weekend</button><button class="date-filter" type="button" data-date-filter="pick">Pick Date</button><input id="datePicker" type="date" hidden /></div><div class="filters" aria-label="Game filters"><button class="filter active" type="button" data-filter="all">All Sports</button><button class="filter" type="button" data-filter="high-school">High School</button><button class="filter" type="button" data-filter="college">College</button><button class="filter" type="button" data-filter="male">Boys &amp; Men</button><button class="filter" type="button" data-filter="female">Girls &amp; Women</button></div></section>
+    <section class="followed"><div class="section-title"><div class="section-heading"><span class="section-icon" aria-hidden="true">★</span><div><p class="eyebrow">PRIORITY</p><h2>Your teams nearby</h2></div></div><button id="editTeamsBtn" class="text-btn" type="button">Edit teams</button></div><div id="followedEvents" class="event-list"></div></section><section><div class="section-title"><div class="section-heading"><span class="section-icon" aria-hidden="true">◉</span><div><p class="eyebrow">EXPLORE</p><h2>Other games nearby</h2></div></div><span id="resultCount" class="count-pill"></span></div><div id="otherEvents" class="event-list"></div></section><aside class="alerts-promo" aria-label="Game alerts"><div class="alert-bell" aria-hidden="true">●</div><div class="alert-copy"><strong>Never miss a game!</strong><span>Get notified when your teams play nearby.</span></div><button id="alertsBtn" class="alert-cta" type="button">Turn On Alerts</button></aside></main>
+  <nav class="bottom-nav" aria-label="Primary navigation"><button class="nav-item active" type="button">⌂<span>Home</span></button><button id="teamsNav" class="nav-item" type="button">☆<span>Teams</span></button><button class="nav-item" type="button">⌖<span>Map</span></button><button id="alertsNav" class="nav-item" type="button">♧<span>Alerts</span></button><button class="nav-item" type="button">•••<span>More</span></button></nav><dialog id="teamsDialog"><form method="dialog" class="dialog-card"><div class="dialog-header"><div><p class="eyebrow">PERSONALIZE</p><h2>Follow teams</h2></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div><div id="teamChoices" class="team-choices"></div><button id="saveTeamsBtn" value="default" class="primary-btn">Save teams</button></form></dialog>
+  <script>if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}</script><script src="app.js?v=32"></script><script src="school-expansion.js?v=32"></script><script src="school-ticket-links.js?v=32"></script><script src="school-follow-logic.js?v=32"></script><script src="polish.js?v=32"></script><script src="pitched-layout.js?v=32"></script><script src="reference-layout.js?v=32"></script>
+</body></html>
