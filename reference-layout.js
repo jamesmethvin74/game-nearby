@@ -1,19 +1,19 @@
 (() => {
   const MASCOTS = {
-    uca: { icon: "🐻", label: "Bears", className: "uca" },
-    conway: { icon: "🐯", label: "Wampus Cats", className: "conway" },
-    greenbrier: { icon: "🐆", label: "Panthers", className: "greenbrier" },
+    uca: { icon: "🐻", label: "Bears", className: "uca", mark: "assets/team-uca.webp" },
+    conway: { icon: "🐯", label: "Wampus Cats", className: "conway", mark: "assets/team-conway.webp" },
+    greenbrier: { icon: "🐆", label: "Panthers", className: "greenbrier", mark: "assets/team-greenbrier.webp" },
     vilonia: { icon: "🦅", label: "Eagles", className: "vilonia" },
     hendrix: { icon: "⚔", label: "Warriors", className: "hendrix" },
     cbc: { icon: "🐎", label: "Mustangs", className: "cbc" },
     mayflower: { icon: "🦅", label: "Eagles", className: "mayflower" },
     maumelle: { icon: "🐝", label: "Hornets", className: "maumelle" },
-    morrilton: { icon: "Ⓜ", label: "Devil Dogs", className: "morrilton" }
+    morrilton: { icon: "Ⓜ", label: "Devil Dogs", className: "morrilton", mark: "assets/team-morrilton.webp" }
   };
   const compactDate = (iso) => new Date(iso).toLocaleString([], {weekday:"short",hour:"numeric",minute:"2-digit"});
   const sameLocalDate = (a,b) => a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
   const timingLabel = (event) => {const date=new Date(event.date),today=new Date();if(sameLocalDate(date,today))return "GAME TODAY";const tomorrow=new Date(today);tomorrow.setDate(tomorrow.getDate()+1);if(sameLocalDate(date,tomorrow))return "GAME TOMORROW";return "NEXT GAME";};
-  const mascotBadge = (event) => {const mascot=MASCOTS[event.teamId];if(!mascot)return `<div class="team-badge">${badgeFor(event.teamId)}</div>`;return `<div class="team-badge team-mascot mascot-${mascot.className}" role="img" aria-label="${mascot.label} mascot">${mascot.icon}</div>`;};
+  const mascotBadge = (event) => {const mascot=MASCOTS[event.teamId];if(!mascot)return `<div class="team-badge">${badgeFor(event.teamId)}</div>`;if(mascot.mark)return `<div class="team-badge team-mascot mascot-${mascot.className}"><img class="team-mark-img" src="${mascot.mark}" alt="${mascot.label} logo" /></div>`;return `<div class="team-badge team-mascot mascot-${mascot.className}" role="img" aria-label="${mascot.label} mascot">${mascot.icon}</div>`;};
   const statusFor = (event) => typeof getTeamStatus==="function"?getTeamStatus(event):{overall:"—",conference:"—",standing:"Not posted",conferenceName:"Conference"};
   const miniStatus = (status) => `<div class="mini-status" aria-label="Team record and standing"><span>${status.overall} overall</span><span>${status.conference} conf.</span><span>${status.standing}</span></div>`;
 
