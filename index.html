@@ -14,155 +14,31 @@
       document.documentElement.dataset.theme = "light";
     }
   </script>
-  <link rel="icon" href="assets/localbleachersar-icon.jpg?v=21" type="image/jpeg" />
-  <link rel="apple-touch-icon" href="assets/localbleachersar-icon.jpg?v=21" />
-  <link rel="manifest" href="manifest.json?v=21" />
-  <link rel="stylesheet" href="styles.css?v=21" />
-  <link rel="stylesheet" href="polish.css?v=21" />
-  <link rel="stylesheet" href="brand-exact.css?v=21" />
-  <link rel="stylesheet" href="pitched-layout.css?v=21" />
+  <link rel="manifest" href="manifest.json?v=25" />
+  <link rel="stylesheet" href="styles.css?v=25" />
+  <link rel="stylesheet" href="polish.css?v=25" />
+  <link rel="stylesheet" href="brand-exact.css?v=25" />
+  <link rel="stylesheet" href="pitched-layout.css?v=25" />
 </head>
 <body>
   <header class="app-header branded-header">
-    <button id="menuBtn" class="header-btn" aria-label="Open menu">
-      <span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span>
-    </button>
-    <img id="brandLogo" class="brand-full-logo" src="https://cdn.jsdelivr.net/gh/jamesmethvin74/game-nearby@97e2a7b907f71815ae3c4a4aca4ea466e041682b/assets/localbleachersar-logo.jpg" alt="LocalBleachersAR — Find the game. Join the crowd." />
-    <span id="brandFallback" aria-label="LocalBleachersAR — Find the game. Join the crowd." hidden style="justify-self:center;flex-direction:column;align-items:center;line-height:1.05;color:var(--pitch-ink);font-weight:900;font-size:1rem;white-space:nowrap">LocalBleachersAR<small style="margin-top:4px;font-size:.58rem;font-weight:650;color:var(--pitch-muted)">Find the game. Join the crowd.</small></span>
-    <div class="header-actions">
-      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
-      <button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button>
-    </div>
+    <button id="menuBtn" class="header-btn" aria-label="Open menu"><span class="menu-glyph" aria-hidden="true"><span></span><span></span><span></span></span></button>
+    <img class="brand-full-logo" src="assets/localbleachersar-logo-final.jpg" alt="LocalBleachersAR" />
+    <div class="header-actions"><button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button><button id="locateBtn" class="header-btn" type="button" aria-label="Use my location">◎</button></div>
   </header>
-
   <main>
     <section class="discovery-panel" aria-label="Find nearby games">
-      <div class="location-strip">
-        <div class="location-summary">
-          <span class="location-pin" aria-hidden="true">●</span>
-          <div class="location-copy">
-            <span class="label">Search center</span>
-            <strong id="locationLabel">Conway, Arkansas</strong>
-          </div>
-        </div>
-        <div class="radius-control">
-          <label for="radius">Radius:</label>
-          <select id="radius">
-            <option value="10">10 miles</option>
-            <option value="25" selected>25 miles</option>
-            <option value="50">50 miles</option>
-            <option value="100">100 miles</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="date-filters" aria-label="Date filters">
-        <button class="date-filter active" type="button" data-date-filter="upcoming">Upcoming</button>
-        <button class="date-filter" type="button" data-date-filter="today">Today</button>
-        <button class="date-filter" type="button" data-date-filter="tomorrow">Tomorrow</button>
-        <button class="date-filter" type="button" data-date-filter="weekend">This Weekend</button>
-        <button class="date-filter" type="button" data-date-filter="pick">Pick Date</button>
-        <input id="datePicker" type="date" hidden />
-      </div>
-
-      <div class="filters" aria-label="Game filters">
-        <button class="filter active" type="button" data-filter="all">All Sports</button>
-        <button class="filter" type="button" data-filter="high-school">High School</button>
-        <button class="filter" type="button" data-filter="college">College</button>
-        <button class="filter" type="button" data-filter="male">Boys &amp; Men</button>
-        <button class="filter" type="button" data-filter="female">Girls &amp; Women</button>
-      </div>
+      <div class="location-strip"><div class="location-summary"><span class="location-pin" aria-hidden="true">●</span><div class="location-copy"><strong id="locationLabel">Conway, Arkansas</strong></div></div><div class="radius-control"><label for="radius">Radius:</label><select id="radius"><option value="10">10 miles</option><option value="25" selected>25 miles</option><option value="50">50 miles</option><option value="100">100 miles</option></select></div></div>
+      <div class="date-filters" aria-label="Date filters"><button class="date-filter active" type="button" data-date-filter="upcoming">Upcoming</button><button class="date-filter" type="button" data-date-filter="today">Today</button><button class="date-filter" type="button" data-date-filter="tomorrow">Tomorrow</button><button class="date-filter" type="button" data-date-filter="weekend">This Weekend</button><button class="date-filter" type="button" data-date-filter="pick">Pick Date</button><input id="datePicker" type="date" hidden /></div>
+      <div class="filters" aria-label="Game filters"><button class="filter active" type="button" data-filter="all">All Sports</button><button class="filter" type="button" data-filter="high-school">High School</button><button class="filter" type="button" data-filter="college">College</button><button class="filter" type="button" data-filter="male">Boys &amp; Men</button><button class="filter" type="button" data-filter="female">Girls &amp; Women</button></div>
     </section>
-
-    <section class="followed">
-      <div class="section-title">
-        <div class="section-heading">
-          <span class="section-icon" aria-hidden="true">★</span>
-          <div>
-            <p class="eyebrow">PRIORITY</p>
-            <h2>Your teams nearby</h2>
-          </div>
-        </div>
-        <button id="editTeamsBtn" class="text-btn" type="button">Edit teams</button>
-      </div>
-      <div id="followedEvents" class="event-list"></div>
-    </section>
-
-    <section>
-      <div class="section-title">
-        <div class="section-heading">
-          <span class="section-icon" aria-hidden="true">◉</span>
-          <div>
-            <p class="eyebrow">EXPLORE</p>
-            <h2>Other games nearby</h2>
-          </div>
-        </div>
-        <span id="resultCount" class="count-pill"></span>
-      </div>
-      <div id="otherEvents" class="event-list"></div>
-    </section>
-
-    <aside class="alerts-promo" aria-label="Game alerts">
-      <div class="alert-bell" aria-hidden="true">●</div>
-      <div class="alert-copy">
-        <strong>Never miss a game!</strong>
-        <span>Get notified when your teams play nearby.</span>
-      </div>
-      <button id="alertsBtn" class="alert-cta" type="button">Turn On Alerts</button>
-    </aside>
+    <section class="followed"><div class="section-title"><div class="section-heading"><span class="section-icon" aria-hidden="true">★</span><div><p class="eyebrow">PRIORITY</p><h2>Your teams nearby</h2></div></div><button id="editTeamsBtn" class="text-btn" type="button">Edit teams</button></div><div id="followedEvents" class="event-list"></div></section>
+    <section><div class="section-title"><div class="section-heading"><span class="section-icon" aria-hidden="true">◉</span><div><p class="eyebrow">EXPLORE</p><h2>Other games nearby</h2></div></div><span id="resultCount" class="count-pill"></span></div><div id="otherEvents" class="event-list"></div></section>
+    <aside class="alerts-promo" aria-label="Game alerts"><div class="alert-bell" aria-hidden="true">●</div><div class="alert-copy"><strong>Never miss a game!</strong><span>Get notified when your teams play nearby.</span></div><button id="alertsBtn" class="alert-cta" type="button">Turn On Alerts</button></aside>
   </main>
-
-  <nav class="bottom-nav" aria-label="Primary navigation">
-    <button class="nav-item active" type="button">⌂<span>Home</span></button>
-    <button id="teamsNav" class="nav-item" type="button">☆<span>Teams</span></button>
-    <button class="nav-item" type="button">⌖<span>Map</span></button>
-    <button id="alertsNav" class="nav-item" type="button">♧<span>Alerts</span></button>
-    <button class="nav-item" type="button">•••<span>More</span></button>
-  </nav>
-
-  <dialog id="teamsDialog">
-    <form method="dialog" class="dialog-card">
-      <div class="dialog-header">
-        <div>
-          <p class="eyebrow">PERSONALIZE</p>
-          <h2>Follow teams</h2>
-        </div>
-        <button value="cancel" class="icon-btn" aria-label="Close">×</button>
-      </div>
-      <div id="teamChoices" class="team-choices"></div>
-      <button id="saveTeamsBtn" value="default" class="primary-btn">Save teams</button>
-    </form>
-  </dialog>
-
-  <script>
-    (() => {
-      const logo = document.getElementById("brandLogo");
-      const fallback = document.getElementById("brandFallback");
-      if (!logo || !fallback) return;
-      logo.addEventListener("error", () => {
-        if (logo.dataset.localFallback !== "1") {
-          logo.dataset.localFallback = "1";
-          logo.src = "assets/localbleachersar-logo.jpg?v=21";
-          return;
-        }
-        logo.hidden = true;
-        fallback.hidden = false;
-        fallback.style.display = "flex";
-      });
-    })();
-  </script>
-  <script>
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.getRegistrations().then(registrations => {
-        registrations.forEach(registration => registration.unregister());
-      });
-    }
-  </script>
-  <script src="app.js?v=21"></script>
-  <script src="school-expansion.js?v=21"></script>
-  <script src="school-ticket-links.js?v=21"></script>
-  <script src="school-follow-logic.js?v=21"></script>
-  <script src="polish.js?v=21"></script>
-  <script src="pitched-layout.js?v=21"></script>
+  <nav class="bottom-nav" aria-label="Primary navigation"><button class="nav-item active" type="button">⌂<span>Home</span></button><button id="teamsNav" class="nav-item" type="button">☆<span>Teams</span></button><button class="nav-item" type="button">⌖<span>Map</span></button><button id="alertsNav" class="nav-item" type="button">♧<span>Alerts</span></button><button class="nav-item" type="button">•••<span>More</span></button></nav>
+  <dialog id="teamsDialog"><form method="dialog" class="dialog-card"><div class="dialog-header"><div><p class="eyebrow">PERSONALIZE</p><h2>Follow teams</h2></div><button value="cancel" class="icon-btn" aria-label="Close">×</button></div><div id="teamChoices" class="team-choices"></div><button id="saveTeamsBtn" value="default" class="primary-btn">Save teams</button></form></dialog>
+  <script>if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>rs.forEach(r=>r.unregister()));}</script>
+  <script src="app.js?v=25"></script><script src="school-expansion.js?v=25"></script><script src="school-ticket-links.js?v=25"></script><script src="school-follow-logic.js?v=25"></script><script src="polish.js?v=25"></script><script src="pitched-layout.js?v=25"></script>
 </body>
 </html>
