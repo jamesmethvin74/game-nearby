@@ -15,9 +15,9 @@
   const timingLabel = (event) => {const date=new Date(event.date),today=new Date();if(sameLocalDate(date,today))return "GAME TODAY";const tomorrow=new Date(today);tomorrow.setDate(tomorrow.getDate()+1);if(sameLocalDate(date,tomorrow))return "GAME TOMORROW";return "NEXT GAME";};
   const mascotBadge = (event) => {
     const mascot=MASCOTS[event.teamId];
-    if(!mascot)return `<div class="team-badge">${badgeFor(event.teamId)}</div>`;
-    if(mascot.mark)return `<div class="team-badge team-mascot mascot-${mascot.className}"><img class="team-mark-img" src="${mascot.mark}" alt="${mascot.label} logo" referrerpolicy="no-referrer" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false" /><span class="team-mark-fallback" role="img" aria-label="${mascot.label} mascot" hidden>${mascot.icon}</span></div>`;
-    return `<div class="team-badge team-mascot mascot-${mascot.className}" role="img" aria-label="${mascot.label} mascot">${mascot.icon}</div>`;
+    if(!mascot)return `<button type="button" class="team-badge team-detail-trigger" data-team-id="${event.teamId}" data-sport="${event.sport}" data-gender="${event.gender||""}" aria-label="Open ${event.team} details">${badgeFor(event.teamId)}</button>`;
+    if(mascot.mark)return `<button type="button" class="team-badge team-mascot mascot-${mascot.className} team-detail-trigger" data-team-id="${event.teamId}" data-sport="${event.sport}" data-gender="${event.gender||""}" aria-label="Open ${event.team} details"><img class="team-mark-img" src="${mascot.mark}" alt="${mascot.label} logo" referrerpolicy="no-referrer" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false" /><span class="team-mark-fallback" role="img" aria-label="${mascot.label} mascot" hidden>${mascot.icon}</span></button>`;
+    return `<button type="button" class="team-badge team-mascot mascot-${mascot.className} team-detail-trigger" data-team-id="${event.teamId}" data-sport="${event.sport}" data-gender="${event.gender||""}" aria-label="Open ${event.team} details"><span role="img" aria-label="${mascot.label} mascot">${mascot.icon}</span></button>`;
   };
   const statusFor = (event) => typeof getTeamStatus==="function"?getTeamStatus(event):{overall:"—",conference:"—",standing:"Not posted",conferenceName:"Conference"};
   const miniStatus = (status) => `<div class="mini-status" aria-label="Team record and standing"><span>${status.overall} overall</span><span>${status.conference} conf.</span><span>${status.standing}</span></div>`;
