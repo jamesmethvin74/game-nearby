@@ -3,6 +3,18 @@ import { spawnSync } from "node:child_process";
 
 const BASE = "https://localbleachersar-sports-api.james-methvin74.workers.dev";
 const token = randomBytes(32).toString("hex");
+const expectedSources = [
+  "uca-football-official",
+  "uca-mens-soccer-official",
+  "hendrix-football-official",
+  "conway-football-official"
+];
+const expectedSchedules = [
+  ["uca-football-2026", 8],
+  ["uca-mens-soccer-2026", 8],
+  ["hendrix-football-2026", 7],
+  ["conway-football-2026", 8]
+];
 
 function run(command, args, input = undefined) {
   const result = spawnSync(command, args, {
@@ -52,27 +64,40 @@ if (health.ok !== true || Number(health.teams) !== 4) {
 }
 console.log(`[smoke] Health OK: teams=${health.teams}, games=${health.games}`);
 
-console.log("[smoke] Refreshing UCA men's soccer from official source...");
+console.log("[smoke] Refreshing all four pilot sources...");
 const refresh = await fetchJson("/api/v1/refresh", {
   method: "POST",
   headers: {
     "content-type": "application/json",
     "x-refresh-token": token
   },
-  body: JSON.stringify({ sourceId: "uca-mens-soccer-official" })
+  body: JSON.stringify({})
 }, 3);
 if (refresh.ok !== true) {
-  throw new Error(`UCA soccer refresh failed: ${JSON.stringify(refresh)}`);
+  throw new Error(`Pilot refresh failed: ${JSON.stringify(refresh)}`);
 }
-const outcome = refresh.outcomes?.find(item => item.sourceId === "uca-mens-soccer-official");
-if (!outcome || !["SUCCESS", "NOT_MODIFIED"].includes(outcome.status)) {
-  throw new Error(`Unexpected collector outcome: ${JSON.stringify(refresh)}`);
+
+for (const sourceId of expectedSources) {
+  const outcome = refresh.outcomes?.find(item => item.sourceId === sourceId);
+  if (!outcome || !["SUCCESS", "NOT_MODIFIED"].includes(outcome.status)) {
+    throw new Error(`Collector ${sourceId} failed: ${JSON.stringify(refresh)}`);
+  }
+  console.log(`[smoke] ${sourceId}: ${outcome.status}${outcome.gamesSeen ? `, games=${outcome.gamesSeen}` : ""}`);
 }
-console.log(`[smoke] Collector ${outcome.status}${outcome.gamesSeen ? `, games=${outcome.gamesSeen}` : ""}`);
+
+const schedules = {};
+for (const [teamId, minimumGames] of expectedSchedules) {
+  const payload = await fetchJson(`/api/v1/teams/${teamId}/schedule`);
+  const count = Array.isArray(payload.games) ? payload.games.length : 0;
+  if (count < minimumGames) {
+    throw new Error(`${teamId} schedule has ${count} games; expected at least ${minimumGames}`);
+  }
+  schedules[teamId] = count;
+}
 
 console.log("[smoke] Verifying Drake 1-1 final and derived record...");
-const schedule = await fetchJson("/api/v1/teams/uca-mens-soccer-2026/schedule");
-const drake = schedule.games?.find(game => String(game.opponent || "").toLowerCase().includes("drake"));
+const soccerSchedule = await fetchJson("/api/v1/teams/uca-mens-soccer-2026/schedule");
+const drake = soccerSchedule.games?.find(game => String(game.opponent || "").toLowerCase().includes("drake"));
 if (!drake) throw new Error("Drake game not found in live UCA soccer schedule");
 if (drake.status !== "FINAL" || drake.result !== "T" || Number(drake.team_score) !== 1 || Number(drake.opponent_score) !== 1) {
   throw new Error(`Drake result mismatch: ${JSON.stringify(drake)}`);
@@ -84,10 +109,18 @@ if (Number(record.ties || 0) < 1) {
   throw new Error(`Derived record did not include Drake tie: ${JSON.stringify(record)}`);
 }
 
-console.log("[smoke] PASS");
+const sources = await fetchJson("/api/v1/sources");
+for (const sourceId of expectedSources) {
+  const row = sources.sources?.find(source => source.id === sourceId);
+  if (!row || !row.last_successful_fetch_at || row.last_failure_at) {
+    throw new Error(`Source freshness check failed for ${sourceId}: ${JSON.stringify(row)}`);
+  }
+}
+
+console.log("[smoke] PASS: all pilot collectors verified");
 console.log(JSON.stringify({
   health,
-  collector: outcome,
+  schedules,
   drake: {
     opponent: drake.opponent,
     status: drake.status,
