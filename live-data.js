@@ -9,8 +9,10 @@
   const PILOT_TEAMS = [
     { apiId:"uca-football-2026", schoolId:"uca", sport:"football", gender:"men", displayTeam:"UCA Bears" },
     { apiId:"uca-mens-soccer-2026", schoolId:"uca", sport:"soccer", gender:"men", displayTeam:"UCA Bears" },
+    { apiId:"uca-volleyball-2026", schoolId:"uca", sport:"volleyball", gender:"women", displayTeam:"UCA Sugar Bears" },
     { apiId:"hendrix-football-2026", schoolId:"hendrix", sport:"football", gender:"men", displayTeam:"Hendrix Warriors" },
-    { apiId:"conway-football-2026", schoolId:"conway", sport:"football", gender:"boys", displayTeam:"Conway Wampus Cats" }
+    { apiId:"conway-football-2026", schoolId:"conway", sport:"football", gender:"boys", displayTeam:"Conway Wampus Cats" },
+    { apiId:"conway-volleyball-2026", schoolId:"conway", sport:"volleyball", gender:"girls", displayTeam:"Conway Wampus Cats" }
   ];
 
   const state = {
