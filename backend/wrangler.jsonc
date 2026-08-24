@@ -12,7 +12,7 @@
     {
       "binding": "DB",
       "database_name": "localbleachersar-sports",
-      "database_id": "REPLACE_AFTER_D1_CREATE",
+      "database_id": "50806cc9-7710-4f21-8ab3-159623f6a0a9",
       "migrations_dir": "migrations"
     }
   ],
