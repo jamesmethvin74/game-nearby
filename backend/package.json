@@ -6,7 +6,7 @@
     "check": "node --check src/index.js && node --test test/*.test.js",
     "dev": "wrangler dev --test-scheduled",
     "deploy": "wrangler deploy",
-    "deploy:cloudflare": "node scripts/deploy-smoke.mjs",
+    "deploy:cloudflare": "wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply localbleachersar-sports --local",
     "db:migrate:remote": "wrangler d1 migrations apply localbleachersar-sports --remote"
   },
