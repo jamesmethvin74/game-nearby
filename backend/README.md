@@ -21,13 +21,15 @@ The collector keeps last known good data. A failed fetch or suspiciously empty p
 
 ## Cloudflare Workers Builds
 
-Import `jamesmethvin74/game-nearby` in Cloudflare Workers Builds with:
+Connect `jamesmethvin74/game-nearby` in Cloudflare Workers Builds with:
 
 - Production branch: `feature/live-sports-pipeline-m1` while Milestone 1 is being verified
 - Root directory: `backend`
+- Build command: none
 - Deploy command: `npm run deploy:cloudflare`
+- Preview builds: off during Milestone 1 verification
 
-That deploy command applies pending D1 migrations to the remote database before deploying the Worker. It does not use GitHub Actions.
+The Workers Builds deployment only publishes the Worker. The initial D1 migration is applied separately so the build token does not need D1 write permission. No GitHub Actions are used.
 
 ## Local development
 
