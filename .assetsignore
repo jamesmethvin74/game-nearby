@@ -1,0 +1,5 @@
+.git/**
+.github/**
+backend/**
+node_modules/**
+README.md
