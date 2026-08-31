@@ -1,0 +1,44 @@
+{
+  "hasNextPage": false,
+  "timestamp": "2026-08-31T17:20:20.142Z",
+  "schedule": [
+    {
+      "eventId": "69cbc6e2a49cc05727000000",
+      "name": "GREENBRIER HIGH SCHOOL vs VILONIA HIGH SCHOOL",
+      "facility": {
+        "_id": "60d3495e01e51fe85e7b3159",
+        "name": "VILONIA HIGH SCHOOL",
+        "updatedBy": "autoSelected"
+      },
+      "date": "2026-08-25T22:30:00.000Z",
+      "hostOrg": "5e2e4eb0da09257d71fe23fa",
+      "hostOrgName": "VILONIA HIGH SCHOOL",
+      "results": [
+        {"score": 3, "isWinner": true, "tag": ",WVB:695c155dbb8c2087231e7e45,", "orgId": "5e2e5168eb8fa480a8b4571c"},
+        {"score": 0, "isWinner": false, "tag": ",WVB:698a49819bbf0a84a92470a1,", "orgId": "5e2e4eb0da09257d71fe23fa"}
+      ],
+      "participants": [
+        {
+          "name": "GREENBRIER HIGH SCHOOL",
+          "orgShortCode": "SE48QJ",
+          "isHome": false,
+          "team": {"teamId": "695c155dbb8c2087231e7e45", "name": "Girls' Volleyball", "code": "WVB:695c155dbb8c2087231e7e45", "level": "Varsity"},
+          "uri": "max:schools/SE48QJ/teams/WVB:695c155dbb8c2087231e7e45",
+          "result": {"code": "W", "score": 3, "opponentScore": 0}
+        },
+        {
+          "name": "VILONIA HIGH SCHOOL",
+          "orgShortCode": "YF5Y8Q",
+          "isHome": true,
+          "team": {"teamId": "698a49819bbf0a84a92470a1", "name": "Girls' Volleyball", "code": "WVB:698a49819bbf0a84a92470a1", "level": "Varsity"},
+          "uri": "max:schools/YF5Y8Q/teams/WVB:698a49819bbf0a84a92470a1",
+          "result": {"code": "L", "score": 0, "opponentScore": 3}
+        }
+      ],
+      "isHeadToHeadSport": true,
+      "contestType": "game",
+      "locationNotes": "",
+      "associatedSports": [{"name": "Girls' Volleyball", "code": "WVB", "level": "Varsity"}]
+    }
+  ]
+}
