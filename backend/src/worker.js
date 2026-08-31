@@ -3,6 +3,7 @@ import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js"
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
+import { ensureInitialStatewideData } from "./statewide-initializer.js";
 
 let liveConfigReady = false;
 
@@ -107,6 +108,14 @@ export default {
   async fetch(request, env, ctx) {
     await ensureStatewideSchema(env);
     await ensureLiveConfig(env);
+    const path=new URL(request.url).pathname;
+    if (request.method==="GET" && (path==="/api/v1/schools" || path==="/api/v1/games")) {
+      try {
+        await ensureInitialStatewideData(env);
+      } catch (error) {
+        console.error("statewide volleyball initial production bootstrap failed",error);
+      }
+    }
     const response=await core.fetch(request, env, ctx);
     return publicCatalogResponse(request,response,env);
   },
