@@ -121,11 +121,11 @@ export function normalizeMascotRows(rows, source) {
     const homeVenue=cleanText(source.home_venue);
     const siteCell=cleanText(raw.cells?.[2]);
     const siteVenue=cleanText(siteCell.match(/^(.+?(?:Stadium|Field|Arena|Gymnasium|Gym|Center|Complex))\b/i)?.[1]);
-    for (const candidate of [homeVenue,siteVenue].filter(Boolean)) {
+    for (const candidate of [homeVenue,siteCell,siteVenue].filter(Boolean)) {
       const lowerTail=tail.toLowerCase();
       const venueIndex=lowerTail.indexOf(candidate.toLowerCase());
       if (venueIndex>=0) {
-        venue=candidate;
+        venue=siteVenue || (candidate===siteCell?siteCell:candidate);
         tail=tail.slice(0,venueIndex);
         break;
       }
