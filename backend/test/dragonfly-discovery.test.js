@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { catalogAmbiguities, discoverDragonFlyVarsityVolleyballTeams } from "../src/dragonfly-discovery.js";
+import { aggregateDragonFlySchoolEventCounts, catalogAmbiguities, discoverDragonFlyVarsityVolleyballTeams } from "../src/dragonfly-discovery.js";
 
 const fixture=fileURLToPath(new URL("./fixtures/dragonfly-greenbrier-vilonia-2026.json",import.meta.url));
 
@@ -27,6 +27,25 @@ test("counts repeated appearances without duplicating a discovered team",()=>{
   assert.equal(entries.length,2);
   assert.equal(entries.find(e=>e.orgShortCode==="SE48QJ").eventCount,2);
   assert.equal(entries.find(e=>e.orgShortCode==="YF5Y8Q").eventCount,2);
+});
+
+test("supports multiple external team ids for one school and aggregates its event count",()=>{
+  const payload={schedule:[
+    {associatedSports:[{code:"WVB",level:"Varsity"}],participants:[
+      {name:"One School High School",orgShortCode:"ONE001",team:{teamId:"team-a",code:"WVB:team-a",level:"Varsity"}},
+      {name:"Opponent High School",orgShortCode:"OPP001",team:{teamId:"opp",code:"WVB:opp",level:"Varsity"}}
+    ]},
+    {associatedSports:[{code:"WVB",level:"Varsity"}],participants:[
+      {name:"One School High School",orgShortCode:"ONE001",team:{teamId:"team-b",code:"WVB:team-b",level:"Varsity"}},
+      {name:"Opponent High School",orgShortCode:"OPP001",team:{teamId:"opp",code:"WVB:opp",level:"Varsity"}}
+    ]}
+  ]};
+  const entries=discoverDragonFlyVarsityVolleyballTeams(payload);
+  const oneSchool=entries.filter(entry=>entry.orgShortCode==="ONE001");
+  assert.equal(oneSchool.length,2);
+  assert.deepEqual(new Set(oneSchool.map(entry=>entry.teamId)),new Set(["team-a","team-b"]));
+  assert.equal(aggregateDragonFlySchoolEventCounts(entries).get("ONE001"),2);
+  assert.equal(catalogAmbiguities(entries).size,0);
 });
 
 test("flags same normalized school name with different DragonFly organizations as ambiguous",()=>{
@@ -60,4 +79,12 @@ test("ignores placeholders, non-varsity participants and unrelated sports",()=>{
   ]};
   const entries=discoverDragonFlyVarsityVolleyballTeams(payload);
   assert.deepEqual(entries.map(e=>e.orgShortCode),["VAR001"]);
+});
+
+test("external identity schema permits many provider ids to map to one local entity",()=>{
+  const migration=fs.readFileSync(fileURLToPath(new URL("../migrations/0005_statewide_volleyball_discovery.sql",import.meta.url)),"utf8");
+  assert.doesNotMatch(migration,/UNIQUE\s*\(\s*provider\s*,\s*school_id\s*\)/i);
+  assert.doesNotMatch(migration,/UNIQUE\s*\(\s*provider\s*,\s*team_id\s*\)/i);
+  assert.match(migration,/PRIMARY KEY\s*\(\s*provider\s*,\s*external_school_id\s*\)/i);
+  assert.match(migration,/PRIMARY KEY\s*\(\s*provider\s*,\s*external_team_id\s*\)/i);
 });
