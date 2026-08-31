@@ -75,10 +75,27 @@ async function ensureLiveConfig(env) {
   liveConfigReady = true;
 }
 
+async function publicCatalogResponse(request,response,env){
+  if (request.method!=="GET" || !response.ok) return response;
+  const path=new URL(request.url).pathname;
+  if (path!=="/api/v1/schools" && path!=="/api/v1/games") return response;
+  const body=await response.json();
+  if (path==="/api/v1/schools" && Array.isArray(body.schools)) {
+    body.schools=body.schools.filter(school=>Number(school.team_count||0)>0);
+  }
+  if (path==="/api/v1/games" && Array.isArray(body.games)) {
+    const {results}=await env.DB.prepare("SELECT DISTINCT school_id FROM teams WHERE active=1").all();
+    const activeSchools=new Set(results.map(row=>row.school_id));
+    body.games=body.games.filter(game=>activeSchools.has(game.school_id));
+  }
+  return new Response(JSON.stringify(body),{status:response.status,headers:response.headers});
+}
+
 export default {
   async fetch(request, env, ctx) {
     await ensureLiveConfig(env);
-    return core.fetch(request, env, ctx);
+    const response=await core.fetch(request, env, ctx);
+    return publicCatalogResponse(request,response,env);
   },
   async scheduled(controller, env, ctx) {
     await ensureLiveConfig(env);
