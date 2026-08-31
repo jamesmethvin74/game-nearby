@@ -9,7 +9,7 @@ function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function safe(value){return clean(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
 function placeholderSchoolName(value){
   const key=normalizeSchoolAlias(value);
-  return !key || /^(?:tbd|tba|open|unknown|to be determined|to be announced)$/.test(key);
+  return !key || /\b(?:tbd|tba|to be determined|to be announced)\b/.test(key) || /^(?:open|unknown)$/.test(key);
 }
 
 function isVarsityVolleyballEvent(event){
@@ -81,7 +81,7 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
   if (!force && await catalogFresh(env,syncId,now,maxAgeHours)) return {status:"SKIPPED",reason:"catalog_fresh",payload:null};
   const checkedAt=now.toISOString();
   try {
-    const {payload,pageCount}=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-catalog/3.0","accept":"application/json"}});
+    const {payload,pageCount}=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-catalog/4.0","accept":"application/json"}});
     const entries=discoverDragonFlyVarsityVolleyballTeams(payload);
     if (entries.length<10) throw new Error(`DragonFly catalog discovery returned only ${entries.length} varsity volleyball teams`);
     const ambiguous=catalogAmbiguities(entries);
@@ -139,7 +139,7 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
         teamId=`${schoolId}-volleyball-${season}`;
         createdTeams++;
         statements.push(env.DB.prepare(`INSERT OR IGNORE INTO teams(id,school_id,sport,gender,season,conference_id,active,updated_at)
-          VALUES(?,?,'volleyball','girls',?,NULL,1,?)`).bind(teamId,schoolId,season,checkedAt));
+          VALUES(?,?,'volleyball','girls',?,NULL,0,?)`).bind(teamId,schoolId,season,checkedAt));
         teamBySchool.set(schoolId,teamId);
       }
       plannedTeamIds.set(entry.teamId,teamId);
@@ -152,19 +152,21 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
       const existingSource=existingSourceByTeam.get(teamId);
       const sourceId=existingSource?.id || `${teamId}-dragonfly`;
       const collectionMode=existingSource?.collection_mode || "statewide";
+      const sourceEnabled=collectionMode==="team"?1:0;
       const expected=Math.max(1,Math.min(5,Number(schoolEventCounts.get(entry.orgShortCode))||1));
       statements.push(env.DB.prepare(`INSERT INTO sources
         (id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,home_venue,home_latitude,home_longitude,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
-        VALUES(?,?,?,'official-conference',1,'dragonfly-public','4','America/Chicago',?,180,60,?,?,?,1,10,720,?,?)
+        VALUES(?,?,?,'official-conference',1,'dragonfly-public','4','America/Chicago',?,180,60,?,?,?,?,10,720,?,?)
         ON CONFLICT(id) DO UPDATE SET team_id=excluded.team_id,source_url=excluded.source_url,parser_version=excluded.parser_version,expected_min_games=excluded.expected_min_games,
           home_venue=COALESCE(sources.home_venue,excluded.home_venue),home_latitude=COALESCE(sources.home_latitude,excluded.home_latitude),home_longitude=COALESCE(sources.home_longitude,excluded.home_longitude),
-          enabled=1,authority_rank=10,stale_after_minutes=720,collection_mode=COALESCE(sources.collection_mode,excluded.collection_mode),updated_at=excluded.updated_at`)
-        .bind(sourceId,teamId,feedUrl,expected,entry.schoolName,meta.latitude??null,meta.longitude??null,collectionMode,checkedAt));
+          enabled=CASE WHEN COALESCE(sources.collection_mode,excluded.collection_mode)='team' THEN 1 ELSE 0 END,
+          authority_rank=10,stale_after_minutes=720,collection_mode=COALESCE(sources.collection_mode,excluded.collection_mode),updated_at=excluded.updated_at`)
+        .bind(sourceId,teamId,feedUrl,expected,entry.schoolName,meta.latitude??null,meta.longitude??null,sourceEnabled,collectionMode,checkedAt));
       if (collectionMode==="statewide") statewideSourceIds.add(sourceId);
     }
 
     await batchStatements(env,statements);
-    const activeSources=new Set([...dragonFlySources.filter(source=>Number(source.enabled)===1).map(source=>source.id),...statewideSourceIds]).size;
+    const enabledSources=new Set(dragonFlySources.filter(source=>Number(source.enabled)===1).map(source=>source.id)).size;
     const details={
       pages:pageCount,statewideEvents:Array.isArray(payload?.schedule)?payload.schedule.length:0,
       createdSchools,createdTeams,statewideSources:statewideSourceIds.size,ambiguousNames:[...ambiguous].sort()
@@ -175,10 +177,10 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
       ON CONFLICT(id) DO UPDATE SET feed_url=excluded.feed_url,last_checked_at=excluded.last_checked_at,last_successful_sync_at=excluded.last_successful_sync_at,
         discovered_school_count=excluded.discovered_school_count,discovered_team_count=excluded.discovered_team_count,active_source_count=excluded.active_source_count,
         ambiguous_name_count=excluded.ambiguous_name_count,last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at`)
-      .bind(syncId,PROVIDER,feedUrl,checkedAt,checkedAt,new Set(entries.map(e=>e.orgShortCode)).size,entries.length,activeSources,ambiguous.size,JSON.stringify(details),checkedAt).run();
+      .bind(syncId,PROVIDER,feedUrl,checkedAt,checkedAt,new Set(entries.map(e=>e.orgShortCode)).size,entries.length,enabledSources,ambiguous.size,JSON.stringify(details),checkedAt).run();
     return {
       status:"SUCCESS",entries:entries.length,schools:new Set(entries.map(e=>e.orgShortCode)).size,
-      activeSources,statewideSources:statewideSourceIds.size,ambiguousNames:ambiguous.size,pagesFetched:pageCount,...details,payload
+      activeSources:enabledSources,statewideSources:statewideSourceIds.size,ambiguousNames:ambiguous.size,pagesFetched:pageCount,...details,payload
     };
   } catch (error) {
     const message=String(error?.message||error).slice(0,1000);
