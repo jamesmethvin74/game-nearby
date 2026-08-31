@@ -82,6 +82,7 @@ jobs:
           NODE
 
       - name: Verify GitHub Pages serves statewide frontend
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
