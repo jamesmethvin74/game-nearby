@@ -1,0 +1,49 @@
+name: Arkansas school location diagnostics
+
+on:
+  push:
+    branches: [feature/statewide-volleyball-discovery]
+    paths:
+      - "backend/src/arkansas-school-locations.js"
+      - ".github/workflows/location-diagnostics.yml"
+  pull_request:
+    paths:
+      - "backend/src/arkansas-school-locations.js"
+      - ".github/workflows/location-diagnostics.yml"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare DragonFly schools with Arkansas GIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
+          import { discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations } from './src/arkansas-school-locations.js';
+
+          const feed='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
+          const {payload}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/1.0','accept':'application/json'}});
+          const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
+          const schools=[...new Map(discovered.map(entry=>[entry.orgShortCode,{id:`school-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:'',orgShortCode:entry.orgShortCode}])).values()];
+          const gis=await fetchArkansasSchoolLocationFeatures();
+          const result=matchArkansasSchoolLocations(schools,gis.features);
+          console.log(JSON.stringify({
+            targets:schools.length,
+            publicFeatures:gis.publicFeatures.length,
+            privateFeatures:gis.privateFeatures.length,
+            matched:result.matched.length,
+            ratio:Number((result.matched.length/schools.length).toFixed(4)),
+            unresolved:result.unresolved,
+            ambiguous:result.ambiguous
+          },null,2));
+          JS
