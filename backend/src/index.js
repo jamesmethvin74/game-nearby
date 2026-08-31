@@ -1,7 +1,7 @@
 import { normalizeMascotRows, normalizeSidearmRows } from "./parser-core.js";
 import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-core.js";
 import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
-import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, resolveCanonicalEvent } from "./schedule-authority-core.js";
+import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 
 const API_PREFIX="/api/v1";
 const USER_AGENT="LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)";
@@ -385,6 +385,7 @@ async function observationById(env,gameId){
 async function reconcileCanonicalGame(env,gameId){
   const seed=await observationById(env,gameId);
   if (!seed?.opponent_school_id) return null;
+  const timeZone=seed.timezone||"America/Chicago";
   const {results:candidates}=await env.DB.prepare(`
     SELECT g.*,t.sport,t.gender,t.season,t.id AS reporting_team_id,sch.id AS reporting_school_id,sch.name AS reporting_school_name,
       src.source_type,src.parser_type,src.source_priority,src.authority_rank,src.timezone
@@ -394,14 +395,15 @@ async function reconcileCanonicalGame(env,gameId){
       AND datetime(g.scheduled_at) BETWEEN datetime(?,'-36 hours') AND datetime(?,'+36 hours')
     ORDER BY src.authority_rank,src.source_priority,src.id`).bind(seed.sport,seed.gender,seed.season,
       seed.reporting_school_id,seed.opponent_school_id,seed.opponent_school_id,seed.reporting_school_id,seed.scheduled_at,seed.scheduled_at).all();
-  if (!candidates.length) return null;
+  const related=candidates.filter(candidate=>candidate.id===seed.id || observationsLikelySameEvent(seed,candidate,{timeZone}));
+  if (!related.length) return null;
   let resolved;
-  try { resolved=resolveCanonicalEvent(candidates,{timeZone:seed.timezone||"America/Chicago"}); }
+  try { resolved=resolveCanonicalEvent(related,{timeZone}); }
   catch { return null; }
   const now=new Date().toISOString();
-  const selected=candidates.find(o=>o.id===resolved.resolutionEvidence.selectedObservationId) || candidates[0];
-  const venueObservation=candidates.find(o=>o.id===resolved.resolutionEvidence.venueObservationId) || selected;
-  const geoObservation=candidates.find(o=>o.latitude!=null && o.longitude!=null) || selected;
+  const selected=related.find(o=>o.id===resolved.resolutionEvidence.selectedObservationId) || related[0];
+  const venueObservation=related.find(o=>o.id===resolved.resolutionEvidence.venueObservationId) || selected;
+  const geoObservation=related.find(o=>o.latitude!=null && o.longitude!=null) || selected;
   const conferenceGame=Number(selected?.conference_game||0);
   await env.DB.prepare(`
     INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
@@ -414,8 +416,8 @@ async function reconcileCanonicalGame(env,gameId){
       resolved.scheduledAt,resolved.scheduledTimeKnown?1:0,resolved.venue||null,venueObservation?.location_text||resolved.venue||null,geoObservation?.latitude??null,geoObservation?.longitude??null,
       conferenceGame,resolved.status,resolved.homeScore??null,resolved.awayScore??null,resolved.selectedSourceId,resolved.trustState,resolved.conflicts.length,
       JSON.stringify(resolved.resolutionEvidence),now,now).run();
-  const oldIds=[...new Set(candidates.map(o=>o.canonical_event_id).filter(id=>id&&id!==resolved.id))];
-  for (const candidate of candidates) {
+  const oldIds=[...new Set(related.map(o=>o.canonical_event_id).filter(id=>id&&id!==resolved.id))];
+  for (const candidate of related) {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM canonical_event_members WHERE game_id=?").bind(candidate.id),
       env.DB.prepare("UPDATE games SET canonical_event_id=? WHERE id=?").bind(resolved.id,candidate.id),
@@ -425,7 +427,7 @@ async function reconcileCanonicalGame(env,gameId){
   await env.DB.prepare("UPDATE event_conflicts SET resolved_at=? WHERE canonical_event_id=? AND resolved_at IS NULL").bind(now,resolved.id).run();
   for (const conflict of resolved.conflicts) {
     await env.DB.prepare("INSERT INTO event_conflicts(canonical_event_id,conflict_type,values_json,evidence_json,detected_at) VALUES(?,?,?,?,?)")
-      .bind(resolved.id,conflict.type,JSON.stringify(conflict.values),JSON.stringify({gameIds:candidates.map(o=>o.id),sourceIds:candidates.map(o=>o.source_id)}),now).run();
+      .bind(resolved.id,conflict.type,JSON.stringify(conflict.values),JSON.stringify({gameIds:related.map(o=>o.id),sourceIds:related.map(o=>o.source_id)}),now).run();
   }
   for (const oldId of oldIds) {
     const member=await env.DB.prepare("SELECT 1 AS yes FROM canonical_event_members WHERE canonical_event_id=? LIMIT 1").bind(oldId).first();
