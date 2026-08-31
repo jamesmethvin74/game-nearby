@@ -5,10 +5,12 @@ on:
     branches: [feature/statewide-volleyball-discovery]
     paths:
       - "backend/src/arkansas-school-locations.js"
+      - "backend/src/dragonfly-discovery.js"
       - ".github/workflows/location-diagnostics.yml"
   pull_request:
     paths:
       - "backend/src/arkansas-school-locations.js"
+      - "backend/src/dragonfly-discovery.js"
       - ".github/workflows/location-diagnostics.yml"
 
 jobs:
@@ -29,14 +31,40 @@ jobs:
           node --input-type=module <<'JS'
           import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
           import { discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
-          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations } from './src/arkansas-school-locations.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations, relaxedLocationNameKey } from './src/arkansas-school-locations.js';
 
           const feed='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
-          const {payload}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/1.0','accept':'application/json'}});
+          const {payload}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/2.0','accept':'application/json'}});
           const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
           const schools=[...new Map(discovered.map(entry=>[entry.orgShortCode,{id:`school-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:'',orgShortCode:entry.orgShortCode}])).values()];
           const gis=await fetchArkansasSchoolLocationFeatures();
           const result=matchArkansasSchoolLocations(schools,gis.features);
+
+          const tokens=value=>new Set(relaxedLocationNameKey(value).split(' ').filter(token=>token.length>2));
+          const similarity=(a,b)=>{
+            const A=tokens(a),B=tokens(b); if(!A.size||!B.size) return 0;
+            let intersection=0; for(const token of A) if(B.has(token)) intersection++;
+            return (2*intersection)/(A.size+B.size);
+          };
+          const nearest=result.unresolved.map(row=>({
+            school_id:row.school_id,
+            school_name:row.school_name,
+            candidates:gis.features.map(feature=>({name:feature.name,city:feature.city,source:feature.source,score:similarity(row.school_name,feature.name)}))
+              .filter(candidate=>candidate.score>=0.45).sort((a,b)=>b.score-a.score).slice(0,4)
+          })).filter(row=>row.candidates.length);
+
+          const unresolvedById=new Map(result.unresolved.map(row=>[row.school_id,row]));
+          const pageEvidence=[];
+          for (const school of schools.filter(school=>unresolvedById.has(school.id))) {
+            try {
+              const response=await fetch(`https://ar.dragonflyathletics.com/sites/ArkAA/${school.orgShortCode}/about`,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/2.0'}});
+              const text=await response.text();
+              const stateMatch=text.match(/(?:,|\s)\s*AR\s+7\d{4}\b/i);
+              const addressSnippet=stateMatch?text.slice(Math.max(0,stateMatch.index-160),stateMatch.index+80).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim():null;
+              if(stateMatch) pageEvidence.push({school_id:school.id,school_name:school.name,orgShortCode:school.orgShortCode,httpStatus:response.status,arkansasAddress:true,addressSnippet});
+            } catch {}
+          }
+
           console.log(JSON.stringify({
             targets:schools.length,
             publicFeatures:gis.publicFeatures.length,
@@ -44,6 +72,8 @@ jobs:
             matched:result.matched.length,
             ratio:Number((result.matched.length/schools.length).toFixed(4)),
             unresolved:result.unresolved,
-            ambiguous:result.ambiguous
+            ambiguous:result.ambiguous,
+            nearest,
+            dragonFlyArkansasPageEvidence:pageEvidence
           },null,2));
           JS
