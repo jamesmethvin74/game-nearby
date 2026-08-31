@@ -1,6 +1,6 @@
 const TEAM_STATUS = {
   "conway|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
-  "conway|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
+  "conway|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"6A Central"},
   "conway|basketball|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
   "conway|basketball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
   "uca|football|men":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"UAC"},
@@ -15,6 +15,7 @@ const TEAM_STATUS = {
   "greenbrier|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
   "greenbrier|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
   "vilonia|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
+  "vilonia|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
   "mayflower|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"4A Region 2"},
   "maumelle|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"}
 };
