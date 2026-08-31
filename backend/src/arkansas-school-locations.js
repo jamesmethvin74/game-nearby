@@ -8,6 +8,26 @@ const LAYERS=[
   {id:37,source:"arkansas-gis-private"}
 ];
 
+// These are documented current/legacy Arkansas school-name bridges, not fuzzy matches.
+// Every row names one specific current GIS school and city. Duplicate/uncertain identities
+// (Benton duplicate orgs, Mansfield transition, Ozark duplicates, Trinity, Westside, etc.)
+// intentionally remain quarantined.
+const OFFICIAL_ARKANSAS_ALIASES=[
+  {input:"Batesville High School",official:"Batesville High School Charter",city:"Batesville"},
+  {input:"Central West Helena",official:"Central High School",city:"West Helena"},
+  {input:"HARMONY GROVE HIGH SCHOOL - HASKELL",official:"Harmony Grove High School",city:"Benton"},
+  {input:"Harmony Grove High School (Camden)",official:"Harmony Grove High School",city:"Camden"},
+  {input:"IZARD CO. CONS. HIGH SCHOOL",official:"Izard County Consolidated High School",city:"Brockwell"},
+  {input:"Lakeside High School (Hot Springs)",official:"Lakeside High School",city:"Hot Springs"},
+  {input:"LEE COUNTY HIGH SCHOOL",official:"Lee High School",city:"Marianna"},
+  {input:"Little Rock Central High School",official:"Central High School",city:"Little Rock"},
+  {input:"Morrilton Sr. High School (7-12 athletics)",official:"Morrilton Senior High School",city:"Morrilton"},
+  {input:"MOUNTAIN HOME HIGH SCHOOL",official:"Mountain Home High School (Career Academies)",city:"Mountain Home"},
+  {input:"NEWPORT HIGH SCHOOL",official:"The Academies At Newport High School",city:"Newport"},
+  {input:"Rivercrest High School",official:"Academies At Rivercrest High School",city:"Wilson"},
+  {input:"West Memphis High School",official:"The Academies Of West Memphis Charter School",city:"West Memphis"}
+];
+
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function validCoordinate(latitude,longitude){
   return Number.isFinite(latitude) && Number.isFinite(longitude)
@@ -19,6 +39,10 @@ function normalizedNameInput(value){
     .replace(/[–—]/g,"-")
     .replace(/\bH\s*S\b/gi,"High School")
     .replace(/\bschools\b/gi,"school");
+}
+
+function strictSchoolNameKey(value){
+  return normalizedNameInput(value).toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
 }
 
 export function locationNameKey(value){
@@ -94,6 +118,7 @@ function normalizeFeature(feature,source){
     latitude,
     longitude,
     exact_key:locationNameKey(name),
+    strict_key:strictSchoolNameKey(name),
     relaxed_key:relaxedLocationNameKey(name),
     structural_key:structural,
     structural_without_city:removeCityFromCore(structural,city)
@@ -112,7 +137,7 @@ async function fetchLayer(layer,{fetchFn=fetch,pageSize=500}={}){
     url.searchParams.set("resultOffset",String(offset));
     url.searchParams.set("resultRecordCount",String(pageSize));
     url.searchParams.set("f","json");
-    const response=await fetchFn(url.toString(),{headers:{"accept":"application/json","user-agent":"LocalBleachersAR-location-enrichment/2.0"}});
+    const response=await fetchFn(url.toString(),{headers:{"accept":"application/json","user-agent":"LocalBleachersAR-location-enrichment/3.0"}});
     if (!response.ok) throw new Error(`Arkansas GIS layer ${layer.id} returned HTTP ${response.status}`);
     const payload=await response.json();
     if (payload?.error) throw new Error(`Arkansas GIS layer ${layer.id} error: ${payload.error.message||"unknown"}`);
@@ -151,7 +176,7 @@ function indexBy(items,keyName){
 function uniquePhysicalCandidates(candidates){
   const map=new Map();
   for (const candidate of candidates) {
-    const key=[candidate.source,cityKey(candidate.city),candidate.latitude.toFixed(5),candidate.longitude.toFixed(5),candidate.exact_key].join("|");
+    const key=[candidate.source,cityKey(candidate.city),candidate.latitude.toFixed(5),candidate.longitude.toFixed(5),candidate.strict_key||candidate.exact_key].join("|");
     if (!map.has(key)) map.set(key,candidate);
   }
   return [...map.values()];
@@ -170,6 +195,16 @@ function cityAppearsInSchoolName(schoolName,city){
   if (!target || !cityNormalized) return false;
   const targetTokens=new Set(target.split(" "));
   return cityNormalized.split(" ").every(token=>targetTokens.has(token));
+}
+
+function officialAliasCandidate(school,features){
+  const inputKey=strictSchoolNameKey(school.name);
+  const alias=OFFICIAL_ARKANSAS_ALIASES.find(row=>strictSchoolNameKey(row.input)===inputKey);
+  if (!alias) return null;
+  const officialKey=strictSchoolNameKey(alias.official);
+  const city=cityKey(alias.city);
+  const candidates=uniquePhysicalCandidates(features.filter(feature=>feature.strict_key===officialKey && cityKey(feature.city)===city));
+  return candidates.length===1?{candidate:candidates[0],type:"official-alias-city"}:null;
 }
 
 function deterministicStructuralCandidate(school,features,targetCore){
@@ -216,7 +251,10 @@ export function matchArkansasSchoolLocations(schools,features){
     let candidate=null;
     let matchType=null;
 
-    if (exact && targetExactCounts.get(exact)===1) {
+    const official=officialAliasCandidate(school,features);
+    if (official) { candidate=official.candidate; matchType=official.type; }
+
+    if (!candidate && exact && targetExactCounts.get(exact)===1) {
       const candidates=uniquePhysicalCandidates(exactIndex.get(exact)||[]);
       if (candidates.length===1) { candidate=candidates[0]; matchType="exact"; }
       else if (candidates.length>1) {
@@ -244,7 +282,9 @@ export function matchArkansasSchoolLocations(schools,features){
       }
     }
 
-    if (!candidate && relaxed && targetRelaxedCounts.get(relaxed)===1) {
+    // Explicit city qualifiers are safe even when another DragonFly participant happens
+    // to normalize to the same core name; duplicate unqualified names remain quarantined.
+    if (!candidate && relaxed && (targetRelaxedCounts.get(relaxed)===1 || locationQualifier(school.name))) {
       const structural=deterministicStructuralCandidate(school,features,relaxed);
       if (structural) { candidate=structural.candidate; matchType=structural.type; }
     }
@@ -315,7 +355,27 @@ async function applyMatches(env,matches,checkedAt,chunkSize=400){
 async function applyArkansasCatalogScope(env,result,checkedAt){
   const localIds=result.matched.map(row=>row.school_id);
   const opponentOnlyIds=[...result.unresolved,...result.ambiguous].map(row=>row.school_id);
-  const updateIds=async(ids,active)=>{
+
+  const updateSchoolScope=async(ids,scope)=>{
+    if (!ids.length) return;
+    if (scope==="local") {
+      await env.DB.prepare(`WITH input AS (SELECT value AS school_id FROM json_each(?))
+        UPDATE schools SET catalog_scope='local',state='AR',level='high-school',membership_source='arkansas-gis',membership_verified_at=?,updated_at=?
+        WHERE id IN (SELECT school_id FROM input)
+          AND EXISTS (SELECT 1 FROM teams t JOIN sources src ON src.team_id=t.id WHERE t.school_id=schools.id AND src.collection_mode='statewide')`)
+        .bind(JSON.stringify(ids),checkedAt,checkedAt).run();
+    } else {
+      await env.DB.prepare(`WITH input AS (SELECT value AS school_id FROM json_each(?))
+        UPDATE schools SET catalog_scope='opponent-only',state=CASE WHEN id LIKE 'df-%' THEN '' ELSE state END,
+          membership_source='dragonfly-unverified',membership_verified_at=NULL,updated_at=?
+        WHERE id IN (SELECT school_id FROM input)
+          AND EXISTS (SELECT 1 FROM teams t JOIN sources src ON src.team_id=t.id WHERE t.school_id=schools.id AND src.collection_mode='statewide')
+          AND NOT EXISTS (SELECT 1 FROM teams t JOIN sources src ON src.team_id=t.id WHERE t.school_id=schools.id AND src.collection_mode='team')`)
+        .bind(JSON.stringify(ids),checkedAt).run();
+    }
+  };
+
+  const updateTeamActive=async(ids,active)=>{
     if (!ids.length) return;
     await env.DB.prepare(`WITH input AS (SELECT value AS school_id FROM json_each(?))
       UPDATE teams SET active=?,updated_at=?
@@ -325,8 +385,11 @@ async function applyArkansasCatalogScope(env,result,checkedAt){
         AND NOT EXISTS (SELECT 1 FROM sources src WHERE src.team_id=teams.id AND src.collection_mode='team')`)
       .bind(JSON.stringify(ids),active,checkedAt).run();
   };
-  await updateIds(localIds,1);
-  await updateIds(opponentOnlyIds,0);
+
+  await updateSchoolScope(localIds,"local");
+  await updateSchoolScope(opponentOnlyIds,"opponent-only");
+  await updateTeamActive(localIds,1);
+  await updateTeamActive(opponentOnlyIds,0);
 }
 
 export async function syncArkansasSchoolLocations(env,{
