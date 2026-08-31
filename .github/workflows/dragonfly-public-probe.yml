@@ -10,44 +10,36 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe public Arkansas DragonFly feed
+      - name: Probe Arkansas WVB public schedule feed
         shell: bash
         run: |
           set -euo pipefail
           API='https://maxinfosite-api-live.dragonflyathletics.com'
           UA='LocalBleachersAR-public-source-validation/1.0'
-          echo '=== SITE CONFIG ==='
-          curl -L --silent --show-error -A "$UA" -w '\nHTTP=%{http_code}\n' "$API/sites/ArkAA/config" | head -c 12000 || true
-          for YEAR in 2026 2027; do
-            for KEY in FVB_Varsity VB_Varsity GVB_Varsity; do
-              URL="$API/states/ArkAA/schedules/$YEAR/$KEY/0"
-              echo
-              echo "=== $URL ==="
-              CODE=$(curl -L --silent --show-error -A "$UA" -o out.json -w '%{http_code}' "$URL")
-              echo "HTTP=$CODE BYTES=$(wc -c < out.json)"
-              if [ "$CODE" = "200" ]; then
-                python3 - <<'PY'
+          for YEAR in 2025 2026 2027; do
+            URL="$API/states/ArkAA/schedules/$YEAR/WVB_Varsity/0"
+            echo "=== $URL ==="
+            CODE=$(curl -L --silent --show-error -A "$UA" -o out.json -w '%{http_code}' "$URL")
+            echo "HTTP=$CODE BYTES=$(wc -c < out.json)"
+            python3 - <<'PY'
           import json,re
           from pathlib import Path
           p=Path('out.json')
           try:
               x=json.loads(p.read_text())
           except Exception as e:
-              print('NOT_JSON',e); print(p.read_text(errors='replace')[:2000]); raise SystemExit
-          print('TOP', list(x) if isinstance(x,dict) else type(x).__name__)
+              print('NOT_JSON',e); print(p.read_text(errors='replace')[:1200]); raise SystemExit
+          print('TOP',list(x) if isinstance(x,dict) else type(x).__name__)
           if isinstance(x,dict):
-              print('hasNextPage=',x.get('hasNextPage'),'schedule_count=',len(x.get('schedule') or []))
-              s=x.get('schedule') or []
-              if s:
-                  print('FIRST_KEYS',list(s[0]) if isinstance(s[0],dict) else type(s[0]).__name__)
-                  print('FIRST',json.dumps(s[0],separators=(',',':'))[:6000])
+              sched=x.get('schedule') or []
+              print('hasNextPage=',x.get('hasNextPage'),'schedule_count=',len(sched))
+              if sched:
+                  print('FIRST_KEYS',list(sched[0]) if isinstance(sched[0],dict) else type(sched[0]).__name__)
+                  print('FIRST',json.dumps(sched[0],separators=(',',':'))[:7000])
               blob=json.dumps(x,separators=(',',':'))
               for name in ['Greenbrier','Vilonia','Conway']:
-                  m=re.search('.{0,500}'+name+'.{0,1200}',blob,re.I)
-                  if m: print('MATCH',name,m.group(0)[:1800])
+                  hits=list(re.finditer(name,blob,re.I))
+                  print(name,'hits=',len(hits))
+                  for h in hits[:3]: print('MATCH',name,blob[max(0,h.start()-650):h.start()+1500])
           PY
-              else
-                head -c 1200 out.json || true
-              fi
-            done
           done
