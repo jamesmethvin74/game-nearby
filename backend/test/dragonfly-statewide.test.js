@@ -61,25 +61,26 @@ test("bulk JSON SQL upserts execute in SQLite and preserve canonical membership"
   const migrations=fileURLToPath(new URL("../migrations/",import.meta.url));
   for (const file of fs.readdirSync(migrations).filter(name=>name.endsWith(".sql")).sort()) db.exec(fs.readFileSync(`${migrations}/${file}`,"utf8"));
   db.exec(`
-    INSERT OR IGNORE INTO schools(id,name,city,state,level) VALUES
-      ('greenbrier','Greenbrier High School','Greenbrier','AR','high-school'),
-      ('vilonia','Vilonia High School','Vilonia','AR','high-school');
-    INSERT OR IGNORE INTO teams(id,school_id,sport,gender,season,active) VALUES
-      ('gb-team','greenbrier','volleyball','girls','2026',1),
-      ('vil-team','vilonia','volleyball','girls','2026',1);
     INSERT OR IGNORE INTO sources(id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode)
       VALUES
-      ('gb-statewide','gb-team','https://example.test/feed','official-conference',1,'dragonfly-public','4','America/Chicago',1,180,60,0,10,720,'statewide'),
-      ('vil-statewide','vil-team','https://example.test/feed','official-conference',1,'dragonfly-public','4','America/Chicago',1,180,60,0,10,720,'statewide');
+      ('gb-statewide','greenbrier-volleyball-2026','https://example.test/feed','official-conference',1,'dragonfly-public','4','America/Chicago',1,180,60,0,10,720,'statewide'),
+      ('vil-statewide','vilonia-volleyball-2026','https://example.test/feed','official-conference',1,'dragonfly-public','4','America/Chicago',1,180,60,0,10,720,'statewide');
   `);
+  const dbMappings=validationMappings().map(mapping=>({
+    ...mapping,
+    team_id:mapping.school_id==="greenbrier"?"greenbrier-volleyball-2026":"vilonia-volleyball-2026"
+  }));
   const payload=JSON.parse(fs.readFileSync(fixture,"utf8"));
-  const rows=buildStatewideDragonFlyRows(payload,validationMappings(),{checkedAt});
+  const rows=buildStatewideDragonFlyRows(payload,dbMappings,{checkedAt});
   db.prepare(STATEWIDE_SQL.upsertCanonical).run(JSON.stringify(rows.canonicals));
   db.prepare(STATEWIDE_SQL.upsertGames).run(JSON.stringify(rows.games));
   db.prepare(STATEWIDE_SQL.upsertMembers).run(JSON.stringify(rows.members));
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM canonical_events WHERE id=?").get(rows.canonicals[0].id).n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM games WHERE canonical_event_id=?").get(rows.canonicals[0].id).n,2);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM canonical_event_members WHERE canonical_event_id=?").get(rows.canonicals[0].id).n,2);
-  const gb=db.prepare("SELECT status,team_score,opponent_score,result FROM games WHERE team_id='gb-team'").get();
-  assert.deepEqual(gb,{status:"FINAL",team_score:3,opponent_score:0,result:"W"});
+  const gb=db.prepare("SELECT status,team_score,opponent_score,result FROM games WHERE team_id='greenbrier-volleyball-2026'").get();
+  assert.equal(gb.status,"FINAL");
+  assert.equal(gb.team_score,3);
+  assert.equal(gb.opponent_score,0);
+  assert.equal(gb.result,"W");
 });
