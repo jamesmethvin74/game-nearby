@@ -79,7 +79,7 @@ function createContext(fetchImpl) {
   return context;
 }
 
-test("statewide bridge loads the public school catalog and nearby games without hardcoded pilot teams", async () => {
+test("statewide bridge loads catalog and nearby games without replacing the master schedule store", async () => {
   let revision = 1;
   const fetchImpl = async input => {
     const url = new URL(String(input));
@@ -96,6 +96,7 @@ test("statewide bridge loads the public school catalog and nearby games without 
       const games = [{
         id: revision === 1 ? "game-1" : "game-2",
         canonical_event_id: revision === 1 ? "ce-1" : "ce-2",
+        team_id: "df-eureka-volleyball-2026",
         school_id: "df-eureka",
         school_name: "Eureka Springs High School",
         canonical_home_school_id: "df-green-forest",
@@ -118,6 +119,45 @@ test("statewide bridge loads the public school catalog and nearby games without 
       }];
       return jsonResponse({ games });
     }
+    if (url.pathname === "/api/v1/teams/df-eureka-volleyball-2026/schedule") {
+      return jsonResponse({
+        teamId: "df-eureka-volleyball-2026",
+        games: [
+          {
+            id: "team-ce-1",
+            canonical_event_id: "team-ce-1",
+            canonical_home_school_id: "df-eureka",
+            canonical_away_school_id: "df-green-forest",
+            opponent: "Green Forest High School",
+            scheduled_at: "2026-09-08T00:00:00.000Z",
+            scheduled_time_known: 1,
+            home_away: "home",
+            venue: "Eureka Springs High School",
+            latitude: 36.4,
+            longitude: -93.7,
+            status: "SCHEDULED",
+            source_type: "official-conference",
+            parser_type: "dragonfly-public"
+          },
+          {
+            id: "team-ce-2",
+            canonical_event_id: "team-ce-2",
+            canonical_home_school_id: "df-green-forest",
+            canonical_away_school_id: "df-eureka",
+            opponent: "Green Forest High School",
+            scheduled_at: "2026-09-15T00:00:00.000Z",
+            scheduled_time_known: 1,
+            home_away: "away",
+            venue: "Green Forest High School",
+            latitude: 36.3,
+            longitude: -93.4,
+            status: "SCHEDULED",
+            source_type: "official-conference",
+            parser_type: "dragonfly-public"
+          }
+        ]
+      });
+    }
     return jsonResponse({ error: "not_found" }, 404);
   };
 
@@ -130,19 +170,28 @@ test("statewide bridge loads the public school catalog and nearby games without 
   assert.equal(context.SCHOOL_REGISTRY[1].name, "Green Forest High School");
   assert.equal(context.SCHOOL_REGISTRY[2].name, "Valley Springs High School");
   assert.equal(context.SCHOOL_REGISTRY[2].providerName, "VALLEY SPRINGS HIGH SCHOOL");
-  assert.equal(context.teams.some(team => team.id === "df-green-forest"), true);
-  assert.equal(context.teams.find(team => team.id === "df-valley-springs")?.name, "Valley Springs High School");
-  assert.equal(context.events.length, 1);
-  assert.equal(context.events[0].liveData, true);
-  assert.equal(context.events[0].backendCanonicalEventId, "ce-1");
-  assert.deepEqual([...context.events[0].schoolIds].sort(), ["df-eureka", "df-green-forest"]);
-  assert.equal(context.events[0].lat, 36.3293749879);
-  assert.equal(context.events[0].lon, -93.4343223399);
+  assert.equal(context.teams.length, 1, "statewide schools should not be pushed into the legacy badge registry");
+
+  assert.equal(context.events.length, 1, "nearby refresh must not replace the master schedule store");
+  assert.equal(context.events[0].id, "embedded-fallback");
+  let nearby = context.window.LocalBleachersLive.getNearbyEvents();
+  assert.equal(nearby.length, 1);
+  assert.equal(nearby[0].backendCanonicalEventId, "ce-1");
+  assert.deepEqual([...nearby[0].schoolIds].sort(), ["df-eureka", "df-green-forest"]);
 
   revision = 2;
   assert.equal(await context.window.LocalBleachersLive.refreshNearby(), 1);
-  assert.equal(context.events.length, 1, "new nearby response replaces the previous live window");
-  assert.equal(context.events[0].backendCanonicalEventId, "ce-2");
+  assert.equal(context.events[0].id, "embedded-fallback", "a second nearby refresh still must not erase schedules");
+  nearby = context.window.LocalBleachersLive.getNearbyEvents();
+  assert.equal(nearby.length, 1);
+  assert.equal(nearby[0].backendCanonicalEventId, "ce-2");
+
+  const schedule = await context.window.LocalBleachersLive.fetchTeamSchedule("df-eureka");
+  assert.equal(schedule.length, 2, "full team schedule should come from /teams/:id/schedule, not the nearby window");
+  assert.equal(schedule[0].teamId, "df-eureka");
+  assert.equal(schedule[0].team, "Eureka Springs High School");
+  assert.equal(schedule[0].opponent, "Green Forest High School");
+  assert.equal(schedule[1].home, false);
 });
 
 test("statewide bridge preserves embedded fallback data when the API is unavailable", async () => {
@@ -154,5 +203,5 @@ test("statewide bridge preserves embedded fallback data when the API is unavaila
   assert.equal(context.SCHOOL_REGISTRY[0].id, "legacy");
   assert.equal(context.events.length, 1);
   assert.equal(context.events[0].id, "embedded-fallback");
-  assert.equal(context.events[0].liveData, undefined);
+  assert.equal(context.window.LocalBleachersLive.getNearbyEvents().length, 0);
 });

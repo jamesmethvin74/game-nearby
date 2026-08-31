@@ -103,40 +103,60 @@ function schoolChoiceDetail(school) {
   return parts.join(" · ") || "Arkansas school";
 }
 
+function ensureTeamSearchStyle() {
+  if (document.querySelector("#teamSearchFilterStyle")) return;
+  const style = document.createElement("style");
+  style.id = "teamSearchFilterStyle";
+  style.textContent = `.team-choice.team-choice-filtered{display:none!important}.team-search-wrap{position:sticky;top:0;z-index:3;background:var(--pitch-surface,var(--card,#10243d));padding:0 0 10px}.team-search-input{width:100%;box-sizing:border-box;border:1px solid var(--pitch-line,var(--line,#35506b));border-radius:12px;padding:12px 14px;background:var(--pitch-surface-soft,var(--bg-soft,#0b1d31));color:var(--pitch-ink,inherit);font:inherit;outline:none}.team-search-input:focus{border-color:var(--pitch-blue,var(--blue,#4da3ff));box-shadow:0 0 0 2px color-mix(in srgb,var(--pitch-blue,var(--blue,#4da3ff)) 18%,transparent)}`;
+  document.head.appendChild(style);
+}
+
+function filterTeamChoices(search, choices) {
+  const needle = String(search?.value || "").trim().toLowerCase();
+  for (const choice of choices) {
+    const haystack = String(choice.dataset.teamSearch || "").toLowerCase();
+    choice.classList.toggle("team-choice-filtered", Boolean(needle) && !haystack.includes(needle));
+  }
+}
+
 renderTeamChoices = function() {
   if (typeof SCHOOL_REGISTRY === "undefined" || !SCHOOL_REGISTRY.length) {
     teamChoicesEl.innerHTML = `<div class="empty">Loading Arkansas schools…</div>`;
     return;
   }
 
+  ensureTeamSearchStyle();
   const rows = SCHOOL_REGISTRY.map(school => {
-    const searchText = `${school.name} ${school.subtitle || ""} ${school.city || ""} ${school.state || ""}`.toLowerCase();
-    return `<label class="team-choice" data-team-search="${searchText.replace(/"/g, "&quot;")}"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${schoolChoiceDetail(school)}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
+    const searchText = `${school.name} ${school.providerName || ""} ${school.subtitle || ""} ${school.city || ""} ${school.state || ""}`.toLowerCase();
+    return `<label class="team-choice" data-team-search="${searchText.replace(/&/g,"&amp;").replace(/"/g,"&quot;")}"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${schoolChoiceDetail(school)}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
   }).join("");
 
-  teamChoicesEl.innerHTML = `<div style="position:sticky;top:0;z-index:2;background:var(--panel,#0b1d31);padding:0 0 10px"><input id="teamSearchInput" type="search" placeholder="Search Arkansas schools" aria-label="Search Arkansas schools" style="width:100%;box-sizing:border-box;border:1px solid var(--line,#35506b);border-radius:12px;padding:12px 14px;background:var(--surface,#10263d);color:inherit;font:inherit"></div>${rows}`;
+  teamChoicesEl.innerHTML = `<div class="team-search-wrap"><input id="teamSearchInput" class="team-search-input" type="search" autocomplete="off" placeholder="Search Arkansas schools" aria-label="Search Arkansas schools"></div>${rows}`;
 
   const search = teamChoicesEl.querySelector("#teamSearchInput");
   const choices = [...teamChoicesEl.querySelectorAll(".team-choice")];
-  search?.addEventListener("input", () => {
-    const needle = search.value.trim().toLowerCase();
-    for (const choice of choices) {
-      choice.hidden = Boolean(needle) && !String(choice.dataset.teamSearch || "").includes(needle);
-    }
-  });
+  const apply = () => filterTeamChoices(search, choices);
+  search?.addEventListener("input", apply);
+  search?.addEventListener("search", apply);
 };
+
+function homeEventSource() {
+  const live = window.LocalBleachersLive?.getNearbyEvents?.();
+  return Array.isArray(live) && live.length ? live : events;
+}
 
 render = function() {
   const radius = Number(radiusEl.value);
-  const visible = events
+  const visible = homeEventSource()
     .filter(isUpcoming)
+    .filter(isFollowedSchoolEvent)
     .map(e => ({...e, distance:haversineMiles(center,e)}))
     .filter(e => e.distance <= radius && matchesFilter(e))
     .sort((a,b) => new Date(a.date)-new Date(b.date) || a.distance-b.distance);
 
-  // Feature only the next matching game for each followed school.
-  // Every other visible event stays in "Other Games Nearby", even if it
-  // belongs to a followed school. This matches the original app concept.
+  // Home is personal: only games involving schools the user explicitly follows.
+  // The first upcoming game for each followed school is featured; additional
+  // games for those same followed schools appear below it.
   const priority = featuredEventsFor(visible);
   const featuredIds = new Set(priority.map(e => e.id));
   const others = visible.filter(e => !featuredIds.has(e.id));
@@ -149,9 +169,12 @@ render = function() {
 
   otherEventsEl.innerHTML = others.length
     ? others.map(e => eventCard(e)).join("")
-    : `<div class="empty">No other upcoming games match these filters.</div>`;
+    : `<div class="empty">No additional games from your followed schools match these filters.</div>`;
 
   resultCountEl.textContent = `${others.length} event${others.length===1?"":"s"}`;
 };
+
+const otherHeading = otherEventsEl?.closest("section")?.querySelector("h2");
+if (otherHeading) otherHeading.textContent = "More from your teams";
 
 render();

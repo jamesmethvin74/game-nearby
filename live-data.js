@@ -7,6 +7,7 @@
   ).replace(/\/$/, "");
   const DRAGONFLY_VOLLEYBALL_URL = "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
 
+  const nearbyEvents = [];
   const state = {
     apiBase: API_BASE,
     catalogLoadedAt: null,
@@ -47,6 +48,7 @@
       mascot,
       city,
       state: stateCode,
+      level: String(school.level || "high-school"),
       teamCount: Number(school.team_count || 0),
       short: String(displayName || "?").trim().charAt(0).toUpperCase() || "★"
     };
@@ -65,11 +67,12 @@
       SCHOOL_REGISTRY.splice(0, SCHOOL_REGISTRY.length, ...normalized);
     }
 
+    // Keep the legacy badge registry small. The statewide catalog belongs in
+    // SCHOOL_REGISTRY, not in the old hardcoded teams array used by card badges.
     if (typeof teams !== "undefined") {
       for (const school of normalized) {
         const existing = teams.find(team => team.id === school.id);
         if (existing) Object.assign(existing, { name: school.name, short: school.short });
-        else teams.push({ id: school.id, name: school.name, short: school.short });
       }
     }
 
@@ -99,13 +102,15 @@
     return API_BASE;
   }
 
-  function mapNearbyGame(game) {
+  function mapApiGame(game, school = null) {
+    const schoolId = school?.id || game.school_id;
+    const schoolName = school?.name || game.school_name || "Arkansas school";
     const schoolIds = [...new Set([
+      schoolId,
       game.school_id,
       game.canonical_home_school_id,
       game.canonical_away_school_id
     ].filter(Boolean))];
-    const home = game.home_away === "home";
     const date = game.scheduled_at || game.canonical_scheduled_at;
     return {
       id: `live:${game.canonical_event_id || game.id}`,
@@ -114,15 +119,15 @@
       liveData: true,
       dataTrust: game.data_trust || "SINGLE_SOURCE_LIVE",
       sourceConflictCount: Number(game.conflict_count || 0),
-      teamId: game.school_id,
+      teamId: schoolId,
       schoolIds,
-      team: game.school_name || "Arkansas school",
-      sport: game.sport,
-      gender: game.gender || "",
-      level: game.level || "high-school",
+      team: schoolName,
+      sport: game.sport || "volleyball",
+      gender: game.gender || (school?.level === "college" ? "women" : "girls"),
+      level: game.level || school?.level || "high-school",
       opponent: game.opponent || "Opponent TBA",
       date,
-      home,
+      home: game.home_away === "home",
       lat: game.latitude == null ? NaN : Number(game.latitude),
       lon: game.longitude == null ? NaN : Number(game.longitude),
       venue: game.venue || game.canonical_venue || "Venue TBA",
@@ -140,13 +145,15 @@
   }
 
   function applyNearbyGames(games) {
-    if (!Array.isArray(games) || typeof events === "undefined") return false;
+    if (!Array.isArray(games)) return false;
     const mapped = games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
-      .map(mapNearbyGame)
+      .map(game => mapApiGame(game))
       .filter(game => Number.isFinite(game.lat) && Number.isFinite(game.lon));
 
-    events.splice(0, events.length, ...mapped);
+    // Nearby discovery is a view, not the application's master schedule store.
+    // Keeping it separate prevents a radius refresh from erasing team schedules.
+    nearbyEvents.splice(0, nearbyEvents.length, ...mapped);
     state.nearbyCount = mapped.length;
     state.nearbyLoadedAt = new Date().toISOString();
     state.failures.nearby = null;
@@ -178,9 +185,27 @@
     } catch (error) {
       if (requestId !== state.nearbyRequest) return state.nearbyCount;
       state.failures.nearby = String(error?.message || error);
-      console.warn("Statewide nearby games refresh failed; keeping last-known UI data", error);
+      console.warn("Statewide nearby games refresh failed; keeping last-known nearby data", error);
       return state.nearbyCount;
     }
+  }
+
+  function teamIdForSchool(schoolId) {
+    // Statewide volleyball team IDs are deterministic. The curated pilot IDs use
+    // the same pattern, so this works for both old and newly discovered schools.
+    return `${schoolId}-volleyball-2026`;
+  }
+
+  async function fetchTeamSchedule(schoolId) {
+    const school = (typeof SCHOOL_REGISTRY !== "undefined" ? SCHOOL_REGISTRY : []).find(item => item.id === schoolId)
+      || { id: schoolId, name: schoolId, level: "high-school" };
+    const teamId = teamIdForSchool(schoolId);
+    const payload = await fetchJson(`/api/v1/teams/${encodeURIComponent(teamId)}/schedule`, 15000);
+    if (!Array.isArray(payload?.games)) throw new Error("API returned no team schedule");
+    return payload.games
+      .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
+      .map(game => mapApiGame(game, school))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
   }
 
   if (typeof sourceLabel === "function") {
@@ -204,6 +229,8 @@
     },
     refreshCatalog,
     refreshNearby,
+    fetchTeamSchedule,
+    getNearbyEvents: () => nearbyEvents.map(event => ({ ...event, schoolIds: [...event.schoolIds] })),
     getState: () => ({ ...state, failures: { ...state.failures } })
   };
 
