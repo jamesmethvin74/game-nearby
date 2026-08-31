@@ -14,11 +14,20 @@ const base={sport:"volleyball",gender:"girls",season:"2026",timezone:"America/Ch
 const gb={...base,id:"greenbrier-school:vilonia",source_id:"greenbrier-volleyball-official",source_type:"official-school",parser_type:"mascot-media",reporting_school_id:"greenbrier",opponent_school_id:"vilonia",opponent:"Vilonia",scheduled_at:"2026-08-25T21:30:00.000Z",scheduled_time_known:1,home_away:"away",venue:"Vilonia High School",status:"FINAL",team_score:3,opponent_score:0};
 const vil={...base,id:"vilonia-school:greenbrier",source_id:"vilonia-volleyball-official",source_type:"official-school",parser_type:"mascot-media",reporting_school_id:"vilonia",opponent_school_id:"greenbrier",opponent:"Greenbrier",scheduled_at:"2026-08-25T22:30:00.000Z",scheduled_time_known:1,home_away:"home",venue:"Vilonia High School",status:"SCHEDULED",team_score:null,opponent_score:null};
 
-test("normalizes Arkansas school aliases without relying on mascot text",()=>{
+test("normalizes school identity generically and matches mascot forms through school metadata",()=>{
   assert.equal(normalizeSchoolAlias("Conway High School"),"conway");
-  assert.equal(normalizeSchoolAlias("Conway Wampus Cats"),"conway");
-  assert.equal(normalizeSchoolAlias("Greenbrier Panthers"),"greenbrier");
+  assert.equal(normalizeSchoolAlias("Conway Wampus Cats"),"conway wampus cats");
+  assert.equal(normalizeSchoolAlias("Greenbrier Panthers"),"greenbrier panthers");
   assert.equal(normalizeSchoolAlias("Vilonia High School"),"vilonia");
+
+  const identityMatches=(observed,school)=>{
+    const normalized=normalizeSchoolAlias(observed);
+    return normalized===normalizeSchoolAlias(school.name)
+      || normalized===normalizeSchoolAlias(`${school.name} ${school.mascot||""}`);
+  };
+  assert.equal(identityMatches("Conway Wampus Cats",{name:"Conway High School",mascot:"Wampus Cats"}),true);
+  assert.equal(identityMatches("Russellville Cyclones",{name:"Russellville High School",mascot:"Cyclones"}),true);
+  assert.equal(identityMatches("Russellville Panthers",{name:"Russellville High School",mascot:"Cyclones"}),false);
 });
 
 test("reconciles Greenbrier at Vilonia and Vilonia vs Greenbrier as one canonical event",()=>{
