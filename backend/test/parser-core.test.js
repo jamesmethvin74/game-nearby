@@ -36,6 +36,29 @@ test("parses Conway/Mascot Media style schedule row",()=>{
   assert.equal(game.venue,"John McConnell Stadium");
 });
 
+test("parses Vilonia varsity volleyball from the official combined-cell Mascot Media format",()=>{
+  const rows=[{cells:["","Aug 25 / 05:30 PM VS Greenbrier TBD Vilonia, AR, AR","TBD Vilonia, AR, AR","- -"],full:"Aug 25 / 05:30 PM VS Greenbrier TBD Vilonia, AR, AR - -"}];
+  const vilonia={season:"2026",timezone:"America/Chicago",home_venue:"Vilonia High School",home_latitude:35.0839,home_longitude:-92.2029};
+  const [game]=normalizeMascotRows(rows,vilonia);
+  assert.equal(game.opponent,"Greenbrier");
+  assert.equal(game.homeAway,"home");
+  assert.equal(game.venue,"TBD Vilonia, AR, AR");
+  assert.equal(game.status,"SCHEDULED");
+  assert.equal(game.scheduledTimeKnown,true);
+});
+
+test("parses Greenbrier varsity volleyball from the official split-column Mascot Media format",()=>{
+  const rows=[{cells:["Aug 25 4:30 PM @ Vilonia Vilonia Vilonia, AR","Vilonia","W 3 - 0",""],full:"Aug 25 4:30 PM @ Vilonia Vilonia Vilonia, AR W 3 - 0"}];
+  const greenbrier={season:"2026",timezone:"America/Chicago",home_venue:"Greenbrier High School",home_latitude:35.2334,home_longitude:-92.3870};
+  const [game]=normalizeMascotRows(rows,greenbrier);
+  assert.equal(game.opponent,"Vilonia");
+  assert.equal(game.homeAway,"away");
+  assert.equal(game.status,"FINAL");
+  assert.equal(game.result,"W");
+  assert.equal(game.teamScore,3);
+  assert.equal(game.opponentScore,0);
+});
+
 test("keeps a multiword Conway away opponent separate from its field",()=>{
   const rows=[{cells:["","Oct 23 / 7:00 PM AT Pulaski Academy Pulaski Academy Field Little Rock, AR","Pulaski Academy Field Little Rock, AR","- -"],full:"Oct 23 / 7:00 PM AT Pulaski Academy Pulaski Academy Field Little Rock, AR - -"}];
   const conway={season:"2026",timezone:"America/Chicago",home_venue:"John McConnell Stadium",home_latitude:35.0872,home_longitude:-92.4628};

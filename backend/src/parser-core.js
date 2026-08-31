@@ -111,36 +111,56 @@ export function normalizeSidearmRows(rows, source) {
 export function normalizeMascotRows(rows, source) {
   const events=[];
   for (const raw of rows) {
-    const full=cleanText(raw.cells.filter(Boolean).join(" | ") || raw.full);
+    const cells=(raw.cells||[]).map(cleanText);
+    const full=cleanText(cells.filter(Boolean).join(" | ") || raw.full);
     const schedule=buildScheduledAt(full,source.season,source.timezone);
+    if (!schedule) continue;
+
     const relation=full.match(/\b(VS|AT)\s+(.+)/i);
-    if (!schedule || !relation) continue;
-    const homeAway=relation[1].toUpperCase()==="VS"?"home":"away";
-    let tail=relation[2];
+    let homeAway="unknown";
+    let opponent="";
     let venue="";
-    const homeVenue=cleanText(source.home_venue);
-    const siteCell=cleanText(raw.cells?.[2]);
-    const siteVenue=cleanText(siteCell.match(/^(.+?(?:Stadium|Field|Arena|Gymnasium|Gym|Center|Complex))\b/i)?.[1]);
-    for (const candidate of [homeVenue,siteVenue].filter(Boolean)) {
-      const lowerTail=tail.toLowerCase();
-      const venueIndex=lowerTail.indexOf(candidate.toLowerCase());
-      if (venueIndex>=0) {
-        venue=candidate;
-        tail=tail.slice(0,venueIndex);
-        break;
+
+    if (relation) {
+      homeAway=relation[1].toUpperCase()==="VS"?"home":"away";
+      let tail=relation[2];
+      const homeVenue=cleanText(source.home_venue);
+      const siteCell=cleanText(cells[2]);
+      const siteVenue=cleanText(siteCell.match(/^(.+?(?:Stadium|Field|Arena|Gymnasium|Gym|Center|Complex))\b/i)?.[1]);
+      for (const candidate of [homeVenue,siteCell,siteVenue].filter(Boolean)) {
+        const venueIndex=tail.toLowerCase().indexOf(candidate.toLowerCase());
+        if (venueIndex>=0) {
+          venue=siteVenue || (candidate===siteCell?siteCell:candidate);
+          tail=tail.slice(0,venueIndex);
+          break;
+        }
+      }
+      if (!venue) {
+        const venueMatch=tail.match(/\s+((?:[A-Za-z0-9.&'()-]+\s+){0,3}[A-Za-z0-9.&'()-]+\s+(?:Stadium|Field|Arena|Gymnasium|Gym|Center|Complex))\b/i);
+        if (venueMatch) {
+          venue=cleanText(venueMatch[1]);
+          tail=tail.slice(0,venueMatch.index);
+        }
+      }
+      opponent=cleanText(tail.replace(/\s+-\s+-.*$/,"").replace(/\|.*$/, ""));
+    } else {
+      // Newer Mascot Media tables split date/location, opponent and result into
+      // separate cells and use "@" instead of the literal "AT" token.
+      const dateLocation=cleanText(cells[0]);
+      opponent=cleanText(cells[1]);
+      if (!opponent || /^(opponent|results?)$/i.test(opponent)) continue;
+      homeAway=/(?:^|\s)@\s+/i.test(dateLocation)?"away":"home";
+      if (homeAway==="home") venue=cleanText(source.home_venue);
+      else {
+        const awaySite=dateLocation.match(/@\s+(.+?)(?:\s+[A-Za-z .'-]+,\s*[A-Z]{2}\b|\s+[WLT]\s*\d+\s*[-–]\s*\d+|$)/i);
+        venue=cleanText(awaySite?.[1]);
       }
     }
-    if (!venue) {
-      const venueMatch=tail.match(/\s+((?:[A-Za-z0-9.&'()-]+\s+){0,3}[A-Za-z0-9.&'()-]+\s+(?:Stadium|Field|Arena|Gymnasium|Gym|Center|Complex))\b/i);
-      if (venueMatch) {
-        venue=cleanText(venueMatch[1]);
-        tail=tail.slice(0,venueMatch.index);
-      }
-    }
-    let opponent=cleanText(tail.replace(/\s+-\s+-.*$/,"").replace(/\|.*$/, ""));
+
     if (!opponent) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
-    const result=parseResult(raw.cells.at(-1) || full);
+    const resultText=[...cells].reverse().find(Boolean) || full;
+    const result=parseResult(resultText);
     const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition)\b/i.test(full);
     events.push({
       nativeId:raw.nativeId||"", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,

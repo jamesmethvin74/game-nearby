@@ -1,0 +1,28 @@
+name: Backend check
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "live-data.js"
+      - "polish.js"
+      - ".github/workflows/backend-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "live-data.js"
+      - "polish.js"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run check
