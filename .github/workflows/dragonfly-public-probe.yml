@@ -10,18 +10,21 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect public Arkansas DragonFly schedule
+      - name: Inspect public Arkansas DragonFly bundle
         shell: bash
         run: |
           set -euo pipefail
+          BASE='https://ar.dragonflyathletics.com/'
           URL='https://ar.dragonflyathletics.com/sites/ArkAA/schedules?level=Varsity&sport=VB&team=F'
-          curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -D headers.txt -o page.html "$URL"
-          echo '=== HEADERS ==='
-          sed -n '1,80p' headers.txt
-          echo '=== SIZE ==='
-          wc -c page.html
-          echo '=== SCHOOL MATCHES ==='
-          grep -ioE '.{0,80}(Greenbrier|Vilonia|Conway).{0,120}' page.html | head -40 || true
-          echo '=== API/ASSET HINTS ==='
-          grep -oE '(src|href)="[^"]+\.(js|json)[^"]*"' page.html | head -40 || true
-          grep -ioE '.{0,100}(api|schedule|event|game).{0,140}' page.html | head -80 || true
+          curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -o page.html "$URL"
+          MAIN=$(grep -oE 'src="main\.[^"]+\.js"' page.html | head -1 | cut -d'"' -f2)
+          echo "MAIN=$MAIN"
+          curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -o main.js "${BASE}${MAIN}"
+          echo '=== BUNDLE SIZE ==='
+          wc -c main.js
+          echo '=== DRAGONFLY/API URLS ==='
+          grep -oE 'https?://[^"'"'"' ]+' main.js | grep -Ei 'dragonfly|api' | sort -u | head -80 || true
+          echo '=== SCHEDULE/GAME ENDPOINT HINTS ==='
+          grep -ioE '.{0,140}(schedule|events|games|contest).{0,220}' main.js | head -120 || true
+          echo '=== API CONFIG HINTS ==='
+          grep -ioE '.{0,140}(apiurl|api_url|baseurl|base_url|trainingapi|productionapi|publicapi).{0,220}' main.js | head -100 || true
