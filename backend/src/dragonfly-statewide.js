@@ -1,5 +1,5 @@
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
-import { collectionSafety, dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.js";
+import { collectionSafety, dateKeyInZone } from "./schedule-authority-core.js";
 
 const STATE_ID="dragonfly:ArkAA:2026:WVB_Varsity";
 const DEFAULT_FEED="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
@@ -127,54 +127,62 @@ export function buildStatewideDragonFlyRows(payload,mappings,{checkedAt=new Date
   return {games,canonicals,members,sourceCounts:counts,rawEventCount:schedule.length};
 }
 
-const UPSERT_GAMES_SQL=`
-  INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id)
-  SELECT
-    json_extract(value,'$.id'),json_extract(value,'$.team_id'),json_extract(value,'$.source_id'),json_extract(value,'$.source_event_key'),
-    json_extract(value,'$.opponent'),json_extract(value,'$.opponent_school_id'),json_extract(value,'$.scheduled_at'),json_extract(value,'$.scheduled_time_known'),
-    json_extract(value,'$.venue'),json_extract(value,'$.location_text'),json_extract(value,'$.latitude'),json_extract(value,'$.longitude'),
-    json_extract(value,'$.home_away'),json_extract(value,'$.conference_game'),json_extract(value,'$.counts_for_record'),json_extract(value,'$.status'),
-    json_extract(value,'$.team_score'),json_extract(value,'$.opponent_score'),json_extract(value,'$.result'),json_extract(value,'$.notes'),
-    json_extract(value,'$.source_url'),json_extract(value,'$.source_updated_at'),json_extract(value,'$.last_checked_at'),json_extract(value,'$.updated_at'),json_extract(value,'$.canonical_event_id')
-  FROM json_each(?) WHERE 1
-  ON CONFLICT(source_id,source_event_key) DO UPDATE SET
-    opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
-    venue=excluded.venue,location_text=excluded.location_text,latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),
-    home_away=excluded.home_away,conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
-    team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,source_url=excluded.source_url,
-    source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at,canonical_event_id=excluded.canonical_event_id`;
+export const STATEWIDE_SQL={
+  upsertGames:`
+    INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id)
+    SELECT
+      json_extract(value,'$.id'),json_extract(value,'$.team_id'),json_extract(value,'$.source_id'),json_extract(value,'$.source_event_key'),
+      json_extract(value,'$.opponent'),json_extract(value,'$.opponent_school_id'),json_extract(value,'$.scheduled_at'),json_extract(value,'$.scheduled_time_known'),
+      json_extract(value,'$.venue'),json_extract(value,'$.location_text'),json_extract(value,'$.latitude'),json_extract(value,'$.longitude'),
+      json_extract(value,'$.home_away'),json_extract(value,'$.conference_game'),json_extract(value,'$.counts_for_record'),json_extract(value,'$.status'),
+      json_extract(value,'$.team_score'),json_extract(value,'$.opponent_score'),json_extract(value,'$.result'),json_extract(value,'$.notes'),
+      json_extract(value,'$.source_url'),json_extract(value,'$.source_updated_at'),json_extract(value,'$.last_checked_at'),json_extract(value,'$.updated_at'),json_extract(value,'$.canonical_event_id')
+    FROM json_each(?) WHERE 1
+    ON CONFLICT(source_id,source_event_key) DO UPDATE SET
+      opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
+      venue=excluded.venue,location_text=excluded.location_text,latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),
+      home_away=excluded.home_away,conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
+      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,source_url=excluded.source_url,
+      source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at,canonical_event_id=excluded.canonical_event_id`,
+  upsertCanonical:`
+    INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
+    SELECT
+      json_extract(value,'$.id'),json_extract(value,'$.sport'),json_extract(value,'$.gender'),json_extract(value,'$.season'),
+      json_extract(value,'$.participant_a_school_id'),json_extract(value,'$.participant_b_school_id'),json_extract(value,'$.home_school_id'),json_extract(value,'$.away_school_id'),
+      json_extract(value,'$.scheduled_at'),json_extract(value,'$.scheduled_time_known'),json_extract(value,'$.venue'),json_extract(value,'$.location_text'),
+      json_extract(value,'$.latitude'),json_extract(value,'$.longitude'),json_extract(value,'$.conference_game'),json_extract(value,'$.status'),
+      json_extract(value,'$.home_score'),json_extract(value,'$.away_score'),json_extract(value,'$.selected_source_id'),json_extract(value,'$.trust_state'),
+      json_extract(value,'$.conflict_count'),json_extract(value,'$.resolution_json'),json_extract(value,'$.last_reconciled_at'),json_extract(value,'$.updated_at')
+    FROM json_each(?) WHERE 1
+    ON CONFLICT(id) DO UPDATE SET
+      home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
+      venue=COALESCE(excluded.venue,canonical_events.venue),location_text=COALESCE(excluded.location_text,canonical_events.location_text),
+      latitude=COALESCE(excluded.latitude,canonical_events.latitude),longitude=COALESCE(excluded.longitude,canonical_events.longitude),conference_game=excluded.conference_game,
+      status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
+      trust_state=CASE WHEN canonical_events.trust_state='CONFLICT' THEN 'CONFLICT' ELSE excluded.trust_state END,
+      conflict_count=CASE WHEN canonical_events.conflict_count>excluded.conflict_count THEN canonical_events.conflict_count ELSE excluded.conflict_count END,
+      resolution_json=CASE WHEN canonical_events.trust_state='CONFLICT' THEN canonical_events.resolution_json ELSE excluded.resolution_json END,
+      last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`,
+  upsertMembers:`
+    INSERT OR REPLACE INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at)
+    SELECT json_extract(value,'$.canonical_event_id'),json_extract(value,'$.game_id'),json_extract(value,'$.source_id'),json_extract(value,'$.reporting_team_id'),json_extract(value,'$.added_at')
+    FROM json_each(?)`
+};
 
-const UPSERT_CANONICAL_SQL=`
-  INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
-  SELECT
-    json_extract(value,'$.id'),json_extract(value,'$.sport'),json_extract(value,'$.gender'),json_extract(value,'$.season'),
-    json_extract(value,'$.participant_a_school_id'),json_extract(value,'$.participant_b_school_id'),json_extract(value,'$.home_school_id'),json_extract(value,'$.away_school_id'),
-    json_extract(value,'$.scheduled_at'),json_extract(value,'$.scheduled_time_known'),json_extract(value,'$.venue'),json_extract(value,'$.location_text'),
-    json_extract(value,'$.latitude'),json_extract(value,'$.longitude'),json_extract(value,'$.conference_game'),json_extract(value,'$.status'),
-    json_extract(value,'$.home_score'),json_extract(value,'$.away_score'),json_extract(value,'$.selected_source_id'),json_extract(value,'$.trust_state'),
-    json_extract(value,'$.conflict_count'),json_extract(value,'$.resolution_json'),json_extract(value,'$.last_reconciled_at'),json_extract(value,'$.updated_at')
-  FROM json_each(?) WHERE 1
-  ON CONFLICT(id) DO UPDATE SET
-    home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
-    venue=COALESCE(excluded.venue,canonical_events.venue),location_text=COALESCE(excluded.location_text,canonical_events.location_text),
-    latitude=COALESCE(excluded.latitude,canonical_events.latitude),longitude=COALESCE(excluded.longitude,canonical_events.longitude),conference_game=excluded.conference_game,
-    status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
-    trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`;
-
-const UPSERT_MEMBERS_SQL=`
-  INSERT OR REPLACE INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at)
-  SELECT json_extract(value,'$.canonical_event_id'),json_extract(value,'$.game_id'),json_extract(value,'$.source_id'),json_extract(value,'$.reporting_team_id'),json_extract(value,'$.added_at')
-  FROM json_each(?)`;
+async function runJsonChunks(env,sql,rows,chunkSize){
+  for (let i=0;i<rows.length;i+=chunkSize) await env.DB.prepare(sql).bind(JSON.stringify(rows.slice(i,i+chunkSize))).run();
+}
 
 export async function runDragonFlyStatewideCollection(env,{
-  payload=null,feedUrl=DEFAULT_FEED,stateId=STATE_ID,fetchFn=fetch,now=new Date(),expectedMinEvents=1000
+  payload=null,feedUrl=DEFAULT_FEED,stateId=STATE_ID,fetchFn=fetch,now=new Date(),expectedMinEvents=1000,
+  minimumMappings=100,minimumCanonicalEvents=500,minimumObservations=1000,chunkSize=400
 }={}){
   const checkedAt=now.toISOString();
   try {
     let workingPayload=payload;
     let pagesFetched=null;
     if (!workingPayload) {
-      const fetched=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-statewide/1.0","accept":"application/json"}});
+      const fetched=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-statewide/2.0","accept":"application/json"}});
       workingPayload=fetched.payload; pagesFetched=fetched.pageCount;
     }
     const prior=await env.DB.prepare("SELECT last_event_count FROM statewide_collection_state WHERE id=?").bind(stateId).first();
@@ -190,15 +198,17 @@ export async function runDragonFlyStatewideCollection(env,{
       JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public'
       WHERE tei.provider='dragonfly' AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
         AND src.collection_mode='statewide'`).all();
-    if (mappings.length<100) throw new Error(`Only ${mappings.length} statewide DragonFly team mappings are available`);
+    if (mappings.length<minimumMappings) throw new Error(`Only ${mappings.length} statewide DragonFly team mappings are available`);
 
     const rows=buildStatewideDragonFlyRows(workingPayload,mappings,{checkedAt});
-    if (rows.canonicals.length<500 || rows.games.length<1000) throw new Error(`Statewide normalization suspicious: ${rows.canonicals.length} canonical events / ${rows.games.length} observations`);
+    if (rows.canonicals.length<minimumCanonicalEvents || rows.games.length<minimumObservations) {
+      throw new Error(`Statewide normalization suspicious: ${rows.canonicals.length} canonical events / ${rows.games.length} observations`);
+    }
     const sourceHealth=[...new Set(mappings.map(mapping=>mapping.source_id))].map(sourceId=>({id:sourceId,game_count:rows.sourceCounts.get(sourceId)||0}));
 
-    await env.DB.prepare(UPSERT_CANONICAL_SQL).bind(JSON.stringify(rows.canonicals)).run();
-    await env.DB.prepare(UPSERT_GAMES_SQL).bind(JSON.stringify(rows.games)).run();
-    await env.DB.prepare(UPSERT_MEMBERS_SQL).bind(JSON.stringify(rows.members)).run();
+    await runJsonChunks(env,STATEWIDE_SQL.upsertCanonical,rows.canonicals,chunkSize);
+    await runJsonChunks(env,STATEWIDE_SQL.upsertGames,rows.games,chunkSize);
+    await runJsonChunks(env,STATEWIDE_SQL.upsertMembers,rows.members,chunkSize);
     await env.DB.prepare(`UPDATE games SET status='CANCELED',team_score=NULL,opponent_score=NULL,result=NULL,
         notes=CASE WHEN notes IS NULL OR notes='' THEN 'Removed from current statewide DragonFly schedule' ELSE notes || ' · Removed from current statewide DragonFly schedule' END,
         last_checked_at=?,updated_at=?
@@ -224,7 +234,7 @@ export async function runDragonFlyStatewideCollection(env,{
       ON CONFLICT(team_id) DO UPDATE SET wins=excluded.wins,losses=excluded.losses,ties=excluded.ties,
         conference_wins=excluded.conference_wins,conference_losses=excluded.conference_losses,conference_ties=excluded.conference_ties,calculated_at=excluded.calculated_at`).bind(checkedAt).run();
 
-    const details={pagesFetched,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length};
+    const details={pagesFetched,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,chunkSize};
     await env.DB.prepare(`INSERT INTO statewide_collection_state
       (id,provider,feed_url,last_checked_at,last_successful_fetch_at,last_event_count,last_observation_count,last_source_count,consecutive_failures,last_error,details_json,updated_at)
       VALUES(?,'dragonfly',?,?,?,?,?,?,0,NULL,?,?)
@@ -232,7 +242,7 @@ export async function runDragonFlyStatewideCollection(env,{
         last_event_count=excluded.last_event_count,last_observation_count=excluded.last_observation_count,last_source_count=excluded.last_source_count,
         consecutive_failures=0,last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at`)
       .bind(stateId,feedUrl,checkedAt,checkedAt,rawEventCount,rows.games.length,sourceHealth.length,JSON.stringify(details),checkedAt).run();
-    return {status:"SUCCESS",rawEventCount,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,pagesFetched};
+    return {status:"SUCCESS",rawEventCount,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,pagesFetched,chunkSize};
   } catch(error) {
     const message=String(error?.message||error).slice(0,1000);
     await env.DB.prepare(`INSERT INTO statewide_collection_state(id,provider,feed_url,last_checked_at,consecutive_failures,last_error,updated_at)
