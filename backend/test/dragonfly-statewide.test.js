@@ -56,7 +56,7 @@ test("external team ids disambiguate schools with the same display name",()=>{
   assert.match(rows.canonicals[0].id,/benton-a-school:benton-b-school/);
 });
 
-test("bulk JSON SQL upserts execute in SQLite and preserve canonical membership",()=>{
+test("bulk JSON SQL upserts execute in SQLite, preserve membership, and give both perspectives the canonical venue point",()=>{
   const db=new DatabaseSync(":memory:");
   const migrations=fileURLToPath(new URL("../migrations/",import.meta.url));
   for (const file of fs.readdirSync(migrations).filter(name=>name.endsWith(".sql")).sort()) db.exec(fs.readFileSync(`${migrations}/${file}`,"utf8"));
@@ -78,9 +78,14 @@ test("bulk JSON SQL upserts execute in SQLite and preserve canonical membership"
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM canonical_events WHERE id=?").get(rows.canonicals[0].id).n,1);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM games WHERE canonical_event_id=?").get(rows.canonicals[0].id).n,2);
   assert.equal(db.prepare("SELECT COUNT(*) AS n FROM canonical_event_members WHERE canonical_event_id=?").get(rows.canonicals[0].id).n,2);
-  const gb=db.prepare("SELECT status,team_score,opponent_score,result FROM games WHERE team_id='greenbrier-volleyball-2026'").get();
+  const gb=db.prepare("SELECT status,team_score,opponent_score,result,latitude,longitude FROM games WHERE team_id='greenbrier-volleyball-2026'").get();
   assert.equal(gb.status,"FINAL");
   assert.equal(gb.team_score,3);
   assert.equal(gb.opponent_score,0);
   assert.equal(gb.result,"W");
+  assert.equal(gb.latitude,35.0839);
+  assert.equal(gb.longitude,-92.2029);
+  const vil=db.prepare("SELECT latitude,longitude FROM games WHERE team_id='vilonia-volleyball-2026'").get();
+  assert.equal(vil.latitude,35.0839);
+  assert.equal(vil.longitude,-92.2029);
 });
