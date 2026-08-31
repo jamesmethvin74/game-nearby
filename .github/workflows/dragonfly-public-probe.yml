@@ -43,7 +43,7 @@ jobs:
 
           const url='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
           const {payload,pageCount}=await fetchDragonFlyPagedPayload(url,{
-            headers:{'user-agent':'LocalBleachersAR-public-source-validation/5.0','accept':'application/json'}
+            headers:{'user-agent':'LocalBleachersAR-public-source-validation/5.1','accept':'application/json'}
           });
           assert.ok(pageCount > 1, `expected paginated statewide feed, got ${pageCount} page`);
           assert.ok(payload.schedule.length > 1000, `suspicious statewide schedule count ${payload.schedule.length}`);
@@ -51,6 +51,9 @@ jobs:
           const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
           const discoveredSchools=new Set(discovered.map(entry=>entry.orgShortCode));
           const ambiguous=catalogAmbiguities(discovered);
+          const ambiguousEntries=discovered
+            .filter(entry=>ambiguous.has(entry.normalizedSchoolName))
+            .map(entry=>({name:entry.schoolName,orgShortCode:entry.orgShortCode,teamId:entry.teamId,eventCount:entry.eventCount}));
           assert.ok(discovered.length > 100, `suspicious varsity volleyball team count ${discovered.length}`);
           assert.ok(discoveredSchools.size > 100, `suspicious school count ${discoveredSchools.size}`);
           assert.ok(discovered.every(entry=>entry.orgShortCode && entry.teamId && entry.schoolName),'discovery produced an incomplete external identity');
@@ -126,6 +129,7 @@ jobs:
             discoveredSchools:discoveredSchools.size,
             ambiguousNames:ambiguous.size,
             ambiguousKeys:[...ambiguous].sort(),
+            ambiguousEntries,
             conwayEvents:conway.length,
             greenbrierEvents:greenbrier.length,
             viloniaEvents:vilonia.length,
