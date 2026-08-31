@@ -4,9 +4,10 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
   normalizeSchoolAlias, canonicalCandidateKey, observationsLikelySameEvent,
-  detectEventConflicts, resolveCanonicalEvent, deriveSourceHealth
+  detectEventConflicts, resolveCanonicalEvent, deriveSourceHealth, collectionSafety
 } from "../src/schedule-authority-core.js";
 import { normalizeDragonFlyPayload, normalizeDragonFlyPublicText } from "../src/dragonfly-core.js";
+import { dragonFlyFeedBaseUrl, dragonFlyPageUrl, fetchDragonFlyPagedPayload } from "../src/dragonfly-feed.js";
 
 const fixtureDir=fileURLToPath(new URL("./fixtures/",import.meta.url));
 const base={sport:"volleyball",gender:"girls",season:"2026",timezone:"America/Chicago"};
@@ -78,6 +79,51 @@ test("parses a structured public DragonFly event without authentication data",()
   assert.match(game.sourceEventKey,/native:public-game-1/);
 });
 
+test("parses the captured real Greenbrier-Vilonia DragonFly event from both perspectives",()=>{
+  const payload=JSON.parse(fs.readFileSync(`${fixtureDir}/dragonfly-greenbrier-vilonia-2026.json`,"utf8"));
+  const greenbrierSource={...base,school_name:"Greenbrier High School",home_latitude:35.2334,home_longitude:-92.3870};
+  const viloniaSource={...base,school_name:"Vilonia High School",home_latitude:35.0839,home_longitude:-92.2029};
+  const [greenbrier]=normalizeDragonFlyPayload(payload,greenbrierSource);
+  const [vilonia]=normalizeDragonFlyPayload(payload,viloniaSource);
+  assert.equal(greenbrier.sourceEventKey,"native:69cbc6e2a49cc05727000000");
+  assert.equal(vilonia.sourceEventKey,greenbrier.sourceEventKey);
+  assert.equal(greenbrier.scheduledAt,"2026-08-25T22:30:00.000Z");
+  assert.equal(greenbrier.opponent,"VILONIA HIGH SCHOOL");
+  assert.equal(greenbrier.homeAway,"away");
+  assert.equal(greenbrier.status,"FINAL");
+  assert.equal(greenbrier.result,"W");
+  assert.equal(greenbrier.teamScore,3);
+  assert.equal(vilonia.opponent,"GREENBRIER HIGH SCHOOL");
+  assert.equal(vilonia.homeAway,"home");
+  assert.equal(vilonia.status,"FINAL");
+  assert.equal(vilonia.result,"L");
+  assert.equal(vilonia.teamScore,0);
+});
+
+test("walks every DragonFly page and deduplicates overlapping event ids",async()=>{
+  const calls=[];
+  const pages=[
+    {timestamp:"2026-08-31T17:00:00Z",hasNextPage:true,schedule:[{eventId:"a"}]},
+    {timestamp:"2026-08-31T17:01:00Z",hasNextPage:false,schedule:[{eventId:"a"},{eventId:"b"}]}
+  ];
+  const fetchFn=async url=>{
+    calls.push(url);
+    const payload=pages[calls.length-1];
+    return {ok:true,status:200,json:async()=>payload};
+  };
+  const sourceUrl="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
+  const result=await fetchDragonFlyPagedPayload(sourceUrl,{fetchFn});
+  assert.equal(dragonFlyFeedBaseUrl(sourceUrl),"https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity");
+  assert.equal(dragonFlyPageUrl(sourceUrl,1),"https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/1");
+  assert.deepEqual(calls,[
+    "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0",
+    "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/1"
+  ]);
+  assert.equal(result.pageCount,2);
+  assert.deepEqual(result.payload.schedule.map(event=>event.eventId),["a","b"]);
+  assert.equal(result.payload.timestamp,"2026-08-31T17:01:00Z");
+});
+
 test("parses the captured current public DragonFly schedule-card text format",()=>{
   const text=fs.readFileSync(`${fixtureDir}/dragonfly-bauxite-public.txt`,"utf8");
   const source={sport:"basketball",gender:"boys",season:"2026",timezone:"America/Chicago",school_name:"Bauxite High School",home_venue:"Bauxite High School",home_latitude:34.55,home_longitude:-92.52};
@@ -87,6 +133,17 @@ test("parses the captured current public DragonFly schedule-card text format",()
   assert.equal(games[0].homeAway,"home");
   assert.equal(games[1].opponent,"Mountain Pine");
   assert.equal(games[1].homeAway,"away");
+});
+
+test("collection safety rejects suspicious shrinkage so last-known-good data is retained",()=>{
+  const tooFew=collectionSafety({parsedCount:3,expectedMinGames:5,priorCount:20});
+  assert.equal(tooFew.safe,false);
+  assert.match(tooFew.reason,/Last known good data retained/);
+  const suspiciousDrop=collectionSafety({parsedCount:14,expectedMinGames:5,priorCount:20});
+  assert.equal(suspiciousDrop.safe,false);
+  assert.match(suspiciousDrop.reason,/refusing destructive reconciliation/);
+  const healthy=collectionSafety({parsedCount:18,expectedMinGames:5,priorCount:20});
+  assert.equal(healthy.safe,true);
 });
 
 test("derives source health states from freshness, failures and conflicts",()=>{
