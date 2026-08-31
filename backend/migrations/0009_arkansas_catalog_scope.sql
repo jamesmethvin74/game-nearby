@@ -12,3 +12,18 @@ UPDATE schools
 SET catalog_scope='local',
     membership_source=COALESCE(membership_source,'curated-local')
 WHERE catalog_scope='local';
+
+-- DragonFly schedule participation alone is not evidence that an organization is an
+-- Arkansas high school. Newly generated df-* rows stay internal until an Arkansas
+-- location authority verifies them.
+CREATE TRIGGER IF NOT EXISTS trg_dragonfly_school_starts_unverified
+AFTER INSERT ON schools
+WHEN NEW.id LIKE 'df-%'
+BEGIN
+  UPDATE schools
+  SET catalog_scope='unknown',
+      state='',
+      membership_source='dragonfly-participant',
+      membership_verified_at=NULL
+  WHERE id=NEW.id;
+END;
