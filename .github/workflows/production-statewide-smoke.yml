@@ -1,0 +1,101 @@
+name: Production statewide smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/production-statewide-smoke.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Wait for statewide production catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          rm -f schools.json
+
+          for attempt in $(seq 1 20); do
+            echo "Catalog attempt ${attempt}/20"
+            code=$(curl -sS --max-time 180 -o schools.tmp -w '%{http_code}' "$API/api/v1/schools" || true)
+            if [ "$code" = "200" ]; then
+              count=$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("schools.tmp","utf8")); console.log(Array.isArray(p.schools)?p.schools.length:0)')
+              echo "Visible schools: $count"
+              if [ "$count" -ge 100 ]; then
+                mv schools.tmp schools.json
+                break
+              fi
+            else
+              echo "HTTP $code"
+            fi
+            sleep 15
+          done
+
+          test -f schools.json
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('schools.json','utf8'));
+          const schools = Array.isArray(payload.schools) ? payload.schools : [];
+          if (schools.length < 100) throw new Error(`Expected at least 100 visible statewide schools, got ${schools.length}`);
+          for (const name of ['Green Forest High School','Eureka Springs High School']) {
+            if (!schools.some(s => s.name === name)) throw new Error(`Missing production school: ${name}`);
+          }
+          console.log(`Production statewide catalog verified with ${schools.length} visible schools.`);
+          NODE
+
+      - name: Prove real non-pilot nearby game
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS --max-time 60 \
+            "$API/api/v1/games?lat=36.329374987912615&lon=-93.43432233996029&radius=5&since=2026-08-20T00%3A00%3A00.000Z&until=2026-08-22T00%3A00%3A00.000Z" \
+            -o nearby.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('nearby.json','utf8'));
+          const games = Array.isArray(payload.games) ? payload.games : [];
+          const expected = new Set(['Green Forest High School','Eureka Springs High School']);
+          const match = games.find(game => {
+            const names = new Set([game.school_name, game.opponent]);
+            return [...expected].every(name => names.has(name));
+          });
+          if (!match) throw new Error(`Green Forest/Eureka Springs was not returned by production nearby route. Returned ${games.length} games.`);
+          if (!(Number(match.distance_miles) <= 0.1)) throw new Error(`Expected nearby proof at venue point, got ${match.distance_miles} miles.`);
+          console.log(`Production nearby proof: ${match.school_name} vs ${match.opponent}, distance ${match.distance_miles} miles, canonical ${match.canonical_event_id || match.id}`);
+          NODE
+
+      - name: Verify GitHub Pages serves statewide frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="https://jamesmethvin74.github.io/game-nearby"
+          rm -f live-data.js school-follow-logic.js
+
+          for attempt in $(seq 1 20); do
+            echo "Pages attempt ${attempt}/20"
+            curl -fsS --max-time 30 "$APP/live-data.js?v=45" -o live-data.tmp || true
+            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=45" -o follow.tmp || true
+            if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
+              && grep -q '/api/v1/games?' live-data.tmp 2>/dev/null \
+              && grep -q 'Search Arkansas schools' follow.tmp 2>/dev/null; then
+              mv live-data.tmp live-data.js
+              mv follow.tmp school-follow-logic.js
+              break
+            fi
+            sleep 15
+          done
+
+          test -f live-data.js
+          test -f school-follow-logic.js
+          echo "GitHub Pages statewide frontend verified."
