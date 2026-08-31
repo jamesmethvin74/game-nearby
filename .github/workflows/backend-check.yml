@@ -39,13 +39,17 @@ jobs:
             console.log('APPLIED',file);
           }
           const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row=>row.name);
-          for (const required of ['canonical_events','canonical_event_members','event_conflicts','school_aliases','school_external_identities','team_external_identities','catalog_sync_state','statewide_collection_state']) {
+          for (const required of ['canonical_events','canonical_event_members','event_conflicts','school_aliases','school_external_identities','team_external_identities','catalog_sync_state','statewide_collection_state','school_location_sync_state']) {
             if (!tables.includes(required)) throw new Error(`missing required table ${required}`);
           }
           const sourceColumns=db.prepare("PRAGMA table_info(sources)").all().map(row=>row.name);
           if (!sourceColumns.includes('collection_mode')) throw new Error('sources.collection_mode missing');
+          const schoolColumns=db.prepare("PRAGMA table_info(schools)").all().map(row=>row.name);
+          for (const required of ['address','postal_code','location_source','location_matched_name','location_updated_at']) {
+            if (!schoolColumns.includes(required)) throw new Error(`schools.${required} missing`);
+          }
           const sources=db.prepare("SELECT id,parser_type,authority_rank,expected_min_games,collection_mode FROM sources WHERE parser_type='dragonfly-public' ORDER BY id").all();
           if (sources.length!==3) throw new Error(`expected 3 seeded DragonFly validation sources, found ${sources.length}`);
           if (sources.some(source=>source.authority_rank!==10 || source.expected_min_games<5 || source.collection_mode!=='team')) throw new Error('DragonFly source authority/safety/collection-mode configuration is wrong');
-          console.log('VERIFIED D1 V2 plus statewide discovery schema',sources);
+          console.log('VERIFIED D1 V2 plus statewide discovery/location schema',sources);
           JS
