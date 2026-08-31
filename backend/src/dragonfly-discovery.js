@@ -7,6 +7,10 @@ const DEFAULT_SYNC_ID="dragonfly:ArkAA:2026:WVB_Varsity";
 
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function safe(value){return clean(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+function placeholderSchoolName(value){
+  const key=normalizeSchoolAlias(value);
+  return !key || /^(?:tbd|tba|open|unknown|to be determined|to be announced)$/.test(key);
+}
 
 function isVarsityVolleyballEvent(event){
   const sports=Array.isArray(event?.associatedSports)?event.associatedSports:[];
@@ -30,7 +34,7 @@ export function discoverDragonFlyVarsityVolleyballTeams(payload){
       const teamId=clean(participant?.team?.teamId);
       const teamCode=clean(participant?.team?.code);
       const level=clean(participant?.team?.level).toLowerCase();
-      if (!schoolName || !orgShortCode || !teamId || (level && !level.includes("varsity"))) continue;
+      if (!schoolName || placeholderSchoolName(schoolName) || !orgShortCode || !teamId || (level && !level.includes("varsity"))) continue;
       const key=`${orgShortCode}|${teamId}`;
       const current=byTeam.get(key) || {
         schoolName,orgShortCode,teamId,teamCode,participantUri:clean(participant?.uri),eventCount:0,
