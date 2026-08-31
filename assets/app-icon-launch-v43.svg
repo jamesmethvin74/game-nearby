@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LocalBleachersAR app icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0c3d70"/><stop offset="1" stop-color="#061a34"/></linearGradient>
+    <linearGradient id="seat" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dff6ff"/><stop offset="1" stop-color="#6fb9c8"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f5db92"/><stop offset="1" stop-color="#b9872f"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#071426"/>
+  <rect x="12" y="12" width="488" height="488" rx="92" fill="url(#bg)"/>
+  <path d="M92 86h230l15 14h75l10 15v45l21 16-10 31 24 19-15 26 17 23-20 26 11 29-22 17 4 35-27 8-7 42H93z" fill="none" stroke="url(#gold)" stroke-width="9" stroke-linejoin="round" opacity=".96"/>
+  <path d="M116 329L263 171h100" fill="none" stroke="#dff6ff" stroke-width="12" stroke-linecap="round"/>
+  <g fill="none" stroke="url(#seat)" stroke-width="13" stroke-linecap="square">
+    <path d="M139 309h158"/><path d="M158 282h160"/><path d="M177 255h161"/><path d="M197 228h161"/><path d="M218 201h142"/>
+  </g>
+  <path d="M110 353c63 4 118 13 171 31 38 12 79 29 120 51" fill="none" stroke="url(#gold)" stroke-width="18" stroke-linecap="round"/>
+  <g fill="#07182f"><circle cx="142" cy="386" r="18"/><circle cx="192" cy="398" r="22"/><circle cx="246" cy="405" r="17"/><circle cx="302" cy="420" r="21"/><path d="M127 409c17-22 33-22 47 0v38h-47zM174 423c21-28 42-28 62 0v34h-62zM231 426c16-22 32-22 48 0v30h-48zM279 442c20-27 40-27 60 0v20h-60z"/></g>
+  <path d="M344 328h48v72h-10v-60h-38z" fill="#9acfd8"/><rect x="329" y="303" width="80" height="51" rx="13" fill="#4e9aac" transform="rotate(-10 369 328)"/>
+  <g fill="#eafcff"><circle cx="349" cy="320" r="5"/><circle cx="366" cy="317" r="5"/><circle cx="383" cy="314" r="5"/><circle cx="353" cy="335" r="5"/><circle cx="370" cy="332" r="5"/><circle cx="387" cy="329" r="5"/></g>
+  <path d="M344 61l10 24 26 2-20 17 6 25-22-13-22 13 6-25-20-17 26-2z" fill="url(#gold)"/>
+</svg>
