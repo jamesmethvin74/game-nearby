@@ -1,0 +1,27 @@
+name: DragonFly public probe
+
+on:
+  push:
+    branches: [feature/schedule-authority-v2]
+    paths:
+      - ".github/workflows/dragonfly-public-probe.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect public Arkansas DragonFly schedule
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://ar.dragonflyathletics.com/sites/ArkAA/schedules?level=Varsity&sport=VB&team=F'
+          curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -D headers.txt -o page.html "$URL"
+          echo '=== HEADERS ==='
+          sed -n '1,80p' headers.txt
+          echo '=== SIZE ==='
+          wc -c page.html
+          echo '=== SCHOOL MATCHES ==='
+          grep -ioE '.{0,80}(Greenbrier|Vilonia|Conway).{0,120}' page.html | head -40 || true
+          echo '=== API/ASSET HINTS ==='
+          grep -oE '(src|href)="[^"]+\.(js|json)[^"]*"' page.html | head -40 || true
+          grep -ioE '.{0,100}(api|schedule|event|game).{0,140}' page.html | head -80 || true
