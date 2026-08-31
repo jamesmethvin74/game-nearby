@@ -10,25 +10,44 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve public DragonFly schedule API
+      - name: Probe public Arkansas DragonFly feed
         shell: bash
         run: |
           set -euo pipefail
-          BASE='https://ar.dragonflyathletics.com/'
-          URL='https://ar.dragonflyathletics.com/sites/ArkAA/schedules?level=Varsity&sport=VB&team=F'
-          curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -o page.html "$URL"
-          MAIN=$(grep -oE 'src="main\.[^"]+\.js"' page.html | head -1 | cut -d'"' -f2)
-          curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -o main.js "${BASE}${MAIN}"
-          python3 - <<'PY'
+          API='https://maxinfosite-api-live.dragonflyathletics.com'
+          UA='LocalBleachersAR-public-source-validation/1.0'
+          echo '=== SITE CONFIG ==='
+          curl -L --silent --show-error -A "$UA" -w '\nHTTP=%{http_code}\n' "$API/sites/ArkAA/config" | head -c 12000 || true
+          for YEAR in 2026 2027; do
+            for KEY in FVB_Varsity VB_Varsity GVB_Varsity; do
+              URL="$API/states/ArkAA/schedules/$YEAR/$KEY/0"
+              echo
+              echo "=== $URL ==="
+              CODE=$(curl -L --silent --show-error -A "$UA" -o out.json -w '%{http_code}' "$URL")
+              echo "HTTP=$CODE BYTES=$(wc -c < out.json)"
+              if [ "$CODE" = "200" ]; then
+                python3 - <<'PY'
+          import json,re
           from pathlib import Path
-          s=Path('main.js').read_text(errors='replace')
-          for token in ['maxinfosite-api-live.dragonflyathletics.com','getSiteSchedule=function','getSiteSchedule(','/schedules/']:
-              print('\n===',token,'===')
-              start=0
-              for _ in range(8):
-                  i=s.find(token,start)
-                  if i<0: break
-                  print(s[max(0,i-900):i+1800])
-                  print('\n---')
-                  start=i+len(token)
+          p=Path('out.json')
+          try:
+              x=json.loads(p.read_text())
+          except Exception as e:
+              print('NOT_JSON',e); print(p.read_text(errors='replace')[:2000]); raise SystemExit
+          print('TOP', list(x) if isinstance(x,dict) else type(x).__name__)
+          if isinstance(x,dict):
+              print('hasNextPage=',x.get('hasNextPage'),'schedule_count=',len(x.get('schedule') or []))
+              s=x.get('schedule') or []
+              if s:
+                  print('FIRST_KEYS',list(s[0]) if isinstance(s[0],dict) else type(s[0]).__name__)
+                  print('FIRST',json.dumps(s[0],separators=(',',':'))[:6000])
+              blob=json.dumps(x,separators=(',',':'))
+              for name in ['Greenbrier','Vilonia','Conway']:
+                  m=re.search('.{0,500}'+name+'.{0,1200}',blob,re.I)
+                  if m: print('MATCH',name,m.group(0)[:1800])
           PY
+              else
+                head -c 1200 out.json || true
+              fi
+            done
+          done
