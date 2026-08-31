@@ -57,11 +57,15 @@
     const sourceNote = String(game.notes || "").trim();
     const notes = [result, sourceNote, game.scheduled_time_known ? "" : "Time TBA"].filter(Boolean).join(" · ");
     const home = game.home_away === "home" ? true : game.home_away === "away" ? false : Boolean(fallback?.home);
+    const canonicalEventId = game.canonical_event_id || null;
     return {
-      id: `live:${game.id}`,
+      id: `live:${canonicalEventId || game.id}`,
       backendGameId: game.id,
+      backendCanonicalEventId: canonicalEventId,
       backendTeamId: item.apiId,
       liveData: true,
+      dataTrust: game.data_trust || "SINGLE_SOURCE_LIVE",
+      sourceConflictCount: Number(game.conflict_count || 0),
       teamId: item.schoolId,
       team: item.displayTeam,
       sport: item.sport,
@@ -93,7 +97,17 @@
       const event=events[i];
       if (event.teamId === item.schoolId && event.sport === item.sport && (event.gender || "") === item.gender) events.splice(i,1);
     }
-    events.push(...mapped);
+    for (const game of mapped) {
+      if (game.backendCanonicalEventId) {
+        const existingIndex=events.findIndex(event=>event.backendCanonicalEventId===game.backendCanonicalEventId);
+        if (existingIndex>=0) {
+          const existing=events[existingIndex];
+          if (existing.home && !game.home) continue;
+          events.splice(existingIndex,1);
+        }
+      }
+      events.push(game);
+    }
     return true;
   }
 

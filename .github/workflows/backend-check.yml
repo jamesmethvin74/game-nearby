@@ -26,3 +26,24 @@ jobs:
         with:
           node-version: 22
       - run: npm run check
+      - name: Apply D1 migrations in SQLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import { DatabaseSync } from 'node:sqlite';
+          const db=new DatabaseSync(':memory:');
+          for (const file of fs.readdirSync('migrations').filter(name=>name.endsWith('.sql')).sort()) {
+            db.exec(fs.readFileSync(`migrations/${file}`,'utf8'));
+            console.log('APPLIED',file);
+          }
+          const tables=db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row=>row.name);
+          for (const required of ['canonical_events','canonical_event_members','event_conflicts','school_aliases']) {
+            if (!tables.includes(required)) throw new Error(`missing V2 table ${required}`);
+          }
+          const sources=db.prepare("SELECT id,parser_type,authority_rank,expected_min_games FROM sources WHERE parser_type='dragonfly-public' ORDER BY id").all();
+          if (sources.length!==3) throw new Error(`expected 3 DragonFly validation sources, found ${sources.length}`);
+          if (sources.some(source=>source.authority_rank!==10 || source.expected_min_games<5)) throw new Error('DragonFly source authority/safety configuration is wrong');
+          console.log('VERIFIED D1 V2 schema and DragonFly validation sources',sources);
+          JS

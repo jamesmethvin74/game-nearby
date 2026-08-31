@@ -1,7 +1,10 @@
 import { normalizeMascotRows, normalizeSidearmRows } from "./parser-core.js";
+import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-core.js";
+import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
+import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 
 const API_PREFIX="/api/v1";
-const USER_AGENT="LocalBleachersAR/1.0 (+https://github.com/jamesmethvin74/game-nearby)";
+const USER_AGENT="LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)";
 
 export default {
   async fetch(request, env, ctx) {
@@ -23,6 +26,7 @@ async function route(request,env,ctx){
   if (request.method==="GET" && url.pathname===`${API_PREFIX}/schools`) return listSchools(request,env);
   if (request.method==="GET" && url.pathname===`${API_PREFIX}/games`) return listNearbyGames(request,env,url);
   if (request.method==="GET" && url.pathname===`${API_PREFIX}/sources`) return listSourceFreshness(request,env);
+  if (request.method==="GET" && url.pathname===`${API_PREFIX}/conflicts`) return listActiveConflicts(request,env);
 
   let match=url.pathname.match(new RegExp(`^${API_PREFIX}/teams/([^/]+)$`));
   if (request.method==="GET" && match) return getTeam(request,env,decodeURIComponent(match[1]));
@@ -43,7 +47,7 @@ async function route(request,env,ctx){
 }
 
 async function health(request,env){
-  const row=await env.DB.prepare("SELECT COUNT(*) AS teams, (SELECT COUNT(*) FROM games) AS games, (SELECT MAX(last_successful_fetch_at) FROM sources) AS last_refresh FROM teams").first();
+  const row=await env.DB.prepare("SELECT COUNT(*) AS teams, (SELECT COUNT(*) FROM games) AS observations, (SELECT COUNT(*) FROM canonical_events) AS canonical_games, (SELECT MAX(last_successful_fetch_at) FROM sources) AS last_refresh FROM teams").first();
   return json({ok:true,service:"localbleachersar-sports-api",...row},200,request,env);
 }
 
@@ -59,10 +63,10 @@ async function getTeam(request,env,teamId){
   const team=await env.DB.prepare(`
     SELECT t.*, s.name AS school_name,s.city,s.state,s.level,s.mascot,s.logo_url,s.latitude AS school_latitude,s.longitude AS school_longitude,
       c.name AS conference_name,c.classification,c.standings_method,
-      src.source_url,src.last_successful_fetch_at,src.last_checked_at
+      src.source_url,src.last_successful_fetch_at,src.last_checked_at,src.parser_type AS primary_parser_type
     FROM teams t JOIN schools s ON s.id=t.school_id
     LEFT JOIN conferences c ON c.id=t.conference_id
-    LEFT JOIN sources src ON src.team_id=t.id AND src.source_priority=1
+    LEFT JOIN sources src ON src.id=(SELECT id FROM sources WHERE team_id=t.id AND enabled=1 ORDER BY authority_rank,source_priority,id LIMIT 1)
     WHERE t.id=?`).bind(teamId).first();
   if (!team) return json({error:"team_not_found"},404,request,env);
   const record=await env.DB.prepare("SELECT * FROM team_records WHERE team_id=?").bind(teamId).first();
@@ -70,13 +74,41 @@ async function getTeam(request,env,teamId){
 }
 
 async function getTeamSchedule(request,env,teamId){
-  const team=await env.DB.prepare("SELECT id FROM teams WHERE id=?").bind(teamId).first();
+  const team=await env.DB.prepare("SELECT t.*,s.name AS school_name FROM teams t JOIN schools s ON s.id=t.school_id WHERE t.id=?").bind(teamId).first();
   if (!team) return json({error:"team_not_found"},404,request,env);
   const {results}=await env.DB.prepare(`
-    SELECT g.*, s.source_type, s.last_successful_fetch_at AS source_last_successful_fetch_at
+    SELECT g.*, s.source_type,s.parser_type,s.authority_rank,s.last_successful_fetch_at AS source_last_successful_fetch_at,
+      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,ce.venue AS canonical_venue,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
+      ce.trust_state AS data_trust,ce.conflict_count,hs.name AS canonical_home_name,aws.name AS canonical_away_name,
+      ROW_NUMBER() OVER (PARTITION BY COALESCE(g.canonical_event_id,g.id) ORDER BY s.authority_rank,s.source_priority,s.id) AS authority_row
     FROM games g JOIN sources s ON s.id=g.source_id
-    WHERE g.team_id=? ORDER BY g.scheduled_at`).bind(teamId).all();
-  return json({teamId,games:results},200,request,env);
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    LEFT JOIN schools hs ON hs.id=ce.home_school_id LEFT JOIN schools aws ON aws.id=ce.away_school_id
+    WHERE g.team_id=? ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at)`).bind(teamId).all();
+  const games=results.filter(r=>Number(r.authority_row)===1).map(r=>resolvedGameForTeam(r,team.school_id));
+  return json({teamId,games},200,request,env);
+}
+
+function resolvedGameForTeam(row,schoolId){
+  if (!row.canonical_event_id) return {...row,data_trust:row.data_trust||"SINGLE_SOURCE_LIVE",conflict_count:Number(row.conflict_count||0)};
+  const isHome=row.canonical_home_school_id===schoolId;
+  const isAway=row.canonical_away_school_id===schoolId;
+  const teamScore=isHome?row.canonical_home_score:isAway?row.canonical_away_score:row.team_score;
+  const opponentScore=isHome?row.canonical_away_score:isAway?row.canonical_home_score:row.opponent_score;
+  const status=row.canonical_status||row.status;
+  const result=status==="FINAL" && teamScore!=null && opponentScore!=null ? (Number(teamScore)===Number(opponentScore)?"T":Number(teamScore)>Number(opponentScore)?"W":"L") : null;
+  return {...row,
+    id:row.canonical_event_id,canonical_event_id:row.canonical_event_id,
+    opponent:isHome?row.canonical_away_name:isAway?row.canonical_home_name:row.opponent,
+    scheduled_at:row.canonical_scheduled_at||row.scheduled_at,
+    scheduled_time_known:row.canonical_time_known??row.scheduled_time_known,
+    venue:row.canonical_venue||row.venue,
+    home_away:isHome?"home":isAway?"away":row.home_away,
+    status,team_score:teamScore,opponent_score:opponentScore,result,
+    data_trust:row.data_trust||"SINGLE_SOURCE_LIVE",conflict_count:Number(row.conflict_count||0)
+  };
 }
 
 async function getTeamRecord(request,env,teamId){
@@ -99,8 +131,26 @@ async function getStandings(request,env,conferenceId){
 }
 
 async function listSourceFreshness(request,env){
-  const {results}=await env.DB.prepare(`SELECT id,team_id,source_url,source_type,parser_type,parser_version,last_successful_fetch_at,last_failure_at,last_error,last_http_status,last_checked_at FROM sources WHERE enabled=1 ORDER BY source_priority,id`).all();
-  return json({sources:results},200,request,env);
+  const {results}=await env.DB.prepare(`
+    SELECT src.id,src.team_id,src.source_url,src.source_type,src.source_priority,src.authority_rank,src.parser_type,src.parser_version,
+      src.expected_min_games,src.refresh_minutes,src.stale_after_minutes,src.consecutive_failures,src.last_game_count,src.suspicious_game_count,
+      src.last_successful_fetch_at,src.last_failure_at,src.last_error,src.last_http_status,src.last_checked_at,
+      COUNT(DISTINCT CASE WHEN ec.resolved_at IS NULL THEN ec.id END) AS active_conflict_count
+    FROM sources src
+    LEFT JOIN canonical_event_members cem ON cem.source_id=src.id
+    LEFT JOIN event_conflicts ec ON ec.canonical_event_id=cem.canonical_event_id
+    WHERE src.enabled=1 GROUP BY src.id ORDER BY src.authority_rank,src.source_priority,src.id`).all();
+  return json({sources:results.map(source=>({...source,health_state:deriveSourceHealth(source)}))},200,request,env);
+}
+
+async function listActiveConflicts(request,env){
+  const {results}=await env.DB.prepare(`
+    SELECT ec.*,ce.sport,ce.gender,ce.season,ce.scheduled_at,ce.trust_state,
+      a.name AS participant_a,b.name AS participant_b
+    FROM event_conflicts ec JOIN canonical_events ce ON ce.id=ec.canonical_event_id
+    JOIN schools a ON a.id=ce.participant_a_school_id JOIN schools b ON b.id=ce.participant_b_school_id
+    WHERE ec.resolved_at IS NULL ORDER BY ce.scheduled_at,ec.conflict_type`).all();
+  return json({conflicts:results},200,request,env);
 }
 
 async function listNearbyGames(request,env,url){
@@ -110,11 +160,17 @@ async function listNearbyGames(request,env,url){
   const {results}=await env.DB.prepare(`
     SELECT g.*, t.sport,t.gender,t.season,sch.id AS school_id,sch.name AS school_name,sch.level,sch.mascot,
       c.name AS conference_name,r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,
-      src.source_type,src.last_successful_fetch_at AS source_last_successful_fetch_at
+      src.source_type,src.parser_type,src.authority_rank,src.last_successful_fetch_at AS source_last_successful_fetch_at,
+      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,ce.venue AS canonical_venue,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
+      ce.trust_state AS data_trust,ce.conflict_count,hs.name AS canonical_home_name,aws.name AS canonical_away_name,
+      ROW_NUMBER() OVER (PARTITION BY COALESCE(g.canonical_event_id,g.id) ORDER BY src.authority_rank,src.source_priority,src.id) AS authority_row
     FROM games g JOIN teams t ON t.id=g.team_id JOIN schools sch ON sch.id=t.school_id
     LEFT JOIN conferences c ON c.id=t.conference_id LEFT JOIN team_records r ON r.team_id=t.id JOIN sources src ON src.id=g.source_id
-    WHERE g.scheduled_at BETWEEN ? AND ? ORDER BY g.scheduled_at`).bind(since,until).all();
-  let games=results;
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id LEFT JOIN schools hs ON hs.id=ce.home_school_id LEFT JOIN schools aws ON aws.id=ce.away_school_id
+    WHERE COALESCE(ce.scheduled_at,g.scheduled_at) BETWEEN ? AND ? ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at)`).bind(since,until).all();
+  let games=results.filter(r=>Number(r.authority_row)===1).map(r=>resolvedGameForTeam(r,r.school_id));
   if (Number.isFinite(lat)&&Number.isFinite(lon)&&Number.isFinite(radius)) {
     games=games.map(g=>({...g,distance_miles:haversineMiles(lat,lon,g.latitude,g.longitude)}))
       .filter(g=>g.distance_miles!==null&&g.distance_miles<=radius);
@@ -126,14 +182,15 @@ async function runDueCollections(env,{force=false,sourceId=null,reason="schedule
   let query=env.DB.prepare(`
     SELECT src.*, t.season,t.sport,t.gender,t.conference_id,sch.id AS school_id,sch.name AS school_name
     FROM sources src JOIN teams t ON t.id=src.team_id JOIN schools sch ON sch.id=t.school_id
-    WHERE src.enabled=1 ${sourceId?"AND src.id=?":""} ORDER BY src.source_priority,src.id`);
+    WHERE src.enabled=1 ${sourceId?"AND src.id=?":""} ORDER BY src.authority_rank,src.source_priority,src.id`);
   if (sourceId) query=query.bind(sourceId);
   const {results:sources}=await query.all();
   const outcomes=[];
+  const sharedFetches=new Map();
   for (const source of sources) {
     const due=force || await sourceIsDue(env,source);
     if (!due) { outcomes.push({sourceId:source.id,status:"SKIPPED"}); continue; }
-    outcomes.push(await collectSource(env,source,reason));
+    outcomes.push(await collectSource(env,source,reason,sharedFetches));
   }
   return {ok:outcomes.every(o=>!["FAILURE"].includes(o.status)),outcomes};
 }
@@ -145,56 +202,103 @@ async function sourceIsDue(env,source){
   return Date.now()-Date.parse(source.last_checked_at)>=minutes*60*1000;
 }
 
-async function collectSource(env,source,reason){
+async function fetchSourceMaterial(source,sharedFetches){
+  if (source.parser_type==="dragonfly-public") {
+    const feedKey=dragonFlyFeedBaseUrl(source.source_url);
+    let pending=sharedFetches.get(feedKey);
+    if (!pending) {
+      pending=fetchDragonFlyPagedPayload(source.source_url,{
+        fetchFn:fetch,
+        headers:{"user-agent":USER_AGENT,"accept":"application/json"}
+      }).then(result=>({
+        body:JSON.stringify(result.payload),contentType:"application/json",status:result.httpStatus,
+        etag:null,lastModified:null,notModified:false,pagesFetched:result.pageCount
+      }));
+      sharedFetches.set(feedKey,pending);
+    }
+    return pending;
+  }
+
+  const headers={"user-agent":USER_AGENT,"accept":"application/json,text/html,application/xhtml+xml"};
+  if (source.etag) headers["if-none-match"]=source.etag;
+  if (source.last_modified) headers["if-modified-since"]=source.last_modified;
+  const response=await fetch(source.source_url,{headers,redirect:"follow"});
+  if (response.status===304) return {notModified:true,status:304,body:"",contentType:"",etag:source.etag||null,lastModified:source.last_modified||null,pagesFetched:null};
+  if (!response.ok) {
+    const error=new Error(`HTTP ${response.status}`);
+    error.httpStatus=response.status;
+    throw error;
+  }
+  return {
+    notModified:false,status:response.status,body:await response.text(),contentType:response.headers.get("content-type")||"",
+    etag:response.headers.get("etag"),lastModified:response.headers.get("last-modified"),pagesFetched:null
+  };
+}
+
+async function collectSource(env,source,reason,sharedFetches=new Map()){
   const startedAt=new Date().toISOString();
   const run=await env.DB.prepare(`INSERT INTO collection_runs(source_id,started_at,status,parser_version) VALUES(?,?,'RUNNING',?) RETURNING id`).bind(source.id,startedAt,source.parser_version).first();
   try {
-    const headers={"user-agent":USER_AGENT,"accept":"text/html,application/xhtml+xml"};
-    if (source.etag) headers["if-none-match"]=source.etag;
-    if (source.last_modified) headers["if-modified-since"]=source.last_modified;
-    const response=await fetch(source.source_url,{headers,redirect:"follow"});
+    const fetched=await fetchSourceMaterial(source,sharedFetches);
     const checkedAt=new Date().toISOString();
-    if (response.status===304) {
+    if (fetched.notModified) {
       await env.DB.batch([
-        env.DB.prepare("UPDATE sources SET last_checked_at=?,last_http_status=304,updated_at=? WHERE id=?").bind(checkedAt,checkedAt,source.id),
+        env.DB.prepare("UPDATE sources SET last_checked_at=?,last_successful_fetch_at=?,last_http_status=304,consecutive_failures=0,suspicious_game_count=0,updated_at=? WHERE id=?").bind(checkedAt,checkedAt,checkedAt,source.id),
         env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='NOT_MODIFIED',http_status=304 WHERE id=?").bind(checkedAt,run.id)
       ]);
       return {sourceId:source.id,status:"NOT_MODIFIED",reason};
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const html=await response.text();
-    const parsed=await parseSourceHtml(html,source);
-    if (parsed.length<source.expected_min_games) throw new Error(`Parser returned ${parsed.length} games; expected at least ${source.expected_min_games}. Last known good data retained.`);
+    const parsed=await parseSourceBody(fetched.body,source,fetched.contentType);
     const existing=await env.DB.prepare("SELECT COUNT(*) AS game_count FROM games WHERE source_id=?").bind(source.id).first();
     const priorCount=Number(existing?.game_count||0);
-    const safeFloor=Math.max(Number(source.expected_min_games)||1,Math.floor(priorCount*0.75));
-    if (priorCount && parsed.length<safeFloor) throw new Error(`Parser returned ${parsed.length} games versus ${priorCount} previously stored; refusing destructive reconciliation. Last known good data retained.`);
-    for (const game of parsed) await upsertGame(env,source,game,checkedAt);
+    const safety=collectionSafety({parsedCount:parsed.length,expectedMinGames:source.expected_min_games,priorCount});
+    if (!safety.safe) throw new Error(safety.reason);
+    for (const game of parsed) {
+      const gameId=await upsertGame(env,source,game,checkedAt);
+      await reconcileCanonicalGame(env,gameId);
+    }
     await reconcileMissingFutureGames(env,source,checkedAt);
+    await reconcileSourceGames(env,source.id);
     await recalculateRecord(env,source.team_id);
     await recalculateStandingsIfComplete(env,source.conference_id);
     await env.DB.batch([
-      env.DB.prepare(`UPDATE sources SET etag=?,last_modified=?,last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=?,updated_at=? WHERE id=?`)
-        .bind(response.headers.get("etag"),response.headers.get("last-modified"),checkedAt,checkedAt,response.status,checkedAt,source.id),
-      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='SUCCESS',http_status=?,games_seen=? WHERE id=?").bind(checkedAt,response.status,parsed.length,run.id)
+      env.DB.prepare(`UPDATE sources SET etag=?,last_modified=?,last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=?,consecutive_failures=0,last_game_count=?,suspicious_game_count=0,updated_at=? WHERE id=?`)
+        .bind(fetched.etag,fetched.lastModified,checkedAt,checkedAt,fetched.status,parsed.length,checkedAt,source.id),
+      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='SUCCESS',http_status=?,games_seen=? WHERE id=?").bind(checkedAt,fetched.status,parsed.length,run.id)
     ]);
-    return {sourceId:source.id,status:"SUCCESS",gamesSeen:parsed.length,reason};
+    return {sourceId:source.id,status:"SUCCESS",gamesSeen:parsed.length,pagesFetched:fetched.pagesFetched,reason};
   } catch(error) {
     const finishedAt=new Date().toISOString();
     const message=String(error?.message||error).slice(0,1000);
+    const suspicious=/Parser returned|destructive reconciliation/i.test(message)?1:0;
+    const httpStatus=Number(error?.httpStatus)||null;
     console.error("collector failure",source.id,message);
     await env.DB.batch([
-      env.DB.prepare("UPDATE sources SET last_checked_at=?,last_failure_at=?,last_error=?,updated_at=? WHERE id=?").bind(finishedAt,finishedAt,message,finishedAt,source.id),
-      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='FAILURE',error=? WHERE id=?").bind(finishedAt,message,run.id)
+      env.DB.prepare("UPDATE sources SET last_checked_at=?,last_failure_at=?,last_error=?,last_http_status=?,consecutive_failures=COALESCE(consecutive_failures,0)+1,suspicious_game_count=CASE WHEN ?=1 THEN 1 ELSE suspicious_game_count END,updated_at=? WHERE id=?").bind(finishedAt,finishedAt,message,httpStatus,suspicious,finishedAt,source.id),
+      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='FAILURE',http_status=?,error=? WHERE id=?").bind(finishedAt,httpStatus,message,run.id)
     ]);
     return {sourceId:source.id,status:"FAILURE",error:message,reason};
   }
 }
 
-async function parseSourceHtml(html,source){
-  if (source.parser_type==="sidearm") return parseSidearmHtml(html,source);
-  if (source.parser_type==="mascot-media") return parseMascotHtml(html,source);
+async function parseSourceBody(body,source,contentType=""){
+  if (source.parser_type==="sidearm") return parseSidearmHtml(body,source);
+  if (source.parser_type==="mascot-media") return parseMascotHtml(body,source);
+  if (source.parser_type==="dragonfly-public") {
+    if (/application\/json/i.test(contentType) || /^[\s\r\n]*[\[{]/.test(body)) {
+      try { return dedupe(normalizeDragonFlyPayload(JSON.parse(body),source)); } catch {}
+    }
+    const visibleText=await extractVisibleText(body);
+    return dedupe(normalizeDragonFlyHtml(body,source,{visibleText}));
+  }
   throw new Error(`Unsupported parser ${source.parser_type}`);
+}
+
+async function extractVisibleText(html){
+  let text="";
+  const response=new HTMLRewriter().on("body",{text(chunk){text+=`${chunk.text}\n`;}}).transform(new Response(html));
+  await response.text();
+  return text;
 }
 
 async function parseSidearmHtml(html,source){
@@ -239,21 +343,102 @@ async function parseMascotHtml(html,source){
 
 function dedupe(events){const seen=new Set();return events.filter(e=>{const k=e.sourceEventKey;if(seen.has(k))return false;seen.add(k);return true;});}
 
+async function resolveOpponentSchool(env,opponent){
+  const normalized=normalizeSchoolAlias(opponent);
+  if (!normalized) return null;
+  const alias=await env.DB.prepare("SELECT school_id FROM school_aliases WHERE normalized_alias=?").bind(normalized).first();
+  if (alias?.school_id) return alias.school_id;
+  const {results}=await env.DB.prepare("SELECT id,name,mascot FROM schools").all();
+  const match=results.find(s=>normalizeSchoolAlias(s.name)===normalized || normalizeSchoolAlias(`${s.name} ${s.mascot||''}`)===normalized);
+  if (!match) return null;
+  await env.DB.prepare("INSERT OR IGNORE INTO school_aliases(normalized_alias,school_id,alias_text) VALUES(?,?,?)").bind(normalized,match.id,opponent).run();
+  return match.id;
+}
+
 async function upsertGame(env,source,game,checkedAt){
   const id=`${source.id}:${game.sourceEventKey}`;
+  const opponentSchoolId=await resolveOpponentSchool(env,game.opponent);
   await env.DB.prepare(`
-    INSERT INTO games(id,team_id,source_id,source_event_key,opponent,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(source_id,source_event_key) DO UPDATE SET
-      opponent=excluded.opponent,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
+      opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
       venue=COALESCE(NULLIF(excluded.venue,''),games.venue),location_text=COALESCE(NULLIF(excluded.location_text,''),games.location_text),
       latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),home_away=excluded.home_away,
       conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
       team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,
       source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at`)
-    .bind(id,source.team_id,source.id,game.sourceEventKey,game.opponent,game.scheduledAt,game.scheduledTimeKnown?1:0,game.venue||null,game.locationText||null,
+    .bind(id,source.team_id,source.id,game.sourceEventKey,game.opponent,opponentSchoolId,game.scheduledAt,game.scheduledTimeKnown?1:0,game.venue||null,game.locationText||null,
       game.latitude??null,game.longitude??null,game.homeAway,game.conferenceGame?1:0,game.countsForRecord?1:0,game.status,game.teamScore??null,game.opponentScore??null,
-      game.result||null,game.notes||null,source.source_url,checkedAt,checkedAt,checkedAt).run();
+      game.result||null,game.notes||null,source.source_url,game.sourceUpdatedAt||checkedAt,checkedAt,checkedAt).run();
+  return id;
+}
+
+async function observationById(env,gameId){
+  return env.DB.prepare(`
+    SELECT g.*,t.sport,t.gender,t.season,t.id AS reporting_team_id,sch.id AS reporting_school_id,sch.name AS reporting_school_name,
+      src.source_type,src.parser_type,src.source_priority,src.authority_rank,src.timezone
+    FROM games g JOIN teams t ON t.id=g.team_id JOIN schools sch ON sch.id=t.school_id JOIN sources src ON src.id=g.source_id
+    WHERE g.id=?`).bind(gameId).first();
+}
+
+async function reconcileCanonicalGame(env,gameId){
+  const seed=await observationById(env,gameId);
+  if (!seed?.opponent_school_id) return null;
+  const timeZone=seed.timezone||"America/Chicago";
+  const {results:candidates}=await env.DB.prepare(`
+    SELECT g.*,t.sport,t.gender,t.season,t.id AS reporting_team_id,sch.id AS reporting_school_id,sch.name AS reporting_school_name,
+      src.source_type,src.parser_type,src.source_priority,src.authority_rank,src.timezone
+    FROM games g JOIN teams t ON t.id=g.team_id JOIN schools sch ON sch.id=t.school_id JOIN sources src ON src.id=g.source_id
+    WHERE g.opponent_school_id IS NOT NULL AND t.sport=? AND t.gender=? AND t.season=?
+      AND ((sch.id=? AND g.opponent_school_id=?) OR (sch.id=? AND g.opponent_school_id=?))
+      AND datetime(g.scheduled_at) BETWEEN datetime(?,'-36 hours') AND datetime(?,'+36 hours')
+    ORDER BY src.authority_rank,src.source_priority,src.id`).bind(seed.sport,seed.gender,seed.season,
+      seed.reporting_school_id,seed.opponent_school_id,seed.opponent_school_id,seed.reporting_school_id,seed.scheduled_at,seed.scheduled_at).all();
+  const related=candidates.filter(candidate=>candidate.id===seed.id || observationsLikelySameEvent(seed,candidate,{timeZone}));
+  if (!related.length) return null;
+  let resolved;
+  try { resolved=resolveCanonicalEvent(related,{timeZone}); }
+  catch { return null; }
+  const now=new Date().toISOString();
+  const selected=related.find(o=>o.id===resolved.resolutionEvidence.selectedObservationId) || related[0];
+  const venueObservation=related.find(o=>o.id===resolved.resolutionEvidence.venueObservationId) || selected;
+  const geoObservation=related.find(o=>o.latitude!=null && o.longitude!=null) || selected;
+  const conferenceGame=Number(selected?.conference_game||0);
+  await env.DB.prepare(`
+    INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,
+      scheduled_time_known=excluded.scheduled_time_known,venue=excluded.venue,location_text=excluded.location_text,latitude=excluded.latitude,longitude=excluded.longitude,
+      conference_game=excluded.conference_game,status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
+      trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`)
+    .bind(resolved.id,resolved.sport,resolved.gender,resolved.season,resolved.participantA,resolved.participantB,resolved.homeSchoolId,resolved.awaySchoolId,
+      resolved.scheduledAt,resolved.scheduledTimeKnown?1:0,resolved.venue||null,venueObservation?.location_text||resolved.venue||null,geoObservation?.latitude??null,geoObservation?.longitude??null,
+      conferenceGame,resolved.status,resolved.homeScore??null,resolved.awayScore??null,resolved.selectedSourceId,resolved.trustState,resolved.conflicts.length,
+      JSON.stringify(resolved.resolutionEvidence),now,now).run();
+  const oldIds=[...new Set(related.map(o=>o.canonical_event_id).filter(id=>id&&id!==resolved.id))];
+  for (const candidate of related) {
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM canonical_event_members WHERE game_id=?").bind(candidate.id),
+      env.DB.prepare("UPDATE games SET canonical_event_id=? WHERE id=?").bind(resolved.id,candidate.id),
+      env.DB.prepare("INSERT OR REPLACE INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at) VALUES(?,?,?,?,?)").bind(resolved.id,candidate.id,candidate.source_id,candidate.reporting_team_id,now)
+    ]);
+  }
+  await env.DB.prepare("UPDATE event_conflicts SET resolved_at=? WHERE canonical_event_id=? AND resolved_at IS NULL").bind(now,resolved.id).run();
+  for (const conflict of resolved.conflicts) {
+    await env.DB.prepare("INSERT INTO event_conflicts(canonical_event_id,conflict_type,values_json,evidence_json,detected_at) VALUES(?,?,?,?,?)")
+      .bind(resolved.id,conflict.type,JSON.stringify(conflict.values),JSON.stringify({gameIds:related.map(o=>o.id),sourceIds:related.map(o=>o.source_id)}),now).run();
+  }
+  for (const oldId of oldIds) {
+    const member=await env.DB.prepare("SELECT 1 AS yes FROM canonical_event_members WHERE canonical_event_id=? LIMIT 1").bind(oldId).first();
+    if (!member) await env.DB.prepare("DELETE FROM canonical_events WHERE id=?").bind(oldId).run();
+  }
+  return resolved.id;
+}
+
+async function reconcileSourceGames(env,sourceId){
+  const {results}=await env.DB.prepare("SELECT id FROM games WHERE source_id=?").bind(sourceId).all();
+  for (const row of results) await reconcileCanonicalGame(env,row.id);
 }
 
 async function reconcileMissingFutureGames(env,source,checkedAt){
@@ -267,18 +452,29 @@ async function reconcileMissingFutureGames(env,source,checkedAt){
 }
 
 async function recalculateRecord(env,teamId){
-  const counts=await env.DB.prepare(`SELECT
-    SUM(CASE WHEN status='FINAL' AND counts_for_record=1 AND result='W' THEN 1 ELSE 0 END) wins,
-    SUM(CASE WHEN status='FINAL' AND counts_for_record=1 AND result='L' THEN 1 ELSE 0 END) losses,
-    SUM(CASE WHEN status='FINAL' AND counts_for_record=1 AND result='T' THEN 1 ELSE 0 END) ties,
-    SUM(CASE WHEN status='FINAL' AND counts_for_record=1 AND conference_game=1 AND result='W' THEN 1 ELSE 0 END) conference_wins,
-    SUM(CASE WHEN status='FINAL' AND counts_for_record=1 AND conference_game=1 AND result='L' THEN 1 ELSE 0 END) conference_losses,
-    SUM(CASE WHEN status='FINAL' AND counts_for_record=1 AND conference_game=1 AND result='T' THEN 1 ELSE 0 END) conference_ties
-    FROM games WHERE team_id=?`).bind(teamId).first();
+  const team=await env.DB.prepare("SELECT t.*,s.id AS school_id FROM teams t JOIN schools s ON s.id=t.school_id WHERE t.id=?").bind(teamId).first();
+  if (!team) return;
+  const {results:canonical}=await env.DB.prepare(`SELECT ce.* FROM canonical_events ce
+    WHERE ce.sport=? AND ce.gender=? AND ce.season=? AND (ce.home_school_id=? OR ce.away_school_id=?)`).bind(team.sport,team.gender,team.season,team.school_id,team.school_id).all();
+  const {results:raw}=await env.DB.prepare("SELECT * FROM games WHERE team_id=? AND canonical_event_id IS NULL").bind(teamId).all();
+  let wins=0,losses=0,ties=0,cw=0,cl=0,ct=0;
+  for (const event of canonical) {
+    if (event.status!=="FINAL" || event.home_score==null || event.away_score==null) continue;
+    const teamScore=event.home_school_id===team.school_id?Number(event.home_score):Number(event.away_score);
+    const oppScore=event.home_school_id===team.school_id?Number(event.away_score):Number(event.home_score);
+    const result=teamScore===oppScore?"T":teamScore>oppScore?"W":"L";
+    if (result==="W") wins++; else if (result==="L") losses++; else ties++;
+    if (event.conference_game) { if(result==="W")cw++; else if(result==="L")cl++; else ct++; }
+  }
+  for (const game of raw) {
+    if (game.status!=="FINAL" || !game.counts_for_record) continue;
+    if(game.result==="W")wins++; else if(game.result==="L")losses++; else if(game.result==="T")ties++;
+    if(game.conference_game){if(game.result==="W")cw++;else if(game.result==="L")cl++;else if(game.result==="T")ct++;}
+  }
   const now=new Date().toISOString();
   await env.DB.prepare(`INSERT INTO team_records(team_id,wins,losses,ties,conference_wins,conference_losses,conference_ties,calculated_at)
     VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(team_id) DO UPDATE SET wins=excluded.wins,losses=excluded.losses,ties=excluded.ties,conference_wins=excluded.conference_wins,conference_losses=excluded.conference_losses,conference_ties=excluded.conference_ties,calculated_at=excluded.calculated_at`)
-    .bind(teamId,counts.wins||0,counts.losses||0,counts.ties||0,counts.conference_wins||0,counts.conference_losses||0,counts.conference_ties||0,now).run();
+    .bind(teamId,wins,losses,ties,cw,cl,ct,now).run();
 }
 
 async function recalculateStandingsIfComplete(env,conferenceId){
