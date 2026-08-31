@@ -1,6 +1,7 @@
 import core from "./index.js";
 import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js";
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
+import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 
 let liveConfigReady = false;
 
@@ -89,6 +90,22 @@ export default {
       console.log("statewide volleyball catalog",summary);
     } catch (error) {
       console.error("statewide volleyball catalog sync failed",error);
+    }
+
+    try {
+      const locations=await syncArkansasSchoolLocations(env);
+      console.log("statewide volleyball locations",{
+        status:locations.status,
+        targetSchools:locations.targetSchools,
+        matchedSchools:locations.matchedSchools,
+        unresolvedSchools:locations.unresolvedSchools,
+        ambiguousSchools:locations.ambiguousSchools,
+        matchRatio:locations.matchRatio
+      });
+    } catch (error) {
+      // Existing last-known-good school coordinates and active scopes remain untouched when
+      // Arkansas GIS is unavailable or suspicious. Newly discovered teams remain staged.
+      console.error("statewide volleyball location sync failed",error);
     }
 
     try {
