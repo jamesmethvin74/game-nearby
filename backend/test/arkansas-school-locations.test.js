@@ -2,6 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fetchArkansasSchoolLocationFeatures, locationNameKey, matchArkansasSchoolLocations, relaxedLocationNameKey } from "../src/arkansas-school-locations.js";
 
+function strictKey(value){
+  return String(value??"").replace(/\s+/g," ").trim().replace(/[–—]/g,"-").replace(/\bH\s*S\b/gi,"High School").replace(/\bschools\b/gi,"school")
+    .toLowerCase().replace(/[^a-z0-9]+/g," ").replace(/\s+/g," ").trim();
+}
+
 function feature(name,city,latitude,longitude,source="arkansas-gis-public"){
   const relaxed=relaxedLocationNameKey(name);
   const cityKey=locationNameKey(city);
@@ -10,7 +15,7 @@ function feature(name,city,latitude,longitude,source="arkansas-gis-public"){
   const remaining=[...tokens];
   if (cityTokens.every(token=>remaining.includes(token))) for (const token of cityTokens) remaining.splice(remaining.indexOf(token),1);
   return {source,source_record_id:name,name,address:"1 School Rd",city,postal_code:"72000",latitude,longitude,
-    exact_key:locationNameKey(name),relaxed_key:relaxed,structural_key:relaxed,structural_without_city:remaining.join(" ")};
+    exact_key:locationNameKey(name),strict_key:strictKey(name),relaxed_key:relaxed,structural_key:relaxed,structural_without_city:remaining.join(" ")};
 }
 
 test("matches unique public and private Arkansas school points without fuzzy guessing",()=>{
@@ -80,6 +85,61 @@ test("normalizes documented Arkansas DOE naming wrappers without generic fuzzy m
   assert.equal(result.matched.length,6);
   assert.equal(result.unresolved.length,0);
   assert.equal(result.ambiguous.length,0);
+});
+
+test("maps known Arkansas athletic legacy names only to specific current GIS schools",()=>{
+  const schools=[
+    {id:"batesville",name:"Batesville High School",city:""},
+    {id:"central-wh",name:"Central West Helena",city:""},
+    {id:"harmony-haskell",name:"HARMONY GROVE HIGH SCHOOL – HASKELL",city:""},
+    {id:"harmony-camden",name:"Harmony Grove High School (Camden)",city:""},
+    {id:"izard",name:"IZARD CO. CONS. HIGH SCHOOL",city:""},
+    {id:"lee",name:"LEE COUNTY HIGH SCHOOL",city:""},
+    {id:"lr-central",name:"Little Rock Central High School",city:""},
+    {id:"morrilton",name:"Morrilton Sr. High School (7-12 athletics)",city:""},
+    {id:"mountain-home",name:"MOUNTAIN HOME HIGH SCHOOL",city:""},
+    {id:"newport",name:"NEWPORT HIGH SCHOOL",city:""},
+    {id:"rivercrest",name:"Rivercrest High School",city:""},
+    {id:"west-memphis",name:"West Memphis High School",city:""}
+  ];
+  const features=[
+    feature("Batesville High School Charter","Batesville",35.77,-91.64),
+    feature("Batesville Junior High School Charter","Batesville",35.77,-91.65),
+    feature("Central High School","West Helena",34.55,-90.64),
+    feature("Central High School","Little Rock",34.74,-92.30),
+    feature("Harmony Grove High School","Benton",34.56,-92.70),
+    feature("Harmony Grove High School","Camden",33.59,-92.83),
+    feature("Izard County Consolidated High School","Brockwell",36.14,-91.94),
+    feature("Lee High School","Marianna",34.77,-90.76),
+    feature("Lee Academy","Marianna",34.76,-90.75,"arkansas-gis-private"),
+    feature("Morrilton Junior High School","Morrilton",35.15,-92.74),
+    feature("Morrilton Senior High School","Morrilton",35.16,-92.74),
+    feature("Mountain Home Christian Academy","Mountain Home",36.34,-92.38,"arkansas-gis-private"),
+    feature("Mountain Home High School (Career Academies)","Mountain Home",36.34,-92.39),
+    feature("Newport Junior High School","Newport",35.61,-91.28),
+    feature("The Academies At Newport High School","Newport",35.60,-91.28),
+    feature("Academies At Rivercrest High School","Wilson",35.56,-90.04),
+    feature("Rivercrest Junior High Prep Academy","Wilson",35.55,-90.04),
+    feature("The Academies Of West Memphis Charter School","West Memphis",35.15,-90.18),
+    feature("West Memphis Christian School","West Memphis",35.14,-90.18,"arkansas-gis-private")
+  ];
+  const result=matchArkansasSchoolLocations(schools,features);
+  assert.equal(result.matched.length,schools.length);
+  assert.equal(result.unresolved.length,0);
+  assert.equal(result.ambiguous.length,0);
+  assert.equal(result.matched.find(row=>row.school_id==="harmony-haskell").city,"Benton");
+  assert.equal(result.matched.find(row=>row.school_id==="harmony-camden").city,"Camden");
+  assert.equal(result.matched.find(row=>row.school_id==="lr-central").matched_name,"Central High School");
+  assert.equal(result.matched.find(row=>row.school_id==="west-memphis").matched_name,"The Academies Of West Memphis Charter School");
+  assert.ok(result.matched.every(row=>row.match_type==="official-alias-city"));
+});
+
+test("does not turn a similar out-of-state opponent into an Arkansas school",()=>{
+  const schools=[{id:"carl-junction",name:"Carl Junction High School",city:""}];
+  const features=[feature("Junction City High School","Junction City",33.01,-92.72)];
+  const result=matchArkansasSchoolLocations(schools,features);
+  assert.equal(result.matched.length,0);
+  assert.equal(result.unresolved.length,1);
 });
 
 test("paginates Arkansas GIS feature layers and requests WGS84 output coordinates",async()=>{
