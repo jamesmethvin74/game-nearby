@@ -1,5 +1,6 @@
 (() => {
-  const state = { schoolId: null, sport: null, gender: null, logo: "" };
+  const state = { schoolId: null, sport: null, gender: null, logo: "", loading: false, error: "" };
+  const scheduleCache = new Map();
 
   function schoolFor(id) {
     return (typeof SCHOOL_REGISTRY !== "undefined" ? SCHOOL_REGISTRY : []).find(s => s.id === id) ||
@@ -7,9 +8,15 @@
       { id, name: id, subtitle: "" };
   }
 
-  function teamEventsFor(id) {
+  function fallbackTeamEventsFor(id) {
     return (typeof events !== "undefined" ? events : [])
-      .filter(e => e.teamId === id)
+      .filter(e => e.teamId === id || (e.schoolIds || []).includes(id))
+      .slice()
+      .sort((a,b) => new Date(a.date) - new Date(b.date));
+  }
+
+  function teamEventsFor(id) {
+    return (scheduleCache.get(id) || fallbackTeamEventsFor(id))
       .slice()
       .sort((a,b) => new Date(a.date) - new Date(b.date));
   }
@@ -33,6 +40,12 @@
     });
   }
 
+  function scoreLabel(event) {
+    if (event.status !== "FINAL" || event.teamScore == null || event.opponentScore == null) return "";
+    const result = event.result ? `${event.result} ` : "";
+    return `${result}${event.teamScore}-${event.opponentScore}`;
+  }
+
   function ensureDialog() {
     let dialog = document.getElementById("teamDetailDialog");
     if (dialog) return dialog;
@@ -48,7 +61,7 @@
       </div>
       <div id="teamDetailSports" class="team-detail-sports" aria-label="Sports"></div>
       <div id="teamDetailStatus" class="team-detail-status"></div>
-      <div class="team-detail-section-title"><span>Schedule</span><a id="teamDetailSource" target="_blank" rel="noopener">Official schedule ↗</a></div>
+      <div class="team-detail-section-title"><span>Schedule</span><a id="teamDetailSource" target="_blank" rel="noopener">Schedule source ↗</a></div>
       <div id="teamDetailSchedule" class="team-detail-schedule"></div>
     </div>`;
     document.body.appendChild(dialog);
@@ -70,7 +83,8 @@
       .team-detail-stat{padding:10px 7px;text-align:center;border-right:1px solid var(--pitch-line)}.team-detail-stat:last-child{border-right:0}.team-detail-stat small{display:block;color:var(--pitch-muted);font-size:.54rem;text-transform:uppercase;letter-spacing:.06em;font-weight:800}.team-detail-stat strong{display:block;margin-top:3px;font-size:.82rem;color:var(--pitch-ink)}
       .team-detail-section-title{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 2px 7px;font-size:.8rem;font-weight:900;text-transform:uppercase}.team-detail-section-title a{font-size:.62rem;text-transform:none;color:var(--pitch-blue);font-weight:800;text-decoration:none}
       .team-detail-schedule{border:1px solid var(--pitch-line);border-radius:14px;overflow:hidden;background:var(--pitch-surface)}
-      .team-detail-game{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:11px 12px;border-bottom:1px solid var(--pitch-line)}.team-detail-game:last-child{border-bottom:0}.team-detail-game strong{display:block;font-size:.76rem}.team-detail-game .meta{margin-top:3px;color:var(--pitch-muted);font-size:.64rem;line-height:1.35}.team-detail-home{align-self:center;color:var(--pitch-blue);font-size:.58rem;font-weight:900;text-transform:uppercase}.team-detail-empty{padding:18px;color:var(--pitch-muted);text-align:center;font-size:.72rem}
+      .team-detail-game{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:11px 12px;border-bottom:1px solid var(--pitch-line)}.team-detail-game:last-child{border-bottom:0}.team-detail-game strong{display:block;font-size:.76rem}.team-detail-game .meta{margin-top:3px;color:var(--pitch-muted);font-size:.64rem;line-height:1.35}.team-detail-home{align-self:center;color:var(--pitch-blue);font-size:.58rem;font-weight:900;text-transform:uppercase;text-align:right}.team-detail-result{display:block;margin-top:3px;color:var(--pitch-ink);font-size:.62rem}
+      .team-detail-empty{padding:18px;color:var(--pitch-muted);text-align:center;font-size:.72rem}
       @media(max-width:520px){.team-detail-dialog{width:100vw;max-width:none;margin:auto 0 0;border-radius:22px 22px 0 0;border-left:0;border-right:0;border-bottom:0;max-height:86vh}.team-detail-shell{max-height:86vh;padding:14px 13px calc(18px + env(safe-area-inset-bottom))}.team-detail-header{grid-template-columns:62px minmax(0,1fr) 34px}.team-detail-logo{width:62px;height:62px;border-radius:15px}.team-detail-school{font-size:1.08rem}}
     `;
     document.head.appendChild(style);
@@ -80,10 +94,7 @@
     return dialog;
   }
 
-  function renderDetail() {
-    const dialog = ensureDialog();
-    const school = schoolFor(state.schoolId);
-    const all = teamEventsFor(state.schoolId);
+  function groupsFor(all) {
     const groups = [];
     const seen = new Set();
     all.forEach(event => {
@@ -93,14 +104,25 @@
         groups.push({ key, sport: event.sport, gender: event.gender || "" });
       }
     });
+    if (!groups.length && state.sport) groups.push({ key: `${state.sport}|${state.gender || ""}`, sport: state.sport, gender: state.gender || "" });
+    return groups;
+  }
 
-    if (!groups.length) return;
-    let active = groups.find(g => g.sport === state.sport && g.gender === state.gender) || groups[0];
-    state.sport = active.sport;
-    state.gender = active.gender;
+  function renderDetail() {
+    const dialog = ensureDialog();
+    const school = schoolFor(state.schoolId);
+    const all = teamEventsFor(state.schoolId);
+    const groups = groupsFor(all);
+    let active = groups.find(g => g.sport === state.sport && g.gender === state.gender) || groups[0] || null;
+    if (active) {
+      state.sport = active.sport;
+      state.gender = active.gender;
+    }
 
-    const selectedEvents = all.filter(e => e.sport === state.sport && (e.gender || "") === state.gender);
-    const status = typeof getTeamStatus === "function"
+    const selectedEvents = active
+      ? all.filter(e => e.sport === state.sport && (e.gender || "") === state.gender)
+      : all;
+    const status = typeof getTeamStatus === "function" && state.sport
       ? getTeamStatus({ teamId: state.schoolId, sport: state.sport, gender: state.gender })
       : { overall: "—", conference: "—", standing: "Not posted", conferenceName: "Conference" };
 
@@ -109,10 +131,10 @@
       ? `<img src="${state.logo}" alt="${school.subtitle || school.name} logo" referrerpolicy="no-referrer" />`
       : `<span>${school.short || "★"}</span>`;
     dialog.querySelector("#teamDetailSchool").textContent = school.name;
-    dialog.querySelector("#teamDetailMascot").textContent = `${school.subtitle || ""}${school.subtitle ? " · " : ""}${sportLabel(state.sport, state.gender)}`;
+    dialog.querySelector("#teamDetailMascot").textContent = `${school.subtitle || ""}${state.sport ? `${school.subtitle ? " · " : ""}${sportLabel(state.sport, state.gender)}` : ""}`;
 
     dialog.querySelector("#teamDetailSports").innerHTML = groups.map(group =>
-      `<button type="button" class="team-detail-sport${group.key === active.key ? " active" : ""}" data-sport="${group.sport}" data-gender="${group.gender}">${sportLabel(group.sport, group.gender)}</button>`
+      `<button type="button" class="team-detail-sport${active && group.key === active.key ? " active" : ""}" data-sport="${group.sport}" data-gender="${group.gender}">${sportLabel(group.sport, group.gender)}</button>`
     ).join("");
 
     dialog.querySelector("#teamDetailStatus").innerHTML = `
@@ -125,23 +147,52 @@
     sourceLink.href = source || "#";
     sourceLink.hidden = !source;
 
-    dialog.querySelector("#teamDetailSchedule").innerHTML = selectedEvents.length
-      ? selectedEvents.map(event => `<div class="team-detail-game">
+    const scheduleEl = dialog.querySelector("#teamDetailSchedule");
+    if (state.loading && !scheduleCache.has(state.schoolId)) {
+      scheduleEl.innerHTML = `<div class="team-detail-empty">Loading full schedule…</div>`;
+    } else if (state.error && !selectedEvents.length) {
+      scheduleEl.innerHTML = `<div class="team-detail-empty">Schedule could not be loaded right now. ${state.error}</div>`;
+    } else if (selectedEvents.length) {
+      scheduleEl.innerHTML = selectedEvents.map(event => `<div class="team-detail-game">
           <div><strong>${event.home ? "vs." : "at"} ${event.opponent}</strong><div class="meta">${displayDate(event.date)} · ${event.venue}${event.notes ? ` · ${event.notes}` : ""}</div></div>
-          <div class="team-detail-home">${event.home ? "Home" : "Away"}</div>
-        </div>`).join("")
-      : `<div class="team-detail-empty">No schedule loaded for this sport yet.</div>`;
+          <div class="team-detail-home">${event.home ? "Home" : "Away"}${scoreLabel(event) ? `<span class="team-detail-result">${scoreLabel(event)}</span>` : ""}</div>
+        </div>`).join("");
+    } else {
+      scheduleEl.innerHTML = `<div class="team-detail-empty">No schedule loaded for this sport yet.</div>`;
+    }
+  }
+
+  async function loadFullSchedule(schoolId) {
+    if (scheduleCache.has(schoolId)) return scheduleCache.get(schoolId);
+    if (!window.LocalBleachersLive?.fetchTeamSchedule) return fallbackTeamEventsFor(schoolId);
+    state.loading = true;
+    state.error = "";
+    renderDetail();
+    try {
+      const games = await window.LocalBleachersLive.fetchTeamSchedule(schoolId);
+      scheduleCache.set(schoolId, games);
+      return games;
+    } catch (error) {
+      state.error = String(error?.message || error);
+      console.warn("Full team schedule refresh failed", error);
+      return fallbackTeamEventsFor(schoolId);
+    } finally {
+      state.loading = false;
+      renderDetail();
+    }
   }
 
   function openFromTrigger(trigger) {
     state.schoolId = trigger.dataset.teamId;
     state.sport = trigger.dataset.sport;
     state.gender = trigger.dataset.gender || "";
+    state.error = "";
     const image = trigger.querySelector("img");
     state.logo = image && !image.hidden ? image.src : "";
-    renderDetail();
     const dialog = ensureDialog();
+    renderDetail();
     if (!dialog.open) dialog.showModal();
+    void loadFullSchedule(state.schoolId);
   }
 
   document.addEventListener("click", event => {
