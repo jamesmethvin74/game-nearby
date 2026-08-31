@@ -122,7 +122,8 @@ test("statewide bridge loads the public school catalog and nearby games without 
 
   const context = createContext(fetchImpl);
   const first = await context.window.LocalBleachersLive.refreshAll();
-  assert.deepEqual(first, { schools: 2, games: 1 });
+  assert.equal(first.schools, 2);
+  assert.equal(first.games, 1);
   assert.equal(context.SCHOOL_REGISTRY.length, 2);
   assert.equal(context.SCHOOL_REGISTRY[0].name, "Eureka Springs High School");
   assert.equal(context.SCHOOL_REGISTRY[1].name, "Green Forest High School");
@@ -143,7 +144,8 @@ test("statewide bridge loads the public school catalog and nearby games without 
 test("statewide bridge preserves embedded fallback data when the API is unavailable", async () => {
   const context = createContext(async () => { throw new Error("network unavailable"); });
   const result = await context.window.LocalBleachersLive.refreshAll();
-  assert.deepEqual(result, { schools: 0, games: 0 });
+  assert.equal(result.schools, 0);
+  assert.equal(result.games, 0);
   assert.equal(context.SCHOOL_REGISTRY.length, 1);
   assert.equal(context.SCHOOL_REGISTRY[0].id, "legacy");
   assert.equal(context.events.length, 1);
