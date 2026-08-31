@@ -78,15 +78,26 @@ async function ensureLiveConfig(env) {
 async function publicCatalogResponse(request,response,env){
   if (request.method!=="GET" || !response.ok) return response;
   const path=new URL(request.url).pathname;
-  if (path!=="/api/v1/schools" && path!=="/api/v1/games") return response;
   const body=await response.json();
+
   if (path==="/api/v1/schools" && Array.isArray(body.schools)) {
-    body.schools=body.schools.filter(school=>Number(school.team_count||0)>0);
-  }
-  if (path==="/api/v1/games" && Array.isArray(body.games)) {
-    const {results}=await env.DB.prepare("SELECT DISTINCT school_id FROM teams WHERE active=1").all();
+    body.schools=body.schools.filter(school=>school.catalog_scope==="local" && Number(school.team_count||0)>0);
+  } else if (path==="/api/v1/games" && Array.isArray(body.games)) {
+    const {results}=await env.DB.prepare(`
+      SELECT DISTINCT t.school_id
+      FROM teams t JOIN schools s ON s.id=t.school_id
+      WHERE t.active=1 AND s.catalog_scope='local'`).all();
     const activeSchools=new Set(results.map(row=>row.school_id));
     body.games=body.games.filter(game=>activeSchools.has(game.school_id));
+  } else {
+    const teamMatch=path.match(/^\/api\/v1\/teams\/([^/]+)(?:\/(?:schedule|record))?$/);
+    if (teamMatch) {
+      const teamId=decodeURIComponent(teamMatch[1]);
+      const visible=await env.DB.prepare(`
+        SELECT 1 AS yes FROM teams t JOIN schools s ON s.id=t.school_id
+        WHERE t.id=? AND t.active=1 AND s.catalog_scope='local'`).bind(teamId).first();
+      if (!visible) return new Response(JSON.stringify({error:"team_not_found"}),{status:404,headers:response.headers});
+    }
   }
   return new Response(JSON.stringify(body),{status:response.status,headers:response.headers});
 }
