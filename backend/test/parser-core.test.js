@@ -40,8 +40,9 @@ test("parses Vilonia varsity volleyball from the official Mascot Media format",(
   const rows=[{cells:["","Aug 25 / 05:30 PM VS Greenbrier TBD Vilonia, AR, AR","TBD Vilonia, AR, AR","- -"],full:"Aug 25 / 05:30 PM VS Greenbrier TBD Vilonia, AR, AR - -"}];
   const vilonia={season:"2026",timezone:"America/Chicago",home_venue:"Vilonia High School",home_latitude:35.0839,home_longitude:-92.2029};
   const [game]=normalizeMascotRows(rows,vilonia);
-  assert.equal(game.opponent,"Greenbrier TBD Vilonia, AR, AR");
+  assert.equal(game.opponent,"Greenbrier");
   assert.equal(game.homeAway,"home");
+  assert.equal(game.venue,"TBD Vilonia, AR, AR");
   assert.equal(game.status,"SCHEDULED");
   assert.equal(game.scheduledTimeKnown,true);
 });
