@@ -45,11 +45,17 @@ jobs:
           const fs = require('fs');
           const payload = JSON.parse(fs.readFileSync('schools.json','utf8'));
           const schools = Array.isArray(payload.schools) ? payload.schools : [];
+          const canonicalName = school => String(school.location_matched_name || school.name || '').trim();
           if (schools.length < 100) throw new Error(`Expected at least 100 visible statewide schools, got ${schools.length}`);
-          for (const name of ['Green Forest High School','Eureka Springs High School']) {
-            if (!schools.some(s => s.name === name)) throw new Error(`Missing production school: ${name}`);
+          for (const name of ['Green Forest High School','Eureka Springs High School','Valley Springs High School']) {
+            if (!schools.some(s => canonicalName(s).toLowerCase() === name.toLowerCase())) throw new Error(`Missing production school: ${name}`);
           }
-          console.log(`Production statewide catalog verified with ${schools.length} visible schools.`);
+          const valley = schools.find(s => canonicalName(s).toLowerCase() === 'valley springs high school');
+          if (!valley) throw new Error('Valley Springs High School is missing from production');
+          if (valley.catalog_scope !== 'local') throw new Error(`Valley Springs catalog_scope is ${valley.catalog_scope}`);
+          if (!(Number(valley.team_count || 0) > 0)) throw new Error(`Valley Springs team_count is ${valley.team_count}`);
+          if (valley.location_matched_name !== 'Valley Springs High School') throw new Error(`Valley Springs authoritative GIS name is ${valley.location_matched_name}`);
+          console.log(`Production statewide catalog verified with ${schools.length} visible schools; Valley Springs is local and active.`);
           NODE
 
       - name: Prove real non-pilot nearby game
@@ -76,6 +82,7 @@ jobs:
           NODE
 
       - name: Verify GitHub Pages serves statewide frontend
+        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
@@ -84,9 +91,10 @@ jobs:
 
           for attempt in $(seq 1 20); do
             echo "Pages attempt ${attempt}/20"
-            curl -fsS --max-time 30 "$APP/live-data.js?v=45" -o live-data.tmp || true
-            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=45" -o follow.tmp || true
+            curl -fsS --max-time 30 "$APP/live-data.js?v=46" -o live-data.tmp || true
+            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=46" -o follow.tmp || true
             if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
+              && grep -q 'location_matched_name' live-data.tmp 2>/dev/null \
               && grep -q '/api/v1/games?' live-data.tmp 2>/dev/null \
               && grep -q 'Search Arkansas schools' follow.tmp 2>/dev/null; then
               mv live-data.tmp live-data.js
@@ -98,4 +106,4 @@ jobs:
 
           test -f live-data.js
           test -f school-follow-logic.js
-          echo "GitHub Pages statewide frontend verified."
+          echo "GitHub Pages statewide frontend verified with authoritative school names."

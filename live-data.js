@@ -37,15 +37,18 @@
     const mascot = String(school.mascot || "").trim();
     const city = String(school.city || "").trim();
     const stateCode = String(school.state || "").trim();
+    const providerName = String(school.name || "").trim();
+    const displayName = String(school.location_matched_name || providerName).trim() || providerName;
     return {
       id: school.id,
-      name: school.name,
+      name: displayName,
+      providerName,
       subtitle: mascot || [city, stateCode].filter(Boolean).join(", ") || "Arkansas school",
       mascot,
       city,
       state: stateCode,
       teamCount: Number(school.team_count || 0),
-      short: String(school.name || "?").trim().charAt(0).toUpperCase() || "★"
+      short: String(displayName || "?").trim().charAt(0).toUpperCase() || "★"
     };
   }
 
