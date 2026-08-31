@@ -23,6 +23,43 @@ export function dateKeyInZone(iso, timeZone="America/Chicago") {
   }).format(date);
 }
 
+function clockKeyInZone(iso,timeZone="America/Chicago") {
+  if (!iso) return "";
+  const date=new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts=new Intl.DateTimeFormat("en-US",{timeZone,hour:"2-digit",minute:"2-digit",hourCycle:"h23"})
+    .formatToParts(date);
+  const values=Object.fromEntries(parts.filter(p=>p.type!=="literal").map(p=>[p.type,p.value]));
+  return `${values.hour||"00"}${values.minute||"00"}`;
+}
+
+function clockMinutesInZone(iso,timeZone="America/Chicago") {
+  const key=clockKeyInZone(iso,timeZone);
+  if (!/^\d{4}$/.test(key)) return null;
+  return Number(key.slice(0,2))*60+Number(key.slice(2));
+}
+
+function clockDistanceMinutes(a,b,timeZone="America/Chicago") {
+  const aa=clockMinutesInZone(a,timeZone), bb=clockMinutesInZone(b,timeZone);
+  if (aa==null || bb==null) return Infinity;
+  const direct=Math.abs(aa-bb);
+  return Math.min(direct,1440-direct);
+}
+
+function observationSourceEventKey(observation) {
+  return cleanAuthorityText(observation?.source_event_key || observation?.sourceEventKey || "").toLowerCase();
+}
+
+function dragonFlyNativeEventKey(observation) {
+  if (observation?.parser_type !== "dragonfly-public") return "";
+  const key=observationSourceEventKey(observation);
+  return key.startsWith("native:") ? key : "";
+}
+
+function safeIdToken(value) {
+  return cleanAuthorityText(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+}
+
 export function sourceAuthorityRank(source={}) {
   if (Number.isFinite(Number(source.authority_rank))) return Number(source.authority_rank);
   if (source.parser_type === "dragonfly-public") return 10;
@@ -59,6 +96,16 @@ export function canonicalParticipants(observation) {
   return {participants,homeSchoolId,awaySchoolId};
 }
 
+function observationSlot(observation,timeZone="America/Chicago") {
+  const dragonFlyKey=dragonFlyNativeEventKey(observation);
+  if (dragonFlyKey) return `df-${safeIdToken(dragonFlyKey.replace(/^native:/,""))}`;
+  if (observation?.scheduled_time_known && observation?.scheduled_at) {
+    const clock=clockKeyInZone(observation.scheduled_at,timeZone);
+    if (clock) return `t${clock}`;
+  }
+  return "tba";
+}
+
 export function canonicalCandidateKey(observation, timeZone="America/Chicago") {
   const p=canonicalParticipants(observation);
   if (!p) return null;
@@ -68,7 +115,7 @@ export function canonicalCandidateKey(observation, timeZone="America/Chicago") {
     String(observation.sport||"").toLowerCase(),
     String(observation.gender||"").toLowerCase(),
     String(observation.season||""),
-    p.participants[0],p.participants[1],date
+    p.participants[0],p.participants[1],date,observationSlot(observation,timeZone)
   ].join("|");
 }
 
@@ -92,16 +139,33 @@ function canonicalScore(observation) {
     : {homeScore:Number(opponentScore),awayScore:Number(teamScore)};
 }
 
-export function observationsLikelySameEvent(a,b,{timeZone="America/Chicago",maxDateDistanceHours=36}={}) {
+export function observationsLikelySameEvent(a,b,{timeZone="America/Chicago",maxDateDistanceHours=36,maxTimeDisagreementMinutes=90}={}) {
   const pa=canonicalParticipants(a), pb=canonicalParticipants(b);
   if (!pa || !pb) return false;
   if (String(a.sport||"").toLowerCase() !== String(b.sport||"").toLowerCase()) return false;
   if (String(a.gender||"").toLowerCase() !== String(b.gender||"").toLowerCase()) return false;
   if (String(a.season||"") !== String(b.season||"")) return false;
   if (pa.participants.join("|") !== pb.participants.join("|")) return false;
-  if (dateKeyInZone(a.scheduled_at,timeZone) === dateKeyInZone(b.scheduled_at,timeZone)) return true;
+
+  const aDragonFly=dragonFlyNativeEventKey(a), bDragonFly=dragonFlyNativeEventKey(b);
+  if (aDragonFly && bDragonFly) return aDragonFly===bDragonFly;
+
+  const aSource=cleanAuthorityText(a.source_id), bSource=cleanAuthorityText(b.source_id);
+  const aEvent=observationSourceEventKey(a), bEvent=observationSourceEventKey(b);
+  if (aSource && aSource===bSource && aEvent && bEvent && aEvent!==bEvent) return false;
+
+  const sameDate=dateKeyInZone(a.scheduled_at,timeZone) === dateKeyInZone(b.scheduled_at,timeZone);
+  const bothTimed=Boolean(a.scheduled_time_known && b.scheduled_time_known && a.scheduled_at && b.scheduled_at);
+  if (sameDate) {
+    if (!bothTimed) return true;
+    return minutesBetween(a.scheduled_at,b.scheduled_at) <= maxTimeDisagreementMinutes;
+  }
+
   const distance=Math.abs(Date.parse(a.scheduled_at)-Date.parse(b.scheduled_at));
-  return Number.isFinite(distance) && distance <= maxDateDistanceHours*60*60*1000;
+  if (!Number.isFinite(distance) || distance > maxDateDistanceHours*60*60*1000) return false;
+  if (bothTimed && clockDistanceMinutes(a.scheduled_at,b.scheduled_at,timeZone) > maxTimeDisagreementMinutes) return false;
+  if (pa.homeSchoolId && pb.homeSchoolId && pa.homeSchoolId!==pb.homeSchoolId) return false;
+  return true;
 }
 
 export function detectEventConflicts(observations,{timeZone="America/Chicago"}={}) {
@@ -130,6 +194,13 @@ function bestObservation(observations,predicate=()=>true) {
     .sort((a,b)=>sourceAuthorityRank(a)-sourceAuthorityRank(b) || String(a.source_id||"").localeCompare(String(b.source_id||"")))[0] || null;
 }
 
+function canonicalEventSlot(observations,selected,timeSelected,timeZone) {
+  const dragonFly=bestObservation(observations,o=>Boolean(dragonFlyNativeEventKey(o)));
+  if (dragonFly) return observationSlot(dragonFly,timeZone);
+  if (timeSelected?.scheduled_time_known) return observationSlot(timeSelected,timeZone);
+  return observationSlot(selected,timeZone);
+}
+
 export function resolveCanonicalEvent(observations,{timeZone="America/Chicago",now=new Date().toISOString()}={}) {
   if (!Array.isArray(observations) || !observations.length) throw new Error("At least one observation is required");
   const usable=observations.filter(o=>canonicalParticipants(o));
@@ -151,7 +222,8 @@ export function resolveCanonicalEvent(observations,{timeZone="America/Chicago",n
   if (conflicts.length) trustState="CONFLICT";
   const scheduledAt=timeSelected?.scheduled_at || selected.scheduled_at;
   const canonicalDate=dateKeyInZone(selected.scheduled_at,timeZone).replace(/-/g,"");
-  const id=["ce",String(first.sport||"").toLowerCase(),String(first.gender||"").toLowerCase(),first.season,p.participants[0],p.participants[1],canonicalDate].join(":");
+  const slot=canonicalEventSlot(usable,selected,timeSelected,timeZone);
+  const id=["ce",String(first.sport||"").toLowerCase(),String(first.gender||"").toLowerCase(),first.season,p.participants[0],p.participants[1],canonicalDate,slot].join(":");
   return {
     id,
     sport:first.sport,gender:first.gender,season:first.season,
@@ -169,7 +241,8 @@ export function resolveCanonicalEvent(observations,{timeZone="America/Chicago",n
       relationObservationId:(relationSelected||selected)?.id || null,
       venueObservationId:venueSelected?.id || null,
       scoreObservationId:scoreSelected?.id || null,
-      sourceIds:[...distinctSources]
+      sourceIds:[...distinctSources],
+      eventSlot:slot
     }
   };
 }
