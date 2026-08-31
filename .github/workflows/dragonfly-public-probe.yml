@@ -10,7 +10,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect public Arkansas DragonFly bundle
+      - name: Resolve public DragonFly schedule API
         shell: bash
         run: |
           set -euo pipefail
@@ -18,13 +18,17 @@ jobs:
           URL='https://ar.dragonflyathletics.com/sites/ArkAA/schedules?level=Varsity&sport=VB&team=F'
           curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -o page.html "$URL"
           MAIN=$(grep -oE 'src="main\.[^"]+\.js"' page.html | head -1 | cut -d'"' -f2)
-          echo "MAIN=$MAIN"
           curl -L --fail-with-body --silent --show-error -A 'LocalBleachersAR-public-source-validation/1.0' -o main.js "${BASE}${MAIN}"
-          echo '=== BUNDLE SIZE ==='
-          wc -c main.js
-          echo '=== DRAGONFLY/API URLS ==='
-          grep -oE 'https?://[^"'"'"' ]+' main.js | grep -Ei 'dragonfly|api' | sort -u | head -80 || true
-          echo '=== SCHEDULE/GAME ENDPOINT HINTS ==='
-          grep -ioE '.{0,140}(schedule|events|games|contest).{0,220}' main.js | head -120 || true
-          echo '=== API CONFIG HINTS ==='
-          grep -ioE '.{0,140}(apiurl|api_url|baseurl|base_url|trainingapi|productionapi|publicapi).{0,220}' main.js | head -100 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          s=Path('main.js').read_text(errors='replace')
+          for token in ['maxinfosite-api-live.dragonflyathletics.com','getSiteSchedule=function','getSiteSchedule(','/schedules/']:
+              print('\n===',token,'===')
+              start=0
+              for _ in range(8):
+                  i=s.find(token,start)
+                  if i<0: break
+                  print(s[max(0,i-900):i+1800])
+                  print('\n---')
+                  start=i+len(token)
+          PY
