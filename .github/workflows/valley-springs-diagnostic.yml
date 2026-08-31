@@ -1,0 +1,52 @@
+name: Valley Springs catalog diagnostic
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Trace Valley Springs through live feed and GIS
+        run: |
+          node --input-type=module <<'NODE'
+          import { fetchDragonFlyPagedPayload } from './backend/src/dragonfly-feed.js';
+          import { discoverDragonFlyVarsityVolleyballTeams } from './backend/src/dragonfly-discovery.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations, locationNameKey, relaxedLocationNameKey } from './backend/src/arkansas-school-locations.js';
+
+          const feed='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
+          const api='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools';
+
+          const { payload, pageCount } = await fetchDragonFlyPagedPayload(feed, { headers:{accept:'application/json','user-agent':'LocalBleachersAR-ValleySpringsDiagnostic/1.0'} });
+          const entries=discoverDragonFlyVarsityVolleyballTeams(payload);
+          const valleyEntries=entries.filter(e=>/valley|spring/i.test(e.schoolName));
+          console.log('DragonFly pages:',pageCount,'events:',payload.schedule?.length,'discovered teams:',entries.length);
+          console.log('DragonFly Valley/Spring entries:',JSON.stringify(valleyEntries,null,2));
+
+          const gis=await fetchArkansasSchoolLocationFeatures();
+          const valleyFeatures=gis.features.filter(f=>/valley|spring/i.test(f.name)||/valley|spring/i.test(f.city));
+          console.log('GIS Valley/Spring candidates:',JSON.stringify(valleyFeatures.map(f=>({name:f.name,city:f.city,lea:f.lea,address:f.address,latitude:f.latitude,longitude:f.longitude,exact:f.exact_key,relaxed:f.relaxed_key})),null,2));
+
+          for (const entry of valleyEntries) {
+            const school={id:`df-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:''};
+            const match=matchArkansasSchoolLocations([school],gis.features);
+            console.log('Match for',entry.schoolName,'exact=',locationNameKey(entry.schoolName),'relaxed=',relaxedLocationNameKey(entry.schoolName),JSON.stringify(match,null,2));
+          }
+
+          const production=await fetch(api,{headers:{accept:'application/json'}}).then(r=>r.json());
+          const prodValley=(production.schools||[]).filter(s=>/valley|spring/i.test(s.name)||/valley|spring/i.test(s.city));
+          console.log('Production Valley/Spring schools:',JSON.stringify(prodValley,null,2));
+
+          const exactValley=entries.filter(e=>/valley springs/i.test(e.schoolName));
+          if (!exactValley.length) console.log('ROOT_SIGNAL: Valley Springs is absent from DragonFly discovery.');
+          else {
+            const matches=exactValley.flatMap(entry=>matchArkansasSchoolLocations([{id:`df-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:''}],gis.features).matched||[]);
+            console.log(matches.length ? 'ROOT_SIGNAL: Valley Springs is discoverable and GIS-matchable.' : 'ROOT_SIGNAL: Valley Springs is discovered but not GIS-matchable.');
+          }
+          NODE
