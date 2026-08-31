@@ -2,6 +2,8 @@ import core from "./index.js";
 import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js";
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
+import { ensureStatewideSchema } from "./schema-bootstrap.js";
+import { ensureInitialStatewideData } from "./statewide-initializer.js";
 
 let liveConfigReady = false;
 
@@ -104,11 +106,21 @@ async function publicCatalogResponse(request,response,env){
 
 export default {
   async fetch(request, env, ctx) {
+    await ensureStatewideSchema(env);
     await ensureLiveConfig(env);
+    const path=new URL(request.url).pathname;
+    if (request.method==="GET" && (path==="/api/v1/schools" || path==="/api/v1/games")) {
+      try {
+        await ensureInitialStatewideData(env);
+      } catch (error) {
+        console.error("statewide volleyball initial production bootstrap failed",error);
+      }
+    }
     const response=await core.fetch(request, env, ctx);
     return publicCatalogResponse(request,response,env);
   },
   async scheduled(controller, env, ctx) {
+    await ensureStatewideSchema(env);
     await ensureLiveConfig(env);
     let catalogPayload=null;
     try {
@@ -131,8 +143,6 @@ export default {
         matchRatio:locations.matchRatio
       });
     } catch (error) {
-      // Existing last-known-good school coordinates and active scopes remain untouched when
-      // Arkansas GIS is unavailable or suspicious. Newly discovered teams remain staged.
       console.error("statewide volleyball location sync failed",error);
     }
 
@@ -142,9 +152,6 @@ export default {
     } catch (error) {
       console.error("statewide volleyball collection failed",error);
     } finally {
-      // Statewide sources are storage/health identities for the bulk collector. Keeping them
-      // disabled prevents the legacy per-team collector from walking the same statewide feed
-      // hundreds of times. Existing proven team-mode sources remain enabled.
       await env.DB.prepare("UPDATE sources SET enabled=0 WHERE collection_mode='statewide'").run();
     }
 

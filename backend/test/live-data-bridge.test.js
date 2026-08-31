@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
 const rawSource = await readFile(new URL("../../live-data.js", import.meta.url), "utf8");
-const source = rawSource.replace(/\n\s*refreshAll\(\);\s*\n\}\)\(\);\s*$/, "\n})();\n");
+const source = rawSource.replace(/\n\s*Promise\.allSettled\(\[refreshCatalog\(\), refreshNearby\(\)\]\);\s*\n\}\)\(\);\s*$/, "\n})();\n");
 assert.notEqual(source, rawSource, "test harness should disable only the automatic startup refresh");
 
 function createStorage() {
@@ -31,47 +31,45 @@ function createContext(fetchImpl) {
     CustomEvent: class CustomEvent {
       constructor(type, init = {}) { this.type = type; this.detail = init.detail; }
     },
+    MutationObserver: class MutationObserver {
+      constructor(callback) { this.callback = callback; }
+      observe() {}
+    },
+    SCHOOL_REGISTRY: [
+      { id: "legacy", name: "Legacy School", subtitle: "Fallback" }
+    ],
+    teams: [
+      { id: "legacy", name: "Legacy School", short: "L" }
+    ],
     events: [
       {
-        id: "embedded-uca-soccer",
-        teamId: "uca",
-        team: "UCA Bears",
-        sport: "soccer",
-        gender: "men",
-        opponent: "Drake",
-        date: "2026-08-20T00:00:00.000Z",
-        home: false,
-        lat: 41.59,
-        lon: -93.61,
-        venue: "Fallback Field",
-        ticketUrl: "https://tickets.example.test"
-      },
-      {
-        id: "unrelated",
-        teamId: "hendrix",
-        team: "Hendrix Warriors",
-        sport: "soccer",
-        gender: "men",
-        opponent: "Test Opponent",
+        id: "embedded-fallback",
+        teamId: "legacy",
+        schoolIds: ["legacy"],
+        team: "Legacy School",
+        sport: "volleyball",
+        gender: "girls",
+        level: "high-school",
+        opponent: "Fallback Opponent",
         date: "2026-09-01T00:00:00.000Z",
         home: true,
         lat: 35.1,
-        lon: -92.44,
-        venue: "Unrelated Venue"
+        lon: -92.4,
+        venue: "Fallback Gym"
       }
     ],
-    TEAM_STATUS: {
-      "uca|soccer|men": {
-        overall: "0-0",
-        conference: "0-0",
-        standing: "Preseason",
-        conferenceName: "ASUN Conference"
-      }
-    },
+    center: { lat: 36.3293749879, lon: -93.4343223399 },
+    radiusEl: { value: "25", addEventListener() {} },
+    locationLabelEl: {},
+    dialog: { open: false },
+    renderTeamChoices() {},
     render() {},
+    sourceLabel() { return "fallback"; },
     fetch: fetchImpl,
     AbortController,
     Response,
+    URL,
+    URLSearchParams,
     setTimeout,
     clearTimeout,
     console
@@ -81,91 +79,76 @@ function createContext(fetchImpl) {
   return context;
 }
 
-test("live bridge replaces pilot data and reflects a later backend response without frontend code changes", async () => {
+test("statewide bridge loads the public school catalog and nearby games without hardcoded pilot teams", async () => {
   let revision = 1;
   const fetchImpl = async input => {
-    const path = new URL(String(input)).pathname;
-    if (path === "/api/v1/teams/uca-mens-soccer-2026") {
+    const url = new URL(String(input));
+    if (url.pathname === "/api/v1/schools") {
       return jsonResponse({
-        team: {
-          id: "uca-mens-soccer-2026",
-          level: "college",
-          conference_name: "ASUN Conference",
-          school_latitude: 35.0809,
-          school_longitude: -92.4590,
-          source_url: "https://ucasports.com/sports/mens-soccer/schedule/2026",
-          last_successful_fetch_at: "2026-08-24T21:00:00.000Z"
-        },
-        record: revision === 1
-          ? { wins: 0, losses: 0, ties: 1, conference_wins: 0, conference_losses: 0, conference_ties: 0 }
-          : { wins: 1, losses: 0, ties: 1, conference_wins: 0, conference_losses: 0, conference_ties: 0 }
+        schools: [
+          { id: "df-green-forest", name: "Green Forest High School", city: "Green Forest", state: "AR", mascot: "Tigers", team_count: 1 },
+          { id: "df-eureka", name: "Eureka Springs High School", city: "Eureka Springs", state: "AR", mascot: "Highlanders", team_count: 1 }
+        ]
       });
     }
-    if (path === "/api/v1/teams/uca-mens-soccer-2026/schedule") {
+    if (url.pathname === "/api/v1/games") {
       const games = [{
-        id: "uca-soccer-drake",
-        opponent: "Drake",
-        scheduled_at: "2026-08-20T23:00:00.000Z",
+        id: revision === 1 ? "game-1" : "game-2",
+        canonical_event_id: revision === 1 ? "ce-1" : "ce-2",
+        school_id: "df-eureka",
+        school_name: "Eureka Springs High School",
+        canonical_home_school_id: "df-green-forest",
+        canonical_away_school_id: "df-eureka",
+        opponent: "Green Forest High School",
+        sport: "volleyball",
+        gender: "girls",
+        level: "high-school",
+        scheduled_at: revision === 1 ? "2026-09-03T00:00:00.000Z" : "2026-09-05T00:00:00.000Z",
         scheduled_time_known: 1,
         home_away: "away",
-        venue: "Drake Stadium",
-        latitude: null,
-        longitude: null,
-        status: "FINAL",
-        team_score: 1,
-        opponent_score: 1,
-        result: "T",
-        conference_game: 0,
-        notes: "",
-        source_url: "https://ucasports.com/sports/mens-soccer/schedule/2026",
-        source_updated_at: "2026-08-24T21:00:00.000Z"
+        venue: "GREEN FOREST HIGH SCHOOL",
+        latitude: 36.3293749879,
+        longitude: -93.4343223399,
+        status: "SCHEDULED",
+        source_type: "official-conference",
+        parser_type: "dragonfly-public",
+        data_trust: "CORROBORATED",
+        conflict_count: 0
       }];
-      if (revision === 2) games.push({
-        id: "uca-soccer-second",
-        opponent: "Second Opponent",
-        scheduled_at: "2026-08-23T23:00:00.000Z",
-        scheduled_time_known: 1,
-        home_away: "home",
-        venue: "Bill Stephens Track/Soccer Complex",
-        latitude: 35.0767,
-        longitude: -92.4545,
-        status: "FINAL",
-        team_score: 2,
-        opponent_score: 0,
-        result: "W",
-        conference_game: 0,
-        notes: "",
-        source_url: "https://ucasports.com/sports/mens-soccer/schedule/2026",
-        source_updated_at: "2026-08-24T22:00:00.000Z"
-      });
-      return jsonResponse({ teamId: "uca-mens-soccer-2026", games });
+      return jsonResponse({ games });
     }
     return jsonResponse({ error: "not_found" }, 404);
   };
 
   const context = createContext(fetchImpl);
-  assert.equal(await context.window.LocalBleachersLive.refreshTeam("uca-mens-soccer-2026"), true);
-
-  let liveGames = context.events.filter(event => event.teamId === "uca" && event.sport === "soccer" && event.gender === "men");
-  assert.equal(liveGames.length, 1);
-  assert.equal(liveGames[0].liveData, true);
-  assert.equal(liveGames[0].result, "T");
-  assert.equal(liveGames[0].ticketUrl, "https://tickets.example.test", "embedded event remains a ticket/location fallback");
-  assert.equal(context.TEAM_STATUS["uca|soccer|men"].overall, "0-0-1");
-  assert.equal(context.events.some(event => event.id === "unrelated"), true, "unrelated embedded data is untouched");
+  const first = await context.window.LocalBleachersLive.refreshAll();
+  assert.equal(first.schools, 2);
+  assert.equal(first.games, 1);
+  assert.equal(context.SCHOOL_REGISTRY.length, 2);
+  assert.equal(context.SCHOOL_REGISTRY[0].name, "Eureka Springs High School");
+  assert.equal(context.SCHOOL_REGISTRY[1].name, "Green Forest High School");
+  assert.equal(context.teams.some(team => team.id === "df-green-forest"), true);
+  assert.equal(context.events.length, 1);
+  assert.equal(context.events[0].liveData, true);
+  assert.equal(context.events[0].backendCanonicalEventId, "ce-1");
+  assert.deepEqual([...context.events[0].schoolIds].sort(), ["df-eureka", "df-green-forest"]);
+  assert.equal(context.events[0].lat, 36.3293749879);
+  assert.equal(context.events[0].lon, -93.4343223399);
 
   revision = 2;
-  assert.equal(await context.window.LocalBleachersLive.refreshTeam("uca-mens-soccer-2026"), true);
-  liveGames = context.events.filter(event => event.teamId === "uca" && event.sport === "soccer" && event.gender === "men");
-  assert.equal(liveGames.length, 2, "a later backend response replaces the previous live schedule without a frontend deploy");
-  assert.equal(context.TEAM_STATUS["uca|soccer|men"].overall, "1-0-1");
+  assert.equal(await context.window.LocalBleachersLive.refreshNearby(), 1);
+  assert.equal(context.events.length, 1, "new nearby response replaces the previous live window");
+  assert.equal(context.events[0].backendCanonicalEventId, "ce-2");
 });
 
-test("live bridge preserves embedded data when the API is unavailable", async () => {
+test("statewide bridge preserves embedded fallback data when the API is unavailable", async () => {
   const context = createContext(async () => { throw new Error("network unavailable"); });
-  assert.equal(await context.window.LocalBleachersLive.refreshTeam("uca-mens-soccer-2026"), false);
-  const fallback = context.events.find(event => event.id === "embedded-uca-soccer");
-  assert.ok(fallback);
-  assert.equal(fallback.liveData, undefined);
-  assert.equal(context.TEAM_STATUS["uca|soccer|men"].overall, "0-0");
+  const result = await context.window.LocalBleachersLive.refreshAll();
+  assert.equal(result.schools, 0);
+  assert.equal(result.games, 0);
+  assert.equal(context.SCHOOL_REGISTRY.length, 1);
+  assert.equal(context.SCHOOL_REGISTRY[0].id, "legacy");
+  assert.equal(context.events.length, 1);
+  assert.equal(context.events[0].id, "embedded-fallback");
+  assert.equal(context.events[0].liveData, undefined);
 });

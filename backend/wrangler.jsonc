@@ -6,7 +6,8 @@
   "workers_dev": true,
   "vars": {
     "ENVIRONMENT": "production",
-    "ALLOWED_ORIGIN": "https://jamesmethvin74.github.io"
+    "ALLOWED_ORIGIN": "https://jamesmethvin74.github.io",
+    "LAZY_STATEWIDE_BOOTSTRAP": "1"
   },
   "assets": {
     "directory": "../",

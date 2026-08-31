@@ -5,128 +5,27 @@
       || localStorage.getItem("localBleachersAR:apiBase")
       || DEFAULT_API_BASE
   ).replace(/\/$/, "");
-
-  const PILOT_TEAMS = [
-    { apiId:"uca-football-2026", schoolId:"uca", sport:"football", gender:"men", displayTeam:"UCA Bears" },
-    { apiId:"uca-mens-soccer-2026", schoolId:"uca", sport:"soccer", gender:"men", displayTeam:"UCA Bears" },
-    { apiId:"uca-volleyball-2026", schoolId:"uca", sport:"volleyball", gender:"women", displayTeam:"UCA Sugar Bears" },
-    { apiId:"hendrix-football-2026", schoolId:"hendrix", sport:"football", gender:"men", displayTeam:"Hendrix Warriors" },
-    { apiId:"conway-football-2026", schoolId:"conway", sport:"football", gender:"boys", displayTeam:"Conway Wampus Cats" },
-    { apiId:"conway-volleyball-2026", schoolId:"conway", sport:"volleyball", gender:"girls", displayTeam:"Conway Wampus Cats" },
-    { apiId:"greenbrier-volleyball-2026", schoolId:"greenbrier", sport:"volleyball", gender:"girls", displayTeam:"Greenbrier Panthers" },
-    { apiId:"vilonia-volleyball-2026", schoolId:"vilonia", sport:"volleyball", gender:"girls", displayTeam:"Vilonia Eagles" }
-  ];
+  const DRAGONFLY_VOLLEYBALL_URL = "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
 
   const state = {
     apiBase: API_BASE,
-    lastAttemptAt: null,
-    lastSuccessAt: null,
-    loadedTeams: new Set(),
-    failures: new Map()
+    catalogLoadedAt: null,
+    nearbyLoadedAt: null,
+    catalogCount: 0,
+    nearbyCount: 0,
+    failures: {},
+    nearbyRequest: 0
   };
 
-  const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const statusKey = item => `${item.schoolId}|${item.sport}|${item.gender}`;
-  const cacheKey = item => `localBleachersAR:live:${item.apiId}`;
-
-  function recordText(wins=0, losses=0, ties=0) {
-    return Number(ties) ? `${Number(wins)||0}-${Number(losses)||0}-${Number(ties)||0}` : `${Number(wins)||0}-${Number(losses)||0}`;
-  }
-
-  function fallbackMatch(item, game) {
-    return (typeof events !== "undefined" ? events : []).find(event =>
-      event.teamId === item.schoolId
-      && event.sport === item.sport
-      && (event.gender || "") === item.gender
-      && normalize(event.opponent) === normalize(game.opponent)
-    );
-  }
-
-  function resultNote(game) {
-    if (game.status === "FINAL" && game.result && game.team_score != null && game.opponent_score != null) {
-      return `${game.result} ${game.team_score}-${game.opponent_score}`;
-    }
-    if (game.status === "POSTPONED") return "Postponed";
-    if (game.status === "CANCELED") return "Canceled";
-    return "";
-  }
-
-  function mapGame(item, team, game) {
-    const fallback = fallbackMatch(item, game);
-    const result = resultNote(game);
-    const sourceNote = String(game.notes || "").trim();
-    const notes = [result, sourceNote, game.scheduled_time_known ? "" : "Time TBA"].filter(Boolean).join(" · ");
-    const home = game.home_away === "home" ? true : game.home_away === "away" ? false : Boolean(fallback?.home);
-    const canonicalEventId = game.canonical_event_id || null;
-    return {
-      id: `live:${canonicalEventId || game.id}`,
-      backendGameId: game.id,
-      backendCanonicalEventId: canonicalEventId,
-      backendTeamId: item.apiId,
-      liveData: true,
-      dataTrust: game.data_trust || "SINGLE_SOURCE_LIVE",
-      sourceConflictCount: Number(game.conflict_count || 0),
-      teamId: item.schoolId,
-      team: item.displayTeam,
-      sport: item.sport,
-      gender: item.gender,
-      level: team.level,
-      opponent: game.opponent,
-      date: game.scheduled_at,
-      home,
-      lat: game.latitude ?? fallback?.lat ?? team.school_latitude,
-      lon: game.longitude ?? fallback?.lon ?? team.school_longitude,
-      venue: game.venue || fallback?.venue || "Venue TBA",
-      source: "official",
-      sourceUrl: game.source_url || team.source_url,
-      sourceUpdatedAt: game.source_updated_at || game.source_last_successful_fetch_at || team.last_successful_fetch_at,
-      status: game.status,
-      teamScore: game.team_score,
-      opponentScore: game.opponent_score,
-      result: game.result,
-      conferenceGame: Boolean(game.conference_game),
-      notes,
-      ticketUrl: fallback?.ticketUrl || ""
-    };
-  }
-
-  function mergeSchedule(item, team, games) {
-    if (!Array.isArray(games) || !games.length || typeof events === "undefined") return false;
-    const mapped = games.map(game => mapGame(item, team, game));
-    for (let i=events.length-1; i>=0; i--) {
-      const event=events[i];
-      if (event.teamId === item.schoolId && event.sport === item.sport && (event.gender || "") === item.gender) events.splice(i,1);
-    }
-    for (const game of mapped) {
-      if (game.backendCanonicalEventId) {
-        const existingIndex=events.findIndex(event=>event.backendCanonicalEventId===game.backendCanonicalEventId);
-        if (existingIndex>=0) {
-          const existing=events[existingIndex];
-          if (existing.home && !game.home) continue;
-          events.splice(existingIndex,1);
-        }
-      }
-      events.push(game);
-    }
-    return true;
-  }
-
-  function mergeRecord(item, team, record) {
-    if (typeof TEAM_STATUS === "undefined") return;
-    const current = TEAM_STATUS[statusKey(item)] || {};
-    TEAM_STATUS[statusKey(item)] = {
-      overall: recordText(record?.wins, record?.losses, record?.ties),
-      conference: recordText(record?.conference_wins, record?.conference_losses, record?.conference_ties),
-      standing: "Not posted",
-      conferenceName: team.conference_name || current.conferenceName || "Conference"
-    };
-  }
-
-  async function fetchJson(path, timeoutMs=5500) {
+  async function fetchJson(path, timeoutMs = 10000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await fetch(`${API_BASE}${path}`, { headers:{"accept":"application/json"}, signal:controller.signal, cache:"no-store" });
+      const response = await fetch(`${API_BASE}${path}`, {
+        headers: { accept: "application/json" },
+        signal: controller.signal,
+        cache: "no-store"
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return await response.json();
     } finally {
@@ -134,81 +33,176 @@
     }
   }
 
-  function readCached(item) {
-    try {
-      const value = JSON.parse(localStorage.getItem(cacheKey(item)) || "null");
-      return value?.team?.team && Array.isArray(value?.schedule?.games) ? value : null;
-    } catch { return null; }
+  function normalizeSchool(school) {
+    const mascot = String(school.mascot || "").trim();
+    const city = String(school.city || "").trim();
+    const stateCode = String(school.state || "").trim();
+    return {
+      id: school.id,
+      name: school.name,
+      subtitle: mascot || [city, stateCode].filter(Boolean).join(", ") || "Arkansas school",
+      mascot,
+      city,
+      state: stateCode,
+      teamCount: Number(school.team_count || 0),
+      short: String(school.name || "?").trim().charAt(0).toUpperCase() || "★"
+    };
   }
 
-  function writeCached(item, payload) {
-    try { localStorage.setItem(cacheKey(item), JSON.stringify({...payload,cachedAt:new Date().toISOString()})); } catch {}
-  }
+  function applyCatalog(schools) {
+    if (!Array.isArray(schools)) return false;
+    const normalized = schools
+      .filter(school => school && school.id && school.name)
+      .map(normalizeSchool)
+      .sort((a, b) => a.name.localeCompare(b.name));
 
-  function applyPayload(item, payload, fromCache=false) {
-    const team = payload?.team?.team;
-    const record = payload?.team?.record;
-    const games = payload?.schedule?.games;
-    if (!team || !Array.isArray(games) || !games.length) return false;
-    const changed = mergeSchedule(item, team, games);
-    mergeRecord(item, team, record);
-    if (changed) {
-      state.loadedTeams.add(item.apiId);
-      if (!fromCache) state.lastSuccessAt = new Date().toISOString();
+    if (!normalized.length) return false;
+
+    if (typeof SCHOOL_REGISTRY !== "undefined") {
+      SCHOOL_REGISTRY.splice(0, SCHOOL_REGISTRY.length, ...normalized);
     }
-    return changed;
-  }
 
-  async function refreshTeam(item) {
-    state.lastAttemptAt = new Date().toISOString();
-    try {
-      const [team, schedule] = await Promise.all([
-        fetchJson(`/api/v1/teams/${encodeURIComponent(item.apiId)}`),
-        fetchJson(`/api/v1/teams/${encodeURIComponent(item.apiId)}/schedule`)
-      ]);
-      const payload={team,schedule};
-      if (!applyPayload(item,payload,false)) throw new Error("API returned no usable games");
-      writeCached(item,payload);
-      state.failures.delete(item.apiId);
-      if (typeof render === "function") render();
-      document.dispatchEvent(new CustomEvent("localbleachers:live-data",{detail:{teamId:item.apiId,source:"api"}}));
-      return true;
-    } catch (error) {
-      state.failures.set(item.apiId,String(error?.message || error));
-      const cached=readCached(item);
-      if (cached && applyPayload(item,cached,true)) {
-        if (typeof render === "function") render();
-        document.dispatchEvent(new CustomEvent("localbleachers:live-data",{detail:{teamId:item.apiId,source:"cache"}}));
-        return true;
+    if (typeof teams !== "undefined") {
+      for (const school of normalized) {
+        const existing = teams.find(team => team.id === school.id);
+        if (existing) Object.assign(existing, { name: school.name, short: school.short });
+        else teams.push({ id: school.id, name: school.name, short: school.short });
       }
-      return false;
+    }
+
+    state.catalogCount = normalized.length;
+    state.catalogLoadedAt = new Date().toISOString();
+    state.failures.catalog = null;
+    if (typeof renderTeamChoices === "function" && typeof dialog !== "undefined" && dialog?.open) renderTeamChoices();
+    document.dispatchEvent(new CustomEvent("localbleachers:catalog", { detail: { count: normalized.length } }));
+    return true;
+  }
+
+  async function refreshCatalog() {
+    try {
+      const payload = await fetchJson("/api/v1/schools");
+      if (!applyCatalog(payload?.schools)) throw new Error("API returned no visible schools");
+      return state.catalogCount;
+    } catch (error) {
+      state.failures.catalog = String(error?.message || error);
+      console.warn("Statewide school catalog refresh failed", error);
+      return 0;
     }
   }
 
-  async function refreshAll() {
-    await Promise.allSettled(PILOT_TEAMS.map(refreshTeam));
-    return state.loadedTeams.size;
+  function eventSourceUrl(game) {
+    if (game.source_url) return game.source_url;
+    if (game.parser_type === "dragonfly-public" || game.sport === "volleyball") return DRAGONFLY_VOLLEYBALL_URL;
+    return API_BASE;
+  }
+
+  function mapNearbyGame(game) {
+    const schoolIds = [...new Set([
+      game.school_id,
+      game.canonical_home_school_id,
+      game.canonical_away_school_id
+    ].filter(Boolean))];
+    const home = game.home_away === "home";
+    const date = game.scheduled_at || game.canonical_scheduled_at;
+    return {
+      id: `live:${game.canonical_event_id || game.id}`,
+      backendGameId: game.id,
+      backendCanonicalEventId: game.canonical_event_id || null,
+      liveData: true,
+      dataTrust: game.data_trust || "SINGLE_SOURCE_LIVE",
+      sourceConflictCount: Number(game.conflict_count || 0),
+      teamId: game.school_id,
+      schoolIds,
+      team: game.school_name || "Arkansas school",
+      sport: game.sport,
+      gender: game.gender || "",
+      level: game.level || "high-school",
+      opponent: game.opponent || "Opponent TBA",
+      date,
+      home,
+      lat: game.latitude == null ? NaN : Number(game.latitude),
+      lon: game.longitude == null ? NaN : Number(game.longitude),
+      venue: game.venue || game.canonical_venue || "Venue TBA",
+      source: "live",
+      sourceLabel: game.source_type === "official-conference" ? "Arkansas varsity schedule" : "Live schedule",
+      sourceUrl: eventSourceUrl(game),
+      status: game.status || "SCHEDULED",
+      teamScore: game.team_score,
+      opponentScore: game.opponent_score,
+      result: game.result,
+      conferenceGame: Boolean(game.conference_game),
+      notes: game.scheduled_time_known === 0 ? "Time TBA" : "",
+      ticketUrl: ""
+    };
+  }
+
+  function applyNearbyGames(games) {
+    if (!Array.isArray(games) || typeof events === "undefined") return false;
+    const mapped = games
+      .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
+      .map(mapNearbyGame)
+      .filter(game => Number.isFinite(game.lat) && Number.isFinite(game.lon));
+
+    events.splice(0, events.length, ...mapped);
+    state.nearbyCount = mapped.length;
+    state.nearbyLoadedAt = new Date().toISOString();
+    state.failures.nearby = null;
+    if (typeof render === "function") render();
+    document.dispatchEvent(new CustomEvent("localbleachers:nearby-games", { detail: { count: mapped.length } }));
+    return true;
+  }
+
+  async function refreshNearby() {
+    if (typeof center === "undefined" || typeof radiusEl === "undefined") return 0;
+    const requestId = ++state.nearbyRequest;
+    const radius = Math.max(1, Number(radiusEl.value) || 25);
+    const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+    const until = new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString();
+    const params = new URLSearchParams({
+      lat: String(center.lat),
+      lon: String(center.lon),
+      radius: String(radius),
+      since,
+      until
+    });
+
+    try {
+      const payload = await fetchJson(`/api/v1/games?${params.toString()}`);
+      if (requestId !== state.nearbyRequest) return state.nearbyCount;
+      if (!Array.isArray(payload?.games)) throw new Error("API returned no games array");
+      applyNearbyGames(payload.games);
+      return state.nearbyCount;
+    } catch (error) {
+      if (requestId !== state.nearbyRequest) return state.nearbyCount;
+      state.failures.nearby = String(error?.message || error);
+      console.warn("Statewide nearby games refresh failed; keeping last-known UI data", error);
+      return state.nearbyCount;
+    }
+  }
+
+  if (typeof sourceLabel === "function") {
+    sourceLabel = event => event.sourceLabel || (event.liveData ? "Live schedule" : "Schedule source");
+  }
+
+  if (typeof radiusEl !== "undefined") {
+    radiusEl.addEventListener("change", () => refreshNearby());
+  }
+
+  if (typeof locationLabelEl !== "undefined" && locationLabelEl) {
+    new MutationObserver(() => refreshNearby()).observe(locationLabelEl, { childList: true, characterData: true, subtree: true });
   }
 
   window.LocalBleachersLive = {
     apiBase: API_BASE,
-    refreshAll,
-    refreshTeam(apiId) {
-      const item=PILOT_TEAMS.find(team => team.apiId === apiId);
-      return item ? refreshTeam(item) : Promise.resolve(false);
+    refreshAll: async () => {
+      await refreshCatalog();
+      await refreshNearby();
+      return { schools: state.catalogCount, games: state.nearbyCount };
     },
-    getState() {
-      return {
-        apiBase: state.apiBase,
-        lastAttemptAt: state.lastAttemptAt,
-        lastSuccessAt: state.lastSuccessAt,
-        loadedTeams: [...state.loadedTeams],
-        failures: Object.fromEntries(state.failures)
-      };
-    }
+    refreshCatalog,
+    refreshNearby,
+    getState: () => ({ ...state, failures: { ...state.failures } })
   };
 
-  // Embedded schedule data remains the immediate fallback. Live API data replaces
-  // a configured team/sport only after a complete, non-empty response succeeds.
-  refreshAll();
+  Promise.allSettled([refreshCatalog(), refreshNearby()]);
 })();
