@@ -91,11 +91,39 @@ function renderFollowedPager(count) {
   };
 }
 
+function schoolChoiceDetail(school) {
+  const parts = [];
+  if (school.subtitle) parts.push(school.subtitle);
+  const place = [school.city, school.state].filter(Boolean).join(", ");
+  if (place && !parts.includes(place)) parts.push(place);
+  if (Number(school.teamCount || 0) > 0) {
+    const count = Number(school.teamCount);
+    parts.push(`${count} active team${count === 1 ? "" : "s"}`);
+  }
+  return parts.join(" · ") || "Arkansas school";
+}
+
 renderTeamChoices = function() {
-  teamChoicesEl.innerHTML = SCHOOL_REGISTRY.map(school => {
-    const count = events.filter(e => isUpcoming(e) && (e.schoolIds || [e.teamId]).includes(school.id)).length;
-    return `<label class="team-choice"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${school.subtitle} · ${count} upcoming event${count===1?"":"s"}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
+  if (typeof SCHOOL_REGISTRY === "undefined" || !SCHOOL_REGISTRY.length) {
+    teamChoicesEl.innerHTML = `<div class="empty">Loading Arkansas schools…</div>`;
+    return;
+  }
+
+  const rows = SCHOOL_REGISTRY.map(school => {
+    const searchText = `${school.name} ${school.subtitle || ""} ${school.city || ""} ${school.state || ""}`.toLowerCase();
+    return `<label class="team-choice" data-team-search="${searchText.replace(/"/g, "&quot;")}"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${schoolChoiceDetail(school)}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
   }).join("");
+
+  teamChoicesEl.innerHTML = `<div style="position:sticky;top:0;z-index:2;background:var(--panel,#0b1d31);padding:0 0 10px"><input id="teamSearchInput" type="search" placeholder="Search Arkansas schools" aria-label="Search Arkansas schools" style="width:100%;box-sizing:border-box;border:1px solid var(--line,#35506b);border-radius:12px;padding:12px 14px;background:var(--surface,#10263d);color:inherit;font:inherit"></div>${rows}`;
+
+  const search = teamChoicesEl.querySelector("#teamSearchInput");
+  const choices = [...teamChoicesEl.querySelectorAll(".team-choice")];
+  search?.addEventListener("input", () => {
+    const needle = search.value.trim().toLowerCase();
+    for (const choice of choices) {
+      choice.hidden = Boolean(needle) && !String(choice.dataset.teamSearch || "").includes(needle);
+    }
+  });
 };
 
 render = function() {
