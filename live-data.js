@@ -73,7 +73,7 @@
     state.catalogCount = normalized.length;
     state.catalogLoadedAt = new Date().toISOString();
     state.failures.catalog = null;
-    if (typeof renderTeamChoices === "function" && dialog?.open) renderTeamChoices();
+    if (typeof renderTeamChoices === "function" && typeof dialog !== "undefined" && dialog?.open) renderTeamChoices();
     document.dispatchEvent(new CustomEvent("localbleachers:catalog", { detail: { count: normalized.length } }));
     return true;
   }
@@ -120,8 +120,8 @@
       opponent: game.opponent || "Opponent TBA",
       date,
       home,
-      lat: Number(game.latitude),
-      lon: Number(game.longitude),
+      lat: game.latitude == null ? NaN : Number(game.latitude),
+      lon: game.longitude == null ? NaN : Number(game.longitude),
       venue: game.venue || game.canonical_venue || "Venue TBA",
       source: "live",
       sourceLabel: game.source_type === "official-conference" ? "Arkansas varsity schedule" : "Live schedule",
@@ -180,8 +180,8 @@
     }
   }
 
-  if (typeof window.sourceLabel === "function") {
-    window.sourceLabel = event => event.sourceLabel || (event.liveData ? "Live schedule" : "Schedule source");
+  if (typeof sourceLabel === "function") {
+    sourceLabel = event => event.sourceLabel || (event.liveData ? "Live schedule" : "Schedule source");
   }
 
   if (typeof radiusEl !== "undefined") {
