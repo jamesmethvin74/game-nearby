@@ -78,10 +78,10 @@ async function catalogFresh(env,syncId,now,maxAgeHours){
 export async function syncDragonFlyVarsityVolleyballCatalog(env,{
   feedUrl=DEFAULT_FEED,syncId=DEFAULT_SYNC_ID,season="2026",force=false,maxAgeHours=24,fetchFn=fetch,now=new Date()
 }={}){
-  if (!force && await catalogFresh(env,syncId,now,maxAgeHours)) return {status:"SKIPPED",reason:"catalog_fresh"};
+  if (!force && await catalogFresh(env,syncId,now,maxAgeHours)) return {status:"SKIPPED",reason:"catalog_fresh",payload:null};
   const checkedAt=now.toISOString();
   try {
-    const {payload,pageCount}=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-catalog/2.0","accept":"application/json"}});
+    const {payload,pageCount}=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-catalog/3.0","accept":"application/json"}});
     const entries=discoverDragonFlyVarsityVolleyballTeams(payload);
     if (entries.length<10) throw new Error(`DragonFly catalog discovery returned only ${entries.length} varsity volleyball teams`);
     const ambiguous=catalogAmbiguities(entries);
@@ -93,7 +93,7 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
       env.DB.prepare("SELECT external_school_id,school_id FROM school_external_identities WHERE provider=?").bind(PROVIDER).all(),
       env.DB.prepare("SELECT id,school_id FROM teams WHERE sport='volleyball' AND gender='girls' AND season=?").bind(season).all(),
       env.DB.prepare("SELECT external_team_id,team_id FROM team_external_identities WHERE provider=?").bind(PROVIDER).all(),
-      env.DB.prepare("SELECT id,team_id,enabled FROM sources WHERE parser_type='dragonfly-public'").all()
+      env.DB.prepare("SELECT id,team_id,enabled,collection_mode FROM sources WHERE parser_type='dragonfly-public'").all()
     ]);
 
     const schoolByExternal=new Map(schoolExternal.map(r=>[String(r.external_school_id).toUpperCase(),r.school_id]));
@@ -111,7 +111,7 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
     const statements=[];
     const plannedSchoolIds=new Map();
     const plannedTeamIds=new Map();
-    const stagedSourceIds=new Set();
+    const statewideSourceIds=new Set();
     let createdSchools=0,createdTeams=0;
 
     for (const entry of entries) {
@@ -151,23 +151,23 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
       const meta=schoolMeta.get(schoolId)||{};
       const existingSource=existingSourceByTeam.get(teamId);
       const sourceId=existingSource?.id || `${teamId}-dragonfly`;
+      const collectionMode=existingSource?.collection_mode || "statewide";
       const expected=Math.max(1,Math.min(5,Number(schoolEventCounts.get(entry.orgShortCode))||1));
-      const enabled=existingSource?.enabled ? 1 : 0;
       statements.push(env.DB.prepare(`INSERT INTO sources
-        (id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,home_venue,home_latitude,home_longitude,enabled,authority_rank,stale_after_minutes,updated_at)
-        VALUES(?,?,?,'official-conference',1,'dragonfly-public','4','America/Chicago',?,180,60,?,?,?, ?,10,720,?)
+        (id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,home_venue,home_latitude,home_longitude,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
+        VALUES(?,?,?,'official-conference',1,'dragonfly-public','4','America/Chicago',?,180,60,?,?,?,1,10,720,?,?)
         ON CONFLICT(id) DO UPDATE SET team_id=excluded.team_id,source_url=excluded.source_url,parser_version=excluded.parser_version,expected_min_games=excluded.expected_min_games,
           home_venue=COALESCE(sources.home_venue,excluded.home_venue),home_latitude=COALESCE(sources.home_latitude,excluded.home_latitude),home_longitude=COALESCE(sources.home_longitude,excluded.home_longitude),
-          enabled=CASE WHEN sources.enabled=1 THEN 1 ELSE excluded.enabled END,authority_rank=10,stale_after_minutes=720,updated_at=excluded.updated_at`)
-        .bind(sourceId,teamId,feedUrl,expected,entry.schoolName,meta.latitude??null,meta.longitude??null,enabled,checkedAt));
-      if (!enabled) stagedSourceIds.add(sourceId);
+          enabled=1,authority_rank=10,stale_after_minutes=720,collection_mode=COALESCE(sources.collection_mode,excluded.collection_mode),updated_at=excluded.updated_at`)
+        .bind(sourceId,teamId,feedUrl,expected,entry.schoolName,meta.latitude??null,meta.longitude??null,collectionMode,checkedAt));
+      if (collectionMode==="statewide") statewideSourceIds.add(sourceId);
     }
 
     await batchStatements(env,statements);
-    const activeSources=dragonFlySources.filter(source=>Number(source.enabled)===1).length;
+    const activeSources=new Set([...dragonFlySources.filter(source=>Number(source.enabled)===1).map(source=>source.id),...statewideSourceIds]).size;
     const details={
       pages:pageCount,statewideEvents:Array.isArray(payload?.schedule)?payload.schedule.length:0,
-      createdSchools,createdTeams,stagedSources:stagedSourceIds.size,ambiguousNames:[...ambiguous].sort()
+      createdSchools,createdTeams,statewideSources:statewideSourceIds.size,ambiguousNames:[...ambiguous].sort()
     };
     await env.DB.prepare(`INSERT INTO catalog_sync_state
       (id,provider,feed_url,last_checked_at,last_successful_sync_at,discovered_school_count,discovered_team_count,active_source_count,ambiguous_name_count,last_error,details_json,updated_at)
@@ -178,7 +178,7 @@ export async function syncDragonFlyVarsityVolleyballCatalog(env,{
       .bind(syncId,PROVIDER,feedUrl,checkedAt,checkedAt,new Set(entries.map(e=>e.orgShortCode)).size,entries.length,activeSources,ambiguous.size,JSON.stringify(details),checkedAt).run();
     return {
       status:"SUCCESS",entries:entries.length,schools:new Set(entries.map(e=>e.orgShortCode)).size,
-      activeSources,stagedSources:stagedSourceIds.size,ambiguousNames:ambiguous.size,pagesFetched:pageCount,...details
+      activeSources,statewideSources:statewideSourceIds.size,ambiguousNames:ambiguous.size,pagesFetched:pageCount,...details,payload
     };
   } catch (error) {
     const message=String(error?.message||error).slice(0,1000);
