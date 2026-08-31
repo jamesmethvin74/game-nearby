@@ -48,18 +48,21 @@ jobs:
             'trg_games_inherit_canonical_location_update',
             'trg_canonical_location_propagates_to_games',
             'trg_statewide_team_scope_updates_source_authority',
-            'trg_statewide_source_scope_on_insert'
+            'trg_statewide_source_scope_on_insert',
+            'trg_dragonfly_school_starts_unverified'
           ]) {
             if (!triggerNames.has(required)) throw new Error(`missing required trigger ${required}`);
           }
           const sourceColumns=db.prepare("PRAGMA table_info(sources)").all().map(row=>row.name);
           if (!sourceColumns.includes('collection_mode')) throw new Error('sources.collection_mode missing');
           const schoolColumns=db.prepare("PRAGMA table_info(schools)").all().map(row=>row.name);
-          for (const required of ['address','postal_code','location_source','location_matched_name','location_updated_at']) {
+          for (const required of ['address','postal_code','location_source','location_matched_name','location_updated_at','catalog_scope','membership_source','membership_verified_at']) {
             if (!schoolColumns.includes(required)) throw new Error(`schools.${required} missing`);
           }
+          const scopeSql=db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='schools'").get()?.sql||'';
+          for (const scope of ['local','opponent-only','unknown']) if (!scopeSql.includes(scope)) throw new Error(`schools.catalog_scope missing ${scope} constraint`);
           const sources=db.prepare("SELECT id,parser_type,authority_rank,expected_min_games,collection_mode FROM sources WHERE parser_type='dragonfly-public' ORDER BY id").all();
           if (sources.length!==3) throw new Error(`expected 3 seeded DragonFly validation sources, found ${sources.length}`);
           if (sources.some(source=>source.authority_rank!==10 || source.expected_min_games<5 || source.collection_mode!=='team')) throw new Error('DragonFly source authority/safety/collection-mode configuration is wrong');
-          console.log('VERIFIED D1 V2 plus statewide discovery/location schema and triggers',sources);
+          console.log('VERIFIED D1 V2 plus statewide discovery/location/catalog-scope schema and triggers',sources);
           JS
