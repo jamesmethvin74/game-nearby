@@ -72,7 +72,7 @@ test("normalizes documented Arkansas DOE naming wrappers without generic fuzzy m
     feature("Cave City High Career And Collegiate Preparatory School","Cave City",35.94,-91.55),
     feature("The Academies At Jonesboro High School","Jonesboro",35.84,-90.70),
     feature("Siloam Springs High School Conversion Charter","Siloam Springs",36.18,-94.54),
-    feature("Founders Classical Academies Of Arkansas High School Rogers","Bentonville",36.31,-94.21),
+    feature("Founders Classical Academies Of Arkansas High School Rogers","Rogers",36.31,-94.21),
     feature("Baptist Preparatory School","Little Rock",34.75,-92.30,"arkansas-gis-private"),
     feature("Union Christian Academy","Fort Smith",35.38,-94.40,"arkansas-gis-private")
   ];
