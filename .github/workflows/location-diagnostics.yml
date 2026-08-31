@@ -34,7 +34,7 @@ jobs:
           import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations, relaxedLocationNameKey } from './src/arkansas-school-locations.js';
 
           const feed='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
-          const {payload}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/2.0','accept':'application/json'}});
+          const {payload}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/3.0','accept':'application/json'}});
           const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
           const schools=[...new Map(discovered.map(entry=>[entry.orgShortCode,{id:`school-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:'',orgShortCode:entry.orgShortCode}])).values()];
           const gis=await fetchArkansasSchoolLocationFeatures();
@@ -46,24 +46,16 @@ jobs:
             let intersection=0; for(const token of A) if(B.has(token)) intersection++;
             return (2*intersection)/(A.size+B.size);
           };
-          const nearest=result.unresolved.map(row=>({
+          const candidateRows=rows=>rows.map(row=>({
             school_id:row.school_id,
             school_name:row.school_name,
-            candidates:gis.features.map(feature=>({name:feature.name,city:feature.city,source:feature.source,score:similarity(row.school_name,feature.name)}))
-              .filter(candidate=>candidate.score>=0.45).sort((a,b)=>b.score-a.score).slice(0,4)
+            candidates:gis.features.map(feature=>({name:feature.name,city:feature.city,source:feature.source,score:Number(similarity(row.school_name,feature.name).toFixed(3))}))
+              .filter(candidate=>candidate.score>=0.4).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name)).slice(0,8)
           })).filter(row=>row.candidates.length);
 
-          const unresolvedById=new Map(result.unresolved.map(row=>[row.school_id,row]));
-          const pageEvidence=[];
-          for (const school of schools.filter(school=>unresolvedById.has(school.id))) {
-            try {
-              const response=await fetch(`https://ar.dragonflyathletics.com/sites/ArkAA/${school.orgShortCode}/about`,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/2.0'}});
-              const text=await response.text();
-              const stateMatch=text.match(/(?:,|\s)\s*AR\s+7\d{4}\b/i);
-              const addressSnippet=stateMatch?text.slice(Math.max(0,stateMatch.index-160),stateMatch.index+80).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim():null;
-              if(stateMatch) pageEvidence.push({school_id:school.id,school_name:school.name,orgShortCode:school.orgShortCode,httpStatus:response.status,arkansasAddress:true,addressSnippet});
-            } catch {}
-          }
+          const directoryResponse=await fetch('https://ar.dragonflyathletics.com/sites/ArkAA/schools',{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/3.0'}});
+          const directoryText=await directoryResponse.text();
+          const directoryCodeMatches=schools.filter(school=>directoryText.includes(school.orgShortCode));
 
           console.log(JSON.stringify({
             targets:schools.length,
@@ -73,7 +65,9 @@ jobs:
             ratio:Number((result.matched.length/schools.length).toFixed(4)),
             unresolved:result.unresolved,
             ambiguous:result.ambiguous,
-            nearest,
-            dragonFlyArkansasPageEvidence:pageEvidence
+            unresolvedCandidates:candidateRows(result.unresolved),
+            ambiguousCandidates:candidateRows(result.ambiguous),
+            dragonFlyDirectory:{httpStatus:directoryResponse.status,htmlBytes:directoryText.length,participantCodesPresent:directoryCodeMatches.length,
+              sample:directoryCodeMatches.slice(0,20).map(school=>({name:school.name,orgShortCode:school.orgShortCode}))}
           },null,2));
           JS
