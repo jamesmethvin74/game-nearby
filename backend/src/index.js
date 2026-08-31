@@ -1,6 +1,7 @@
 import { normalizeMascotRows, normalizeSidearmRows } from "./parser-core.js";
 import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-core.js";
-import { deriveSourceHealth, normalizeSchoolAlias, resolveCanonicalEvent } from "./schedule-authority-core.js";
+import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
+import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, resolveCanonicalEvent } from "./schedule-authority-core.js";
 
 const API_PREFIX="/api/v1";
 const USER_AGENT="LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)";
@@ -185,10 +186,11 @@ async function runDueCollections(env,{force=false,sourceId=null,reason="schedule
   if (sourceId) query=query.bind(sourceId);
   const {results:sources}=await query.all();
   const outcomes=[];
+  const sharedFetches=new Map();
   for (const source of sources) {
     const due=force || await sourceIsDue(env,source);
     if (!due) { outcomes.push({sourceId:source.id,status:"SKIPPED"}); continue; }
-    outcomes.push(await collectSource(env,source,reason));
+    outcomes.push(await collectSource(env,source,reason,sharedFetches));
   }
   return {ok:outcomes.every(o=>!["FAILURE"].includes(o.status)),outcomes};
 }
@@ -200,30 +202,57 @@ async function sourceIsDue(env,source){
   return Date.now()-Date.parse(source.last_checked_at)>=minutes*60*1000;
 }
 
-async function collectSource(env,source,reason){
+async function fetchSourceMaterial(source,sharedFetches){
+  if (source.parser_type==="dragonfly-public") {
+    const feedKey=dragonFlyFeedBaseUrl(source.source_url);
+    let pending=sharedFetches.get(feedKey);
+    if (!pending) {
+      pending=fetchDragonFlyPagedPayload(source.source_url,{
+        fetchFn:fetch,
+        headers:{"user-agent":USER_AGENT,"accept":"application/json"}
+      }).then(result=>({
+        body:JSON.stringify(result.payload),contentType:"application/json",status:result.httpStatus,
+        etag:null,lastModified:null,notModified:false,pagesFetched:result.pageCount
+      }));
+      sharedFetches.set(feedKey,pending);
+    }
+    return pending;
+  }
+
+  const headers={"user-agent":USER_AGENT,"accept":"application/json,text/html,application/xhtml+xml"};
+  if (source.etag) headers["if-none-match"]=source.etag;
+  if (source.last_modified) headers["if-modified-since"]=source.last_modified;
+  const response=await fetch(source.source_url,{headers,redirect:"follow"});
+  if (response.status===304) return {notModified:true,status:304,body:"",contentType:"",etag:source.etag||null,lastModified:source.last_modified||null,pagesFetched:null};
+  if (!response.ok) {
+    const error=new Error(`HTTP ${response.status}`);
+    error.httpStatus=response.status;
+    throw error;
+  }
+  return {
+    notModified:false,status:response.status,body:await response.text(),contentType:response.headers.get("content-type")||"",
+    etag:response.headers.get("etag"),lastModified:response.headers.get("last-modified"),pagesFetched:null
+  };
+}
+
+async function collectSource(env,source,reason,sharedFetches=new Map()){
   const startedAt=new Date().toISOString();
   const run=await env.DB.prepare(`INSERT INTO collection_runs(source_id,started_at,status,parser_version) VALUES(?,?,'RUNNING',?) RETURNING id`).bind(source.id,startedAt,source.parser_version).first();
   try {
-    const headers={"user-agent":USER_AGENT,"accept":"application/json,text/html,application/xhtml+xml"};
-    if (source.etag) headers["if-none-match"]=source.etag;
-    if (source.last_modified) headers["if-modified-since"]=source.last_modified;
-    const response=await fetch(source.source_url,{headers,redirect:"follow"});
+    const fetched=await fetchSourceMaterial(source,sharedFetches);
     const checkedAt=new Date().toISOString();
-    if (response.status===304) {
+    if (fetched.notModified) {
       await env.DB.batch([
         env.DB.prepare("UPDATE sources SET last_checked_at=?,last_successful_fetch_at=?,last_http_status=304,consecutive_failures=0,suspicious_game_count=0,updated_at=? WHERE id=?").bind(checkedAt,checkedAt,checkedAt,source.id),
         env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='NOT_MODIFIED',http_status=304 WHERE id=?").bind(checkedAt,run.id)
       ]);
       return {sourceId:source.id,status:"NOT_MODIFIED",reason};
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const body=await response.text();
-    const parsed=await parseSourceBody(body,source,response.headers.get("content-type")||"");
-    if (parsed.length<source.expected_min_games) throw new Error(`Parser returned ${parsed.length} games; expected at least ${source.expected_min_games}. Last known good data retained.`);
+    const parsed=await parseSourceBody(fetched.body,source,fetched.contentType);
     const existing=await env.DB.prepare("SELECT COUNT(*) AS game_count FROM games WHERE source_id=?").bind(source.id).first();
     const priorCount=Number(existing?.game_count||0);
-    const safeFloor=Math.max(Number(source.expected_min_games)||1,Math.floor(priorCount*0.75));
-    if (priorCount && parsed.length<safeFloor) throw new Error(`Parser returned ${parsed.length} games versus ${priorCount} previously stored; refusing destructive reconciliation. Last known good data retained.`);
+    const safety=collectionSafety({parsedCount:parsed.length,expectedMinGames:source.expected_min_games,priorCount});
+    if (!safety.safe) throw new Error(safety.reason);
     for (const game of parsed) {
       const gameId=await upsertGame(env,source,game,checkedAt);
       await reconcileCanonicalGame(env,gameId);
@@ -234,18 +263,19 @@ async function collectSource(env,source,reason){
     await recalculateStandingsIfComplete(env,source.conference_id);
     await env.DB.batch([
       env.DB.prepare(`UPDATE sources SET etag=?,last_modified=?,last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=?,consecutive_failures=0,last_game_count=?,suspicious_game_count=0,updated_at=? WHERE id=?`)
-        .bind(response.headers.get("etag"),response.headers.get("last-modified"),checkedAt,checkedAt,response.status,parsed.length,checkedAt,source.id),
-      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='SUCCESS',http_status=?,games_seen=? WHERE id=?").bind(checkedAt,response.status,parsed.length,run.id)
+        .bind(fetched.etag,fetched.lastModified,checkedAt,checkedAt,fetched.status,parsed.length,checkedAt,source.id),
+      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='SUCCESS',http_status=?,games_seen=? WHERE id=?").bind(checkedAt,fetched.status,parsed.length,run.id)
     ]);
-    return {sourceId:source.id,status:"SUCCESS",gamesSeen:parsed.length,reason};
+    return {sourceId:source.id,status:"SUCCESS",gamesSeen:parsed.length,pagesFetched:fetched.pagesFetched,reason};
   } catch(error) {
     const finishedAt=new Date().toISOString();
     const message=String(error?.message||error).slice(0,1000);
     const suspicious=/Parser returned|destructive reconciliation/i.test(message)?1:0;
+    const httpStatus=Number(error?.httpStatus)||null;
     console.error("collector failure",source.id,message);
     await env.DB.batch([
-      env.DB.prepare("UPDATE sources SET last_checked_at=?,last_failure_at=?,last_error=?,consecutive_failures=COALESCE(consecutive_failures,0)+1,suspicious_game_count=CASE WHEN ?=1 THEN 1 ELSE suspicious_game_count END,updated_at=? WHERE id=?").bind(finishedAt,finishedAt,message,suspicious,finishedAt,source.id),
-      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='FAILURE',error=? WHERE id=?").bind(finishedAt,message,run.id)
+      env.DB.prepare("UPDATE sources SET last_checked_at=?,last_failure_at=?,last_error=?,last_http_status=?,consecutive_failures=COALESCE(consecutive_failures,0)+1,suspicious_game_count=CASE WHEN ?=1 THEN 1 ELSE suspicious_game_count END,updated_at=? WHERE id=?").bind(finishedAt,finishedAt,message,httpStatus,suspicious,finishedAt,source.id),
+      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='FAILURE',http_status=?,error=? WHERE id=?").bind(finishedAt,httpStatus,message,run.id)
     ]);
     return {sourceId:source.id,status:"FAILURE",error:message,reason};
   }
@@ -340,7 +370,7 @@ async function upsertGame(env,source,game,checkedAt){
       source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at`)
     .bind(id,source.team_id,source.id,game.sourceEventKey,game.opponent,opponentSchoolId,game.scheduledAt,game.scheduledTimeKnown?1:0,game.venue||null,game.locationText||null,
       game.latitude??null,game.longitude??null,game.homeAway,game.conferenceGame?1:0,game.countsForRecord?1:0,game.status,game.teamScore??null,game.opponentScore??null,
-      game.result||null,game.notes||null,source.source_url,checkedAt,checkedAt,checkedAt).run();
+      game.result||null,game.notes||null,source.source_url,game.sourceUpdatedAt||checkedAt,checkedAt,checkedAt).run();
   return id;
 }
 
