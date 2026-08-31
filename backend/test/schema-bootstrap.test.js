@@ -4,8 +4,10 @@ import fs from "node:fs";
 
 const source = fs.readFileSync(new URL("../src/schema-bootstrap.js", import.meta.url), "utf8");
 
-test("statewide schema bootstrap covers migrations 0005 through 0009", () => {
+test("statewide schema bootstrap covers migrations 0003 through 0009", () => {
   for (const name of [
+    "0003_fix_volleyball_conferences_and_sources.sql",
+    "0004_schedule_authority_v2.sql",
     "0005_statewide_volleyball_discovery.sql",
     "0006_school_location_enrichment.sql",
     "0007_canonical_game_location_propagation.sql",
@@ -14,6 +16,8 @@ test("statewide schema bootstrap covers migrations 0005 through 0009", () => {
   ]) assert.match(source, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 
   for (const token of [
+    "authority_rank",
+    "canonical_events",
     "collection_mode",
     "school_external_identities",
     "school_location_sync_state",
