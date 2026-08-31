@@ -8,8 +8,7 @@ CREATE TABLE IF NOT EXISTS school_external_identities (
   last_seen_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY(provider, external_school_id),
-  UNIQUE(provider, school_id)
+  PRIMARY KEY(provider, external_school_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_school_external_school
@@ -23,8 +22,7 @@ CREATE TABLE IF NOT EXISTS team_external_identities (
   last_seen_at TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY(provider, external_team_id),
-  UNIQUE(provider, team_id)
+  PRIMARY KEY(provider, external_team_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_team_external_team
