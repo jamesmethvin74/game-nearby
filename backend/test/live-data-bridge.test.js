@@ -87,7 +87,8 @@ test("statewide bridge loads the public school catalog and nearby games without 
       return jsonResponse({
         schools: [
           { id: "df-green-forest", name: "Green Forest High School", city: "Green Forest", state: "AR", mascot: "Tigers", team_count: 1 },
-          { id: "df-eureka", name: "Eureka Springs High School", city: "Eureka Springs", state: "AR", mascot: "Highlanders", team_count: 1 }
+          { id: "df-eureka", name: "Eureka Springs High School", city: "Eureka Springs", state: "AR", mascot: "Highlanders", team_count: 1 },
+          { id: "df-valley-springs", name: "VALLEY SPRINGS HIGH SCHOOL", location_matched_name: "Valley Springs High School", city: "Valley Springs", state: "AR", mascot: null, team_count: 1 }
         ]
       });
     }
@@ -122,12 +123,15 @@ test("statewide bridge loads the public school catalog and nearby games without 
 
   const context = createContext(fetchImpl);
   const first = await context.window.LocalBleachersLive.refreshAll();
-  assert.equal(first.schools, 2);
+  assert.equal(first.schools, 3);
   assert.equal(first.games, 1);
-  assert.equal(context.SCHOOL_REGISTRY.length, 2);
+  assert.equal(context.SCHOOL_REGISTRY.length, 3);
   assert.equal(context.SCHOOL_REGISTRY[0].name, "Eureka Springs High School");
   assert.equal(context.SCHOOL_REGISTRY[1].name, "Green Forest High School");
+  assert.equal(context.SCHOOL_REGISTRY[2].name, "Valley Springs High School");
+  assert.equal(context.SCHOOL_REGISTRY[2].providerName, "VALLEY SPRINGS HIGH SCHOOL");
   assert.equal(context.teams.some(team => team.id === "df-green-forest"), true);
+  assert.equal(context.teams.find(team => team.id === "df-valley-springs")?.name, "Valley Springs High School");
   assert.equal(context.events.length, 1);
   assert.equal(context.events[0].liveData, true);
   assert.equal(context.events[0].backendCanonicalEventId, "ce-1");
