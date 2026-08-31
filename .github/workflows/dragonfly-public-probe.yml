@@ -1,45 +1,70 @@
 name: DragonFly public probe
 
 on:
+  pull_request:
+    paths:
+      - "backend/src/dragonfly-*.js"
+      - "backend/migrations/0004_schedule_authority_v2.sql"
+      - "backend/test/**"
+      - ".github/workflows/dragonfly-public-probe.yml"
   push:
     branches: [feature/schedule-authority-v2]
     paths:
+      - "backend/src/dragonfly-*.js"
+      - "backend/migrations/0004_schedule_authority_v2.sql"
+      - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture exact Arkansas validation event
+      - name: Verify current Arkansas public DragonFly feed
         shell: bash
         run: |
           set -euo pipefail
           API='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity'
-          UA='LocalBleachersAR-public-source-validation/1.0'
-          rm -f all.ndjson
-          for PAGE in $(seq 0 20); do
+          UA='LocalBleachersAR-public-source-validation/2.0'
+          EVENT_ID='69cbc6e2a49cc05727000000'
+          : > found-event.json
+          for PAGE in $(seq 0 49); do
             URL="$API/$PAGE"
-            CODE=$(curl -L --silent --show-error -A "$UA" -o out.json -w '%{http_code}' "$URL")
+            CODE=$(curl -L --silent --show-error -A "$UA" -H 'Accept: application/json' -o out.json -w '%{http_code}' "$URL")
             echo "PAGE=$PAGE HTTP=$CODE BYTES=$(wc -c < out.json)"
-            python3 - "$PAGE" <<'PY'
+            [ "$CODE" = "200" ] || { echo "DragonFly page $PAGE returned HTTP $CODE" >&2; exit 1; }
+            python3 - "$PAGE" "$EVENT_ID" <<'PY'
           import json,sys
           from pathlib import Path
-          page=int(sys.argv[1]); x=json.loads(Path('out.json').read_text())
-          schedule=x.get('schedule') or []
+          page=int(sys.argv[1]); event_id=sys.argv[2]
+          x=json.loads(Path('out.json').read_text())
+          schedule=x.get('schedule')
+          if not isinstance(schedule,list):
+              raise SystemExit(f'page {page} missing schedule[]')
           print('count=',len(schedule),'hasNextPage=',x.get('hasNextPage'),'timestamp=',x.get('timestamp'))
-          def names(e): return [str(p.get('name','')).strip().upper() for p in e.get('participants') or []]
-          exact=[]
           for e in schedule:
-              ns=names(e)
-              if any(n=='GREENBRIER HIGH SCHOOL' for n in ns) and any(n=='VILONIA HIGH SCHOOL' for n in ns): exact.append(e)
-          for e in exact:
+              names=[str(p.get('name','')).strip().upper() for p in e.get('participants') or []]
+              exact=(str(e.get('eventId',''))==event_id or (
+                  'GREENBRIER HIGH SCHOOL' in names and 'VILONIA HIGH SCHOOL' in names
+              ))
+              if not exact:
+                  continue
               clean=dict(e)
-              clean['participants']=[]
-              for p in e.get('participants') or []:
-                  q={k:v for k,v in p.items() if k!='media'}
-                  clean['participants'].append(q)
+              clean['participants']=[{k:v for k,v in p.items() if k!='media'} for p in e.get('participants') or []]
+              Path('found-event.json').write_text(json.dumps(clean,indent=2))
               print('EXACT_EVENT',json.dumps(clean,separators=(',',':')))
           Path('hasnext').write_text('1' if x.get('hasNextPage') else '0')
           PY
             [ "$(cat hasnext)" = "1" ] || break
           done
+          [ -s found-event.json ] || { echo 'Greenbrier-Vilonia validation event was not present anywhere in the public 2026 WVB Varsity feed.' >&2; exit 1; }
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          e=json.loads(Path('found-event.json').read_text())
+          assert e.get('date')=='2026-08-25T22:30:00.000Z', e.get('date')
+          participants={p.get('name'):p for p in e.get('participants') or []}
+          gb=participants['GREENBRIER HIGH SCHOOL']; vil=participants['VILONIA HIGH SCHOOL']
+          assert gb.get('isHome') is False and vil.get('isHome') is True
+          assert gb.get('result',{}).get('score')==3 and vil.get('result',{}).get('score')==0
+          print('VERIFIED Greenbrier @ Vilonia, 2026-08-25 22:30Z, final 3-0')
+          PY
