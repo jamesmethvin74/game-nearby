@@ -12,7 +12,9 @@
     { apiId:"uca-volleyball-2026", schoolId:"uca", sport:"volleyball", gender:"women", displayTeam:"UCA Sugar Bears" },
     { apiId:"hendrix-football-2026", schoolId:"hendrix", sport:"football", gender:"men", displayTeam:"Hendrix Warriors" },
     { apiId:"conway-football-2026", schoolId:"conway", sport:"football", gender:"boys", displayTeam:"Conway Wampus Cats" },
-    { apiId:"conway-volleyball-2026", schoolId:"conway", sport:"volleyball", gender:"girls", displayTeam:"Conway Wampus Cats" }
+    { apiId:"conway-volleyball-2026", schoolId:"conway", sport:"volleyball", gender:"girls", displayTeam:"Conway Wampus Cats" },
+    { apiId:"greenbrier-volleyball-2026", schoolId:"greenbrier", sport:"volleyball", gender:"girls", displayTeam:"Greenbrier Panthers" },
+    { apiId:"vilonia-volleyball-2026", schoolId:"vilonia", sport:"volleyball", gender:"girls", displayTeam:"Vilonia Eagles" }
   ];
 
   const state = {
@@ -192,7 +194,7 @@
     }
   };
 
-  // Rendered hardcoded data remains the immediate fallback. Live data replaces only
-  // a pilot team/sport after a complete, non-empty API response succeeds.
+  // Embedded schedule data remains the immediate fallback. Live API data replaces
+  // a configured team/sport only after a complete, non-empty response succeeds.
   refreshAll();
 })();
