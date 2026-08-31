@@ -42,6 +42,16 @@ jobs:
           for (const required of ['canonical_events','canonical_event_members','event_conflicts','school_aliases','school_external_identities','team_external_identities','catalog_sync_state','statewide_collection_state','school_location_sync_state']) {
             if (!tables.includes(required)) throw new Error(`missing required table ${required}`);
           }
+          const triggerNames=new Set(db.prepare("SELECT name FROM sqlite_master WHERE type='trigger'").all().map(row=>row.name));
+          for (const required of [
+            'trg_games_inherit_canonical_location_insert',
+            'trg_games_inherit_canonical_location_update',
+            'trg_canonical_location_propagates_to_games',
+            'trg_statewide_team_scope_updates_source_authority',
+            'trg_statewide_source_scope_on_insert'
+          ]) {
+            if (!triggerNames.has(required)) throw new Error(`missing required trigger ${required}`);
+          }
           const sourceColumns=db.prepare("PRAGMA table_info(sources)").all().map(row=>row.name);
           if (!sourceColumns.includes('collection_mode')) throw new Error('sources.collection_mode missing');
           const schoolColumns=db.prepare("PRAGMA table_info(schools)").all().map(row=>row.name);
@@ -51,5 +61,5 @@ jobs:
           const sources=db.prepare("SELECT id,parser_type,authority_rank,expected_min_games,collection_mode FROM sources WHERE parser_type='dragonfly-public' ORDER BY id").all();
           if (sources.length!==3) throw new Error(`expected 3 seeded DragonFly validation sources, found ${sources.length}`);
           if (sources.some(source=>source.authority_rank!==10 || source.expected_min_games<5 || source.collection_mode!=='team')) throw new Error('DragonFly source authority/safety/collection-mode configuration is wrong');
-          console.log('VERIFIED D1 V2 plus statewide discovery/location schema',sources);
+          console.log('VERIFIED D1 V2 plus statewide discovery/location schema and triggers',sources);
           JS
