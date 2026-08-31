@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "backend/src/dragonfly-*.js"
+      - "backend/src/schedule-authority-core.js"
       - "backend/migrations/0004_schedule_authority_v2.sql"
       - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
@@ -11,6 +12,7 @@ on:
     branches: [feature/schedule-authority-v2]
     paths:
       - "backend/src/dragonfly-*.js"
+      - "backend/src/schedule-authority-core.js"
       - "backend/migrations/0004_schedule_authority_v2.sql"
       - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
@@ -34,17 +36,23 @@ jobs:
           import assert from 'node:assert/strict';
           import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
           import { normalizeDragonFlyPayload } from './src/dragonfly-core.js';
+          import { resolveCanonicalEvent } from './src/schedule-authority-core.js';
 
           const url='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
           const {payload,pageCount}=await fetchDragonFlyPagedPayload(url,{
-            headers:{'user-agent':'LocalBleachersAR-public-source-validation/3.0','accept':'application/json'}
+            headers:{'user-agent':'LocalBleachersAR-public-source-validation/4.0','accept':'application/json'}
           });
           assert.ok(pageCount > 1, `expected paginated statewide feed, got ${pageCount} page`);
           assert.ok(payload.schedule.length > 1000, `suspicious statewide schedule count ${payload.schedule.length}`);
 
           const base={sport:'volleyball',gender:'girls',season:'2026',timezone:'America/Chicago'};
+          const conway=normalizeDragonFlyPayload(payload,{...base,school_name:'Conway High School',home_latitude:35.0887,home_longitude:-92.4421});
           const greenbrier=normalizeDragonFlyPayload(payload,{...base,school_name:'Greenbrier High School',home_latitude:35.2334,home_longitude:-92.3870});
           const vilonia=normalizeDragonFlyPayload(payload,{...base,school_name:'Vilonia High School',home_latitude:35.0839,home_longitude:-92.2029});
+          assert.ok(conway.length >= 5, `Conway DragonFly schedule suspiciously small: ${conway.length}`);
+          assert.ok(greenbrier.length >= 5, `Greenbrier DragonFly schedule suspiciously small: ${greenbrier.length}`);
+          assert.ok(vilonia.length >= 5, `Vilonia DragonFly schedule suspiciously small: ${vilonia.length}`);
+
           const historicalKey='native:69cbc6e2a49cc05727000000';
           const gbHistorical=greenbrier.find(game=>game.sourceEventKey===historicalKey);
           const vilHistorical=vilonia.find(game=>game.sourceEventKey===historicalKey);
@@ -57,20 +65,57 @@ jobs:
           assert.equal(gbHistorical.teamScore,3);
           assert.equal(vilHistorical.teamScore,0);
 
+          const observation=(game,reportingSchoolId,opponentSchoolId,sourceId)=>({
+            ...base,
+            id:`${sourceId}:${game.sourceEventKey}`,
+            source_id:sourceId,
+            source_type:'official-conference',
+            parser_type:'dragonfly-public',
+            authority_rank:10,
+            reporting_school_id:reportingSchoolId,
+            opponent_school_id:opponentSchoolId,
+            source_event_key:game.sourceEventKey,
+            scheduled_at:game.scheduledAt,
+            scheduled_time_known:game.scheduledTimeKnown?1:0,
+            home_away:game.homeAway,
+            venue:game.venue,
+            location_text:game.locationText,
+            status:game.status,
+            team_score:game.teamScore,
+            opponent_score:game.opponentScore
+          });
+          const historicalCanonical=resolveCanonicalEvent([
+            observation(gbHistorical,'greenbrier','vilonia','greenbrier-volleyball-dragonfly'),
+            observation(vilHistorical,'vilonia','greenbrier','vilonia-volleyball-dragonfly')
+          ]);
+          assert.equal(historicalCanonical.id,'ce:volleyball:girls:2026:greenbrier:vilonia:20260825:df-69cbc6e2a49cc05727000000');
+          assert.equal(historicalCanonical.trustState,'CORROBORATED');
+          assert.equal(historicalCanonical.conflicts.length,0);
+          assert.equal(historicalCanonical.homeSchoolId,'vilonia');
+          assert.equal(historicalCanonical.awaySchoolId,'greenbrier');
+
           const futureKey='native:69cbc91fa49cc0572700000a';
           const gbFuture=greenbrier.find(game=>game.sourceEventKey===futureKey);
           const vilFuture=vilonia.find(game=>game.sourceEventKey===futureKey);
           assert.ok(gbFuture && vilFuture,'reciprocal Sep 24 validation event missing');
           assert.equal(gbFuture.homeAway,'home');
           assert.equal(vilFuture.homeAway,'away');
+          const futureCanonical=resolveCanonicalEvent([
+            observation(gbFuture,'greenbrier','vilonia','greenbrier-volleyball-dragonfly'),
+            observation(vilFuture,'vilonia','greenbrier','vilonia-volleyball-dragonfly')
+          ]);
+          assert.equal(futureCanonical.homeSchoolId,'greenbrier');
+          assert.equal(futureCanonical.awaySchoolId,'vilonia');
+          assert.equal(futureCanonical.conflicts.length,0);
 
           console.log(JSON.stringify({
             verified:true,
             pages:pageCount,
             statewideEvents:payload.schedule.length,
+            conwayEvents:conway.length,
             greenbrierEvents:greenbrier.length,
             viloniaEvents:vilonia.length,
-            historical:{date:gbHistorical.scheduledAt,greenbrierScore:gbHistorical.teamScore,viloniaScore:vilHistorical.teamScore},
-            reciprocalFuture:{date:gbFuture.scheduledAt,greenbrier:gbFuture.homeAway,vilonia:vilFuture.homeAway}
+            historicalCanonical:{id:historicalCanonical.id,trust:historicalCanonical.trustState,date:historicalCanonical.scheduledAt,home:historicalCanonical.homeSchoolId,away:historicalCanonical.awaySchoolId,score:[historicalCanonical.homeScore,historicalCanonical.awayScore]},
+            reciprocalFuture:{id:futureCanonical.id,date:futureCanonical.scheduledAt,home:futureCanonical.homeSchoolId,away:futureCanonical.awaySchoolId}
           },null,2));
           JS
