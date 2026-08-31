@@ -7,7 +7,6 @@ export function normalizeSchoolAlias(value) {
     .toLowerCase()
     .replace(/&/g, " and ")
     .replace(/\b(?:high school|high|school|hs)\b/g, " ")
-    .replace(/\b(?:wampus cats?|panthers?|eagles?)\b/g, " ")
     .replace(/\barkansas\b|\bar\b/g, " ")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
