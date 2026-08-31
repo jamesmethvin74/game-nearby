@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v41";
+const CACHE_NAME = "localbleachersar-shell-v42";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -18,7 +18,8 @@ const CORE_ASSETS = [
   "./team-detail.js",
   "./live-data.js",
   "./assets/app-icon-192-v35.png",
-  "./assets/app-icon-512-v35.png"
+  "./assets/app-icon-512-v35.png",
+  "./assets/splash-logo-v35.webp"
 ];
 
 self.addEventListener("install", event => {
@@ -36,6 +37,29 @@ self.addEventListener("activate", event => {
 
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
+
+  if (event.request.mode === "navigate") {
+    const network = fetch(event.request).then(async response => {
+      if (response.ok) {
+        const cache = await caches.open(CACHE_NAME);
+        await cache.put("./index.html", response.clone());
+      }
+      return response;
+    });
+
+    event.waitUntil(network.catch(() => undefined));
+    event.respondWith((async () => {
+      const cached = await caches.match("./index.html", {ignoreSearch:true});
+      if (cached) return cached;
+      try {
+        return await network;
+      } catch {
+        return new Response("Offline", {status: 503, headers: {"Content-Type": "text/plain"}});
+      }
+    })());
+    return;
+  }
+
   event.respondWith((async () => {
     try {
       const response = await fetch(event.request);
@@ -47,7 +71,6 @@ self.addEventListener("fetch", event => {
     } catch {
       const cached = await caches.match(event.request, {ignoreSearch:true});
       if (cached) return cached;
-      if (event.request.mode === "navigate") return caches.match("./index.html");
       return new Response("Offline", {status: 503, headers: {"Content-Type": "text/plain"}});
     }
   })());
