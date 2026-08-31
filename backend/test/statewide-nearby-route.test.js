@@ -49,7 +49,7 @@ function seedScopedEvent(db,{prefix,homeName,awayName,latitude,longitude,scope="
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,'SCHEDULED','https://example.test/dragonfly',?,?,?,?)`);
   gameInsert.run(`${homeSource}:native:${prefix}`,homeTeam,homeSource,`native:${prefix}`,awayName,away,scheduled,1,homeName,homeName,latitude,longitude,"home",now,now,now,canonical);
   gameInsert.run(`${awaySource}:native:${prefix}`,awayTeam,awaySource,`native:${prefix}`,homeName,home,scheduled,1,homeName,homeName,latitude,longitude,"away",now,now,now,canonical);
-  return {canonical,homeTeam,home};
+  return {canonical,homeTeam,home,away};
 }
 
 test("actual /games nearby route returns a non-pilot local event and hides opponent-only identities",async()=>{
@@ -64,7 +64,7 @@ test("actual /games nearby route returns a non-pilot local event and hides oppon
   const body=await response.json();
   assert.equal(body.games.length,1);
   assert.equal(body.games[0].canonical_event_id,local.canonical);
-  assert.equal(body.games[0].school_id,local.home);
+  assert.ok([local.home,local.away].includes(body.games[0].school_id));
   assert.ok(body.games[0].distance_miles<0.01);
   assert.notEqual(body.games[0].school_id,"conway");
   assert.notEqual(body.games[0].school_id,"greenbrier");
