@@ -16,7 +16,7 @@
       "src": "assets/app-icon-launch-v43.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "maskable"
+      "purpose": "any maskable"
     },
     {
       "src": "assets/app-icon-192-v35.png",
