@@ -14,16 +14,65 @@ function validCoordinate(latitude,longitude){
     && latitude>=32.5 && latitude<=37.5 && longitude>=-95.0 && longitude<=-89.0;
 }
 
+function normalizedNameInput(value){
+  return clean(value)
+    .replace(/[–—]/g,"-")
+    .replace(/\bH\s*S\b/gi,"High School")
+    .replace(/\bschools\b/gi,"school");
+}
+
 export function locationNameKey(value){
-  return normalizeSchoolAlias(value);
+  return normalizeSchoolAlias(normalizedNameInput(value));
+}
+
+function stripInstitutionalNoise(value){
+  return locationNameKey(value)
+    .replace(/\bthe academies (?:at|of)\b/g," ")
+    .replace(/\bacademies of arkansas\b/g," ")
+    .replace(/\bcareer and collegiate preparatory\b/g," ")
+    .replace(/\bconversion charter\b/g," ")
+    .replace(/\b(?:7 12|9 12|10 12|6 12) athletics\b/g," ")
+    .replace(/\b(?:7 12|9 12|10 12|6 12)\b/g," ")
+    .replace(/\b(?:academy|academies|public|charter|preparatory|prep|senior|sr|junior|jr|athletics|campus|consolidated|christian)\b/g," ")
+    .replace(/\b(?:the|at|of)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function locationQualifier(value){
+  const text=normalizedNameInput(value);
+  const parenthetical=[...text.matchAll(/\(([^)]+)\)/g)].map(match=>clean(match[1])).filter(Boolean);
+  const dash=text.match(/\s+-\s+([^\-]+)$/);
+  const hints=[...parenthetical,dash?.[1]].filter(Boolean)
+    .filter(hint=>!/^\d+\s*-?\s*\d*\s*(?:athletics)?$/i.test(hint));
+  return hints.length?hints.at(-1):"";
+}
+
+function coreNameWithoutQualifier(value){
+  let text=normalizedNameInput(value).replace(/\([^)]*\)/g," ");
+  text=text.replace(/\s+-\s+[^\-]+$/," ");
+  return stripInstitutionalNoise(text);
 }
 
 export function relaxedLocationNameKey(value){
-  const withoutParenthetical=clean(value).replace(/\([^)]*\)/g," ");
-  return normalizeSchoolAlias(withoutParenthetical)
-    .replace(/\b(?:academy|public|charter|preparatory|prep|senior|sr|junior|jr)\b/g," ")
-    .replace(/\s+/g," ")
-    .trim();
+  return coreNameWithoutQualifier(value);
+}
+
+function cityKey(value){return normalizeSchoolAlias(value);}
+function removeCityFromCore(core,city){
+  const cityNormalized=cityKey(city);
+  if (!core || !cityNormalized) return core;
+  const cityTokens=cityNormalized.split(" ").filter(Boolean);
+  let tokens=core.split(" ").filter(Boolean);
+  if (cityTokens.every(token=>tokens.includes(token))) {
+    const remaining=[...tokens];
+    for (const token of cityTokens) {
+      const index=remaining.indexOf(token);
+      if (index>=0) remaining.splice(index,1);
+    }
+    return remaining.join(" ");
+  }
+  return core;
 }
 
 function normalizeFeature(feature,source){
@@ -31,19 +80,23 @@ function normalizeFeature(feature,source){
   const longitude=Number(feature?.geometry?.x);
   const latitude=Number(feature?.geometry?.y);
   const name=clean(attributes.name);
+  const city=clean(attributes.city);
   if (!name || !validCoordinate(latitude,longitude)) return null;
+  const structural=coreNameWithoutQualifier(name);
   return {
     source,
     source_record_id:String(attributes.objectid??attributes.globalid??""),
     name,
     address:clean(attributes.address),
-    city:clean(attributes.city),
+    city,
     postal_code:clean(attributes.zipcode),
     lea:clean(attributes.lea),
     latitude,
     longitude,
     exact_key:locationNameKey(name),
-    relaxed_key:relaxedLocationNameKey(name)
+    relaxed_key:relaxedLocationNameKey(name),
+    structural_key:structural,
+    structural_without_city:removeCityFromCore(structural,city)
   };
 }
 
@@ -59,7 +112,7 @@ async function fetchLayer(layer,{fetchFn=fetch,pageSize=500}={}){
     url.searchParams.set("resultOffset",String(offset));
     url.searchParams.set("resultRecordCount",String(pageSize));
     url.searchParams.set("f","json");
-    const response=await fetchFn(url.toString(),{headers:{"accept":"application/json","user-agent":"LocalBleachersAR-location-enrichment/1.0"}});
+    const response=await fetchFn(url.toString(),{headers:{"accept":"application/json","user-agent":"LocalBleachersAR-location-enrichment/2.0"}});
     if (!response.ok) throw new Error(`Arkansas GIS layer ${layer.id} returned HTTP ${response.status}`);
     const payload=await response.json();
     if (payload?.error) throw new Error(`Arkansas GIS layer ${layer.id} error: ${payload.error.message||"unknown"}`);
@@ -95,13 +148,51 @@ function indexBy(items,keyName){
   return map;
 }
 
-function cityKey(value){return normalizeSchoolAlias(value);}
+function uniquePhysicalCandidates(candidates){
+  const map=new Map();
+  for (const candidate of candidates) {
+    const key=[candidate.source,cityKey(candidate.city),candidate.latitude.toFixed(5),candidate.longitude.toFixed(5),candidate.exact_key].join("|");
+    if (!map.has(key)) map.set(key,candidate);
+  }
+  return [...map.values()];
+}
 
 function uniqueByCity(candidates,city){
   const key=cityKey(city);
   if (!key) return null;
-  const matches=candidates.filter(candidate=>cityKey(candidate.city)===key);
+  const matches=uniquePhysicalCandidates(candidates.filter(candidate=>cityKey(candidate.city)===key));
   return matches.length===1?matches[0]:null;
+}
+
+function cityAppearsInSchoolName(schoolName,city){
+  const target=locationNameKey(schoolName);
+  const cityNormalized=cityKey(city);
+  if (!target || !cityNormalized) return false;
+  const targetTokens=new Set(target.split(" "));
+  return cityNormalized.split(" ").every(token=>targetTokens.has(token));
+}
+
+function deterministicStructuralCandidate(school,features,targetCore){
+  if (!targetCore) return null;
+  const qualifier=locationQualifier(school.name);
+  const qualifierKey=cityKey(qualifier);
+  let candidates=uniquePhysicalCandidates(features.filter(feature=>
+    feature.structural_key===targetCore || feature.structural_without_city===targetCore
+  ));
+  if (!candidates.length) return null;
+
+  if (qualifierKey) {
+    const byQualifier=uniqueByCity(candidates,qualifier);
+    if (byQualifier) return {candidate:byQualifier,type:"structural-qualifier-city"};
+  }
+  const byStoredCity=uniqueByCity(candidates,school.city);
+  if (byStoredCity) return {candidate:byStoredCity,type:"structural-city"};
+
+  const embedded=candidates.filter(candidate=>cityAppearsInSchoolName(school.name,candidate.city));
+  if (uniquePhysicalCandidates(embedded).length===1) return {candidate:uniquePhysicalCandidates(embedded)[0],type:"structural-embedded-city"};
+
+  if (candidates.length===1) return {candidate:candidates[0],type:"structural-unique"};
+  return null;
 }
 
 export function matchArkansasSchoolLocations(schools,features){
@@ -126,21 +217,36 @@ export function matchArkansasSchoolLocations(schools,features){
     let matchType=null;
 
     if (exact && targetExactCounts.get(exact)===1) {
-      const candidates=exactIndex.get(exact)||[];
+      const candidates=uniquePhysicalCandidates(exactIndex.get(exact)||[]);
       if (candidates.length===1) { candidate=candidates[0]; matchType="exact"; }
       else if (candidates.length>1) {
-        const byCity=uniqueByCity(candidates,school.city);
-        if (byCity) { candidate=byCity; matchType="exact-city"; }
+        const qualifier=locationQualifier(school.name);
+        const byQualifier=uniqueByCity(candidates,qualifier);
+        const byCity=byQualifier||uniqueByCity(candidates,school.city);
+        const embedded=candidates.filter(item=>cityAppearsInSchoolName(school.name,item.city));
+        const embeddedUnique=uniquePhysicalCandidates(embedded);
+        const chosen=byCity||(embeddedUnique.length===1?embeddedUnique[0]:null);
+        if (chosen) { candidate=chosen; matchType=byQualifier?"exact-qualifier-city":byCity?"exact-city":"exact-embedded-city"; }
       }
     }
 
     if (!candidate && relaxed && targetRelaxedCounts.get(relaxed)===1) {
-      const candidates=relaxedIndex.get(relaxed)||[];
+      const candidates=uniquePhysicalCandidates(relaxedIndex.get(relaxed)||[]);
       if (candidates.length===1) { candidate=candidates[0]; matchType="relaxed-unique"; }
       else if (candidates.length>1) {
-        const byCity=uniqueByCity(candidates,school.city);
-        if (byCity) { candidate=byCity; matchType="relaxed-city"; }
+        const qualifier=locationQualifier(school.name);
+        const byQualifier=uniqueByCity(candidates,qualifier);
+        const byCity=byQualifier||uniqueByCity(candidates,school.city);
+        const embedded=candidates.filter(item=>cityAppearsInSchoolName(school.name,item.city));
+        const embeddedUnique=uniquePhysicalCandidates(embedded);
+        const chosen=byCity||(embeddedUnique.length===1?embeddedUnique[0]:null);
+        if (chosen) { candidate=chosen; matchType=byQualifier?"relaxed-qualifier-city":byCity?"relaxed-city":"relaxed-embedded-city"; }
       }
+    }
+
+    if (!candidate && relaxed && targetRelaxedCounts.get(relaxed)===1) {
+      const structural=deterministicStructuralCandidate(school,features,relaxed);
+      if (structural) { candidate=structural.candidate; matchType=structural.type; }
     }
 
     if (candidate) {
@@ -160,10 +266,11 @@ export function matchArkansasSchoolLocations(schools,features){
       continue;
     }
 
-    const exactCandidates=exactIndex.get(exact)||[];
-    const relaxedCandidates=relaxedIndex.get(relaxed)||[];
+    const exactCandidates=uniquePhysicalCandidates(exactIndex.get(exact)||[]);
+    const relaxedCandidates=uniquePhysicalCandidates(relaxedIndex.get(relaxed)||[]);
+    const structuralCandidates=relaxed?uniquePhysicalCandidates(features.filter(feature=>feature.structural_key===relaxed||feature.structural_without_city===relaxed)):[];
     const duplicateTarget=(exact && targetExactCounts.get(exact)>1) || (relaxed && targetRelaxedCounts.get(relaxed)>1);
-    const candidateCount=Math.max(exactCandidates.length,relaxedCandidates.length);
+    const candidateCount=Math.max(exactCandidates.length,relaxedCandidates.length,structuralCandidates.length);
     const detail={school_id:school.id,school_name:school.name,city:school.city||null,candidate_count:candidateCount};
     if (duplicateTarget || candidateCount>1) ambiguous.push({...detail,reason:duplicateTarget?"duplicate-local-name":"multiple-gis-candidates"});
     else unresolved.push({...detail,reason:"no-safe-gis-match"});
@@ -205,27 +312,52 @@ async function applyMatches(env,matches,checkedAt,chunkSize=400){
   }
 }
 
+async function applyArkansasCatalogScope(env,result,checkedAt){
+  const localIds=result.matched.map(row=>row.school_id);
+  const opponentOnlyIds=[...result.unresolved,...result.ambiguous].map(row=>row.school_id);
+  const updateIds=async(ids,active)=>{
+    if (!ids.length) return;
+    await env.DB.prepare(`WITH input AS (SELECT value AS school_id FROM json_each(?))
+      UPDATE teams SET active=?,updated_at=?
+      WHERE school_id IN (SELECT school_id FROM input)
+        AND sport='volleyball' AND gender='girls' AND season='2026'
+        AND EXISTS (SELECT 1 FROM sources src WHERE src.team_id=teams.id AND src.collection_mode='statewide')
+        AND NOT EXISTS (SELECT 1 FROM sources src WHERE src.team_id=teams.id AND src.collection_mode='team')`)
+      .bind(JSON.stringify(ids),active,checkedAt).run();
+  };
+  await updateIds(localIds,1);
+  await updateIds(opponentOnlyIds,0);
+}
+
 export async function syncArkansasSchoolLocations(env,{
-  fetchFn=fetch,now=new Date(),force=false,maxAgeDays=7,minimumMatchRatio=0.7,chunkSize=400
+  fetchFn=fetch,now=new Date(),force=false,maxAgeDays=7,minimumMatchRatio=0.65,minimumMatchedSchools=170,chunkSize=400
 }={}){
   if (!force && await locationFresh(env,now,maxAgeDays)) return {status:"SKIPPED",reason:"locations_fresh"};
   const checkedAt=now.toISOString();
   try {
     const {results:schools}=await env.DB.prepare(`
       SELECT DISTINCT s.id,s.name,s.city,s.latitude,s.longitude
-      FROM schools s JOIN teams t ON t.school_id=s.id
-      WHERE s.level='high-school' AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026' AND t.active=1
+      FROM schools s
+      JOIN teams t ON t.school_id=s.id
+      JOIN sources src ON src.team_id=t.id
+      WHERE s.level='high-school' AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
+        AND (src.collection_mode='statewide' OR src.collection_mode='team')
       ORDER BY s.name,s.id`).all();
     if (!schools.length) throw new Error("No statewide varsity volleyball schools available for location enrichment");
 
     const gis=await fetchArkansasSchoolLocationFeatures({fetchFn});
     const result=matchArkansasSchoolLocations(schools,gis.features);
     const ratio=result.matched.length/schools.length;
-    if (ratio<minimumMatchRatio) throw new Error(`Arkansas GIS school match ratio ${(ratio*100).toFixed(1)}% is below ${(minimumMatchRatio*100).toFixed(1)}% safety threshold`);
+    if (result.matched.length<minimumMatchedSchools || ratio<minimumMatchRatio) {
+      throw new Error(`Arkansas GIS school coverage is suspicious: ${result.matched.length}/${schools.length} safe matches (${(ratio*100).toFixed(1)}%)`);
+    }
 
     await applyMatches(env,result.matched,checkedAt,chunkSize);
+    await applyArkansasCatalogScope(env,result,checkedAt);
     const details={
       matchRatio:Number(ratio.toFixed(4)),
+      safeArkansasSchools:result.matched.length,
+      opponentOnlyOrUnresolved:result.unresolved.length+result.ambiguous.length,
       unresolved:result.unresolved,
       ambiguous:result.ambiguous,
       sources:{public:"Arkansas GIS PUBLIC_SCHOOLS_DOE layer 39",private:"Arkansas GIS PRIVATE_SCHOOLS_DOE layer 37"}
