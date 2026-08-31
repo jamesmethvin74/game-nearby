@@ -28,7 +28,7 @@ test("reconciles Greenbrier at Vilonia and Vilonia vs Greenbrier as one canonica
   assert.equal(event.participantB,"vilonia");
   assert.equal(event.homeSchoolId,"vilonia");
   assert.equal(event.awaySchoolId,"greenbrier");
-  assert.equal(event.id,"ce:volleyball:girls:2026:greenbrier:vilonia:20260825");
+  assert.equal(event.id,"ce:volleyball:girls:2026:greenbrier:vilonia:20260825:t1630");
 });
 
 test("reciprocal perspectives do not create a false home-away conflict",()=>{
@@ -53,6 +53,19 @@ test("does not match solely on opponent text or across sports",()=>{
   assert.equal(observationsLikelySameEvent(gb,{...vil,opponent_school_id:null}),false);
   assert.equal(observationsLikelySameEvent(gb,{...vil,sport:"football"}),false);
   assert.notEqual(canonicalCandidateKey(gb),canonicalCandidateKey({...gb,sport:"football"}));
+});
+
+test("keeps same-day repeat matchups separate while tolerating ordinary source time disagreement",()=>{
+  const early={...gb,id:"early",source_event_key:"native:school-early",scheduled_at:"2026-08-25T15:00:00.000Z",status:"SCHEDULED",team_score:null,opponent_score:null};
+  const late={...early,id:"late",source_event_key:"native:school-late",scheduled_at:"2026-08-25T20:00:00.000Z"};
+  const reciprocalEarly={...vil,id:"reciprocal-early",source_event_key:"native:vilonia-early",scheduled_at:"2026-08-25T15:30:00.000Z"};
+  assert.equal(observationsLikelySameEvent(early,late),false);
+  assert.equal(observationsLikelySameEvent(early,reciprocalEarly),true);
+  const earlyEvent=resolveCanonicalEvent([early,reciprocalEarly]);
+  const lateEvent=resolveCanonicalEvent([late]);
+  assert.notEqual(earlyEvent.id,lateEvent.id);
+  assert.match(earlyEvent.id,/t1000$/);
+  assert.match(lateEvent.id,/t1500$/);
 });
 
 test("DragonFly authority wins deterministic field selection while conflicts remain visible",()=>{
@@ -98,6 +111,21 @@ test("parses the captured real Greenbrier-Vilonia DragonFly event from both pers
   assert.equal(vilonia.status,"FINAL");
   assert.equal(vilonia.result,"L");
   assert.equal(vilonia.teamScore,0);
+
+  const toObservation=(game,reportingSchoolId,opponentSchoolId,sourceId)=>({
+    ...base,id:`${sourceId}:${game.sourceEventKey}`,source_id:sourceId,source_type:"official-conference",parser_type:"dragonfly-public",authority_rank:10,
+    reporting_school_id:reportingSchoolId,opponent_school_id:opponentSchoolId,source_event_key:game.sourceEventKey,
+    scheduled_at:game.scheduledAt,scheduled_time_known:game.scheduledTimeKnown?1:0,home_away:game.homeAway,venue:game.venue,status:game.status,
+    team_score:game.teamScore,opponent_score:game.opponentScore
+  });
+  const canonical=resolveCanonicalEvent([
+    toObservation(greenbrier,"greenbrier","vilonia","greenbrier-volleyball-dragonfly"),
+    toObservation(vilonia,"vilonia","greenbrier","vilonia-volleyball-dragonfly")
+  ]);
+  assert.equal(canonical.id,"ce:volleyball:girls:2026:greenbrier:vilonia:20260825:df-69cbc6e2a49cc05727000000");
+  assert.equal(canonical.trustState,"CORROBORATED");
+  assert.equal(canonical.homeSchoolId,"vilonia");
+  assert.equal(canonical.awaySchoolId,"greenbrier");
 });
 
 test("walks every DragonFly page and deduplicates overlapping event ids",async()=>{
