@@ -1,5 +1,11 @@
 PRAGMA foreign_keys = ON;
 
+ALTER TABLE sources ADD COLUMN collection_mode TEXT NOT NULL DEFAULT 'team'
+  CHECK(collection_mode IN ('team','statewide'));
+
+CREATE INDEX IF NOT EXISTS idx_sources_collection_mode
+  ON sources(collection_mode, enabled, parser_type);
+
 CREATE TABLE IF NOT EXISTS school_external_identities (
   provider TEXT NOT NULL,
   external_school_id TEXT NOT NULL,
@@ -38,6 +44,22 @@ CREATE TABLE IF NOT EXISTS catalog_sync_state (
   discovered_team_count INTEGER NOT NULL DEFAULT 0,
   active_source_count INTEGER NOT NULL DEFAULT 0,
   ambiguous_name_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  details_json TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS statewide_collection_state (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  feed_url TEXT NOT NULL,
+  last_checked_at TEXT,
+  last_successful_fetch_at TEXT,
+  last_event_count INTEGER NOT NULL DEFAULT 0,
+  last_observation_count INTEGER NOT NULL DEFAULT 0,
+  last_source_count INTEGER NOT NULL DEFAULT 0,
+  consecutive_failures INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   details_json TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
