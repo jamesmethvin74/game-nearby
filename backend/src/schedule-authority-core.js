@@ -31,6 +31,20 @@ export function sourceAuthorityRank(source={}) {
   return 90;
 }
 
+export function collectionSafety({parsedCount,expectedMinGames=1,priorCount=0,minimumRetentionRatio=0.75}={}) {
+  const parsed=Math.max(0,Number(parsedCount)||0);
+  const expected=Math.max(1,Number(expectedMinGames)||1);
+  const prior=Math.max(0,Number(priorCount)||0);
+  if (parsed < expected) {
+    return {safe:false,reason:`Parser returned ${parsed} games; expected at least ${expected}. Last known good data retained.`};
+  }
+  const safeFloor=Math.max(expected,Math.floor(prior*minimumRetentionRatio));
+  if (prior && parsed < safeFloor) {
+    return {safe:false,reason:`Parser returned ${parsed} games versus ${prior} previously stored; refusing destructive reconciliation. Last known good data retained.`};
+  }
+  return {safe:true,reason:null,safeFloor};
+}
+
 export function canonicalParticipants(observation) {
   const schoolId=observation.reporting_school_id || observation.school_id || "";
   const opponentId=observation.opponent_school_id || "";
@@ -93,9 +107,7 @@ export function observationsLikelySameEvent(a,b,{timeZone="America/Chicago",maxD
 export function detectEventConflicts(observations,{timeZone="America/Chicago"}={}) {
   const conflicts=[];
   if (!Array.isArray(observations) || observations.length < 2) return conflicts;
-  const values={
-    DATE:new Map(), TIME:new Map(), HOME_AWAY:new Map(), VENUE:new Map(), STATUS:new Map(), SCORE:new Map(), OPPONENT:new Map()
-  };
+  const values={DATE:new Map(),TIME:new Map(),HOME_AWAY:new Map(),VENUE:new Map(),STATUS:new Map(),SCORE:new Map()};
   for (const o of observations) {
     const p=canonicalParticipants(o);
     const date=dateKeyInZone(o.scheduled_at,timeZone);
@@ -107,7 +119,6 @@ export function detectEventConflicts(observations,{timeZone="America/Chicago"}={
     if (o.status) values.STATUS.set(String(o.status).toUpperCase(),true);
     const score=canonicalScore(o);
     if (score.homeScore != null && score.awayScore != null) values.SCORE.set(`${score.homeScore}-${score.awayScore}`,true);
-    if (o.opponent_school_id) values.OPPONENT.set(o.opponent_school_id,true);
   }
   for (const [type,map] of Object.entries(values)) if (map.size > 1) conflicts.push({type,values:[...map.keys()]});
   return conflicts;
