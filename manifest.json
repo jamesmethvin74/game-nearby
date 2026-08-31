@@ -3,7 +3,7 @@
   "name": "LocalBleachersAR",
   "short_name": "BleachersAR",
   "description": "Find the game. Join the crowd. Arkansas high school and college sports nearby.",
-  "start_url": "/game-nearby/?source=pwa-v35",
+  "start_url": "/game-nearby/?source=pwa-v42",
   "scope": "/game-nearby/",
   "display": "standalone",
   "orientation": "portrait-primary",
