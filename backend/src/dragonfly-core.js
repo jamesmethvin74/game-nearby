@@ -16,6 +16,12 @@ function schoolName(value) {
   return cleanText(firstValue(value,["name","schoolName","teamName","displayName","shortName","organization.name","school.name"]));
 }
 
+function hasDragonFlyParticipants(value) {
+  return Array.isArray(value?.participants)
+    && value.participants.length >= 2
+    && value.participants.some(p=>schoolName(p));
+}
+
 function collectEventObjects(value, out=[], seen=new Set()) {
   if (!value || typeof value !== "object" || seen.has(value)) return out;
   seen.add(value);
@@ -23,10 +29,10 @@ function collectEventObjects(value, out=[], seen=new Set()) {
     for (const item of value) collectEventObjects(item,out,seen);
     return out;
   }
+  const start=firstValue(value,["startDateTime","scheduledAt","startTime","dateTime","eventDateTime","start","date"]);
   const home=schoolName(firstValue(value,["homeTeam","homeSchool","home","home_team"]));
   const away=schoolName(firstValue(value,["awayTeam","awaySchool","away","visitorTeam","visitor","away_team"]));
-  const start=firstValue(value,["startDateTime","scheduledAt","startTime","dateTime","eventDateTime","start","date"]);
-  if (home && away && start) out.push(value);
+  if (start && (hasDragonFlyParticipants(value) || (home && away))) out.push(value);
   for (const nested of Object.values(value)) if (nested && typeof nested === "object") collectEventObjects(nested,out,seen);
   return out;
 }
@@ -64,44 +70,95 @@ function scoreNumber(value) {
 }
 
 function eventMatchesSource(event,source) {
-  const sport=cleanText(firstValue(event,["sport.code","sportCode","sport.name","sportName","activity.name"])).toLowerCase();
-  if (source.sport && sport && !sport.includes(String(source.sport).toLowerCase()) && !String(source.sport).toLowerCase().includes(sport)) return false;
-  const level=cleanText(firstValue(event,["level.name","level","teamLevel","competitionLevel"])).toLowerCase();
-  if (level && !/varsity/.test(level)) return false;
+  const sports=Array.isArray(event?.associatedSports) ? event.associatedSports : [];
+  const sportText=[
+    firstValue(event,["sport.code","sportCode","sport.name","sportName","activity.name"]),
+    ...sports.flatMap(s=>[s?.code,s?.name])
+  ].map(cleanText).filter(Boolean).join(" ").toLowerCase();
+  if (source.sport && sportText && !sportText.includes(String(source.sport).toLowerCase()) && !(String(source.sport).toLowerCase()==="volleyball" && /\bwvb\b|volleyball/.test(sportText))) return false;
+  const levels=[firstValue(event,["level.name","level","teamLevel","competitionLevel"]),...sports.map(s=>s?.level),...(event?.participants||[]).map(p=>p?.team?.level)]
+    .map(cleanText).filter(Boolean).join(" ").toLowerCase();
+  if (levels && !/varsity/.test(levels)) return false;
   return true;
 }
 
-export function normalizeDragonFlyPayload(payload,source) {
+function resultFromScores(teamScore,opponentScore,explicitCode="") {
+  const code=cleanText(explicitCode).toUpperCase();
+  if (/^[WLT]$/.test(code)) return code;
+  if (teamScore==null || opponentScore==null) return null;
+  return Number(teamScore)===Number(opponentScore)?"T":Number(teamScore)>Number(opponentScore)?"W":"L";
+}
+
+function normalizeParticipantEvent(raw,source,sourceTimestamp) {
   const reporter=normalizeSchoolAlias(source.school_name);
+  const participants=Array.isArray(raw.participants)?raw.participants:[];
+  const reportingParticipant=participants.find(p=>normalizeSchoolAlias(schoolName(p))===reporter);
+  if (!reportingParticipant) return null;
+  const opponentParticipant=participants.find(p=>p!==reportingParticipant && schoolName(p));
+  if (!opponentParticipant) return null;
+  const scheduledAt=parseIsoish(firstValue(raw,["date","startDateTime","scheduledAt","startTime","dateTime","eventDateTime","start"]),source);
+  if (!scheduledAt) return null;
+  const explicitStatus=firstValue(raw,["status.name","status","gameStatus","state"]);
+  const reportingResult=reportingParticipant.result || null;
+  const hasResult=Boolean(reportingResult || (Array.isArray(raw.results)&&raw.results.length));
+  let status=statusFrom(explicitStatus);
+  if (status==="SCHEDULED" && hasResult) status="FINAL";
+  const teamScore=scoreNumber(reportingResult?.score);
+  const opponentScore=scoreNumber(reportingResult?.opponentScore);
+  const result=status==="FINAL"?resultFromScores(teamScore,opponentScore,reportingResult?.code):null;
+  const venue=cleanText(raw?.facility?.name || raw?.hostOrgName || "");
+  const locationNotes=cleanText(raw?.locationNotes || "");
+  const homeAway=reportingParticipant.isHome===true?"home":reportingParticipant.isHome===false?"away":"unknown";
+  const timeKnown=!Boolean(firstValue(raw,["timeTba","timeTBD","isTimeTba","isTimeTBD"]));
+  return {
+    nativeId:cleanText(raw.eventId || raw.id || raw.gameId || raw.contestId || raw.uuid),
+    opponent:schoolName(opponentParticipant),scheduledAt,scheduledTimeKnown:timeKnown,
+    venue,locationText:locationNotes || venue,
+    latitude:homeAway==="home"?source.home_latitude:null,longitude:homeAway==="home"?source.home_longitude:null,
+    homeAway,conferenceGame:Number(Boolean(firstValue(raw,["conferenceGame","isConference","regionGame"]))),countsForRecord:raw.contestType==="exhibition"?0:1,
+    status,teamScore,opponentScore,result,notes:locationNotes,
+    sourceUpdatedAt:sourceTimestamp || null
+  };
+}
+
+function normalizeLegacyHomeAwayEvent(raw,source,sourceTimestamp) {
+  const reporter=normalizeSchoolAlias(source.school_name);
+  const home=schoolName(firstValue(raw,["homeTeam","homeSchool","home","home_team"]));
+  const away=schoolName(firstValue(raw,["awayTeam","awaySchool","away","visitorTeam","visitor","away_team"]));
+  const homeKey=normalizeSchoolAlias(home), awayKey=normalizeSchoolAlias(away);
+  let homeAway="unknown", opponent="";
+  if (reporter && homeKey === reporter) { homeAway="home"; opponent=away; }
+  else if (reporter && awayKey === reporter) { homeAway="away"; opponent=home; }
+  else return null;
+  const rawStart=firstValue(raw,["startDateTime","scheduledAt","startTime","dateTime","eventDateTime","start","date"]);
+  const scheduledAt=parseIsoish(rawStart,source);
+  if (!scheduledAt) return null;
+  const timeText=cleanText(rawStart);
+  const timeKnown=!/\bTBA\b|\bTBD\b/i.test(timeText) && /\d{1,2}:?\d{0,2}\s*(?:AM|PM)|T\d{2}:\d{2}/i.test(timeText);
+  const status=statusFrom(firstValue(raw,["status.name","status","gameStatus","state"]));
+  const homeScore=scoreNumber(firstValue(raw,["homeScore","score.home","home.score","home_team.score"]));
+  const awayScore=scoreNumber(firstValue(raw,["awayScore","score.away","visitorScore","away.score","away_team.score"]));
+  const teamScore=homeAway==="home"?homeScore:awayScore;
+  const opponentScore=homeAway==="home"?awayScore:homeScore;
+  const result=status==="FINAL"?resultFromScores(teamScore,opponentScore):null;
+  const venue=cleanText(firstValue(raw,["venue.name","venue","location.name","location","site.name","facility.name"]));
+  return {
+    nativeId:cleanText(firstValue(raw,["id","eventId","gameId","contestId","uuid"])),opponent,scheduledAt,scheduledTimeKnown:timeKnown,
+    venue,locationText:venue,latitude:homeAway==="home"?source.home_latitude:null,longitude:homeAway==="home"?source.home_longitude:null,
+    homeAway,conferenceGame:Number(Boolean(firstValue(raw,["conferenceGame","isConference","regionGame"]))),countsForRecord:1,
+    status,teamScore,opponentScore,result,notes:"",sourceUpdatedAt:sourceTimestamp || null
+  };
+}
+
+export function normalizeDragonFlyPayload(payload,source) {
+  const sourceTimestamp=cleanText(payload?.timestamp || payload?.updatedAt || payload?.lastUpdated || "") || null;
   const events=[];
   for (const raw of collectEventObjects(payload)) {
     if (!eventMatchesSource(raw,source)) continue;
-    const home=schoolName(firstValue(raw,["homeTeam","homeSchool","home","home_team"]));
-    const away=schoolName(firstValue(raw,["awayTeam","awaySchool","away","visitorTeam","visitor","away_team"]));
-    const homeKey=normalizeSchoolAlias(home), awayKey=normalizeSchoolAlias(away);
-    let homeAway="unknown", opponent="";
-    if (reporter && homeKey === reporter) { homeAway="home"; opponent=away; }
-    else if (reporter && awayKey === reporter) { homeAway="away"; opponent=home; }
-    else continue;
-    const rawStart=firstValue(raw,["startDateTime","scheduledAt","startTime","dateTime","eventDateTime","start","date"]);
-    const scheduledAt=parseIsoish(rawStart,source);
-    if (!scheduledAt) continue;
-    const timeText=cleanText(rawStart);
-    const timeKnown=!/\bTBA\b|\bTBD\b/i.test(timeText) && /\d{1,2}:?\d{0,2}\s*(?:AM|PM)|T\d{2}:\d{2}/i.test(timeText);
-    const status=statusFrom(firstValue(raw,["status.name","status","gameStatus","state"]));
-    const homeScore=scoreNumber(firstValue(raw,["homeScore","score.home","home.score","home_team.score"]));
-    const awayScore=scoreNumber(firstValue(raw,["awayScore","score.away","visitorScore","away.score","away_team.score"]));
-    const teamScore=homeAway==="home"?homeScore:awayScore;
-    const opponentScore=homeAway==="home"?awayScore:homeScore;
-    const result=status==="FINAL" && teamScore!=null && opponentScore!=null ? (teamScore===opponentScore?"T":teamScore>opponentScore?"W":"L") : null;
-    const venue=cleanText(firstValue(raw,["venue.name","venue","location.name","location","site.name","facility.name"]));
-    events.push({
-      nativeId:cleanText(firstValue(raw,["id","eventId","gameId","contestId","uuid"])),
-      opponent,scheduledAt,scheduledTimeKnown:timeKnown,venue,locationText:venue,
-      latitude:homeAway==="home"?source.home_latitude:null,longitude:homeAway==="home"?source.home_longitude:null,
-      homeAway,conferenceGame:Number(Boolean(firstValue(raw,["conferenceGame","isConference","regionGame"]))),countsForRecord:1,
-      status,teamScore,opponentScore,result,notes:""
-    });
+    const normalized=hasDragonFlyParticipants(raw)
+      ? normalizeParticipantEvent(raw,source,sourceTimestamp)
+      : normalizeLegacyHomeAwayEvent(raw,source,sourceTimestamp);
+    if (normalized) events.push(normalized);
   }
   return stableKeys(events);
 }
@@ -142,8 +199,8 @@ export function normalizeDragonFlyPublicText(text,source) {
     const firstHome=/^\(H\)\s*/i.test(first), secondHome=/^\(H\)\s*/i.test(second);
     const firstName=cleanText(first.replace(/^\(H\)\s*/i,""));
     const secondName=cleanText(second.replace(/^\(H\)\s*/i,""));
-    let homeName=firstHome?firstName:secondHome?secondName:"";
-    let awayName=firstHome?secondName:secondHome?firstName:"";
+    const homeName=firstHome?firstName:secondHome?secondName:"";
+    const awayName=firstHome?secondName:secondHome?firstName:"";
     if (!homeName || !awayName) continue;
     const homeKey=normalizeSchoolAlias(homeName), awayKey=normalizeSchoolAlias(awayName);
     let homeAway="unknown", opponent="";
@@ -164,7 +221,7 @@ export function normalizeDragonFlyPublicText(text,source) {
       const homeScore=nums[0],awayScore=nums[1];
       teamScore=homeAway==="home"?homeScore:awayScore;
       opponentScore=homeAway==="home"?awayScore:homeScore;
-      result=teamScore===opponentScore?"T":teamScore>opponentScore?"W":"L";
+      result=resultFromScores(teamScore,opponentScore);
     }
     events.push({nativeId:"",opponent,scheduledAt,scheduledTimeKnown:clock.known,venue,locationText:venue,
       latitude:homeAway==="home"?source.home_latitude:null,longitude:homeAway==="home"?source.home_longitude:null,
