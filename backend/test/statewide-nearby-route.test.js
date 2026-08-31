@@ -45,10 +45,10 @@ function seedScopedEvent(db,{prefix,homeName,awayName,latitude,longitude,scope="
   db.prepare(`INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
     VALUES(?,'volleyball','girls','2026',?,?,?,?,?,1,?,?,?, ?,0,'SCHEDULED',?,'CORROBORATED',0,'{}',?,?)`)
     .run(canonical,[home,away].sort()[0],[home,away].sort()[1],home,away,scheduled,homeName,homeName,latitude,longitude,homeSource,now,now);
-  const gameInsert=db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,source_url,last_checked_at,updated_at,canonical_event_id)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,'SCHEDULED','https://example.test/dragonfly',?,?,?)`);
-  gameInsert.run(`${homeSource}:native:${prefix}`,homeTeam,homeSource,`native:${prefix}`,awayName,away,scheduled,1,homeName,homeName,latitude,longitude,"home",now,now,canonical);
-  gameInsert.run(`${awaySource}:native:${prefix}`,awayTeam,awaySource,`native:${prefix}`,homeName,home,scheduled,1,homeName,homeName,latitude,longitude,"away",now,now,canonical);
+  const gameInsert=db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,'SCHEDULED','https://example.test/dragonfly',?,?,?,?)`);
+  gameInsert.run(`${homeSource}:native:${prefix}`,homeTeam,homeSource,`native:${prefix}`,awayName,away,scheduled,1,homeName,homeName,latitude,longitude,"home",now,now,now,canonical);
+  gameInsert.run(`${awaySource}:native:${prefix}`,awayTeam,awaySource,`native:${prefix}`,homeName,home,scheduled,1,homeName,homeName,latitude,longitude,"away",now,now,now,canonical);
   return {canonical,homeTeam,home};
 }
 
