@@ -6,14 +6,16 @@ on:
       - "backend/src/dragonfly-*.js"
       - "backend/src/schedule-authority-core.js"
       - "backend/migrations/0004_schedule_authority_v2.sql"
+      - "backend/migrations/0005_statewide_volleyball_discovery.sql"
       - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
   push:
-    branches: [feature/schedule-authority-v2]
+    branches: [feature/schedule-authority-v2, feature/statewide-volleyball-discovery]
     paths:
       - "backend/src/dragonfly-*.js"
       - "backend/src/schedule-authority-core.js"
       - "backend/migrations/0004_schedule_authority_v2.sql"
+      - "backend/migrations/0005_statewide_volleyball_discovery.sql"
       - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
 
@@ -36,14 +38,22 @@ jobs:
           import assert from 'node:assert/strict';
           import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
           import { normalizeDragonFlyPayload } from './src/dragonfly-core.js';
+          import { catalogAmbiguities, discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
           import { resolveCanonicalEvent } from './src/schedule-authority-core.js';
 
           const url='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
           const {payload,pageCount}=await fetchDragonFlyPagedPayload(url,{
-            headers:{'user-agent':'LocalBleachersAR-public-source-validation/4.0','accept':'application/json'}
+            headers:{'user-agent':'LocalBleachersAR-public-source-validation/5.0','accept':'application/json'}
           });
           assert.ok(pageCount > 1, `expected paginated statewide feed, got ${pageCount} page`);
           assert.ok(payload.schedule.length > 1000, `suspicious statewide schedule count ${payload.schedule.length}`);
+
+          const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
+          const discoveredSchools=new Set(discovered.map(entry=>entry.orgShortCode));
+          const ambiguous=catalogAmbiguities(discovered);
+          assert.ok(discovered.length > 100, `suspicious varsity volleyball team count ${discovered.length}`);
+          assert.ok(discoveredSchools.size > 100, `suspicious school count ${discoveredSchools.size}`);
+          assert.ok(discovered.every(entry=>entry.orgShortCode && entry.teamId && entry.schoolName),'discovery produced an incomplete external identity');
 
           const base={sport:'volleyball',gender:'girls',season:'2026',timezone:'America/Chicago'};
           const conway=normalizeDragonFlyPayload(payload,{...base,school_name:'Conway High School',home_latitude:35.0887,home_longitude:-92.4421});
@@ -112,6 +122,10 @@ jobs:
             verified:true,
             pages:pageCount,
             statewideEvents:payload.schedule.length,
+            discoveredTeams:discovered.length,
+            discoveredSchools:discoveredSchools.size,
+            ambiguousNames:ambiguous.size,
+            ambiguousKeys:[...ambiguous].sort(),
             conwayEvents:conway.length,
             greenbrierEvents:greenbrier.length,
             viloniaEvents:vilonia.length,
