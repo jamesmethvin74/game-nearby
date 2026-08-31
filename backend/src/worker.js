@@ -1,4 +1,5 @@
 import core from "./index.js";
+import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js";
 
 let liveConfigReady = false;
 
@@ -79,6 +80,12 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     await ensureLiveConfig(env);
+    try {
+      const catalog=await syncDragonFlyVarsityVolleyballCatalog(env);
+      console.log("statewide volleyball catalog",catalog);
+    } catch (error) {
+      console.error("statewide volleyball catalog sync failed",error);
+    }
     return core.scheduled(controller, env, ctx);
   }
 };
