@@ -36,14 +36,16 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
+          import { Buffer } from 'node:buffer';
           import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
           import { normalizeDragonFlyPayload } from './src/dragonfly-core.js';
           import { catalogAmbiguities, discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
+          import { buildStatewideDragonFlyRows } from './src/dragonfly-statewide.js';
           import { resolveCanonicalEvent } from './src/schedule-authority-core.js';
 
           const url='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
           const {payload,pageCount}=await fetchDragonFlyPagedPayload(url,{
-            headers:{'user-agent':'LocalBleachersAR-public-source-validation/5.2','accept':'application/json'}
+            headers:{'user-agent':'LocalBleachersAR-public-source-validation/6.0','accept':'application/json'}
           });
           assert.ok(pageCount > 1, `expected paginated statewide feed, got ${pageCount} page`);
           assert.ok(payload.schedule.length > 1000, `suspicious statewide schedule count ${payload.schedule.length}`);
@@ -64,6 +66,39 @@ jobs:
           assert.ok(discovered.length > 100, `suspicious varsity volleyball team count ${discovered.length}`);
           assert.ok(discoveredSchools.size > 100, `suspicious school count ${discoveredSchools.size}`);
           assert.ok(discovered.every(entry=>entry.orgShortCode && entry.teamId && entry.schoolName),'discovery produced an incomplete external identity');
+
+          const syntheticMappings=discovered.map(entry=>({
+            external_team_id:entry.teamId,
+            source_id:`source-${entry.orgShortCode.toLowerCase()}`,
+            source_url:url,
+            team_id:`team-${entry.orgShortCode.toLowerCase()}`,
+            school_id:`school-${entry.orgShortCode.toLowerCase()}`,
+            school_name:entry.schoolName,
+            latitude:null,
+            longitude:null
+          }));
+          const bulkRows=buildStatewideDragonFlyRows(payload,syntheticMappings,{checkedAt:'2026-08-31T20:00:00.000Z'});
+          assert.ok(bulkRows.canonicals.length > 1500, `bulk transformer produced only ${bulkRows.canonicals.length} canonical events`);
+          assert.ok(bulkRows.games.length > 3000, `bulk transformer produced only ${bulkRows.games.length} observations`);
+          assert.equal(bulkRows.members.length,bulkRows.games.length,'every bulk observation should have a canonical membership row');
+          assert.ok(bulkRows.games.every(game=>game.opponent_school_id && game.canonical_event_id),'bulk transformer produced unresolved identities');
+
+          const chunkBytes=rows=>{
+            let max=0;
+            for (let i=0;i<rows.length;i+=400) max=Math.max(max,Buffer.byteLength(JSON.stringify(rows.slice(i,i+400)),'utf8'));
+            return max;
+          };
+          const maxCanonicalChunkBytes=chunkBytes(bulkRows.canonicals);
+          const maxGameChunkBytes=chunkBytes(bulkRows.games);
+          const maxMemberChunkBytes=chunkBytes(bulkRows.members);
+          for (const [label,bytes] of Object.entries({maxCanonicalChunkBytes,maxGameChunkBytes,maxMemberChunkBytes})) {
+            assert.ok(bytes < 1500000, `${label}=${bytes} is too close to D1 2 MB bound-value ceiling`);
+          }
+
+          const bentonSchoolIds=new Set(ambiguousEntries.filter(entry=>entry.name==='Benton High School').map(entry=>`school-${entry.orgShortCode.toLowerCase()}`));
+          if (bentonSchoolIds.size>1) {
+            for (const schoolId of bentonSchoolIds) assert.ok(bulkRows.games.some(game=>game.team_id===`team-${schoolId.replace(/^school-/, '')}`),`bulk transformer lost ambiguous Benton identity ${schoolId}`);
+          }
 
           const base={sport:'volleyball',gender:'girls',season:'2026',timezone:'America/Chicago'};
           const conway=normalizeDragonFlyPayload(payload,{...base,school_name:'Conway High School',home_latitude:35.0887,home_longitude:-92.4421});
@@ -134,6 +169,10 @@ jobs:
             statewideEvents:payload.schedule.length,
             discoveredTeams:discovered.length,
             discoveredSchools:discoveredSchools.size,
+            bulkCanonicalEvents:bulkRows.canonicals.length,
+            bulkObservations:bulkRows.games.length,
+            bulkMembers:bulkRows.members.length,
+            maxCanonicalChunkBytes,maxGameChunkBytes,maxMemberChunkBytes,
             ambiguousNames:ambiguous.size,
             ambiguousKeys:[...ambiguous].sort(),
             ambiguousEntries,
