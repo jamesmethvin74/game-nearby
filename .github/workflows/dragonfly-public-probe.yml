@@ -4,16 +4,26 @@ on:
   pull_request:
     paths:
       - "backend/src/dragonfly-*.js"
+      - "backend/src/arkansas-school-locations.js"
       - "backend/src/schedule-authority-core.js"
       - "backend/migrations/0004_schedule_authority_v2.sql"
+      - "backend/migrations/0005_statewide_volleyball_discovery.sql"
+      - "backend/migrations/0006_school_location_enrichment.sql"
+      - "backend/migrations/0007_canonical_game_location_propagation.sql"
+      - "backend/migrations/0008_statewide_catalog_visibility.sql"
       - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
   push:
-    branches: [feature/schedule-authority-v2]
+    branches: [feature/schedule-authority-v2, feature/statewide-volleyball-discovery]
     paths:
       - "backend/src/dragonfly-*.js"
+      - "backend/src/arkansas-school-locations.js"
       - "backend/src/schedule-authority-core.js"
       - "backend/migrations/0004_schedule_authority_v2.sql"
+      - "backend/migrations/0005_statewide_volleyball_discovery.sql"
+      - "backend/migrations/0006_school_location_enrichment.sql"
+      - "backend/migrations/0007_canonical_game_location_propagation.sql"
+      - "backend/migrations/0008_statewide_catalog_visibility.sql"
       - "backend/test/**"
       - ".github/workflows/dragonfly-public-probe.yml"
 
@@ -28,22 +38,86 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify production DragonFly ingestion against current Arkansas feed
+      - name: Verify production DragonFly ingestion and Arkansas GIS coverage
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
+          import { Buffer } from 'node:buffer';
           import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
           import { normalizeDragonFlyPayload } from './src/dragonfly-core.js';
+          import { catalogAmbiguities, discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
+          import { buildStatewideDragonFlyRows } from './src/dragonfly-statewide.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations } from './src/arkansas-school-locations.js';
           import { resolveCanonicalEvent } from './src/schedule-authority-core.js';
 
           const url='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
           const {payload,pageCount}=await fetchDragonFlyPagedPayload(url,{
-            headers:{'user-agent':'LocalBleachersAR-public-source-validation/4.0','accept':'application/json'}
+            headers:{'user-agent':'LocalBleachersAR-public-source-validation/8.0','accept':'application/json'}
           });
           assert.ok(pageCount > 1, `expected paginated statewide feed, got ${pageCount} page`);
-          assert.ok(payload.schedule.length > 1000, `suspicious statewide schedule count ${payload.schedule.length}`);
+          assert.ok(payload.schedule.length > 1500, `suspicious statewide schedule count ${payload.schedule.length}`);
+
+          const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
+          const discoveredSchools=new Set(discovered.map(entry=>entry.orgShortCode));
+          const ambiguous=catalogAmbiguities(discovered);
+          const ambiguousEntries=discovered
+            .filter(entry=>ambiguous.has(entry.normalizedSchoolName))
+            .map(entry=>({name:entry.schoolName,orgShortCode:entry.orgShortCode,teamId:entry.teamId,eventCount:entry.eventCount}));
+          assert.ok(discovered.length >= 250, `suspicious varsity volleyball team count ${discovered.length}`);
+          assert.ok(discoveredSchools.size >= 240, `suspicious participant organization count ${discoveredSchools.size}`);
+          assert.ok(discovered.every(entry=>entry.orgShortCode && entry.teamId && entry.schoolName),'discovery produced an incomplete external identity');
+          assert.equal(discovered.some(entry=>/\bTBD\b|\bTBA\b/i.test(entry.schoolName)),false,'placeholder participant leaked into discovery');
+
+          const schoolTargets=[...new Map(discovered.map(entry=>[entry.orgShortCode,{
+            id:`school-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:''
+          }])).values()];
+          const gis=await fetchArkansasSchoolLocationFeatures();
+          const locationResult=matchArkansasSchoolLocations(schoolTargets,gis.features);
+          const locationRatio=locationResult.matched.length/schoolTargets.length;
+          assert.ok(locationResult.matched.length >= 180, `only ${locationResult.matched.length} safely verified Arkansas schools`);
+          assert.ok(locationRatio>=0.70, `live Arkansas GIS location match ratio ${(locationRatio*100).toFixed(1)}% is unexpectedly low`);
+          const locationBySchool=new Map(locationResult.matched.map(row=>[row.school_id,row]));
+
+          const syntheticMappings=discovered.map(entry=>{
+            const schoolId=`school-${entry.orgShortCode.toLowerCase()}`;
+            const location=locationBySchool.get(schoolId);
+            return {
+              external_team_id:entry.teamId,
+              source_id:`source-${entry.orgShortCode.toLowerCase()}`,
+              source_url:url,
+              team_id:`team-${entry.orgShortCode.toLowerCase()}`,
+              school_id:schoolId,
+              school_name:entry.schoolName,
+              latitude:location?.latitude??null,
+              longitude:location?.longitude??null
+            };
+          });
+          const bulkRows=buildStatewideDragonFlyRows(payload,syntheticMappings,{checkedAt:'2026-08-31T20:00:00.000Z'});
+          assert.ok(bulkRows.canonicals.length >= 1600, `bulk transformer produced only ${bulkRows.canonicals.length} canonical events`);
+          assert.ok(bulkRows.games.length >= 3200, `bulk transformer produced only ${bulkRows.games.length} observations`);
+          assert.equal(bulkRows.members.length,bulkRows.games.length,'every bulk observation should have a canonical membership row');
+          assert.ok(bulkRows.games.every(game=>game.opponent_school_id && game.canonical_event_id),'bulk transformer produced unresolved identities');
+          const geocodedCanonicalEvents=bulkRows.canonicals.filter(game=>Number.isFinite(game.latitude)&&Number.isFinite(game.longitude)).length;
+          assert.ok(geocodedCanonicalEvents>=1600, `only ${geocodedCanonicalEvents} canonical events received safe location coordinates`);
+
+          const chunkBytes=rows=>{
+            let max=0;
+            for (let i=0;i<rows.length;i+=400) max=Math.max(max,Buffer.byteLength(JSON.stringify(rows.slice(i,i+400)),'utf8'));
+            return max;
+          };
+          const maxCanonicalChunkBytes=chunkBytes(bulkRows.canonicals);
+          const maxGameChunkBytes=chunkBytes(bulkRows.games);
+          const maxMemberChunkBytes=chunkBytes(bulkRows.members);
+          for (const [label,bytes] of Object.entries({maxCanonicalChunkBytes,maxGameChunkBytes,maxMemberChunkBytes})) {
+            assert.ok(bytes < 1500000, `${label}=${bytes} is too close to D1 2 MB bound-value ceiling`);
+          }
+
+          const bentonSchoolIds=new Set(ambiguousEntries.filter(entry=>entry.name==='Benton High School').map(entry=>`school-${entry.orgShortCode.toLowerCase()}`));
+          if (bentonSchoolIds.size>1) {
+            for (const schoolId of bentonSchoolIds) assert.ok(!locationBySchool.has(schoolId),`ambiguous Benton identity ${schoolId} should remain ungeocoded until safely resolved`);
+          }
 
           const base={sport:'volleyball',gender:'girls',season:'2026',timezone:'America/Chicago'};
           const conway=normalizeDragonFlyPayload(payload,{...base,school_name:'Conway High School',home_latitude:35.0887,home_longitude:-92.4421});
@@ -112,6 +186,21 @@ jobs:
             verified:true,
             pages:pageCount,
             statewideEvents:payload.schedule.length,
+            discoveredTeams:discovered.length,
+            discoveredSchools:discoveredSchools.size,
+            gisPublicFeatures:gis.publicFeatures.length,
+            gisPrivateFeatures:gis.privateFeatures.length,
+            locationMatched:locationResult.matched.length,
+            locationUnresolved:locationResult.unresolved.length,
+            locationAmbiguous:locationResult.ambiguous.length,
+            locationRatio:Number(locationRatio.toFixed(4)),
+            bulkCanonicalEvents:bulkRows.canonicals.length,
+            bulkObservations:bulkRows.games.length,
+            bulkMembers:bulkRows.members.length,
+            geocodedCanonicalEvents,
+            maxCanonicalChunkBytes,maxGameChunkBytes,maxMemberChunkBytes,
+            ambiguousNames:ambiguous.size,
+            ambiguousKeys:[...ambiguous].sort(),
             conwayEvents:conway.length,
             greenbrierEvents:greenbrier.length,
             viloniaEvents:vilonia.length,

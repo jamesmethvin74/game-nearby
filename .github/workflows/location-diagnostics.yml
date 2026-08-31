@@ -1,0 +1,73 @@
+name: Arkansas school location diagnostics
+
+on:
+  push:
+    branches: [feature/statewide-volleyball-discovery]
+    paths:
+      - "backend/src/arkansas-school-locations.js"
+      - "backend/src/dragonfly-discovery.js"
+      - ".github/workflows/location-diagnostics.yml"
+  pull_request:
+    paths:
+      - "backend/src/arkansas-school-locations.js"
+      - "backend/src/dragonfly-discovery.js"
+      - ".github/workflows/location-diagnostics.yml"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare DragonFly schools with Arkansas GIS
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
+          import { discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations, relaxedLocationNameKey } from './src/arkansas-school-locations.js';
+
+          const feed='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
+          const {payload}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/3.0','accept':'application/json'}});
+          const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
+          const schools=[...new Map(discovered.map(entry=>[entry.orgShortCode,{id:`school-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:'',orgShortCode:entry.orgShortCode}])).values()];
+          const gis=await fetchArkansasSchoolLocationFeatures();
+          const result=matchArkansasSchoolLocations(schools,gis.features);
+
+          const tokens=value=>new Set(relaxedLocationNameKey(value).split(' ').filter(token=>token.length>2));
+          const similarity=(a,b)=>{
+            const A=tokens(a),B=tokens(b); if(!A.size||!B.size) return 0;
+            let intersection=0; for(const token of A) if(B.has(token)) intersection++;
+            return (2*intersection)/(A.size+B.size);
+          };
+          const candidateRows=rows=>rows.map(row=>({
+            school_id:row.school_id,
+            school_name:row.school_name,
+            candidates:gis.features.map(feature=>({name:feature.name,city:feature.city,source:feature.source,score:Number(similarity(row.school_name,feature.name).toFixed(3))}))
+              .filter(candidate=>candidate.score>=0.4).sort((a,b)=>b.score-a.score||a.name.localeCompare(b.name)).slice(0,8)
+          })).filter(row=>row.candidates.length);
+
+          const directoryResponse=await fetch('https://ar.dragonflyathletics.com/sites/ArkAA/schools',{headers:{'user-agent':'LocalBleachersAR-location-diagnostics/3.0'}});
+          const directoryText=await directoryResponse.text();
+          const directoryCodeMatches=schools.filter(school=>directoryText.includes(school.orgShortCode));
+
+          console.log(JSON.stringify({
+            targets:schools.length,
+            publicFeatures:gis.publicFeatures.length,
+            privateFeatures:gis.privateFeatures.length,
+            matched:result.matched.length,
+            ratio:Number((result.matched.length/schools.length).toFixed(4)),
+            unresolved:result.unresolved,
+            ambiguous:result.ambiguous,
+            unresolvedCandidates:candidateRows(result.unresolved),
+            ambiguousCandidates:candidateRows(result.ambiguous),
+            dragonFlyDirectory:{httpStatus:directoryResponse.status,htmlBytes:directoryText.length,participantCodesPresent:directoryCodeMatches.length,
+              sample:directoryCodeMatches.slice(0,20).map(school=>({name:school.name,orgShortCode:school.orgShortCode}))}
+          },null,2));
+          JS

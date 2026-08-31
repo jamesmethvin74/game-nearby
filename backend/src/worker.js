@@ -1,4 +1,7 @@
 import core from "./index.js";
+import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js";
+import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
+import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 
 let liveConfigReady = false;
 
@@ -72,13 +75,79 @@ async function ensureLiveConfig(env) {
   liveConfigReady = true;
 }
 
+async function publicCatalogResponse(request,response,env){
+  if (request.method!=="GET" || !response.ok) return response;
+  const path=new URL(request.url).pathname;
+  const body=await response.json();
+
+  if (path==="/api/v1/schools" && Array.isArray(body.schools)) {
+    body.schools=body.schools.filter(school=>school.catalog_scope==="local" && Number(school.team_count||0)>0);
+  } else if (path==="/api/v1/games" && Array.isArray(body.games)) {
+    const {results}=await env.DB.prepare(`
+      SELECT DISTINCT t.school_id
+      FROM teams t JOIN schools s ON s.id=t.school_id
+      WHERE t.active=1 AND s.catalog_scope='local'`).all();
+    const activeSchools=new Set(results.map(row=>row.school_id));
+    body.games=body.games.filter(game=>activeSchools.has(game.school_id));
+  } else {
+    const teamMatch=path.match(/^\/api\/v1\/teams\/([^/]+)(?:\/(?:schedule|record))?$/);
+    if (teamMatch) {
+      const teamId=decodeURIComponent(teamMatch[1]);
+      const visible=await env.DB.prepare(`
+        SELECT 1 AS yes FROM teams t JOIN schools s ON s.id=t.school_id
+        WHERE t.id=? AND t.active=1 AND s.catalog_scope='local'`).bind(teamId).first();
+      if (!visible) return new Response(JSON.stringify({error:"team_not_found"}),{status:404,headers:response.headers});
+    }
+  }
+  return new Response(JSON.stringify(body),{status:response.status,headers:response.headers});
+}
+
 export default {
   async fetch(request, env, ctx) {
     await ensureLiveConfig(env);
-    return core.fetch(request, env, ctx);
+    const response=await core.fetch(request, env, ctx);
+    return publicCatalogResponse(request,response,env);
   },
   async scheduled(controller, env, ctx) {
     await ensureLiveConfig(env);
+    let catalogPayload=null;
+    try {
+      const catalog=await syncDragonFlyVarsityVolleyballCatalog(env);
+      catalogPayload=catalog.payload||null;
+      const {payload,...summary}=catalog;
+      console.log("statewide volleyball catalog",summary);
+    } catch (error) {
+      console.error("statewide volleyball catalog sync failed",error);
+    }
+
+    try {
+      const locations=await syncArkansasSchoolLocations(env);
+      console.log("statewide volleyball locations",{
+        status:locations.status,
+        targetSchools:locations.targetSchools,
+        matchedSchools:locations.matchedSchools,
+        unresolvedSchools:locations.unresolvedSchools,
+        ambiguousSchools:locations.ambiguousSchools,
+        matchRatio:locations.matchRatio
+      });
+    } catch (error) {
+      // Existing last-known-good school coordinates and active scopes remain untouched when
+      // Arkansas GIS is unavailable or suspicious. Newly discovered teams remain staged.
+      console.error("statewide volleyball location sync failed",error);
+    }
+
+    try {
+      const statewide=await runDragonFlyStatewideCollection(env,{payload:catalogPayload});
+      console.log("statewide volleyball collection",statewide);
+    } catch (error) {
+      console.error("statewide volleyball collection failed",error);
+    } finally {
+      // Statewide sources are storage/health identities for the bulk collector. Keeping them
+      // disabled prevents the legacy per-team collector from walking the same statewide feed
+      // hundreds of times. Existing proven team-mode sources remain enabled.
+      await env.DB.prepare("UPDATE sources SET enabled=0 WHERE collection_mode='statewide'").run();
+    }
+
     return core.scheduled(controller, env, ctx);
   }
 };

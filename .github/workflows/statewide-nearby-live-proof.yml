@@ -1,0 +1,152 @@
+name: Statewide nearby live proof
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/dragonfly-*.js"
+      - "backend/src/arkansas-school-locations.js"
+      - "backend/src/worker.js"
+      - "backend/migrations/**"
+      - "backend/test/statewide-nearby-route.test.js"
+      - ".github/workflows/statewide-nearby-live-proof.yml"
+  push:
+    branches: [feature/statewide-volleyball-discovery]
+    paths:
+      - "backend/src/dragonfly-*.js"
+      - "backend/src/arkansas-school-locations.js"
+      - "backend/src/worker.js"
+      - "backend/migrations/**"
+      - "backend/test/statewide-nearby-route.test.js"
+      - ".github/workflows/statewide-nearby-live-proof.yml"
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prove a real non-pilot statewide game through nearby API
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import { DatabaseSync } from 'node:sqlite';
+          import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
+          import { discoverDragonFlyVarsityVolleyballTeams } from './src/dragonfly-discovery.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations } from './src/arkansas-school-locations.js';
+          import { buildStatewideDragonFlyRows, STATEWIDE_SQL } from './src/dragonfly-statewide.js';
+          import worker from './src/worker.js';
+
+          const feed='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
+          const {payload,pageCount}=await fetchDragonFlyPagedPayload(feed,{headers:{'user-agent':'LocalBleachersAR-nearby-live-proof/1.0','accept':'application/json'}});
+          const discovered=discoverDragonFlyVarsityVolleyballTeams(payload);
+          const targets=[...new Map(discovered.map(entry=>[entry.orgShortCode,{id:`school-${entry.orgShortCode.toLowerCase()}`,name:entry.schoolName,city:''}])).values()];
+          const gis=await fetchArkansasSchoolLocationFeatures();
+          const locations=matchArkansasSchoolLocations(targets,gis.features);
+          const locationBySchool=new Map(locations.matched.map(row=>[row.school_id,row]));
+          const mappings=discovered.map(entry=>{
+            const schoolId=`school-${entry.orgShortCode.toLowerCase()}`;
+            const location=locationBySchool.get(schoolId);
+            return {
+              external_team_id:entry.teamId,
+              source_id:`source-${entry.orgShortCode.toLowerCase()}`,
+              source_url:feed,
+              team_id:`team-${entry.orgShortCode.toLowerCase()}`,
+              school_id:schoolId,
+              school_name:entry.schoolName,
+              latitude:location?.latitude??null,
+              longitude:location?.longitude??null
+            };
+          });
+          const mappingBySchool=new Map(mappings.map(mapping=>[mapping.school_id,mapping]));
+          const rows=buildStatewideDragonFlyRows(payload,mappings,{checkedAt:new Date().toISOString()});
+          const pilots=new Set(['conway','greenbrier','vilonia']);
+          const proof=rows.canonicals.find(event=>
+            event.home_school_id && event.away_school_id &&
+            ![...pilots].some(name=>String(event.home_school_id).includes(name)||String(event.away_school_id).includes(name)) &&
+            locationBySchool.has(event.home_school_id) && locationBySchool.has(event.away_school_id) &&
+            Number.isFinite(event.latitude) && Number.isFinite(event.longitude)
+          );
+          assert.ok(proof,'no safely geocoded non-pilot live canonical event was available for nearby proof');
+          const proofGames=rows.games.filter(game=>game.canonical_event_id===proof.id);
+          const proofMembers=rows.members.filter(member=>member.canonical_event_id===proof.id);
+          assert.ok(proofGames.length>=2,'live proof event should have reciprocal observations');
+
+          const db=new DatabaseSync(':memory:');
+          for (const file of fs.readdirSync('./migrations').filter(name=>name.endsWith('.sql')).sort()) db.exec(fs.readFileSync(`./migrations/${file}`,'utf8'));
+          const now=new Date().toISOString();
+          const schoolIds=[...new Set([proof.participant_a_school_id,proof.participant_b_school_id])];
+          for (const schoolId of schoolIds) {
+            const mapping=mappingBySchool.get(schoolId);
+            const location=locationBySchool.get(schoolId);
+            assert.ok(mapping && location,`missing proof mapping/location for ${schoolId}`);
+            db.prepare(`INSERT OR REPLACE INTO schools(id,name,city,state,level,latitude,longitude,catalog_scope,membership_source,membership_verified_at,updated_at)
+              VALUES(?,?,?,'AR','high-school',?,?,'local','arkansas-gis',?,?)`)
+              .run(schoolId,mapping.school_name,location.city||'',location.latitude,location.longitude,now,now);
+          }
+          const proofMappings=[...new Map(proofGames.map(game=>{
+            const mapping=mappings.find(item=>item.team_id===game.team_id && item.source_id===game.source_id);
+            return [game.team_id,mapping];
+          }).filter(([,mapping])=>mapping)).values()];
+          assert.equal(proofMappings.length,2,'expected two live team mappings for proof event');
+          for (const mapping of proofMappings) {
+            db.prepare(`INSERT OR REPLACE INTO teams(id,school_id,sport,gender,season,conference_id,active,updated_at)
+              VALUES(?,?,'volleyball','girls','2026',NULL,1,?)`).run(mapping.team_id,mapping.school_id,now);
+            db.prepare(`INSERT OR REPLACE INTO sources(id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
+              VALUES(?,? ,?,'official-conference',1,'dragonfly-public','4','America/Chicago',1,180,60,0,10,720,'statewide',?)`)
+              .run(mapping.source_id,mapping.team_id,feed,now);
+          }
+          db.prepare(STATEWIDE_SQL.upsertCanonical).run(JSON.stringify([proof]));
+          db.prepare(STATEWIDE_SQL.upsertGames).run(JSON.stringify(proofGames));
+          db.prepare(STATEWIDE_SQL.upsertMembers).run(JSON.stringify(proofMembers));
+
+          function d1FromSqlite(sqlite){
+            const prepare=sql=>{
+              let args=[];
+              return {
+                bind(...next){args=next;return this;},
+                async all(){return {results:sqlite.prepare(sql).all(...args)};},
+                async first(){return sqlite.prepare(sql).get(...args)||null;},
+                async run(){return sqlite.prepare(sql).run(...args);}
+              };
+            };
+            return {prepare,async batch(statements){const result=[];for(const statement of statements) result.push(await statement.run());return result;}};
+          }
+
+          const start=new Date(Date.parse(proof.scheduled_at)-24*60*60*1000).toISOString();
+          const end=new Date(Date.parse(proof.scheduled_at)+24*60*60*1000).toISOString();
+          const query=`https://local.test/api/v1/games?lat=${proof.latitude}&lon=${proof.longitude}&radius=5&since=${encodeURIComponent(start)}&until=${encodeURIComponent(end)}`;
+          const response=await worker.fetch(new Request(query),{DB:d1FromSqlite(db)},{});
+          assert.equal(response.status,200);
+          const body=await response.json();
+          const returned=body.games.find(game=>game.canonical_event_id===proof.id);
+          assert.ok(returned,`live canonical ${proof.id} did not survive actual nearby API route`);
+          assert.ok(returned.distance_miles!==null && returned.distance_miles<=5,`nearby distance ${returned.distance_miles} exceeded proof radius`);
+          const home=mappingBySchool.get(proof.home_school_id)?.school_name;
+          const away=mappingBySchool.get(proof.away_school_id)?.school_name;
+          console.log(JSON.stringify({
+            verified:true,
+            pages:pageCount,
+            liveEvents:payload.schedule.length,
+            safeArkansasSchools:locations.matched.length,
+            nearbyProof:{
+              canonicalEventId:proof.id,
+              scheduledAt:proof.scheduled_at,
+              home,away,
+              venue:proof.venue,
+              latitude:proof.latitude,
+              longitude:proof.longitude,
+              radiusMiles:5,
+              returnedDistanceMiles:returned.distance_miles,
+              returnedSchool:returned.school_name,
+              apiPath:new URL(query).pathname+new URL(query).search
+            }
+          },null,2));
+          JS
