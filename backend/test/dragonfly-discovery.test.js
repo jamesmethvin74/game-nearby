@@ -47,11 +47,12 @@ test("flags same normalized school name with different DragonFly organizations a
   assert.equal(ambiguous.size,1);
 });
 
-test("ignores non-varsity participants and unrelated sports",()=>{
+test("ignores placeholders, non-varsity participants and unrelated sports",()=>{
   const payload={schedule:[
     {associatedSports:[{code:"WVB",level:"Varsity"}],participants:[
       {name:"Varsity High School",orgShortCode:"VAR001",team:{teamId:"varsity",code:"WVB:varsity",level:"Varsity"}},
-      {name:"JV High School",orgShortCode:"JV0001",team:{teamId:"jv",code:"WVB:jv",level:"JV"}}
+      {name:"JV High School",orgShortCode:"JV0001",team:{teamId:"jv",code:"WVB:jv",level:"JV"}},
+      {name:"TBD",orgShortCode:"TBD001",team:{teamId:"tbd",code:"WVB:tbd",level:"Varsity"}}
     ]},
     {associatedSports:[{code:"FB",level:"Varsity"}],participants:[
       {name:"Football High School",orgShortCode:"FB0001",team:{teamId:"football",code:"FB:football",level:"Varsity"}}
