@@ -11,14 +11,14 @@
   <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
   <title>Standings · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
-  <link rel="manifest" href="manifest.json?v=53" />
+  <link rel="manifest" href="manifest.json?v=54" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
   <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
-  <link rel="stylesheet" href="styles.css?v=53" />
-  <link rel="stylesheet" href="polish.css?v=53" />
-  <link rel="stylesheet" href="brand-exact.css?v=53" />
-  <link rel="stylesheet" href="pitched-layout.css?v=53" />
-  <link rel="stylesheet" href="standings.css?v=53" />
+  <link rel="stylesheet" href="styles.css?v=54" />
+  <link rel="stylesheet" href="polish.css?v=54" />
+  <link rel="stylesheet" href="brand-exact.css?v=54" />
+  <link rel="stylesheet" href="pitched-layout.css?v=54" />
+  <link rel="stylesheet" href="standings.css?v=54" />
 </head>
 <body class="standings-page">
   <header class="app-header branded-header">
@@ -76,13 +76,13 @@
 
   <nav class="bottom-nav" aria-label="Primary navigation">
     <a class="nav-item" href="index.html">⌂<span>Home</span></a>
-    <a class="nav-item" href="index.html#teams">☆<span>Teams</span></a>
+    <a class="nav-item" href="teams.html">☆<span>Teams</span></a>
     <a class="nav-item active" href="standings.html" aria-current="page">▤<span>Standings</span></a>
     <a class="nav-item" href="index.html#alerts">♧<span>Alerts</span></a>
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="standings.js?v=53"></script>
+  <script src="standings.js?v=54"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
