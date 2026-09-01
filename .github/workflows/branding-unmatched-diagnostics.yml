@@ -13,6 +13,10 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Print production unmatched branding identities
         run: |
           curl -fsSL \
@@ -26,3 +30,22 @@ jobs:
               data=json.load(f)
           print(json.dumps(data.get('unmatched', []), indent=2))
           PY
+      - name: Audit curated branding sources
+        run: |
+          node --input-type=module <<'JS'
+          import { CURATED_SCHOOL_BRANDING_IDENTITIES as rows } from './backend/src/school-branding-curated.js';
+          const out=[];
+          for (const row of rows) {
+            try {
+              const r=await fetch(row.sourceUrl,{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding audit','accept':'text/html'},redirect:'follow'});
+              const html=await r.text();
+              const logo=(html.match(/https:\/\/image\.maxpreps\.io\/school-mascot\/[^"'<>\s]+/i)||[])[0]||row.logoUrl||null;
+              out.push({sourceName:row.sourceName,status:r.status,finalUrl:r.url,mascot:row.mascot||null,logo:logo?logo.replace(/&amp;/g,'&'):null});
+            } catch (e) {
+              out.push({sourceName:row.sourceName,error:String(e?.message||e)});
+            }
+          }
+          console.log('CURATED_BRANDING_AUDIT_START');
+          console.log(JSON.stringify(out,null,2));
+          console.log('CURATED_BRANDING_AUDIT_END');
+          JS
