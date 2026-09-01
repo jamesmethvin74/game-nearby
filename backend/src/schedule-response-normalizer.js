@@ -65,6 +65,7 @@ function rowScore(row) {
   if (row.source_type === "official-school" || row.source_type === "official-athletics") score += 20;
   score += trustScore(row.data_trust);
   if (row.scheduled_time_known) score += 5;
+  if (row.status === "FINAL" && row.team_score != null && row.opponent_score != null) score += 12;
   return score;
 }
 
@@ -108,6 +109,45 @@ export function dedupeScheduleRows(games, options = {}) {
     else merged[index] = mergeDuplicateRows(merged[index], row);
   }
   return merged.sort((a, b) => Date.parse(a.scheduled_at || a.canonical_scheduled_at) - Date.parse(b.scheduled_at || b.canonical_scheduled_at));
+}
+
+export function recordFromScheduleRows(games, options = {}) {
+  const rows = dedupeScheduleRows(games, options);
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+  let conferenceWins = 0;
+  let conferenceLosses = 0;
+  let conferenceTies = 0;
+  let scoredFinals = 0;
+
+  for (const row of rows) {
+    if (row.status !== "FINAL" || row.counts_for_record === 0 || row.countsForRecord === false) continue;
+    if (row.team_score == null || row.opponent_score == null) continue;
+    const teamScore = Number(row.team_score);
+    const opponentScore = Number(row.opponent_score);
+    if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) continue;
+    scoredFinals++;
+    const result = teamScore === opponentScore ? "T" : teamScore > opponentScore ? "W" : "L";
+    if (result === "W") wins++;
+    else if (result === "L") losses++;
+    else ties++;
+    if (Number(row.conference_game || 0) === 1 || row.conferenceGame === true) {
+      if (result === "W") conferenceWins++;
+      else if (result === "L") conferenceLosses++;
+      else conferenceTies++;
+    }
+  }
+
+  return {
+    wins,
+    losses,
+    ties,
+    conference_wins: conferenceWins,
+    conference_losses: conferenceLosses,
+    conference_ties: conferenceTies,
+    scored_finals: scoredFinals
+  };
 }
 
 export function humanizeScheduleText(value) {
