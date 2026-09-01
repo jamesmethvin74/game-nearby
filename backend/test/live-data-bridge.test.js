@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 
 const rawSource = await readFile(new URL("../../live-data.js", import.meta.url), "utf8");
-const source = rawSource.replace(/\n\s*Promise\.allSettled\(\[refreshCatalog\(\), refreshNearby\(\)\]\);\s*\n\}\)\(\);\s*$/, "\n})();\n");
+const source = rawSource.replace(/\n\s*Promise\.allSettled\(\[refreshCatalog\(\), refreshNearby\(\)\]\)\.then\(\(\) => \{[\s\S]*?return refreshRecordsForEvents\(\[\.\.\.fallback, \.\.\.nearbyEvents\]\);\s*\}\);\s*\n\}\)\(\);\s*$/, "\n})();\n");
 assert.notEqual(source, rawSource, "test harness should disable only the automatic startup refresh");
 
 function createStorage() {
