@@ -1,0 +1,105 @@
+name: Production branding v50 verify
+
+on:
+  push:
+    branches: [feature/school-logo-catalog-v1]
+    paths:
+      - ".github/workflows/production-branding-v50-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Drive real production branding import and mascot enrichment
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          rm -f branding.json
+
+          # Wait for the v50 Worker route to deploy, then call it enough times to
+          # populate the lookup rows and drain the incremental mascot batches.
+          for attempt in $(seq 1 30); do
+            echo "Branding import attempt ${attempt}/30"
+            code=$(curl -sS --max-time 120 -o branding.tmp -w '%{http_code}' "$API/api/v1/branding/report" || true)
+            echo "HTTP $code"
+            if [ "$code" = "200" ]; then
+              node -e 'const p=require("./branding.tmp"); console.log(JSON.stringify(p.summary||p,null,2))' || true
+              cp branding.tmp branding.json
+              mascot=$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("branding.tmp","utf8"));console.log(Number(p.summary?.mascotSchools||0))')
+              logos=$(node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("branding.tmp","utf8"));console.log(Number(p.summary?.logoSchools||0))')
+              if [ "$logos" -ge 168 ] && [ "$mascot" -ge 168 ]; then
+                echo "Branding population threshold reached: logos=$logos mascots=$mascot"
+                break
+              fi
+            fi
+            sleep 3
+          done
+
+          test -f branding.json
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('branding.json','utf8'));
+          const s=p.summary||{};
+          if(Number(s.logoSchools||0)<168) throw new Error(`Expected at least 168 production logos, got ${s.logoSchools}`);
+          if(Number(s.mascotSchools||0)<168) throw new Error(`Expected at least 168 production mascots, got ${s.mascotSchools}`);
+          console.log(`Production branding report: ${s.logoSchools} logos, ${s.mascotSchools} mascots, ${s.unmatchedLogoSchools} unmatched logos, ${s.missingMascotSchools} matched logos missing mascots.`);
+          NODE
+
+      - name: Verify named schools in production D1/API
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS --max-time 120 "$API/api/v1/schools" -o schools.json
+          node <<'NODE'
+          const fs=require('fs');
+          const schools=(JSON.parse(fs.readFileSync('schools.json','utf8')).schools||[]);
+          const canonical=s=>String(s.location_matched_name||s.name||'').trim();
+          const expected=new Map([
+            ['Conway High School','Wampus Cats'],
+            ['Greenbrier High School','Panthers'],
+            ['Vilonia High School','Eagles'],
+            ['Valley Springs High School','Tigers'],
+            ['Lakeside High School','Rams']
+          ]);
+          for(const [name,mascot] of expected){
+            let matches=schools.filter(s=>canonical(s).toLowerCase()===name.toLowerCase());
+            if(name==='Lakeside High School') matches=matches.filter(s=>String(s.city||'').toLowerCase()==='hot springs');
+            if(matches.length!==1) throw new Error(`${name}: expected one production school, got ${matches.length}`);
+            const school=matches[0];
+            if(String(school.mascot||'')!==mascot) throw new Error(`${name}: expected mascot ${mascot}, got ${school.mascot}`);
+            if(!String(school.logo_url||'').startsWith('https://image.maxpreps.io/school-mascot/')) throw new Error(`${name}: production logo_url missing or invalid: ${school.logo_url}`);
+            console.log(`${name}: ${school.mascot} · ${school.logo_url}`);
+          }
+          NODE
+
+      - name: Verify GitHub Pages v50 logo frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="https://jamesmethvin74.github.io/game-nearby"
+          rm -f index.html logo.js sw.js
+          for attempt in $(seq 1 30); do
+            echo "Pages v50 attempt ${attempt}/30"
+            curl -fsS --max-time 60 "$APP/" -o index.tmp || true
+            curl -fsS --max-time 60 "$APP/school-logo-ui.js?v=50" -o logo.tmp || true
+            curl -fsS --max-time 60 "$APP/service-worker.js" -o sw.tmp || true
+            if grep -q 'school-logo-ui.js?v=50' index.tmp 2>/dev/null \
+              && grep -q 'logo_url' logo.tmp 2>/dev/null \
+              && grep -q 'localbleachersar-shell-v50' sw.tmp 2>/dev/null; then
+              mv index.tmp index.html
+              mv logo.tmp logo.js
+              mv sw.tmp sw.js
+              break
+            fi
+            sleep 5
+          done
+          test -f index.html
+          test -f logo.js
+          test -f sw.js
+          echo "GitHub Pages v50 school-logo frontend verified."
