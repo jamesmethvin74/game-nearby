@@ -4,31 +4,28 @@ on:
   pull_request:
     paths:
       - '.github/workflows/branding-unmatched-diagnostics.yml'
-      - 'backend/src/school-branding.js'
       - 'backend/src/school-branding-curated.js'
-      - 'backend/src/school-branding-curated-sync.js'
-      - 'backend/test/school-branding.test.js'
 
 jobs:
   report:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Inspect canonical MaxPreps IDs
+      - name: Inspect academy image URLs
         run: |
-          node --input-type=module <<'JS'
-          import { CURATED_SCHOOL_BRANDING_IDENTITIES as rows } from './backend/src/school-branding-curated.js';
-          const targets=rows.filter(r=>!r.sourceType);
-          const out=[];
-          for (const row of targets) {
-            const r=await fetch(row.sourceUrl,{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding audit','accept':'text/html'},redirect:'follow'});
-            const html=await r.text();
-            const ids=[...new Set([...html.matchAll(/(?:schoolId|schoolID|schoolid)[^0-9a-f]{0,30}([0-9a-f]{8}-[0-9a-f-]{27})/gi)].map(m=>m[1].toLowerCase()))];
-            const imageIds=[...new Set([...html.matchAll(/image\.maxpreps\.io\/school-mascot\/(?:[0-9a-f]\/){3}([0-9a-f-]{36})\.(?:gif|png|jpe?g|webp)/gi)].map(m=>m[1].toLowerCase()))];
-            out.push({sourceName:row.sourceName,status:r.status,finalUrl:r.url,ids,imageIds,intersection:ids.filter(id=>imageIds.includes(id))});
+          python - <<'PY'
+          import re, urllib.request
+          pages={
+            'friendship':'https://mail.friendshipaspire.org/extended-learning',
+            'exalt':'https://www.exaltacademies.org/exalt-early-learning-academy'
           }
-          console.log(JSON.stringify(out,null,2));
-          JS
+          for name,url in pages.items():
+            req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 LocalBleachersAR branding audit'})
+            with urllib.request.urlopen(req,timeout=30) as r: html=r.read().decode('utf-8','ignore')
+            print('\n###',name)
+            for tag in re.findall(r'<img\b[^>]*>',html,re.I):
+              alt=re.search(r'\balt=["\']([^"\']*)',tag,re.I)
+              src=re.search(r'\b(?:src|data-src)=["\']([^"\']+)',tag,re.I)
+              text=(alt.group(1) if alt else '')
+              if any(k in text.lower() for k in ['friendship','aspire','icon','eagle','exalt','logo']):
+                print(text,'=>',src.group(1) if src else 'NO_SRC')
+          PY
