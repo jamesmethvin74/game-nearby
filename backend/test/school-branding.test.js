@@ -27,9 +27,35 @@ test("logo URL is normalized to a useful card resolution", () => {
   assert.match(url, /height=256/);
 });
 
-test("school page parser extracts mascot and colors", () => {
+test("school page parser extracts an explicit mascot and colors", () => {
   const page = `<dl><dt>Mascot</dt><dd>Tigers</dd><dt>Colors</dt><dd><span style="background-color:#00824B"></span><span style="background-color:#FFFFFF"></span></dd></dl>`;
-  assert.deepEqual(parseMaxPrepsSchoolPage(page), { mascot:"Tigers", primaryColor:"#00824B", secondaryColor:"#FFFFFF" });
+  assert.deepEqual(parseMaxPrepsSchoolPage(page), { mascot:"Tigers", primaryColor:"#00824B", secondaryColor:"#FFFFFF", canonicalUrl:null });
+});
+
+test("school page parser derives Valley Springs mascot from canonical school identity", () => {
+  const data = {
+    "@context":"https://schema.org",
+    "@type":"HighSchool",
+    name:"Valley Springs High School",
+    url:"https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/",
+    address:{addressLocality:"Valley Springs"}
+  };
+  const page = `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+  const parsed = parseMaxPrepsSchoolPage(page);
+  assert.equal(parsed.mascot,"Tigers");
+  assert.equal(parsed.canonicalUrl,data.url);
+});
+
+test("school page parser handles a city-prefixed canonical slug", () => {
+  const data = {
+    "@context":"https://schema.org",
+    "@type":"HighSchool",
+    name:"Northside High School",
+    url:"https://www.maxpreps.com/ar/fort-smith/fort-smith-northside-grizzlies/",
+    address:{addressLocality:"Fort Smith"}
+  };
+  const page = `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+  assert.equal(parseMaxPrepsSchoolPage(page).mascot,"Grizzlies");
 });
 
 test("matcher uses authoritative name plus city and refuses ambiguous duplicate names", () => {
