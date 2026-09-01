@@ -6,8 +6,14 @@
       || DEFAULT_API_BASE
   ).replace(/\/$/, "");
 
-  const sportSelect = document.getElementById("standingsSport");
-  const conferenceSelect = document.getElementById("standingsConference");
+  const sportTrigger = document.getElementById("standingsSportTrigger");
+  const conferenceTrigger = document.getElementById("standingsConferenceTrigger");
+  const sportValue = document.getElementById("standingsSportValue");
+  const conferenceValue = document.getElementById("standingsConferenceValue");
+  const pickerDialog = document.getElementById("standingsPickerDialog");
+  const pickerTitle = document.getElementById("standingsPickerTitle");
+  const pickerOptions = document.getElementById("standingsPickerOptions");
+  const pickerClose = document.getElementById("standingsPickerClose");
   const card = document.getElementById("standingsCard");
   const body = document.getElementById("standingsBody");
   const tableWrap = document.getElementById("standingsTableWrap");
@@ -20,7 +26,12 @@
   const themeToggle = document.getElementById("themeToggle");
 
   let requestSerial = 0;
-  let sportsLoaded = false;
+  let sports = [{ id: "volleyball", label: "Volleyball" }];
+  let conferences = [];
+  let selectedSport = "volleyball";
+  let selectedConference = "";
+  let activePicker = null;
+  let activeTrigger = null;
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({
@@ -54,37 +65,69 @@
     source.hidden = true;
   }
 
-  function populateSports(sports) {
-    if (!Array.isArray(sports) || !sports.length || sportsLoaded) return;
-    const selected = sportSelect.value;
-    sportSelect.innerHTML = sports.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label || item.id)}</option>`).join("");
-    if (sports.some(item => item.id === selected)) sportSelect.value = selected;
-    sportsLoaded = true;
+  function itemLabel(items, id, fallback = "Choose") {
+    return items.find(item => item.id === id)?.name
+      || items.find(item => item.id === id)?.label
+      || fallback;
   }
 
-  function populateConferences(conferences) {
-    conferenceSelect.innerHTML = "";
-    for (const conference of conferences || []) {
-      const option = document.createElement("option");
-      option.value = conference.id;
-      option.textContent = conference.name;
-      conferenceSelect.appendChild(option);
-    }
-    conferenceSelect.disabled = !conferenceSelect.options.length;
+  function refreshTriggers() {
+    sportTrigger.dataset.value = selectedSport;
+    sportValue.textContent = itemLabel(sports, selectedSport, "Sport");
+    conferenceTrigger.dataset.value = selectedConference;
+    conferenceValue.textContent = selectedConference ? itemLabel(conferences, selectedConference, "Conference") : "Choose";
+    conferenceTrigger.disabled = !conferences.length;
+  }
+
+  function populateSports(nextSports) {
+    if (Array.isArray(nextSports) && nextSports.length) sports = nextSports;
+    if (!sports.some(item => item.id === selectedSport)) selectedSport = sports[0]?.id || "volleyball";
+    refreshTriggers();
+  }
+
+  function populateConferences(nextConferences) {
+    conferences = Array.isArray(nextConferences) ? nextConferences : [];
+    if (!conferences.some(item => item.id === selectedConference)) selectedConference = conferences[0]?.id || "";
+    refreshTriggers();
+  }
+
+  function closePicker() {
+    if (pickerDialog.open) pickerDialog.close();
+    activePicker = null;
+    const trigger = activeTrigger;
+    activeTrigger = null;
+    trigger?.focus({ preventScroll: true });
+  }
+
+  function openPicker(kind) {
+    const items = kind === "sport" ? sports : conferences;
+    const selected = kind === "sport" ? selectedSport : selectedConference;
+    if (!items.length) return;
+    activePicker = kind;
+    activeTrigger = kind === "sport" ? sportTrigger : conferenceTrigger;
+    pickerTitle.textContent = kind === "sport" ? "Sport" : "Conference";
+    pickerOptions.innerHTML = items.map(item => {
+      const value = item.id;
+      const label = item.name || item.label || item.id;
+      const checked = value === selected;
+      return `<button type="button" class="standings-picker-option${checked ? " selected" : ""}" role="option" aria-selected="${checked}" data-picker-value="${escapeHtml(value)}"><span>${escapeHtml(label)}</span><span class="standings-picker-check" aria-hidden="true">${checked ? "✓" : ""}</span></button>`;
+    }).join("");
+    pickerDialog.showModal();
+    pickerOptions.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
 
   function renderStandings(payload) {
     const rows = Array.isArray(payload?.standings) ? payload.standings : [];
     const conference = payload?.conference || {};
-    sportLabel.textContent = String(conference.sport || sportSelect.value || "sport").toUpperCase();
+    sportLabel.textContent = String(conference.sport || selectedSport || "sport").toUpperCase();
     title.textContent = conference.name || "Conference standings";
     body.innerHTML = rows.map((row, index) => `
       <tr>
         <td class="rank-col">${escapeHtml(row.rank ?? index + 1)}</td>
         <td class="standings-team">${escapeHtml(row.school_name)}</td>
-        <td class="standings-record">${escapeHtml(row.conference_record || "0-0")}</td>
-        <td class="standings-record">${escapeHtml(row.overall_record || "0-0")}</td>
-        <td>${escapeHtml(row.conference_pct || "—")}</td>
+        <td class="standings-record conf-col">${escapeHtml(row.conference_record || "0-0")}</td>
+        <td class="standings-record overall-col">${escapeHtml(row.overall_record || "0-0")}</td>
+        <td class="standings-pct pct-col">${escapeHtml(row.conference_pct || "—")}</td>
       </tr>`).join("");
 
     status.hidden = true;
@@ -100,15 +143,14 @@
   }
 
   async function loadStandings() {
-    const conference = conferenceSelect.value;
-    if (!conference) {
+    if (!selectedConference) {
       setError("No conference is available for this sport yet.");
       return;
     }
     const serial = ++requestSerial;
     setLoading();
     try {
-      const payload = await fetchJson(`/api/v1/standings?sport=${encodeURIComponent(sportSelect.value)}&conference=${encodeURIComponent(conference)}`);
+      const payload = await fetchJson(`/api/v1/standings?sport=${encodeURIComponent(selectedSport)}&conference=${encodeURIComponent(selectedConference)}`);
       if (serial !== requestSerial) return;
       renderStandings(payload);
     } catch (error) {
@@ -120,9 +162,10 @@
   async function loadConferences() {
     const serial = ++requestSerial;
     setLoading("Loading conferences…");
-    conferenceSelect.disabled = true;
+    conferenceTrigger.disabled = true;
+    conferenceValue.textContent = "Loading…";
     try {
-      const payload = await fetchJson(`/api/v1/standings/options?sport=${encodeURIComponent(sportSelect.value)}`);
+      const payload = await fetchJson(`/api/v1/standings/options?sport=${encodeURIComponent(selectedSport)}`);
       if (serial !== requestSerial) return;
       populateSports(payload?.sports);
       populateConferences(payload?.conferences);
@@ -141,8 +184,30 @@
     themeToggle.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
   }
 
-  sportSelect.addEventListener("change", loadConferences);
-  conferenceSelect.addEventListener("change", loadStandings);
+  sportTrigger.addEventListener("click", () => openPicker("sport"));
+  conferenceTrigger.addEventListener("click", () => openPicker("conference"));
+  pickerClose.addEventListener("click", closePicker);
+  pickerDialog.addEventListener("click", event => { if (event.target === pickerDialog) closePicker(); });
+  pickerOptions.addEventListener("click", event => {
+    const option = event.target.closest("[data-picker-value]");
+    if (!option || !activePicker) return;
+    const value = option.dataset.pickerValue;
+    const kind = activePicker;
+    closePicker();
+    if (kind === "sport") {
+      if (value === selectedSport) return;
+      selectedSport = value;
+      selectedConference = "";
+      refreshTriggers();
+      loadConferences();
+      return;
+    }
+    if (value === selectedConference) return;
+    selectedConference = value;
+    refreshTriggers();
+    loadStandings();
+  });
+
   themeToggle?.addEventListener("click", () => {
     const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
@@ -150,6 +215,7 @@
     setThemeIcon();
   });
 
+  refreshTriggers();
   setThemeIcon();
   loadConferences();
 })();
