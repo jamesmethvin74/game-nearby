@@ -1,0 +1,39 @@
+name: School logo source probe
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/school-logo-source-probe.yml"
+      - "backend/src/school-branding/**"
+      - "backend/scripts/school-logo-catalog.mjs"
+      - "backend/migrations/0010_school_brand_assets.sql"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inspect MaxPreps school branding markup
+        run: |
+          node --input-type=module <<'JS'
+          const urls = [
+            'https://www.maxpreps.com/ar/volleyball/schools/',
+            'https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/',
+            'https://www.maxpreps.com/ar/conway/conway-wampus-cats/'
+          ];
+          for (const url of urls) {
+            const response = await fetch(url, {headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding probe'}});
+            const text = await response.text();
+            console.log('URL', url, 'HTTP', response.status, 'bytes', text.length);
+            const logoMatches = [...text.matchAll(/https:\/\/image\.maxpreps\.io\/school-mascot\/[^"'<>\\s]+/g)].map(m=>m[0]);
+            console.log('school-mascot urls', [...new Set(logoMatches)].slice(0,5));
+            const mascotIndex = text.search(/Mascot/i);
+            if (mascotIndex >= 0) console.log('mascot snippet', text.slice(Math.max(0,mascotIndex-500), mascotIndex+1000).replace(/\s+/g,' '));
+            const anchorMatches = [...text.matchAll(/href=["']([^"']*\/ar\/[^"']+\/[^"']+\/?)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+              .map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g,' ').replace(/&[^;]+;/g,' ').replace(/\s+/g,' ').trim()}));
+            console.log('school-like anchors', anchorMatches.slice(0,8));
+          }
+          JS
