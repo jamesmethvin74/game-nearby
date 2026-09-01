@@ -1,6 +1,7 @@
 import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js";
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
+import { syncMaxPrepsSchoolBranding } from "./school-branding.js";
 
 let bootstrapPromise = null;
 
@@ -25,6 +26,15 @@ async function statewideDataReady(env) {
     && Number(row?.canonical_games || 0) >= 500;
 }
 
+async function ensureBranding(env) {
+  try {
+    const branding = await syncMaxPrepsSchoolBranding(env);
+    if (branding?.status !== "SKIPPED") console.log("statewide school branding", branding);
+  } catch (error) {
+    console.error("statewide school branding sync failed; keeping last-known logos", error);
+  }
+}
+
 async function runInitialStatewideCycle(env) {
   console.log("statewide volleyball initial production bootstrap starting");
   let catalogPayload = null;
@@ -44,6 +54,8 @@ async function runInitialStatewideCycle(env) {
       matchRatio: locations.matchRatio
     });
 
+    await ensureBranding(env);
+
     const statewide = await runDragonFlyStatewideCollection(env, { payload: catalogPayload });
     console.log("statewide volleyball initial collection", statewide);
 
@@ -60,6 +72,12 @@ async function runInitialStatewideCycle(env) {
 
 export async function ensureInitialStatewideData(env) {
   if (String(env.LAZY_STATEWIDE_BOOTSTRAP || "") !== "1") return false;
+
+  // Branding freshness is independent from schedule freshness. Run the cheap
+  // state check on every catalog/nearby request so a stale logo catalog can
+  // refresh even when statewide schedule data is already healthy.
+  await ensureBranding(env);
+
   if (await statewideDataReady(env)) return true;
 
   if (!bootstrapPromise) {
