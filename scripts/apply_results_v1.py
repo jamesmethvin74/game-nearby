@@ -1,0 +1,326 @@
+from pathlib import Path
+import re
+
+
+def read(path):
+    return Path(path).read_text()
+
+
+def write(path, text):
+    Path(path).write_text(text)
+
+
+def replace_once(text, old, new, label):
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected 1 exact match, found {count}")
+    return text.replace(old, new, 1)
+
+
+def regex_once(text, pattern, repl, label):
+    out, count = re.subn(pattern, repl, text, count=1, flags=re.S)
+    if count != 1:
+        raise SystemExit(f"{label}: expected 1 regex match, found {count}")
+    return out
+
+
+# backend/src/index.js — live record API, schedule record payload, duplicate-safe recomputation.
+p = "backend/src/index.js"
+t = read(p)
+t = replace_once(
+    t,
+    'import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";\n',
+    'import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";\nimport { recordFromScheduleRows } from "./schedule-response-normalizer.js";\n',
+    "index import",
+)
+new_schedule = '''async function getTeamSchedule(request,env,teamId){
+  const team=await env.DB.prepare(`
+    SELECT t.*,s.name AS school_name,c.name AS conference_name
+    FROM teams t JOIN schools s ON s.id=t.school_id
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    WHERE t.id=?`).bind(teamId).first();
+  if (!team) return json({error:"team_not_found"},404,request,env);
+  await recalculateRecord(env,teamId);
+  const record=await env.DB.prepare("SELECT * FROM team_records WHERE team_id=?").bind(teamId).first();
+  const {results}=await env.DB.prepare(`
+    SELECT g.*, s.source_type,s.parser_type,s.authority_rank,s.last_successful_fetch_at AS source_last_successful_fetch_at,
+      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,ce.venue AS canonical_venue,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
+      ce.trust_state AS data_trust,ce.conflict_count,hs.name AS canonical_home_name,aws.name AS canonical_away_name,
+      ROW_NUMBER() OVER (PARTITION BY COALESCE(g.canonical_event_id,g.id) ORDER BY s.authority_rank,s.source_priority,s.id) AS authority_row
+    FROM games g JOIN sources s ON s.id=g.source_id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    LEFT JOIN schools hs ON hs.id=ce.home_school_id LEFT JOIN schools aws ON aws.id=ce.away_school_id
+    WHERE g.team_id=? ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at)`).bind(teamId).all();
+  const games=results.filter(r=>Number(r.authority_row)===1).map(r=>resolvedGameForTeam(r,team.school_id));
+  return json({teamId,games,record:{...emptyRecord(teamId),...(record||{}),conference_id:team.conference_id||null,conference_name:team.conference_name||null}},200,request,env);
+}
+
+'''
+t = regex_once(
+    t,
+    r'async function getTeamSchedule\(request,env,teamId\)\{.*?\n\}\n\n(?=function resolvedGameForTeam)',
+    new_schedule,
+    "getTeamSchedule",
+)
+new_record_endpoint = '''async function getTeamRecord(request,env,teamId){
+  const team=await env.DB.prepare("SELECT id FROM teams WHERE id=?").bind(teamId).first();
+  if (!team) return json({error:"team_not_found"},404,request,env);
+  await recalculateRecord(env,teamId);
+  const row=await env.DB.prepare(`
+    SELECT r.*, t.conference_id, c.name AS conference_name
+    FROM teams t LEFT JOIN team_records r ON r.team_id=t.id LEFT JOIN conferences c ON c.id=t.conference_id
+    WHERE t.id=?`).bind(teamId).first();
+  return json({record:{...emptyRecord(teamId),...row}},200,request,env);
+}
+
+'''
+t = regex_once(
+    t,
+    r'async function getTeamRecord\(request,env,teamId\)\{.*?\n\}\n\n(?=async function getStandings)',
+    new_record_endpoint,
+    "getTeamRecord",
+)
+new_recalc = '''async function recalculateRecord(env,teamId){
+  const team=await env.DB.prepare("SELECT t.*,s.id AS school_id FROM teams t JOIN schools s ON s.id=t.school_id WHERE t.id=?").bind(teamId).first();
+  if (!team) return;
+  const {results:canonical}=await env.DB.prepare(`SELECT ce.* FROM canonical_events ce
+    WHERE ce.sport=? AND ce.gender=? AND ce.season=? AND (ce.home_school_id=? OR ce.away_school_id=?)`).bind(team.sport,team.gender,team.season,team.school_id,team.school_id).all();
+  const {results:raw}=await env.DB.prepare("SELECT * FROM games WHERE team_id=? AND canonical_event_id IS NULL").bind(teamId).all();
+  const candidates=[];
+  for (const event of canonical) {
+    const isHome=event.home_school_id===team.school_id;
+    const isAway=event.away_school_id===team.school_id;
+    candidates.push({
+      school_id:team.school_id,sport:team.sport,gender:team.gender,
+      opponent:isHome?event.away_school_id:isAway?event.home_school_id:event.participant_b_school_id||event.id,
+      scheduled_at:event.scheduled_at,status:event.status,
+      team_score:isHome?event.home_score:isAway?event.away_score:null,
+      opponent_score:isHome?event.away_score:isAway?event.home_score:null,
+      conference_game:event.conference_game,counts_for_record:1,
+      canonical_event_id:event.id,data_trust:event.trust_state,
+      source_type:"official-conference",parser_type:"dragonfly-public"
+    });
+  }
+  for (const game of raw) {
+    candidates.push({...game,school_id:team.school_id,sport:team.sport,gender:team.gender,opponent:game.opponent_school_id||game.opponent});
+  }
+  const record=recordFromScheduleRows(candidates,{reportingSchoolId:team.school_id,maxMinutes:15});
+  const now=new Date().toISOString();
+  await env.DB.prepare(`INSERT INTO team_records(team_id,wins,losses,ties,conference_wins,conference_losses,conference_ties,calculated_at)
+    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(team_id) DO UPDATE SET wins=excluded.wins,losses=excluded.losses,ties=excluded.ties,conference_wins=excluded.conference_wins,conference_losses=excluded.conference_losses,conference_ties=excluded.conference_ties,calculated_at=excluded.calculated_at`)
+    .bind(teamId,record.wins,record.losses,record.ties,record.conference_wins,record.conference_losses,record.conference_ties,now).run();
+}
+
+'''
+t = regex_once(
+    t,
+    r'async function recalculateRecord\(env,teamId\)\{.*?\n\}\n\n(?=async function recalculateStandingsIfComplete)',
+    new_recalc,
+    "recalculateRecord",
+)
+write(p, t)
+
+
+# backend/src/dragonfly-statewide.js — rebuild all statewide records with duplicate protection after every ingest.
+p = "backend/src/dragonfly-statewide.js"
+t = read(p)
+t = replace_once(
+    t,
+    'import { collectionSafety, dateKeyInZone } from "./schedule-authority-core.js";\n',
+    'import { collectionSafety, dateKeyInZone } from "./schedule-authority-core.js";\nimport { rebuildStatewideRecords } from "./record-rebuild.js";\n',
+    "statewide import",
+)
+t = regex_once(
+    t,
+    r'    await env\.DB\.prepare\(`INSERT INTO team_records\(team_id,wins,losses,ties,conference_wins,conference_losses,conference_ties,calculated_at\).*?\.bind\(checkedAt\)\.run\(\);',
+    '    await rebuildStatewideRecords(env,checkedAt);',
+    "statewide record SQL",
+)
+write(p, t)
+
+
+# backend/src/worker.js — repair stale production records immediately when a new worker isolate starts.
+p = "backend/src/worker.js"
+t = read(p)
+t = replace_once(
+    t,
+    'import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";\n',
+    'import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";\nimport { rebuildStatewideRecords } from "./record-rebuild.js";\n',
+    "worker record import",
+)
+t = replace_once(
+    t,
+    '  ]);\n\n  liveConfigReady = true;\n',
+    '  ]);\n\n  await rebuildStatewideRecords(env,now);\n  liveConfigReady = true;\n',
+    "worker record repair",
+)
+write(p, t)
+
+
+# live-data.js — carry live team records from nearby and schedule APIs into every card/detail event.
+p = "live-data.js"
+t = read(p)
+marker = '  function mapApiGame(game, school = null) {\n'
+normalize = '''  function normalizeRecord(value) {
+    if (!value) return null;
+    const fields = ["wins","losses","ties","conference_wins","conference_losses","conference_ties"];
+    if (!fields.some(field => value[field] != null)) return null;
+    const number = field => Number(value[field] || 0);
+    return {
+      wins:number("wins"),losses:number("losses"),ties:number("ties"),
+      conference_wins:number("conference_wins"),conference_losses:number("conference_losses"),conference_ties:number("conference_ties"),
+      conference_id:value.conference_id || null,
+      conference_name:value.conference_name || null,
+      rank:value.rank == null ? null : Number(value.rank),
+      calculated_at:value.calculated_at || null
+    };
+  }
+
+  function mapApiGame(game, school = null, recordOverride = null) {
+'''
+t = replace_once(t, marker, normalize, "live normalize record")
+t = replace_once(
+    t,
+    '    const date = game.scheduled_at || game.canonical_scheduled_at;\n    return {\n',
+    '    const date = game.scheduled_at || game.canonical_scheduled_at;\n    const record = normalizeRecord(recordOverride || game);\n    return {\n',
+    "live record local",
+)
+t = replace_once(
+    t,
+    '      parserType: game.parser_type || "",\n      teamId: schoolId,\n',
+    '      parserType: game.parser_type || "",\n      record,\n      conferenceName: record?.conference_name || game.conference_name || null,\n      teamId: schoolId,\n',
+    "live record event",
+)
+t = replace_once(
+    t,
+    '    if (!Array.isArray(payload?.games)) throw new Error("API returned no team schedule");\n    return payload.games\n      .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))\n      .map(game => mapApiGame(game, school))\n',
+    '    if (!Array.isArray(payload?.games)) throw new Error("API returned no team schedule");\n    const record = normalizeRecord(payload?.record);\n    return payload.games\n      .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))\n      .map(game => mapApiGame(game, school, record))\n',
+    "schedule record mapping",
+)
+write(p, t)
+
+
+# polish.js — remove fake 0-0 records; use live calculated records wherever available.
+p = "polish.js"
+t = read(p)
+new_fallback = '''const TEAM_CONFERENCE_FALLBACKS = {
+  "conway|football|boys":"7A Central",
+  "conway|volleyball|girls":"6A Central",
+  "conway|basketball|boys":"7A Central",
+  "conway|basketball|girls":"7A Central",
+  "uca|football|men":"UAC",
+  "uca|volleyball|women":"ASUN",
+  "uca|soccer|women":"ASUN",
+  "hendrix|football|men":"SAA",
+  "hendrix|volleyball|women":"SAA",
+  "hendrix|soccer|women":"SAA",
+  "cbc|volleyball|women":"AMC",
+  "cbc|soccer|men":"AMC",
+  "cbc|soccer|women":"AMC",
+  "greenbrier|football|boys":"5A Central",
+  "greenbrier|volleyball|girls":"5A Central",
+  "vilonia|football|boys":"5A Central",
+  "vilonia|volleyball|girls":"5A Central",
+  "mayflower|football|boys":"4A Region 2",
+  "maumelle|football|boys":"5A Central"
+};
+
+'''
+t = regex_once(t, r'^const TEAM_STATUS = \{.*?\n\};\n\n', new_fallback, "remove fake team status")
+new_status = '''function recordLabel(w=0,l=0,t=0){return Number(t)?`${Number(w)||0}-${Number(l)||0}-${Number(t)||0}`:`${Number(w)||0}-${Number(l)||0}`;}
+
+function getTeamStatus(event){
+  const key=`${event.teamId}|${event.sport}|${event.gender}`;
+  const record=event.record || null;
+  const conferenceName=record?.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key] || "Conference";
+  if (!record) return {overall:"—",conference:"—",standing:"Not posted",conferenceName};
+  const hasConference=Boolean(record.conference_id || record.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key]);
+  return {
+    overall:recordLabel(record.wins,record.losses,record.ties),
+    conference:hasConference?recordLabel(record.conference_wins,record.conference_losses,record.conference_ties):"—",
+    standing:record.rank?`#${record.rank}`:"Not posted",
+    conferenceName
+  };
+}
+'''
+t = regex_once(t, r'function getTeamStatus\(event\)\{.*?\n\}', new_status, "dynamic team status")
+write(p, t)
+
+
+# team-detail.js — derive the status strip from the loaded live schedule record.
+p = "team-detail.js"
+t = read(p)
+t = replace_once(
+    t,
+    '    const status = typeof getTeamStatus === "function" && state.sport\n      ? getTeamStatus({ teamId: state.schoolId, sport: state.sport, gender: state.gender })\n      : { overall: "—", conference: "—", standing: "Not posted", conferenceName: "Conference" };\n',
+    '    const statusSeed = selectedEvents.find(event => event.record) || selectedEvents[0] || {};\n    const status = typeof getTeamStatus === "function" && state.sport\n      ? getTeamStatus({ ...statusSeed, teamId: state.schoolId, sport: state.sport, gender: state.gender })\n      : { overall: "—", conference: "—", standing: "Not posted", conferenceName: "Conference" };\n',
+    "detail live status",
+)
+write(p, t)
+
+
+# Tests — protect duplicate-safe records and prohibit reintroduction of fake 0-0 state.
+p = "backend/test/schedule-response-normalizer.test.js"
+t = read(p)
+t = replace_once(
+    t,
+    'import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";\n',
+    'import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, recordFromScheduleRows, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";\n',
+    "record test import",
+)
+t += '''
+
+test("record calculation counts one real result when providers duplicate the same final", () => {
+  const rows = [
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway High School",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-a",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"AUTHORITATIVE_LIVE"},
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-b",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"},
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-28T23:00:00.000Z",opponent:"Benton High School",status:"FINAL",team_score:1,opponent_score:3,conference_game:1,counts_for_record:1,canonical_event_id:"ce-c",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"}
+  ];
+  const record=recordFromScheduleRows(rows,{reportingSchoolId:"greenwood"});
+  assert.deepEqual(record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:1,conference_ties:0,scored_finals:2});
+});
+'''
+write(p, t)
+
+p = "backend/test/frontend-ui-regressions.test.js"
+t = read(p)
+t += '''
+
+test("live calculated records replace the old hardcoded 0-0 status table", async () => {
+  const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.doesNotMatch(polish, /const TEAM_STATUS/);
+  assert.match(polish, /event\.record/);
+  assert.match(polish, /recordLabel\(record\.wins,record\.losses,record\.ties\)/);
+  assert.match(live, /normalizeRecord/);
+  assert.match(live, /recordOverride/);
+  assert.match(detail, /selectedEvents\.find\(event => event\.record\)/);
+});
+'''
+write(p, t)
+
+
+# package syntax coverage.
+p = "backend/package.json"
+t = read(p)
+t = replace_once(
+    t,
+    "node --check src/schedule-response-normalizer.js &&",
+    "node --check src/schedule-response-normalizer.js && node --check src/record-rebuild.js &&",
+    "package record check",
+)
+write(p, t)
+
+
+# v49 cache bust.
+p = "service-worker.js"
+t = read(p).replace("localbleachersar-shell-v48", "localbleachersar-shell-v49")
+write(p, t)
+p = "index.html"
+t = read(p)
+t = t.replace("school-follow-logic.js?v=48", "school-follow-logic.js?v=49")
+t = t.replace("polish.js?v=38", "polish.js?v=49")
+t = t.replace("team-detail.js?v=47", "team-detail.js?v=49")
+t = t.replace("live-data.js?v=48", "live-data.js?v=49")
+write(p, t)
