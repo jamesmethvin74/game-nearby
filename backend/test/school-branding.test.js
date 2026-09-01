@@ -74,6 +74,19 @@ test("school page parser derives mascot from final canonical URL hint", () => {
   assert.equal(parsed.canonicalUrl,"https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/");
 });
 
+test("provider alias extracts mascot when ADE school name is verbose", () => {
+  const data = {
+    "@context":"https://schema.org",
+    "@type":"HighSchool",
+    name:"Cave City High Career And Collegiate Preparatory School",
+    url:"https://www.maxpreps.com/ar/cave-city/cave-city-cavemen/volleyball/",
+    address:{addressLocality:"Cave City"}
+  };
+  const page = `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+  const parsed = parseMaxPrepsSchoolPage(page,{name:data.name,sourceName:"Cave City",city:"Cave City"});
+  assert.equal(parsed.mascot,"Cavemen");
+});
+
 test("school page parser does not mistake generic team metadata for a mascot", () => {
   const page = `<title>Conway High School Varsity Volleyball - MaxPreps</title>`;
   assert.equal(parseMaxPrepsSchoolPage(page,{name:"Conway High School",city:"Conway"}).mascot,null);
@@ -94,6 +107,20 @@ test("matcher uses authoritative name plus city and refuses ambiguous duplicate 
   assert.equal(result.matches.find(row => row.schoolId === "valley")?.entry.externalSchoolId, "v");
   assert.equal(result.matches.find(row => row.schoolId === "lakeside-hot-springs")?.entry.externalSchoolId, "h");
   assert.ok(result.ambiguous.some(row => row.entry.externalSchoolId === "x"));
+});
+
+test("fuzzy matching cannot let raw provider suffix steal another school's logo", () => {
+  const schools = [
+    {id:"hot-springs",name:"HOT SPRINGS HIGH SCHOOL",location_matched_name:"Hot Springs World Class High School",city:"Hot Springs"},
+    {id:"lakeside",name:"LAKESIDE HIGH SCHOOL (HOT SPRINGS)",location_matched_name:"Lakeside High School",city:"Hot Springs"}
+  ];
+  const entries = [
+    {externalSchoolId:"hs",name:"Hot Springs",city:"Hot Springs",logoUrl:"https://image.maxpreps.io/school-mascot/hs.gif",sourceUrl:"hs"},
+    {externalSchoolId:"lake",name:"Lakeside",city:"Hot Springs",logoUrl:"https://image.maxpreps.io/school-mascot/lake.gif",sourceUrl:"lake"}
+  ];
+  const result = matchMaxPrepsBranding(entries, schools, []);
+  assert.equal(result.matches.find(row => row.schoolId === "lakeside")?.entry.externalSchoolId,"lake");
+  assert.notEqual(result.matches.find(row => row.schoolId === "lakeside")?.entry.externalSchoolId,"hs");
 });
 
 test("matcher accepts conservative same-city institutional name variants", () => {
