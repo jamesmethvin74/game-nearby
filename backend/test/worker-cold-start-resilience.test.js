@@ -14,7 +14,6 @@ test("normal public API reads perform no request-time maintenance", () => {
   assert.doesNotMatch(fetchBlock, /rebuildStatewideRecords/);
   assert.doesNotMatch(fetchBlock, /ensureInitialStatewideData/);
   assert.doesNotMatch(fetchBlock, /queueStartupMaintenance/);
-  assert.doesNotMatch(fetchBlock, /path==="\/api\/v1\/schools"\s*\|\||path==="\/api\/v1\/games"/);
   assert.doesNotMatch(worker, /ensureLiveConfig/);
   assert.doesNotMatch(worker, /env\.DB\.batch\(/);
 
@@ -22,6 +21,15 @@ test("normal public API reads perform no request-time maintenance", () => {
   assert.match(scheduledBlock, /await\s+ensureStatewideSchema\(env\)/);
   assert.match(scheduledBlock, /await\s+syncMaxPrepsSchoolBranding\(env\)/);
   assert.match(scheduledBlock, /await\s+runDragonFlyStatewideCollection\(env/);
+});
+
+test("nearby games may use a bounded read-only query without startup maintenance", () => {
+  assert.match(worker, /path==="\/api\/v1\/games"/);
+  assert.match(worker, /listNearbyGamesBounded/);
+  assert.match(worker, /LEFT JOIN team_records r ON r\.team_id=t\.id/);
+  assert.match(worker, /LEFT JOIN standings st ON st\.team_id=t\.id/);
+  assert.match(worker, /COALESCE\(ce\.latitude,g\.latitude\) BETWEEN \? AND \?/);
+  assert.match(worker, /r\.wins,r\.losses,r\.ties,r\.conference_wins,r\.conference_losses,r\.conference_ties/);
 });
 
 test("explicit branding report remains allowed to refresh branding on demand", () => {
