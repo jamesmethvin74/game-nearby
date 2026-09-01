@@ -12,6 +12,13 @@ test("home only renders games involving followed schools", () => {
   assert.match(follow, /More from your teams/);
 });
 
+test("home cards orient canonical games to the school the user follows", () => {
+  assert.match(follow, /function orientEventToFollowedSchool/);
+  assert.match(follow, /canonicalHomeSchoolId/);
+  assert.match(follow, /canonicalAwaySchoolId/);
+  assert.match(follow, /\.map\(orientEventToFollowedSchool\)/);
+});
+
 test("team search uses an explicit display-none filter class", () => {
   assert.match(follow, /team-choice-filtered\{display:none!important\}/);
   assert.match(follow, /classList\.toggle\("team-choice-filtered"/);
@@ -25,4 +32,11 @@ test("nearby refresh and full team schedules are separate data paths", () => {
   assert.match(live, /\/api\/v1\/teams\/\$\{encodeURIComponent\(teamId\)\}\/schedule/);
   assert.match(detail, /LocalBleachersLive\?\.fetchTeamSchedule/);
   assert.match(detail, /Loading full schedule/);
+});
+
+test("live schedule sources override the legacy MaxPreps label", () => {
+  assert.match(live, /scheduleSourceLabel/);
+  assert.match(live, /Arkansas varsity schedule/);
+  assert.match(live, /legacyPolishedSourceLabel/);
+  assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
