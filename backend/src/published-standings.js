@@ -63,6 +63,10 @@ function sportConfig(sport) {
   return SPORTS.find(item => item.id === sport) || null;
 }
 
+function directoryUrl(sport, state = DEFAULT_STATE) {
+  return `https://www.maxpreps.com/${state}/${sport}/`;
+}
+
 function baseUrl(sport, state = DEFAULT_STATE, seasonPath = DEFAULT_SEASON_PATH) {
   return `https://www.maxpreps.com/${state}/${sport}/${seasonPath}/`;
 }
@@ -193,7 +197,7 @@ export async function listPublishedStandingsOptions({ sport = "volleyball", fetc
   if (!config) return { sports: SPORTS, conferences: [] };
   let conferences = [];
   try {
-    const { html } = await fetchText(baseUrl(sport, DEFAULT_STATE, config.seasonPath), fetchFn);
+    const { html } = await fetchText(directoryUrl(sport), fetchFn);
     conferences = parseConferenceLinks(html, { sport, seasonPath: config.seasonPath });
   } catch {}
   if (!conferences.length) {
