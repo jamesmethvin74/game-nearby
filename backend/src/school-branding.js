@@ -1,6 +1,6 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 
-export const MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS = "https://www.maxpreps.com/ar/volleyball/schools/";
+export const MAXPREPS_ARKANSAS_SCHOOLS = "https://www.maxpreps.com/ar/schools/";
 const SYNC_ID = "maxpreps:arkansas:school-branding";
 const PROVIDER = "maxpreps";
 
@@ -13,6 +13,8 @@ function decodeHtml(value) {
     .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
     .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
     .replace(/&nbsp;/g, " ");
 }
 
@@ -48,21 +50,25 @@ export function parseMaxPrepsSchoolDirectory(html) {
   const text = String(html || "");
   const rows = [];
   const seen = new Set();
-  const anchorRe = /<a\b([^>]*\bhref=(?:"[^"]*schoolid=[0-9a-f-]{36}[^"]*"|'[^']*schoolid=[0-9a-f-]{36}[^']*')[^>]*)>([\s\S]*?)<\/a>/gi;
+  const anchorRe = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;
   for (const match of text.matchAll(anchorRe)) {
     const attrs = match[1];
     const body = match[2];
     const href = attr(attrs, "href");
-    const idMatch = href.match(/[?&]schoolid=([0-9a-f-]{36})/i);
-    if (!idMatch) continue;
-    const externalSchoolId = idMatch[1].toLowerCase();
     const image = body.match(/<img\b[^>]*\bsrc=(?:"(https:\/\/image\.maxpreps\.io\/school-mascot\/[^"]+)"|'(https:\/\/image\.maxpreps\.io\/school-mascot\/[^']+)')[^>]*>/i);
-    const logoUrl = normalizeMaxPrepsLogoUrl(image?.[1] ?? image?.[2] ?? "");
+    const rawLogoUrl = image?.[1] ?? image?.[2] ?? "";
+    const logoUrl = normalizeMaxPrepsLogoUrl(rawLogoUrl);
+    if (!logoUrl) continue;
+    const hrefId = href.match(/[?&]schoolid=([0-9a-f-]{36})/i)?.[1];
+    const logoId = rawLogoUrl.match(/school-mascot\/(?:[0-9a-f]\/) {0}/i);
+    const pathId = rawLogoUrl.match(/school-mascot\/(?:[0-9a-f]\/){3}([0-9a-f-]{36})\.(?:gif|png|jpe?g|webp)/i)?.[1];
+    const externalSchoolId = String(hrefId || pathId || "").toLowerCase();
+    if (!externalSchoolId) continue;
     const title = body.match(/<div\b[^>]*class=(?:"[^"]*\btitle\b[^"]*"|'[^']*\btitle\b[^']*')[^>]*>([^<]+)<\/div>/i);
     const description = body.match(/<div\b[^>]*class=(?:"[^"]*\bdescription\b[^"]*"|'[^']*\bdescription\b[^']*')[^>]*>([^<]+)<\/div>/i);
     const name = decodeHtml(title?.[1] || attr(attrs, "title"));
     const location = decodeHtml(description?.[1] || "");
-    if (!name || !logoUrl || seen.has(externalSchoolId)) continue;
+    if (!name || !location || seen.has(externalSchoolId)) continue;
     seen.add(externalSchoolId);
     rows.push({
       externalSchoolId,
@@ -174,7 +180,7 @@ async function batch(env, statements, size = 50) {
 }
 
 export async function syncMaxPrepsSchoolBranding(env, {
-  sourceUrl = MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS,
+  sourceUrl = MAXPREPS_ARKANSAS_SCHOOLS,
   fetchFn = fetch,
   now = new Date(),
   force = false,
