@@ -44,6 +44,9 @@ export function scheduleRowsLikelyDuplicate(a, b, { reportingSchoolId = null, ma
   const aTime = a.scheduled_at || a.canonical_scheduled_at;
   const bTime = b.scheduled_at || b.canonical_scheduled_at;
   if (minutesBetween(aTime, bTime) > maxMinutes) return false;
+  const aOpponentId = clean(a.opponent_school_id);
+  const bOpponentId = clean(b.opponent_school_id);
+  if (aOpponentId && bOpponentId) return aOpponentId === bOpponentId;
   return opponentNamesLikelySame(a.opponent, b.opponent);
 }
 

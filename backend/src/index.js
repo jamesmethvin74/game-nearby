@@ -2,7 +2,7 @@ import { normalizeMascotRows, normalizeSidearmRows } from "./parser-core.js";
 import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-core.js";
 import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
-import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
+import { rebuildTeamRecord } from "./record-rebuild.js";
 
 const API_PREFIX="/api/v1";
 const USER_AGENT="LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)";
@@ -461,34 +461,7 @@ async function reconcileMissingFutureGames(env,source,checkedAt){
 }
 
 async function recalculateRecord(env,teamId){
-  const team=await env.DB.prepare("SELECT t.*,s.id AS school_id FROM teams t JOIN schools s ON s.id=t.school_id WHERE t.id=?").bind(teamId).first();
-  if (!team) return;
-  const {results:canonical}=await env.DB.prepare(`SELECT ce.* FROM canonical_events ce
-    WHERE ce.sport=? AND ce.gender=? AND ce.season=? AND (ce.home_school_id=? OR ce.away_school_id=?)`).bind(team.sport,team.gender,team.season,team.school_id,team.school_id).all();
-  const {results:raw}=await env.DB.prepare("SELECT * FROM games WHERE team_id=? AND canonical_event_id IS NULL").bind(teamId).all();
-  const candidates=[];
-  for (const event of canonical) {
-    const isHome=event.home_school_id===team.school_id;
-    const isAway=event.away_school_id===team.school_id;
-    candidates.push({
-      school_id:team.school_id,sport:team.sport,gender:team.gender,
-      opponent:isHome?event.away_school_id:isAway?event.home_school_id:event.participant_b_school_id||event.id,
-      scheduled_at:event.scheduled_at,status:event.status,
-      team_score:isHome?event.home_score:isAway?event.away_score:null,
-      opponent_score:isHome?event.away_score:isAway?event.home_score:null,
-      conference_game:event.conference_game,counts_for_record:1,
-      canonical_event_id:event.id,data_trust:event.trust_state,
-      source_type:"official-conference",parser_type:"dragonfly-public"
-    });
-  }
-  for (const game of raw) {
-    candidates.push({...game,school_id:team.school_id,sport:team.sport,gender:team.gender,opponent:game.opponent_school_id||game.opponent});
-  }
-  const record=recordFromScheduleRows(candidates,{reportingSchoolId:team.school_id,maxMinutes:15});
-  const now=new Date().toISOString();
-  await env.DB.prepare(`INSERT INTO team_records(team_id,wins,losses,ties,conference_wins,conference_losses,conference_ties,calculated_at)
-    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(team_id) DO UPDATE SET wins=excluded.wins,losses=excluded.losses,ties=excluded.ties,conference_wins=excluded.conference_wins,conference_losses=excluded.conference_losses,conference_ties=excluded.conference_ties,calculated_at=excluded.calculated_at`)
-    .bind(teamId,record.wins,record.losses,record.ties,record.conference_wins,record.conference_losses,record.conference_ties,now).run();
+  await rebuildTeamRecord(env,teamId);
 }
 
 async function recalculateStandingsIfComplete(env,conferenceId){
