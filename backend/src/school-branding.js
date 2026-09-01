@@ -126,6 +126,67 @@ function mascotFromHeaderLink(text, page) {
   return "";
 }
 
+function metadataValues(text) {
+  const values = [];
+  const title = String(text || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  if (title) values.push(stripTags(title));
+  for (const match of String(text || "").matchAll(/<meta\b([^>]*)>/gi)) {
+    const attrs = match[1];
+    const key = clean(attr(attrs, "property") || attr(attrs, "name")).toLowerCase();
+    if (!["og:title", "twitter:title", "title"].includes(key)) continue;
+    const content = attr(attrs, "content");
+    if (content) values.push(content);
+  }
+  for (const match of String(text || "").matchAll(/<h[12]\b[^>]*>([\s\S]*?)<\/h[12]>/gi)) {
+    const value = stripTags(match[1]);
+    if (value) values.push(value);
+  }
+  return [...new Set(values.map(clean).filter(Boolean))];
+}
+
+function mascotFromUrl(urlValue, name, city = "") {
+  const url = clean(urlValue);
+  if (!url || !name) return "";
+  try {
+    const path = new URL(url).pathname.split("/").filter(Boolean);
+    const slugWords = words(path[path.length - 1] || "");
+    for (const base of schoolNameBases(name, city)) {
+      if (!startsWithTokens(slugWords, base)) continue;
+      const remainder = slugWords.slice(base.length);
+      if (remainder.length && remainder.length <= 5) return titleWords(remainder);
+    }
+  } catch {}
+  return "";
+}
+
+function mascotFromMetadata(text, hints = {}) {
+  const name = clean(hints.name);
+  const city = clean(hints.city);
+  if (!name) return "";
+  const stop = new Set([
+    "ar", "arkansas", "high", "school", "schools", "sports", "varsity", "junior", "jr", "senior", "sr",
+    "volleyball", "football", "basketball", "baseball", "softball", "soccer", "wrestling", "track", "field",
+    "schedule", "roster", "rankings", "scores", "girls", "boys", "team", "teams", "maxpreps", "home", "events"
+  ]);
+  const cityTokens = new Set(words(city));
+  for (const label of metadataValues(text)) {
+    const labelWords = words(label);
+    for (const base of schoolNameBases(name, city)) {
+      if (!startsWithTokens(labelWords, base)) continue;
+      const remainder = labelWords.slice(base.length);
+      const mascotTokens = [];
+      for (const token of remainder) {
+        if (stop.has(token)) break;
+        if (cityTokens.size && mascotTokens.length && cityTokens.has(token)) break;
+        mascotTokens.push(token);
+        if (mascotTokens.length === 5) break;
+      }
+      if (mascotTokens.length) return titleWords(mascotTokens);
+    }
+  }
+  return "";
+}
+
 function brandingTokens(value) {
   return normalizeSchoolAlias(value)
     .split(/\s+/)
@@ -214,17 +275,23 @@ export function parseMaxPrepsSchoolDirectory(html) {
   return rows;
 }
 
-export function parseMaxPrepsSchoolPage(html) {
+export function parseMaxPrepsSchoolPage(html, hints = {}) {
   const text = String(html || "");
   const page = highSchoolJsonLd(text);
+  const name = clean(page?.name || hints.name);
+  const city = clean(page?.address?.addressLocality || hints.city);
   const explicitMascot = decodeHtml(text.match(/<dt[^>]*>\s*Mascot\s*<\/dt>\s*<dd[^>]*>([^<]+)<\/dd>/i)?.[1] || "");
-  const mascot = explicitMascot || mascotFromHeaderLink(text, page) || mascotFromCanonicalSlug(page);
+  const mascot = explicitMascot
+    || mascotFromHeaderLink(text, page)
+    || mascotFromCanonicalSlug(page)
+    || mascotFromUrl(hints.finalUrl || hints.sourceUrl, name, city)
+    || mascotFromMetadata(text, { name, city });
   const colorMatches = [...text.matchAll(/background-color:\s*#([0-9a-f]{6})/gi)].map(match => `#${match[1].toUpperCase()}`);
   return {
     mascot: mascot || null,
     primaryColor: colorMatches[0] || null,
     secondaryColor: colorMatches[1] || null,
-    canonicalUrl: clean(page?.url) || null
+    canonicalUrl: clean(page?.url) || (clean(hints.finalUrl).includes("/ar/") ? clean(hints.finalUrl) : null)
   };
 }
 
@@ -375,7 +442,7 @@ export async function enrichMaxPrepsSchoolMascots(env, {
     const results = await Promise.allSettled(chunk.map(async row => {
       const response = await fetchFn(row.source_url, { headers: { "user-agent": "LocalBleachersAR-branding/1.0", accept: "text/html" }, redirect: "follow" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const parsed = parseMaxPrepsSchoolPage(await response.text());
+      const parsed = parseMaxPrepsSchoolPage(await response.text(), { name: row.name, city: row.city, sourceUrl: row.source_url, finalUrl: response.url });
       if (!parsed.mascot) return { row, parsed, updated: false };
       await env.DB.prepare(`UPDATE school_brand_assets SET
         mascot=?,primary_color=COALESCE(?,primary_color),secondary_color=COALESCE(?,secondary_color),
