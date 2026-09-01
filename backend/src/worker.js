@@ -4,6 +4,7 @@ import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { ensureInitialStatewideData } from "./statewide-initializer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
 
 let liveConfigReady = false;
 
@@ -77,6 +78,25 @@ async function ensureLiveConfig(env) {
   liveConfigReady = true;
 }
 
+async function displayNamesForGames(env, games, extraSchoolIds = []) {
+  const ids = new Set(extraSchoolIds.filter(Boolean));
+  for (const game of games || []) {
+    for (const id of [game.school_id, game.canonical_home_school_id, game.canonical_away_school_id]) if (id) ids.add(id);
+  }
+  if (!ids.size) return new Map();
+  const { results } = await env.DB.prepare(`
+    SELECT id, COALESCE(NULLIF(location_matched_name,''),name) AS display_name
+    FROM schools WHERE id IN (SELECT value FROM json_each(?))
+  `).bind(JSON.stringify([...ids])).all();
+  return new Map(results.map(row => [row.id, row.display_name]));
+}
+
+async function normalizePublicGames(env, games, { reportingSchoolId = null } = {}) {
+  const displayNames = await displayNamesForGames(env, games, reportingSchoolId ? [reportingSchoolId] : []);
+  const cleaned = games.map(game => applySchoolDisplayNames(game, displayNames, { reportingSchoolId }));
+  return dedupeScheduleRows(cleaned, { reportingSchoolId });
+}
+
 async function publicCatalogResponse(request,response,env){
   if (request.method!=="GET" || !response.ok) return response;
   const path=new URL(request.url).pathname;
@@ -90,15 +110,19 @@ async function publicCatalogResponse(request,response,env){
       FROM teams t JOIN schools s ON s.id=t.school_id
       WHERE t.active=1 AND s.catalog_scope='local'`).all();
     const activeSchools=new Set(results.map(row=>row.school_id));
-    body.games=body.games.filter(game=>activeSchools.has(game.school_id));
+    const visibleGames=body.games.filter(game=>activeSchools.has(game.school_id));
+    body.games=await normalizePublicGames(env,visibleGames);
   } else {
     const teamMatch=path.match(/^\/api\/v1\/teams\/([^/]+)(?:\/(?:schedule|record))?$/);
     if (teamMatch) {
       const teamId=decodeURIComponent(teamMatch[1]);
       const visible=await env.DB.prepare(`
-        SELECT 1 AS yes FROM teams t JOIN schools s ON s.id=t.school_id
+        SELECT t.school_id FROM teams t JOIN schools s ON s.id=t.school_id
         WHERE t.id=? AND t.active=1 AND s.catalog_scope='local'`).bind(teamId).first();
       if (!visible) return new Response(JSON.stringify({error:"team_not_found"}),{status:404,headers:response.headers});
+      if (path.endsWith("/schedule") && Array.isArray(body.games)) {
+        body.games=await normalizePublicGames(env,body.games,{reportingSchoolId:visible.school_id});
+      }
     }
   }
   return new Response(JSON.stringify(body),{status:response.status,headers:response.headers});
