@@ -27,6 +27,33 @@ function isFollowedSchoolEvent(event) {
   return ids.some(id => followed.includes(id));
 }
 
+function schoolById(id) {
+  return (typeof SCHOOL_REGISTRY !== "undefined" ? SCHOOL_REGISTRY : []).find(school => school.id === id) || null;
+}
+
+function orientEventToFollowedSchool(event) {
+  const ids = event.schoolIds || [event.teamId];
+  if (followed.includes(event.teamId)) return event;
+  const followedSchoolId = followed.find(id => ids.includes(id));
+  if (!followedSchoolId) return event;
+
+  const isHome = followedSchoolId === event.canonicalHomeSchoolId;
+  const isAway = followedSchoolId === event.canonicalAwaySchoolId;
+  if (!isHome && !isAway) return event;
+
+  const school = schoolById(followedSchoolId);
+  const opponentId = isHome ? event.canonicalAwaySchoolId : event.canonicalHomeSchoolId;
+  const opponentSchool = schoolById(opponentId);
+  const canonicalOpponent = isHome ? event.canonicalAwayName : event.canonicalHomeName;
+  return {
+    ...event,
+    teamId: followedSchoolId,
+    team: school?.name || event.team,
+    opponent: opponentSchool?.name || canonicalOpponent || event.opponent,
+    home: isHome
+  };
+}
+
 function featuredEventsFor(visible) {
   const featured = [];
   const usedEventIds = new Set();
@@ -150,13 +177,11 @@ render = function() {
   const visible = homeEventSource()
     .filter(isUpcoming)
     .filter(isFollowedSchoolEvent)
+    .map(orientEventToFollowedSchool)
     .map(e => ({...e, distance:haversineMiles(center,e)}))
     .filter(e => e.distance <= radius && matchesFilter(e))
     .sort((a,b) => new Date(a.date)-new Date(b.date) || a.distance-b.distance);
 
-  // Home is personal: only games involving schools the user explicitly follows.
-  // The first upcoming game for each followed school is featured; additional
-  // games for those same followed schools appear below it.
   const priority = featuredEventsFor(visible);
   const featuredIds = new Set(priority.map(e => e.id));
   const others = visible.filter(e => !featuredIds.has(e.id));
