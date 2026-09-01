@@ -37,6 +37,18 @@ test("curated branding map covers the 27 production unresolved identities", () =
   for (const name of expected) assert.ok(names.has(name), `missing curated identity ${name}`);
 });
 
+test("ambiguous lower-grade catalog rows pin their exact DragonFly school ids", () => {
+  const byName = new Map(CURATED_SCHOOL_BRANDING_IDENTITIES.flatMap(row => row.targetNames.map(name => [name, row])));
+  for (const [name, schoolId] of [
+    ["Midland Elementary School", "df-abs2rr"],
+    ["Nettleton Junior High School", "df-qscp6x"],
+    ["Piggott Elementary School", "df-urlzfa"],
+    ["Pocahontas Junior High School", "df-25lkrp"]
+  ]) {
+    assert.equal(byName.get(name)?.targetSchoolId, schoolId, `${name} must use its exact production school id`);
+  }
+});
+
 test("every curated identity pins an explicit logo URL", () => {
   for (const row of CURATED_SCHOOL_BRANDING_IDENTITIES) {
     assert.ok(/^https:\/\//.test(row.logoUrl || ""), `missing explicit logo URL for ${row.sourceName}`);
