@@ -5,7 +5,9 @@ on:
     paths:
       - "backend/src/published-standings.js"
       - "backend/src/standings-worker.js"
+      - "backend/src/football-record-reconciliation.js"
       - "backend/test/published-standings.test.js"
+      - "backend/test/football-record-reconciliation.test.js"
       - "backend/test/standings-ui.test.js"
       - "standings.html"
       - "standings.js"
@@ -17,7 +19,9 @@ on:
     paths:
       - "backend/src/published-standings.js"
       - "backend/src/standings-worker.js"
+      - "backend/src/football-record-reconciliation.js"
       - "backend/test/published-standings.test.js"
+      - "backend/test/football-record-reconciliation.test.js"
       - "backend/test/standings-ui.test.js"
       - "standings.html"
       - "standings.js"
@@ -43,6 +47,7 @@ jobs:
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import { listPublishedStandingsOptions, fetchPublishedStandings } from './src/published-standings.js';
+          import { reconcileFootballOverallRecords } from './src/football-record-reconciliation.js';
 
           const options = await listPublishedStandingsOptions({ sport: 'volleyball' });
           assert.ok(options.conferences.length >= 10, `expected broad Arkansas conference discovery, found ${options.conferences.length}`);
@@ -57,11 +62,28 @@ jobs:
           assert.ok(standings.standings.every(row => /^\d+-\d+(?:-\d+)?$/.test(row.overall_record)), 'invalid overall record in live standings');
           assert.ok(standings.standings.every(row => /^\d+-\d+(?:-\d+)?$/.test(row.conference_record)), 'invalid conference record in live standings');
 
+          const footballPublished = await fetchPublishedStandings({ sport: 'football', conferenceId: '7a-central' });
+          const football = await reconcileFootballOverallRecords(footballPublished, { sport: 'football', season: 2026 });
+          const conwayFootball = football.standings.find(row => row.school_name.toLowerCase().includes('conway'));
+          assert.ok(conwayFootball, '7A Central live football standings missing Conway');
+          assert.equal(conwayFootball.conference_record, '0-0', 'Conway should not have a conference result yet');
+          assert.equal(conwayFootball.overall_record, '1-0', `Conway verified Aug 28 football win missing; got ${conwayFootball.overall_record}`);
+          assert.equal(conwayFootball.overall_record_source, 'Fearless Friday', 'Conway stale published record was not reconciled');
+
           console.log(JSON.stringify({
             verified: true,
-            conferences: options.conferences.length,
-            source: standings.conference.source_url,
-            rows: standings.standings.length,
-            teams: standings.standings.map(row => ({ rank: row.rank, team: row.school_name, conference: row.conference_record, overall: row.overall_record }))
+            volleyball: {
+              conferences: options.conferences.length,
+              source: standings.conference.source_url,
+              rows: standings.standings.length
+            },
+            football: {
+              conference: football.conference.name,
+              conway: {
+                conference: conwayFootball.conference_record,
+                overall: conwayFootball.overall_record,
+                source: conwayFootball.overall_record_source_url
+              }
+            }
           }, null, 2));
           JS
