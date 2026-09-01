@@ -4,10 +4,6 @@ function teamKey(team) {
   return `${team.sport}|${team.gender}|${team.season}`;
 }
 
-function canonicalIndexKey(event, schoolId) {
-  return `${event.sport}|${event.gender}|${event.season}|${schoolId}`;
-}
-
 function canonicalCandidate(event, team) {
   const isHome = event.home_school_id === team.school_id;
   const isAway = event.away_school_id === team.school_id;
@@ -76,28 +72,29 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
   const { results: teams } = await prepared.all();
   if (!teams.length) return { teams: [], canonicals: [], raw: [] };
 
-  const wantedKeys = new Set(teams.map(teamKey));
-  const wantedSchools = new Set(teams.map(team => team.school_id));
   const wantedTeamIds = new Set(teams.map(team => team.id));
 
+  // A canonical result belongs in a team's record only when that exact team has a
+  // record-eligible observation in canonical_event_members. Merely involving the
+  // same school is not enough: stale/duplicate canonicals can otherwise create a
+  // result that is absent from the team's public schedule but still inflates W/L/T.
   const { results: canonicalRows } = await env.DB.prepare(`
-    SELECT ce.*,
+    SELECT DISTINCT ce.*,
+      cem.reporting_team_id,
       hs.name AS home_name,
       aws.name AS away_name,
-      CASE WHEN EXISTS(
-        SELECT 1 FROM canonical_event_members cem
-        JOIN games mg ON mg.id=cem.game_id
-        WHERE cem.canonical_event_id=ce.id AND mg.counts_for_record=1
-      ) THEN 1 ELSE 0 END AS counts_for_record
+      1 AS counts_for_record
     FROM canonical_events ce
+    JOIN canonical_event_members cem ON cem.canonical_event_id=ce.id
+    JOIN games mg ON mg.id=cem.game_id AND mg.team_id=cem.reporting_team_id
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
     LEFT JOIN schools aws ON aws.id=ce.away_school_id
-    WHERE ce.status='FINAL' AND ce.home_score IS NOT NULL AND ce.away_score IS NOT NULL
+    WHERE ce.status='FINAL'
+      AND ce.home_score IS NOT NULL
+      AND ce.away_score IS NOT NULL
+      AND mg.counts_for_record=1
   `).all();
-  const canonicals = canonicalRows.filter(event =>
-    wantedKeys.has(`${event.sport}|${event.gender}|${event.season}`)
-    && (wantedSchools.has(event.home_school_id) || wantedSchools.has(event.away_school_id))
-  );
+  const canonicals = canonicalRows.filter(event => wantedTeamIds.has(event.reporting_team_id));
 
   const { results: rawRows } = await env.DB.prepare(`
     SELECT g.*,src.source_type,src.parser_type,os.name AS opponent_name
@@ -114,13 +111,11 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
 }
 
 export function buildRecordsFromInputs({ teams = [], canonicals = [], raw = [] } = {}) {
-  const canonicalByTeamScope = new Map();
+  const canonicalByTeam = new Map();
   for (const event of canonicals) {
-    for (const schoolId of [event.home_school_id, event.away_school_id].filter(Boolean)) {
-      const key = canonicalIndexKey(event, schoolId);
-      if (!canonicalByTeamScope.has(key)) canonicalByTeamScope.set(key, []);
-      canonicalByTeamScope.get(key).push(event);
-    }
+    if (!event.reporting_team_id) continue;
+    if (!canonicalByTeam.has(event.reporting_team_id)) canonicalByTeam.set(event.reporting_team_id, []);
+    canonicalByTeam.get(event.reporting_team_id).push(event);
   }
   const rawByTeam = new Map();
   for (const game of raw) {
@@ -129,7 +124,9 @@ export function buildRecordsFromInputs({ teams = [], canonicals = [], raw = [] }
   }
 
   return teams.map(team => {
-    const canon = canonicalByTeamScope.get(`${teamKey(team)}|${team.school_id}`) || [];
+    const canon = (canonicalByTeam.get(team.id) || []).filter(event =>
+      `${event.sport}|${event.gender}|${event.season}` === teamKey(team)
+    );
     const candidates = [
       ...canon.map(event => canonicalCandidate(event, team)).filter(Boolean),
       ...(rawByTeam.get(team.id) || []).map(game => rawCandidate(game, team))
