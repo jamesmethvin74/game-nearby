@@ -221,6 +221,10 @@
   if (typeof sourceLabel === "function") {
     sourceLabel = event => event.sourceLabel || (event.liveData ? "Live schedule" : "Schedule source");
   }
+  if (typeof polishedSourceLabel === "function") {
+    const legacyPolishedSourceLabel = polishedSourceLabel;
+    polishedSourceLabel = event => event.sourceLabel || legacyPolishedSourceLabel(event);
+  }
 
   if (typeof radiusEl !== "undefined") {
     radiusEl.addEventListener("change", () => refreshNearby());
