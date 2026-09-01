@@ -1,0 +1,25 @@
+name: Production API error diagnostic
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/production-api-error-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Capture production API error payloads
+        shell: bash
+        run: |
+          set -u
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          for path in /api/v1/health /api/v1/schools '/api/v1/games?lat=35.0887&lon=-92.4421&radius=25' /api/v1/teams/conway-volleyball-2026 /api/v1/teams/conway-volleyball-2026/record; do
+            echo "===== ${path} ====="
+            curl -sS --max-time 30 -D - "${API}${path}" || true
+            echo
+          done
