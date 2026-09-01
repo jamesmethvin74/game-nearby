@@ -37,3 +37,30 @@ test("database record rebuild persists duplicate-safe statewide totals", async()
   record=db.prepare("SELECT * FROM team_records WHERE team_id='a-volleyball-2026'").get();
   assert.equal(record.wins,1); assert.equal(record.losses,0);
 });
+
+test("canonical final cannot inflate a school record when only the opponent team owns the observation", async()=>{
+  const db=new DatabaseSync(":memory:"); applyMigrations(db); const env={DB:d1FromSqlite(db)};
+  const now="2026-09-01T00:00:00.000Z";
+  for(const [id,name] of [["jacksonville","Jacksonville High School"],["opponent","Opponent High School"]]) {
+    db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES(?,?,?,'AR','high-school','local',?)").run(id,name,name,now);
+  }
+  db.prepare("INSERT INTO teams(id,school_id,sport,gender,season,active,updated_at) VALUES('jacksonville-volleyball-2026','jacksonville','volleyball','girls','2026',1,?)").run(now);
+  db.prepare("INSERT INTO teams(id,school_id,sport,gender,season,active,updated_at) VALUES('opponent-volleyball-2026','opponent','volleyball','girls','2026',1,?)").run(now);
+  db.prepare("INSERT INTO sources(id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at) VALUES('opponent-statewide','opponent-volleyball-2026','https://example.test','official-conference',1,'dragonfly-public','1','America/Chicago',1,60,60,0,10,720,'statewide',?)").run(now);
+  db.prepare(`INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
+    VALUES('ce-ghost','volleyball','girls','2026','jacksonville','opponent','opponent','jacksonville','2026-08-28T23:00:00.000Z',1,0,'FINAL',3,0,'opponent-statewide','CORROBORATED',0,'{}',?,?)`).run(now,now);
+  db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id)
+    VALUES('g-opponent','opponent-volleyball-2026','opponent-statewide','native:ghost','Jacksonville High School','jacksonville','2026-08-28T23:00:00.000Z',1,'home',0,1,'FINAL',3,0,'W','https://example.test',?,?,?,'ce-ghost')`).run(now,now,now);
+  db.prepare("INSERT INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at) VALUES('ce-ghost','g-opponent','opponent-statewide','opponent-volleyball-2026',?)").run(now);
+
+  await rebuildTeamRecord(env,'jacksonville-volleyball-2026',now);
+  const jacksonville=db.prepare("SELECT * FROM team_records WHERE team_id='jacksonville-volleyball-2026'").get();
+  assert.equal(jacksonville.wins,0);
+  assert.equal(jacksonville.losses,0);
+  assert.equal(jacksonville.ties,0);
+
+  await rebuildTeamRecord(env,'opponent-volleyball-2026',now);
+  const opponent=db.prepare("SELECT * FROM team_records WHERE team_id='opponent-volleyball-2026'").get();
+  assert.equal(opponent.wins,1);
+  assert.equal(opponent.losses,0);
+});
