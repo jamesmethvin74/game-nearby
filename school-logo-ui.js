@@ -3,6 +3,19 @@
   const API_BASE = String(window.LocalBleachersLive?.apiBase || DEFAULT_API_BASE).replace(/\/$/, "");
   const logos = new Map();
 
+  const style = document.createElement("style");
+  style.id = "schoolMascotLogoStyle";
+  style.textContent = `
+    .team-badge{position:relative;display:grid;place-items:center;overflow:hidden}
+    .team-badge-fallback{display:grid;place-items:center;width:100%;height:100%;font-weight:900}
+    .team-badge .school-mascot-logo{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:4px;box-sizing:border-box}
+    .team-choice{grid-template-columns:46px minmax(0,1fr) auto;align-items:center}
+    .team-choice-logo{position:relative;width:42px;height:42px;border-radius:11px;display:grid;place-items:center;overflow:hidden;background:var(--pitch-surface-soft,var(--bg-soft,#0b1d31));border:1px solid var(--pitch-line,var(--line,#35506b));font-size:.8rem;font-weight:900}
+    .team-choice-logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:3px;box-sizing:border-box}
+    @media(max-width:520px){.team-choice{grid-template-columns:42px minmax(0,1fr) auto}.team-choice-logo{width:38px;height:38px;border-radius:10px}}
+  `;
+  document.head.appendChild(style);
+
   function clean(value) { return String(value ?? "").trim(); }
   function escapeHtml(value) {
     return clean(value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
