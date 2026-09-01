@@ -5,12 +5,18 @@ import { readFile } from "node:fs/promises";
 const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
 const statewide = await readFile(new URL("../src/dragonfly-statewide.js", import.meta.url), "utf8");
 
-test("public API cold start does not synchronously gate on runtime seed or statewide record repair", () => {
+test("public API cold start never gates reads on schema or record maintenance", () => {
+  const fetchStart = worker.indexOf("async fetch(request, env, ctx)");
+  const scheduledStart = worker.indexOf("async scheduled(controller, env, ctx)");
+  assert.ok(fetchStart >= 0 && scheduledStart > fetchStart, "public fetch block not found");
+  const fetchBlock = worker.slice(fetchStart, scheduledStart);
+  assert.doesNotMatch(fetchBlock, /await\s+ensureStatewideSchema/);
+  assert.doesNotMatch(fetchBlock, /await\s+rebuildStatewideRecords/);
+  assert.doesNotMatch(fetchBlock, /await\s+ensureInitialStatewideData/);
+  assert.match(fetchBlock, /queueStartupMaintenance\(env,ctx\)/);
+  assert.match(worker, /startup maintenance failed; serving last-known-good data/);
   assert.doesNotMatch(worker, /ensureLiveConfig/);
   assert.doesNotMatch(worker, /env\.DB\.batch\(/);
-  assert.doesNotMatch(worker, /await\s+rebuildStatewideRecords/);
-  assert.match(worker, /queueRecordRepair/);
-  assert.match(worker, /record rebuild background repair failed/);
 });
 
 test("authoritative statewide ingest still rebuilds and persists team records", () => {
