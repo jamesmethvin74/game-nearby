@@ -7,10 +7,12 @@ CREATE TABLE IF NOT EXISTS school_brand_assets (
   provider TEXT,
   external_school_id TEXT,
   source_url TEXT,
+  mascot_source_url TEXT,
   match_method TEXT,
   match_confidence REAL,
   status TEXT NOT NULL DEFAULT 'unresolved' CHECK(status IN ('matched','curated','unresolved')),
   last_checked_at TEXT,
+  mascot_checked_at TEXT,
   verified_at TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
