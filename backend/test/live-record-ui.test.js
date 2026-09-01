@@ -6,17 +6,21 @@ const html = await readFile(new URL("../../index.html", import.meta.url), "utf8"
 const sw = await readFile(new URL("../../service-worker.js", import.meta.url), "utf8");
 const logos = await readFile(new URL("../../school-logo-ui.js", import.meta.url), "utf8");
 const liveData = await readFile(new URL("../../live-data.js", import.meta.url), "utf8");
+const recordRecovery = await readFile(new URL("../../record-recovery.js", import.meta.url), "utf8");
 const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+const standingsWorker = await readFile(new URL("../src/standings-worker.js", import.meta.url), "utf8");
 const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
 const branding = await readFile(new URL("../src/school-branding.js", import.meta.url), "utf8");
 
-test("v54 keeps the mascot-logo frontend and restores card records", () => {
+test("v54 keeps the mascot-logo frontend and restores high-school and college card records", () => {
   assert.match(html, /polish\.js\?v=54/);
   assert.match(html, /team-detail\.js\?v=49/);
   assert.match(html, /live-data\.js\?v=54/);
+  assert.match(html, /record-recovery\.js\?v=54/);
   assert.match(html, /school-logo-ui\.js\?v=50/);
   assert.match(html, /href="standings\.html"/);
   assert.match(sw, /localbleachersar-shell-v54/);
+  assert.match(sw, /record-recovery\.js/);
   assert.match(sw, /school-logo-ui\.js/);
   assert.match(sw, /standings\.html/);
   assert.match(logos, /school-mascot-logo/);
@@ -27,7 +31,13 @@ test("v54 keeps the mascot-logo frontend and restores card records", () => {
   assert.match(liveData, /fetchPublishedRecord/);
   assert.match(liveData, /getRecordForEvent/);
   assert.match(liveData, /refreshRecordsForEvents/);
+  assert.match(recordRecovery, /\/api\/v1\/college-record/);
+  assert.match(recordRecovery, /collegeRecordCache:v1/);
+  assert.match(recordRecovery, /live\.getRecordForEvent =/);
+  assert.match(standingsWorker, /fetchCollegeRecord/);
   assert.match(polish, /LocalBleachersLive\.getRecordForEvent/);
+  assert.match(polish, /"uca\|soccer\|women":"UAC"/);
+  assert.match(polish, /"hendrix\|soccer\|women":"SCAC"/);
 });
 
 test("branding backend populates schools and exposes unmatched cleanup report", () => {
