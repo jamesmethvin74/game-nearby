@@ -14,35 +14,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Compare unmatched LocalBleachers schools to MaxPreps directory
+      - name: Inspect MaxPreps general Arkansas directory markup
         run: |
           node --input-type=module <<'JS'
-          import { parseMaxPrepsSchoolDirectory, matchMaxPrepsBranding } from './backend/src/school-branding.js';
-          import { normalizeSchoolAlias } from './backend/src/schedule-authority-core.js';
-          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
-          const [schoolResponse,directoryResponse]=await Promise.all([
-            fetch(`${API}/api/v1/schools`,{headers:{accept:'application/json'}}),
-            fetch('https://www.maxpreps.com/ar/schools/',{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding diagnostics'}})
-          ]);
-          const schools=(await schoolResponse.json()).schools||[];
-          const entries=parseMaxPrepsSchoolDirectory(await directoryResponse.text());
-          const result=matchMaxPrepsBranding(entries,schools,[]);
-          console.log('SUMMARY',JSON.stringify({visibleSchools:schools.length,sourceEntries:entries.length,matched:result.matches.length,unresolved:result.unresolved.length,ambiguous:result.ambiguous.length}));
-          const tokens=value=>new Set(normalizeSchoolAlias(value).split(/\s+/).filter(Boolean));
-          const score=(a,b)=>{
-            const aa=tokens(a),bb=tokens(b); if(!aa.size||!bb.size)return 0;
-            const inter=[...aa].filter(x=>bb.has(x)).length;
-            return (2*inter)/(aa.size+bb.size);
-          };
-          for(const school of result.unresolved){
-            const name=school.location_matched_name||school.name;
-            const city=String(school.city||'').toLowerCase();
-            const candidates=entries.map(entry=>({
-              name:entry.name,city:entry.city,id:entry.externalSchoolId,
-              nameScore:score(name,entry.name),citySame:city&&String(entry.city||'').toLowerCase()===city
-            })).sort((a,b)=>(Number(b.citySame)-Number(a.citySame))||(b.nameScore-a.nameScore)).slice(0,5);
-            console.log('\nUNRESOLVED',JSON.stringify({id:school.id,name,city:school.city,level:school.level,mascot:school.mascot}));
-            console.log('CANDIDATES',JSON.stringify(candidates));
+          const response=await fetch('https://www.maxpreps.com/ar/schools/',{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding diagnostics'}});
+          const html=await response.text();
+          console.log('HTTP',response.status,'bytes',html.length);
+          for(const needle of ['school-mascot','Dardanelle','Valley Springs','schoolid=']){
+            let from=0;
+            for(let i=0;i<3;i++){
+              const idx=html.toLowerCase().indexOf(needle.toLowerCase(),from);
+              if(idx<0) break;
+              console.log('\nNEEDLE',needle,'INDEX',idx,'SNIPPET',html.slice(Math.max(0,idx-900),idx+1600).replace(/\s+/g,' '));
+              from=idx+needle.length;
+            }
           }
-          console.log('\nAMBIGUOUS',JSON.stringify(result.ambiguous,null,2));
           JS
