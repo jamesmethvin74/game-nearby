@@ -2,7 +2,7 @@
   const live = window.LocalBleachersLive;
   if (!live?.fetchTeamSchedule) return;
 
-  const API_BASE = String(live.apiBase || "").replace(/\/$/, "");
+  const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const legacyFetch = live.fetchTeamSchedule.bind(live);
   const cache = new Map();
 
