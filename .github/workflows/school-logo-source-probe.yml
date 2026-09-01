@@ -19,21 +19,30 @@ jobs:
       - name: Inspect MaxPreps school branding markup
         run: |
           node --input-type=module <<'JS'
-          const urls = [
-            'https://www.maxpreps.com/ar/volleyball/schools/',
-            'https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/',
-            'https://www.maxpreps.com/ar/conway/conway-wampus-cats/'
+          const pages = [
+            ['Valley Springs','https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/','Tigers'],
+            ['Conway','https://www.maxpreps.com/ar/conway/conway-wampus-cats/','Wampus Cats']
           ];
-          for (const url of urls) {
+          const dir = await fetch('https://www.maxpreps.com/ar/volleyball/schools/', {headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding probe'}});
+          const dirText = await dir.text();
+          const entries = [...dirText.matchAll(/<a[^>]+title="([^"]+)"[^>]+href="([^"]*schoolid=([0-9a-f-]{36})[^"]*)"[\s\S]*?<img[^>]+src="(https:\/\/image\.maxpreps\.io\/school-mascot\/[^"]+)"[^>]*>[\s\S]*?<div class="title">([^<]+)<\/div><div class="description">([^<]+)<\/div>/gi)]
+            .map(m=>({title:m[1],href:m[2].replace(/&amp;/g,'&'),schoolId:m[3],logoUrl:m[4].replace(/&amp;/g,'&'),name:m[5],location:m[6]}));
+          console.log('directory', dir.status, 'entries', entries.length, 'unique', new Set(entries.map(e=>e.schoolId)).size);
+          console.log('sample entries', entries.slice(0,5));
+          const valleyEntry=entries.find(e=>e.name==='Valley Springs');
+          const conwayEntry=entries.find(e=>e.name==='Conway');
+          console.log('Valley directory entry', valleyEntry);
+          console.log('Conway directory entry', conwayEntry);
+
+          for (const [label,url,expectedMascot] of pages) {
             const response = await fetch(url, {headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding probe'}});
             const text = await response.text();
-            console.log('URL', url, 'HTTP', response.status, 'bytes', text.length);
-            const logoMatches = [...text.matchAll(/https:\/\/image\.maxpreps\.io\/school-mascot\/[^"'<>\\s]+/g)].map(m=>m[0]);
-            console.log('school-mascot urls', [...new Set(logoMatches)].slice(0,5));
-            const mascotIndex = text.search(/Mascot/i);
-            if (mascotIndex >= 0) console.log('mascot snippet', text.slice(Math.max(0,mascotIndex-500), mascotIndex+1000).replace(/\s+/g,' '));
-            const anchorMatches = [...text.matchAll(/href=["']([^"']*\/ar\/[^"']+\/[^"']+\/?)["'][^>]*>([\s\S]*?)<\/a>/gi)]
-              .map(m=>({href:m[1],text:m[2].replace(/<[^>]+>/g,' ').replace(/&[^;]+;/g,' ').replace(/\s+/g,' ').trim()}));
-            console.log('school-like anchors', anchorMatches.slice(0,8));
+            console.log('PAGE',label,'HTTP',response.status,'bytes',text.length);
+            for (const needle of ['>Mascot<','"mascot"','mascotName',expectedMascot]) {
+              const idx=text.toLowerCase().indexOf(needle.toLowerCase());
+              console.log(label,needle,'index',idx,idx>=0?text.slice(Math.max(0,idx-350),idx+700).replace(/\s+/g,' '):'');
+            }
+            const jsonLd = [...text.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]);
+            console.log(label,'jsonld blocks',jsonLd.length,'contains expected mascot',jsonLd.some(x=>x.includes(expectedMascot)));
           }
           JS
