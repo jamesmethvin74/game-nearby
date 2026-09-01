@@ -6,6 +6,7 @@ on:
       - "backend/src/published-standings.js"
       - "backend/src/standings-worker.js"
       - "backend/src/football-record-reconciliation.js"
+      - "backend/src/worker.js"
       - "backend/test/published-standings.test.js"
       - "backend/test/football-record-reconciliation.test.js"
       - "backend/test/standings-ui.test.js"
@@ -20,6 +21,7 @@ on:
       - "backend/src/published-standings.js"
       - "backend/src/standings-worker.js"
       - "backend/src/football-record-reconciliation.js"
+      - "backend/src/worker.js"
       - "backend/test/published-standings.test.js"
       - "backend/test/football-record-reconciliation.test.js"
       - "backend/test/standings-ui.test.js"
@@ -47,7 +49,7 @@ jobs:
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
           import { listPublishedStandingsOptions, fetchPublishedStandings } from './src/published-standings.js';
-          import { reconcileFootballOverallRecords } from './src/football-record-reconciliation.js';
+          import { reconcileFootballGameRecords, reconcileFootballOverallRecords } from './src/football-record-reconciliation.js';
 
           const options = await listPublishedStandingsOptions({ sport: 'volleyball' });
           assert.ok(options.conferences.length >= 10, `expected broad Arkansas conference discovery, found ${options.conferences.length}`);
@@ -70,6 +72,25 @@ jobs:
           assert.equal(conwayFootball.overall_record, '1-0', `Conway verified Aug 28 football win missing; got ${conwayFootball.overall_record}`);
           assert.equal(conwayFootball.overall_record_source, 'Fearless Friday', 'Conway stale published record was not reconciled');
 
+          const cards = await reconcileFootballGameRecords([{
+            id: 'conway-home-proof',
+            team_id: 'conway-football-2026',
+            school_name: 'Conway High School',
+            level: 'high-school',
+            sport: 'football',
+            season: '2026',
+            wins: 0,
+            losses: 0,
+            ties: 0,
+            conference_wins: 0,
+            conference_losses: 0,
+            conference_ties: 0
+          }]);
+          assert.equal(cards[0].wins, 1, `Home card Conway record should reconcile to 1-0; got ${cards[0].wins}-${cards[0].losses}`);
+          assert.equal(cards[0].losses, 0);
+          assert.equal(cards[0].conference_wins, 0);
+          assert.equal(cards[0].overall_record_source, 'Fearless Friday');
+
           console.log(JSON.stringify({
             verified: true,
             volleyball: {
@@ -82,7 +103,8 @@ jobs:
               conway: {
                 conference: conwayFootball.conference_record,
                 overall: conwayFootball.overall_record,
-                source: conwayFootball.overall_record_source_url
+                source: conwayFootball.overall_record_source_url,
+                home_card: `${cards[0].wins}-${cards[0].losses}`
               }
             }
           }, null, 2));
