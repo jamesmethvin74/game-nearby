@@ -11,14 +11,14 @@
   <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
   <title>Standings · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
-  <link rel="manifest" href="manifest.json?v=52" />
+  <link rel="manifest" href="manifest.json?v=53" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
   <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
-  <link rel="stylesheet" href="styles.css?v=52" />
-  <link rel="stylesheet" href="polish.css?v=52" />
-  <link rel="stylesheet" href="brand-exact.css?v=52" />
-  <link rel="stylesheet" href="pitched-layout.css?v=52" />
-  <link rel="stylesheet" href="standings.css?v=52" />
+  <link rel="stylesheet" href="styles.css?v=53" />
+  <link rel="stylesheet" href="polish.css?v=53" />
+  <link rel="stylesheet" href="brand-exact.css?v=53" />
+  <link rel="stylesheet" href="pitched-layout.css?v=53" />
+  <link rel="stylesheet" href="standings.css?v=53" />
 </head>
 <body class="standings-page">
   <header class="app-header branded-header">
@@ -60,7 +60,7 @@
           <tbody id="standingsBody"></tbody>
         </table>
       </div>
-      <div class="standings-source" id="standingsSource" hidden>Source: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a> · Arkansas Activities Association scores &amp; stats partner.</div>
+      <div class="standings-source" id="standingsSource" hidden>Standings: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a> · football 0-0 records are cross-checked with <a href="https://fearlessfriday.com/" target="_blank" rel="noopener">Fearless Friday</a>.</div>
     </section>
   </main>
 
@@ -82,7 +82,7 @@
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="standings.js?v=52"></script>
+  <script src="standings.js?v=53"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
