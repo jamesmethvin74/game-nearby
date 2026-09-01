@@ -1,5 +1,6 @@
 import app from "./worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
+import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
 
 function publicJson(request, body, status = 200) {
   const origin = request.headers.get("origin");
@@ -35,7 +36,8 @@ async function handleStandingsRequest(request) {
     const conferenceId = String(url.searchParams.get("conference") || "").toLowerCase();
     if (!conferenceId) return publicJson(request, { error: "conference_required" }, 400);
     try {
-      const result = await fetchPublishedStandings({ sport, conferenceId });
+      let result = await fetchPublishedStandings({ sport, conferenceId });
+      result = await reconcileFootballOverallRecords(result, { sport });
       return publicJson(request, { ...result, retrieved_at: new Date().toISOString() });
     } catch (error) {
       return publicJson(request, { error: "standings_unavailable", message: String(error?.message || error) }, 502);

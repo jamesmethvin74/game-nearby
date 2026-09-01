@@ -34,17 +34,19 @@ test("Standings UI loads options and standings from the public API", () => {
   assert.match(js, /\/api\/v1\/standings\?sport=/);
   assert.match(wrapper, /\/api\/v1\/standings\/options/);
   assert.match(wrapper, /\/api\/v1\/standings/);
+  assert.match(wrapper, /reconcileFootballOverallRecords/);
 });
 
-test("Home navigation and PWA shell include polished Standings v52", () => {
+test("Home navigation and PWA shell include reconciled Standings v53", () => {
   assert.match(home, /href="standings\.html"[^>]*>[^<]*<span>Standings<\/span>/);
-  assert.match(serviceWorker, /localbleachersar-shell-v52/);
+  assert.match(serviceWorker, /localbleachersar-shell-v53/);
   assert.match(serviceWorker, /\.\/standings\.html/);
   assert.match(serviceWorker, /\.\/standings\.js/);
   assert.match(serviceWorker, /\.\/standings\.css/);
 });
 
-test("Standings page identifies the published Arkansas source compactly", () => {
-  assert.match(html, /Arkansas Activities Association scores &amp; stats partner/);
+test("Standings page identifies both published standings and football cross-check source", () => {
   assert.match(html, />MaxPreps<\/a>/);
+  assert.match(html, /football 0-0 records are cross-checked with/);
+  assert.match(html, />Fearless Friday<\/a>/);
 });
