@@ -1,3 +1,5 @@
+-- Provenance-aware school mascot/logo lookup for LocalBleachersAR.
+-- Curated rows are never overwritten by automated provider refreshes.
 CREATE TABLE IF NOT EXISTS school_brand_assets (
   school_id TEXT PRIMARY KEY REFERENCES schools(id) ON DELETE CASCADE,
   mascot TEXT,
