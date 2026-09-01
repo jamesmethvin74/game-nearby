@@ -27,6 +27,9 @@ test("database record rebuild persists duplicate-safe statewide totals", async()
   const gameInsert=db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id) VALUES(?,?,?,?,?,?,?,?,?,0,1,'FINAL',3,0,'W','https://example.test',?,?,?,?)`);
   gameInsert.run('g-one','a-volleyball-2026','a-statewide','native:one','Beta High School','b','2026-08-31T23:00:00.000Z',1,'home',now,now,now,'ce-one');
   gameInsert.run('g-dup','a-volleyball-2026','a-statewide','native:dup','Beta High School','b','2026-08-31T23:00:00.000Z',1,'home',now,now,now,'ce-duplicate');
+  const memberInsert=db.prepare(`INSERT INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at) VALUES(?,?,?,?,?)`);
+  memberInsert.run('ce-one','g-one','a-statewide','a-volleyball-2026',now);
+  memberInsert.run('ce-duplicate','g-dup','a-statewide','a-volleyball-2026',now);
   await rebuildStatewideRecords(env,now);
   let record=db.prepare("SELECT * FROM team_records WHERE team_id='a-volleyball-2026'").get();
   assert.equal(record.wins,1); assert.equal(record.losses,0);
