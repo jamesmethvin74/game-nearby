@@ -17,35 +17,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Print production unmatched branding identities
-        run: |
-          curl -fsSL \
-            -A 'Mozilla/5.0 LocalBleachersAR branding diagnostics' \
-            -H 'Accept: application/json' \
-            'https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/branding/report' \
-            -o /tmp/branding.json
-          python - <<'PY'
-          import json
-          with open('/tmp/branding.json') as f:
-              data=json.load(f)
-          print(json.dumps(data.get('unmatched', []), indent=2))
-          PY
-      - name: Audit curated branding sources
+      - name: Inspect canonical MaxPreps IDs
         run: |
           node --input-type=module <<'JS'
           import { CURATED_SCHOOL_BRANDING_IDENTITIES as rows } from './backend/src/school-branding-curated.js';
+          const targets=rows.filter(r=>!r.sourceType);
           const out=[];
-          for (const row of rows) {
-            try {
-              const r=await fetch(row.sourceUrl,{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding audit','accept':'text/html'},redirect:'follow'});
-              const html=await r.text();
-              const logo=(html.match(/https:\/\/image\.maxpreps\.io\/school-mascot\/[^"'<>\s]+/i)||[])[0]||row.logoUrl||null;
-              out.push({sourceName:row.sourceName,status:r.status,finalUrl:r.url,mascot:row.mascot||null,logo:logo?logo.replace(/&amp;/g,'&'):null});
-            } catch (e) {
-              out.push({sourceName:row.sourceName,error:String(e?.message||e)});
-            }
+          for (const row of targets) {
+            const r=await fetch(row.sourceUrl,{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding audit','accept':'text/html'},redirect:'follow'});
+            const html=await r.text();
+            const ids=[...new Set([...html.matchAll(/(?:schoolId|schoolID|schoolid)[^0-9a-f]{0,30}([0-9a-f]{8}-[0-9a-f-]{27})/gi)].map(m=>m[1].toLowerCase()))];
+            const imageIds=[...new Set([...html.matchAll(/image\.maxpreps\.io\/school-mascot\/(?:[0-9a-f]\/){3}([0-9a-f-]{36})\.(?:gif|png|jpe?g|webp)/gi)].map(m=>m[1].toLowerCase()))];
+            out.push({sourceName:row.sourceName,status:r.status,finalUrl:r.url,ids,imageIds,intersection:ids.filter(id=>imageIds.includes(id))});
           }
-          console.log('CURATED_BRANDING_AUDIT_START');
           console.log(JSON.stringify(out,null,2));
-          console.log('CURATED_BRANDING_AUDIT_END');
           JS
