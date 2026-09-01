@@ -4,11 +4,11 @@ const TEAM_CONFERENCE_FALLBACKS = {
   "conway|basketball|boys":"7A Central",
   "conway|basketball|girls":"7A Central",
   "uca|football|men":"UAC",
-  "uca|volleyball|women":"ASUN",
-  "uca|soccer|women":"ASUN",
-  "hendrix|football|men":"SAA",
-  "hendrix|volleyball|women":"SAA",
-  "hendrix|soccer|women":"SAA",
+  "uca|volleyball|women":"UAC",
+  "uca|soccer|women":"UAC",
+  "hendrix|football|men":"SCAC",
+  "hendrix|volleyball|women":"SCAC",
+  "hendrix|soccer|women":"SCAC",
   "cbc|volleyball|women":"AMC",
   "cbc|soccer|men":"AMC",
   "cbc|soccer|women":"AMC",
@@ -33,7 +33,8 @@ function recordLabel(w=0,l=0,t=0){return Number(t)?`${Number(w)||0}-${Number(l)|
 
 function getTeamStatus(event){
   const key=`${event.teamId}|${event.sport}|${event.gender}`;
-  const record=event.record || null;
+  const liveRecord=window.LocalBleachersLive && typeof window.LocalBleachersLive.getRecordForEvent==="function" ? window.LocalBleachersLive.getRecordForEvent(event) : null;
+  const record=liveRecord || event.record || null;
   const conferenceName=record?.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key] || "Conference";
   if (!record) return {overall:"—",conference:"—",standing:"Not posted",conferenceName};
   const hasConference=Boolean(record.conference_id || record.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key]);
