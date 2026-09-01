@@ -126,6 +126,44 @@ function mascotFromHeaderLink(text, page) {
   return "";
 }
 
+function brandingTokens(value) {
+  return normalizeSchoolAlias(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(token => token === "preparatory" ? "prep" : token === "collegiate" ? "college" : token);
+}
+
+function tokenContainmentScore(a, b) {
+  const aa = [...new Set(a)];
+  const bb = [...new Set(b)];
+  if (!aa.length || !bb.length) return 0;
+  const aSet = new Set(aa), bSet = new Set(bb);
+  const aInB = aa.every(token => bSet.has(token));
+  const bInA = bb.every(token => aSet.has(token));
+  if (!aInB && !bInA) return 0;
+  const overlap = aa.filter(token => bSet.has(token)).length;
+  return overlap / Math.max(aa.length, bb.length);
+}
+
+function fuzzyCityMatch(entry, schools) {
+  const entryCity = cityKey(entry.city);
+  if (!entryCity) return null;
+  const entryTokens = brandingTokens(entry.name);
+  if (!entryTokens.length) return null;
+  const scored = [];
+  for (const school of schools) {
+    if (cityKey(school.city) !== entryCity) continue;
+    const names = [school.location_matched_name, school.name].filter(Boolean);
+    let best = 0;
+    for (const name of names) best = Math.max(best, tokenContainmentScore(entryTokens, brandingTokens(name)));
+    if (best > 0) scored.push({ school, score: best });
+  }
+  scored.sort((a, b) => b.score - a.score || a.school.id.localeCompare(b.school.id));
+  if (!scored.length || scored[0].score < 0.34) return null;
+  if (scored.length > 1 && scored[1].score === scored[0].score) return { ambiguous: scored.filter(item => item.score === scored[0].score).map(item => item.school) };
+  return { school: scored[0].school, score: scored[0].score };
+}
+
 export function normalizeMaxPrepsLogoUrl(value, size = 256) {
   const raw = decodeHtml(value);
   if (!raw.startsWith("https://image.maxpreps.io/school-mascot/")) return "";
@@ -211,29 +249,39 @@ export function matchMaxPrepsBranding(entries, schools, aliases = []) {
   for (const entry of entries) {
     const key = normalizeSchoolAlias(entry.name);
     let candidates = [...(idsByName.get(key) || [])].map(id => schoolById.get(id)).filter(Boolean);
-    if (!candidates.length) continue;
     const entryCity = cityKey(entry.city);
     if (candidates.length > 1 && entryCity) {
       const cityMatches = candidates.filter(school => cityKey(school.city) === entryCity);
       if (cityMatches.length === 1) candidates = cityMatches;
     }
-    if (candidates.length !== 1) {
-      ambiguous.push({ entry, schoolIds: candidates.map(school => school.id) });
+
+    let school = candidates.length === 1 ? candidates[0] : null;
+    let matchMethod = entryCity && school && cityKey(school.city) === entryCity ? "normalized-name+city" : "normalized-name";
+    let confidence = matchMethod === "normalized-name+city" ? 1 : 0.98;
+
+    if (!school && candidates.length === 0) {
+      const fuzzy = fuzzyCityMatch(entry, schools);
+      if (fuzzy?.ambiguous?.length) {
+        ambiguous.push({ entry, schoolIds: fuzzy.ambiguous.map(item => item.id) });
+        continue;
+      }
+      if (fuzzy?.school) {
+        school = fuzzy.school;
+        matchMethod = "city-token-containment";
+        confidence = Math.min(0.96, 0.84 + fuzzy.score * 0.12);
+      }
+    }
+
+    if (!school) {
+      if (candidates.length > 1) ambiguous.push({ entry, schoolIds: candidates.map(item => item.id) });
       continue;
     }
-    const school = candidates[0];
     if (claimedSchools.has(school.id)) {
       ambiguous.push({ entry, schoolIds: [school.id] });
       continue;
     }
     claimedSchools.add(school.id);
-    const cityAgrees = Boolean(entryCity && cityKey(school.city) === entryCity);
-    matches.push({
-      schoolId: school.id,
-      entry,
-      matchMethod: cityAgrees ? "normalized-name+city" : "normalized-name",
-      confidence: cityAgrees ? 1 : 0.98
-    });
+    matches.push({ schoolId: school.id, entry, matchMethod, confidence });
   }
   const matchedIds = new Set(matches.map(match => match.schoolId));
   const unresolved = schools.filter(school => !matchedIds.has(school.id));
@@ -319,8 +367,6 @@ export async function enrichMaxPrepsSchoolMascots(env, {
     LIMIT ?`).bind(PROVIDER, retryBefore, Math.max(1, Math.min(25, Number(limit) || DEFAULT_MASCOT_BATCH))).all();
   if (!pending.length) return { status: "SKIPPED", checked: 0, populated: 0, remaining: 0 };
 
-  // Claim this batch before external fetches so concurrent app requests do not all
-  // enrich the same schools.
   await batch(env, pending.map(row => env.DB.prepare("UPDATE school_brand_assets SET mascot_checked_at=?,updated_at=? WHERE school_id=?").bind(checkedAt, checkedAt, row.school_id)));
 
   let populated = 0;
@@ -360,7 +406,7 @@ export async function getSchoolBrandingReport(env) {
     WHERE s.catalog_scope='local'
       AND EXISTS(SELECT 1 FROM teams t WHERE t.school_id=s.id AND t.active=1)`).first();
   const { results: unmatched } = await env.DB.prepare(`SELECT
-      s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS name,s.city,s.state,
+      s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS name,s.name AS provider_name,s.city,s.state,s.level,
       b.status,b.provider,b.match_method,b.match_confidence,b.source_url
     FROM schools s LEFT JOIN school_brand_assets b ON b.school_id=s.id
     WHERE s.catalog_scope='local'
@@ -368,7 +414,7 @@ export async function getSchoolBrandingReport(env) {
       AND b.logo_url IS NULL
     ORDER BY name`).all();
   const { results: missingMascot } = await env.DB.prepare(`SELECT
-      s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS name,s.city,s.state,
+      s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS name,s.name AS provider_name,s.city,s.state,s.level,
       b.logo_url,b.source_url,b.mascot_checked_at
     FROM schools s JOIN school_brand_assets b ON b.school_id=s.id
     WHERE s.catalog_scope='local'
@@ -411,6 +457,7 @@ export async function syncMaxPrepsSchoolBranding(env, {
       env.DB.prepare(`SELECT s.id,s.name,s.city,s.state,s.level,s.mascot,s.logo_url,s.location_matched_name
         FROM schools s
         WHERE s.catalog_scope='local'
+          AND s.level='high-school'
           AND EXISTS (SELECT 1 FROM teams t WHERE t.school_id=s.id AND t.active=1)
         ORDER BY s.name`).all(),
       env.DB.prepare("SELECT normalized_alias,alias_text,school_id FROM school_aliases").all()
@@ -442,7 +489,7 @@ export async function syncMaxPrepsSchoolBranding(env, {
     const details = {
       sourceEntries: entries.length,
       matched: matches.length,
-      unresolved: unresolved.map(school => ({ id: school.id, name: school.location_matched_name || school.name, city: school.city })),
+      unresolved: unresolved.map(school => ({ id: school.id, name: school.location_matched_name || school.name, providerName:school.name, city: school.city })),
       ambiguous: ambiguous.map(item => ({ name: item.entry.name, city: item.entry.city, schoolIds: item.schoolIds }))
     };
     await env.DB.prepare(`INSERT INTO school_brand_sync_state
