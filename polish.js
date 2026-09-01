@@ -33,7 +33,8 @@ function recordLabel(w=0,l=0,t=0){return Number(t)?`${Number(w)||0}-${Number(l)|
 
 function getTeamStatus(event){
   const key=`${event.teamId}|${event.sport}|${event.gender}`;
-  const record=event.record || null;
+  const liveRecord=window.LocalBleachersLive && typeof window.LocalBleachersLive.getRecordForEvent==="function" ? window.LocalBleachersLive.getRecordForEvent(event) : null;
+  const record=liveRecord || event.record || null;
   const conferenceName=record?.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key] || "Conference";
   if (!record) return {overall:"—",conference:"—",standing:"Not posted",conferenceName};
   const hasConference=Boolean(record.conference_id || record.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key]);
