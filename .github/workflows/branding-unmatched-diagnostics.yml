@@ -12,20 +12,13 @@ jobs:
     steps:
       - name: Inspect academy image URLs
         run: |
-          python - <<'PY'
-          import re, urllib.request
-          pages={
-            'friendship':'https://mail.friendshipaspire.org/extended-learning',
-            'exalt':'https://www.exaltacademies.org/exalt-early-learning-academy'
-          }
-          for name,url in pages.items():
-            req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 LocalBleachersAR branding audit'})
-            with urllib.request.urlopen(req,timeout=30) as r: html=r.read().decode('utf-8','ignore')
-            print('\n###',name)
-            for tag in re.findall(r'<img\b[^>]*>',html,re.I):
-              alt=re.search(r'\balt=["\']([^"\']*)',tag,re.I)
-              src=re.search(r'\b(?:src|data-src)=["\']([^"\']+)',tag,re.I)
-              text=(alt.group(1) if alt else '')
-              if any(k in text.lower() for k in ['friendship','aspire','icon','eagle','exalt','logo']):
-                print(text,'=>',src.group(1) if src else 'NO_SRC')
-          PY
+          for url in \
+            'https://mail.friendshipaspire.org/extended-learning' \
+            'https://www.exaltacademies.org/exalt-early-learning-academy'; do
+            echo "### $url"
+            curl -kfsSL -A 'Mozilla/5.0 LocalBleachersAR branding audit' "$url" \
+              | tr '>' '>\n' \
+              | grep -Eio '<img[^>]+>' \
+              | grep -Ei 'friendship|aspire|icon|eagle|exalt|logo' \
+              | head -30 || true
+          done
