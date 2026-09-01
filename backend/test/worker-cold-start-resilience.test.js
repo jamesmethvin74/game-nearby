@@ -5,7 +5,7 @@ import { readFile } from "node:fs/promises";
 const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
 const statewide = await readFile(new URL("../src/dragonfly-statewide.js", import.meta.url), "utf8");
 
-test("public API reads perform no request-time maintenance", () => {
+test("normal public API reads perform no request-time maintenance", () => {
   const fetchStart = worker.indexOf("async fetch(request, env, ctx)");
   const scheduledStart = worker.indexOf("async scheduled(controller, env, ctx)");
   assert.ok(fetchStart >= 0 && scheduledStart > fetchStart, "public fetch block not found");
@@ -14,7 +14,7 @@ test("public API reads perform no request-time maintenance", () => {
   assert.doesNotMatch(fetchBlock, /rebuildStatewideRecords/);
   assert.doesNotMatch(fetchBlock, /ensureInitialStatewideData/);
   assert.doesNotMatch(fetchBlock, /queueStartupMaintenance/);
-  assert.doesNotMatch(fetchBlock, /enrichMaxPrepsSchoolMascots/);
+  assert.doesNotMatch(fetchBlock, /path==="\/api\/v1\/schools"\s*\|\||path==="\/api\/v1\/games"/);
   assert.doesNotMatch(worker, /ensureLiveConfig/);
   assert.doesNotMatch(worker, /env\.DB\.batch\(/);
 
@@ -22,6 +22,12 @@ test("public API reads perform no request-time maintenance", () => {
   assert.match(scheduledBlock, /await\s+ensureStatewideSchema\(env\)/);
   assert.match(scheduledBlock, /await\s+syncMaxPrepsSchoolBranding\(env\)/);
   assert.match(scheduledBlock, /await\s+runDragonFlyStatewideCollection\(env/);
+});
+
+test("explicit branding report remains allowed to refresh branding on demand", () => {
+  assert.match(worker, /path==="\/api\/v1\/branding\/report"/);
+  assert.match(worker, /await syncMaxPrepsSchoolBranding\(env\)/);
+  assert.match(worker, /enrichMaxPrepsSchoolMascots\(env,\{limit:12\}\)/);
 });
 
 test("authoritative statewide ingest still rebuilds and persists team records", () => {
