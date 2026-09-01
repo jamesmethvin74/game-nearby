@@ -9,5 +9,7 @@ test("statewide ingestion retains final scores needed for results and records", 
   assert.match(statewide, /opponentScore/);
   assert.match(statewide, /home_score/);
   assert.match(statewide, /away_score/);
-  assert.match(statewide, /status:\s*status/);
+  assert.match(statewide, /conference_game:[^\n]+,status,/);
+  assert.match(statewide, /home_score:status===\"FINAL\"\?homeScore:null/);
+  assert.match(statewide, /away_score:status===\"FINAL\"\?awayScore:null/);
 });
