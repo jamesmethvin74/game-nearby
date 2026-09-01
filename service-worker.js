@@ -21,6 +21,7 @@ const CORE_ASSETS = [
   "./reference-layout.js",
   "./team-detail.js",
   "./live-data.js",
+  "./school-schedule.js",
   "./school-logo-ui.js",
   "./teams-page.js",
   "./standings.js",
