@@ -9,10 +9,21 @@ import { rebuildStatewideRecords } from "./record-rebuild.js";
 import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
 
 let liveConfigReady = false;
+let recordRepairQueued = false;
 
 function defer(ctx, promise) {
   if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
   else promise.catch(error => console.error("background task failed", error));
+}
+
+function queueRecordRepair(env, ctx) {
+  if (recordRepairQueued) return;
+  recordRepairQueued = true;
+  const calculatedAt = new Date().toISOString();
+  defer(ctx, rebuildStatewideRecords(env, calculatedAt).catch(error => {
+    recordRepairQueued = false;
+    console.error("record rebuild background repair failed", error);
+  }));
 }
 
 async function ensureLiveConfig(env) {
@@ -82,7 +93,6 @@ async function ensureLiveConfig(env) {
     `).bind(now)
   ]);
 
-  await rebuildStatewideRecords(env,now);
   liveConfigReady = true;
 }
 
@@ -151,6 +161,7 @@ export default {
   async fetch(request, env, ctx) {
     await ensureStatewideSchema(env);
     await ensureLiveConfig(env);
+    queueRecordRepair(env,ctx);
     const path=new URL(request.url).pathname;
 
     if (request.method==="GET" && path==="/api/v1/branding/report") {
