@@ -1,0 +1,50 @@
+.teams-page{padding-bottom:88px}
+.teams-main{width:min(760px,100%);margin:0 auto;padding:14px}
+.teams-back{display:grid;place-items:center;text-decoration:none;font-size:1.8rem;line-height:1}
+.teams-hero{display:grid;gap:7px;margin:4px 2px 16px}
+.teams-hero h1{font-size:1.7rem}
+.teams-hero>p{color:var(--pitch-muted,var(--muted));font-size:.88rem;line-height:1.45;max-width:620px}
+.team-add-card{position:relative;padding:16px;border:1px solid var(--pitch-line,var(--line));border-radius:20px;background:var(--pitch-surface,var(--card));box-shadow:var(--shadow)}
+.team-add-heading{display:flex;align-items:end;justify-content:space-between;gap:12px;margin-bottom:14px}
+.team-add-fields{display:grid;grid-template-columns:170px minmax(0,1fr);gap:12px;align-items:end}
+.team-picker-field{display:grid;gap:6px;min-width:0}
+.team-picker-field>span,.team-picker-field>label{color:var(--pitch-muted,var(--muted));font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+.team-picker-field select,.team-picker-field input{width:100%;height:46px;border:1px solid var(--pitch-line,var(--line));border-radius:13px;background:var(--pitch-surface-soft,var(--bg-soft));color:var(--pitch-ink,var(--ink));padding:0 13px;font:inherit;outline:none}
+.team-picker-field input{appearance:none}
+.team-picker-field select:focus,.team-picker-field input:focus{border-color:var(--pitch-blue,var(--blue));box-shadow:0 0 0 3px color-mix(in srgb,var(--pitch-blue,var(--blue)) 18%,transparent)}
+.school-combobox{position:relative}
+.school-search-results{position:absolute;z-index:30;top:calc(100% + 6px);left:0;right:0;max-height:min(44vh,340px);overflow:auto;border:1px solid var(--pitch-line,var(--line));border-radius:14px;background:var(--pitch-surface,var(--card));box-shadow:0 18px 44px rgba(0,0,0,.32);padding:6px}
+.school-result{width:100%;display:grid;grid-template-columns:42px minmax(0,1fr);gap:10px;align-items:center;border:0;border-radius:11px;background:transparent;color:var(--pitch-ink,var(--ink));padding:8px;text-align:left}
+.school-result:hover,.school-result:focus-visible{background:var(--pitch-surface-soft,var(--bg-soft));outline:none}
+.school-result-logo,.selected-school-logo,.followed-team-logo{position:relative;display:grid;place-items:center;overflow:hidden;background:var(--pitch-surface-soft,var(--bg-soft));border:1px solid var(--pitch-line,var(--line));font-weight:900}
+.school-result-logo{width:40px;height:40px;border-radius:10px}
+.school-result-logo img,.selected-school-logo img,.followed-team-logo img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;padding:4px;box-sizing:border-box}
+.school-result-copy{min-width:0}
+.school-result-copy strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.82rem}
+.school-result-copy small{display:block;margin-top:3px;color:var(--pitch-muted,var(--muted));font-size:.66rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.school-results-empty{padding:14px;text-align:center;color:var(--pitch-muted,var(--muted));font-size:.76rem}
+.selected-school{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:11px;align-items:center;margin-top:14px;padding:11px;border:1px solid var(--pitch-line,var(--line));border-radius:14px;background:var(--pitch-surface-soft,var(--bg-soft))}
+.selected-school-logo{width:50px;height:50px;border-radius:13px}
+.selected-school strong{display:block;font-size:.88rem}
+.selected-school small{display:block;margin-top:4px;color:var(--pitch-muted,var(--muted));font-size:.7rem}
+.selected-school-level{align-self:start;border:1px solid var(--pitch-line,var(--line));border-radius:999px;padding:4px 7px;color:var(--pitch-muted,var(--muted));font-size:.58rem;font-weight:900;text-transform:uppercase}
+.follow-school-btn{margin-top:12px}
+.follow-school-btn:disabled{opacity:.48;cursor:not-allowed;box-shadow:none}
+.team-add-status{min-height:18px;margin-top:7px;color:var(--pitch-muted,var(--muted));font-size:.72rem;text-align:center}
+.teams-section-title{margin-top:22px}
+.followed-teams-grid{display:grid;gap:10px}
+.followed-team-card{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch;border:1px solid var(--pitch-line,var(--line));border-radius:18px;background:var(--pitch-surface,var(--card));box-shadow:var(--shadow);overflow:hidden}
+.followed-team-open{display:grid;grid-template-columns:62px minmax(0,1fr);gap:12px;align-items:center;border:0;background:transparent;color:var(--pitch-ink,var(--ink));padding:13px;text-align:left;min-width:0}
+.followed-team-open:hover,.followed-team-open:focus-visible{background:color-mix(in srgb,var(--pitch-blue,var(--blue)) 7%,transparent);outline:none}
+.followed-team-logo{width:60px;height:60px;border-radius:15px}
+.followed-team-copy{min-width:0}
+.followed-team-copy strong{display:block;font-size:.92rem;line-height:1.2}
+.followed-team-copy .mascot{display:block;margin-top:4px;color:var(--pitch-muted,var(--muted));font-size:.72rem}
+.followed-team-copy .view-schedule{display:block;margin-top:7px;color:var(--pitch-blue,var(--blue));font-size:.68rem;font-weight:900}
+.unfollow-team{align-self:stretch;width:72px;border:0;border-left:1px solid var(--pitch-line,var(--line));background:var(--pitch-surface-soft,var(--bg-soft));color:var(--pitch-muted,var(--muted));font-size:.64rem;font-weight:900;padding:8px}
+.unfollow-team:hover,.unfollow-team:focus-visible{color:var(--pitch-ink,var(--ink));outline:none}
+.teams-empty{padding:24px 16px;border:1px dashed var(--pitch-line,var(--line));border-radius:18px;background:var(--pitch-surface-soft,var(--bg-soft));color:var(--pitch-muted,var(--muted));text-align:center;line-height:1.45}
+.teams-empty strong{display:block;color:var(--pitch-ink,var(--ink));margin-bottom:5px}
+.teams-bottom-nav{grid-template-columns:repeat(5,1fr)}
+@media(min-width:700px){.teams-main{padding-top:24px}.followed-teams-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.team-add-fields{grid-template-columns:1fr}.school-search-results{position:fixed;left:12px;right:12px;top:auto;bottom:calc(82px + env(safe-area-inset-bottom));max-height:46vh}.selected-school{grid-template-columns:48px minmax(0,1fr)}.selected-school-logo{width:46px;height:46px}.selected-school-level{display:none}.followed-team-open{grid-template-columns:54px minmax(0,1fr);padding:11px}.followed-team-logo{width:52px;height:52px;border-radius:13px}.unfollow-team{width:64px}}
