@@ -57,8 +57,13 @@ jobs:
               try{
                 const response=await fetch(match.entry.sourceUrl,{headers,redirect:'follow'});
                 if(!response.ok) throw new Error(`HTTP ${response.status}`);
-                const parsed=parseMaxPrepsSchoolPage(await response.text());
                 const school=highSchools.find(s=>s.id===match.schoolId);
+                const parsed=parseMaxPrepsSchoolPage(await response.text(),{
+                  name:school?.location_matched_name||school?.name||match.entry.name,
+                  city:school?.city||match.entry.city,
+                  sourceUrl:match.entry.sourceUrl,
+                  finalUrl:response.url
+                });
                 mascotRows.push({
                   schoolId:match.schoolId,
                   name:school?.location_matched_name||school?.name||match.entry.name,
