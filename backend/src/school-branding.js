@@ -159,7 +159,7 @@ function fuzzyCityMatch(entry, schools) {
     if (best > 0) scored.push({ school, score: best });
   }
   scored.sort((a, b) => b.score - a.score || a.school.id.localeCompare(b.school.id));
-  if (!scored.length || scored[0].score < 0.34) return null;
+  if (!scored.length || scored[0].score < 0.33) return null;
   if (scored.length > 1 && scored[1].score === scored[0].score) return { ambiguous: scored.filter(item => item.score === scored[0].score).map(item => item.school) };
   return { school: scored[0].school, score: scored[0].score };
 }
