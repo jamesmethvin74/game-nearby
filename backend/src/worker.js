@@ -10,6 +10,11 @@ import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoo
 
 let liveConfigReady = false;
 
+function defer(ctx, promise) {
+  if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
+  else promise.catch(error => console.error("background task failed", error));
+}
+
 async function ensureLiveConfig(env) {
   if (liveConfigReady) return;
 
@@ -151,7 +156,7 @@ export default {
     if (request.method==="GET" && path==="/api/v1/branding/report") {
       try {
         await syncMaxPrepsSchoolBranding(env);
-        ctx.waitUntil(enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
+        defer(ctx,enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
         return publicJson(request,await getSchoolBrandingReport(env));
       } catch (error) {
         return publicJson(request,{error:"branding_report_failed",message:String(error?.message||error)},500);
@@ -161,7 +166,7 @@ export default {
     if (request.method==="GET" && (path==="/api/v1/schools" || path==="/api/v1/games")) {
       try {
         await ensureInitialStatewideData(env);
-        ctx.waitUntil(enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
+        defer(ctx,enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
       } catch (error) {
         console.error("statewide volleyball initial production bootstrap failed",error);
       }
