@@ -1,0 +1,50 @@
+name: School branding live proof
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/school-branding.js"
+      - "backend/src/statewide-initializer.js"
+      - "backend/migrations/0010_school_brand_assets.sql"
+      - "backend/test/school-branding.test.js"
+      - "school-logo-ui.js"
+      - "index.html"
+      - "service-worker.js"
+      - ".github/workflows/school-branding-live-proof.yml"
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Match live Arkansas catalog to public mascot logos
+        run: |
+          node --input-type=module <<'JS'
+          import { parseMaxPrepsSchoolDirectory, matchMaxPrepsBranding } from './backend/src/school-branding.js';
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const directoryUrl='https://www.maxpreps.com/ar/volleyball/schools/';
+          const [schoolResponse,directoryResponse]=await Promise.all([
+            fetch(`${API}/api/v1/schools`,{headers:{accept:'application/json'}}),
+            fetch(directoryUrl,{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding proof'}})
+          ]);
+          if(!schoolResponse.ok) throw new Error(`schools HTTP ${schoolResponse.status}`);
+          if(!directoryResponse.ok) throw new Error(`directory HTTP ${directoryResponse.status}`);
+          const schools=(await schoolResponse.json()).schools||[];
+          const entries=parseMaxPrepsSchoolDirectory(await directoryResponse.text());
+          const result=matchMaxPrepsBranding(entries,schools,[]);
+          console.log(JSON.stringify({visibleSchools:schools.length,sourceEntries:entries.length,matched:result.matches.length,unresolved:result.unresolved.map(s=>({id:s.id,name:s.location_matched_name||s.name,city:s.city})),ambiguous:result.ambiguous},null,2));
+          if(schools.length<190) throw new Error(`Expected statewide catalog, got ${schools.length}`);
+          if(entries.length<185) throw new Error(`Expected statewide logo directory, got ${entries.length}`);
+          if(result.matches.length<160) throw new Error(`Expected at least 160 deterministic logo matches, got ${result.matches.length}`);
+          for(const wanted of ['Conway High School','Valley Springs High School']){
+            const school=schools.find(s=>String(s.location_matched_name||s.name).toLowerCase()===wanted.toLowerCase());
+            if(!school) throw new Error(`Missing ${wanted} from live LocalBleachers catalog`);
+            const match=result.matches.find(row=>row.schoolId===school.id);
+            if(!match) throw new Error(`No deterministic mascot logo match for ${wanted}`);
+            if(!match.entry.logoUrl.startsWith('https://image.maxpreps.io/school-mascot/')) throw new Error(`Bad logo URL for ${wanted}`);
+            console.log(`${wanted}: ${match.entry.logoUrl}`);
+          }
+          JS
