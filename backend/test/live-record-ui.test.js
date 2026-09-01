@@ -27,6 +27,7 @@ test("branding backend populates schools and exposes unmatched cleanup report", 
   assert.match(branding, /mascot=COALESCE/);
   assert.match(branding, /getSchoolBrandingReport/);
   assert.match(branding, /unmatchedLogoSchools/);
+  assert.match(branding, /status!='curated'/);
   assert.match(worker, /\/api\/v1\/branding\/report/);
   assert.match(worker, /enrichMaxPrepsSchoolMascots/);
 });
