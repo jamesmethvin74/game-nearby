@@ -11,14 +11,14 @@
   <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
   <title>Standings · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
-  <link rel="manifest" href="manifest.json?v=51" />
+  <link rel="manifest" href="manifest.json?v=52" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
   <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
-  <link rel="stylesheet" href="styles.css?v=51" />
-  <link rel="stylesheet" href="polish.css?v=51" />
-  <link rel="stylesheet" href="brand-exact.css?v=51" />
-  <link rel="stylesheet" href="pitched-layout.css?v=51" />
-  <link rel="stylesheet" href="standings.css?v=51" />
+  <link rel="stylesheet" href="styles.css?v=52" />
+  <link rel="stylesheet" href="polish.css?v=52" />
+  <link rel="stylesheet" href="brand-exact.css?v=52" />
+  <link rel="stylesheet" href="pitched-layout.css?v=52" />
+  <link rel="stylesheet" href="standings.css?v=52" />
 </head>
 <body class="standings-page">
   <header class="app-header branded-header">
@@ -29,14 +29,23 @@
 
   <main class="standings-main">
     <section class="standings-hero">
-      <p class="eyebrow">ARKANSAS SPORTS</p>
-      <h1>Standings</h1>
-      <p>Pick a sport and conference to see the latest published standings.</p>
+      <div><p class="eyebrow">ARKANSAS SPORTS</p><h1>Standings</h1></div>
+      <p>Latest published conference standings.</p>
     </section>
 
     <section class="standings-controls" aria-label="Standings filters">
-      <label class="standings-field" for="standingsSport"><span>Sport</span><select id="standingsSport" aria-label="Sport"><option value="volleyball">Volleyball</option></select></label>
-      <label class="standings-field" for="standingsConference"><span>Conference</span><select id="standingsConference" aria-label="Conference"><option value="">Loading conferences…</option></select></label>
+      <div class="standings-field">
+        <span class="standings-field-label">Sport</span>
+        <button id="standingsSportTrigger" class="standings-picker-trigger" type="button" data-value="volleyball" aria-haspopup="dialog" aria-controls="standingsPickerDialog">
+          <span id="standingsSportValue">Volleyball</span><span class="standings-chevron" aria-hidden="true">⌄</span>
+        </button>
+      </div>
+      <div class="standings-field">
+        <span class="standings-field-label">Conference</span>
+        <button id="standingsConferenceTrigger" class="standings-picker-trigger" type="button" data-value="" aria-haspopup="dialog" aria-controls="standingsPickerDialog" disabled>
+          <span id="standingsConferenceValue">Loading…</span><span class="standings-chevron" aria-hidden="true">⌄</span>
+        </button>
+      </div>
     </section>
 
     <section class="standings-card" aria-live="polite" aria-busy="true" id="standingsCard">
@@ -47,13 +56,23 @@
       <div id="standingsStatus" class="standings-status">Loading current standings…</div>
       <div class="standings-table-wrap" id="standingsTableWrap" hidden>
         <table class="standings-table">
-          <thead><tr><th scope="col" class="rank-col">#</th><th scope="col">Team</th><th scope="col">Conference</th><th scope="col">Overall</th><th scope="col" class="pct-col">Pct.</th></tr></thead>
+          <thead><tr><th scope="col" class="rank-col">#</th><th scope="col">Team</th><th scope="col" class="conf-col">Conf.</th><th scope="col" class="overall-col">Overall</th><th scope="col" class="pct-col">Pct.</th></tr></thead>
           <tbody id="standingsBody"></tbody>
         </table>
       </div>
-      <div class="standings-source" id="standingsSource" hidden>Official Arkansas standings source: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a>, the Arkansas Activities Association scores and statistics partner.</div>
+      <div class="standings-source" id="standingsSource" hidden>Source: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a> · Arkansas Activities Association scores &amp; stats partner.</div>
     </section>
   </main>
+
+  <dialog id="standingsPickerDialog" class="standings-picker-dialog" aria-labelledby="standingsPickerTitle">
+    <section class="standings-picker-sheet">
+      <div class="standings-picker-header">
+        <div><p class="eyebrow">CHOOSE</p><h2 id="standingsPickerTitle">Sport</h2></div>
+        <button id="standingsPickerClose" class="standings-picker-close" type="button" aria-label="Close picker">×</button>
+      </div>
+      <div id="standingsPickerOptions" class="standings-picker-options" role="listbox"></div>
+    </section>
+  </dialog>
 
   <nav class="bottom-nav" aria-label="Primary navigation">
     <a class="nav-item" href="index.html">⌂<span>Home</span></a>
@@ -63,7 +82,7 @@
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="standings.js?v=51"></script>
+  <script src="standings.js?v=52"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
