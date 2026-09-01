@@ -1,5 +1,4 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
-import { normalizeMaxPrepsLogoUrl, parseMaxPrepsSchoolPage } from "./school-branding.js";
 import { CURATED_SCHOOL_BRANDING_IDENTITIES } from "./school-branding-curated.js";
 
 function clean(value) {
@@ -23,38 +22,16 @@ function findSchool(schools, identity) {
   return matches.length === 1 ? matches[0] : null;
 }
 
-function pageLogoUrl(html) {
-  const text = String(html || "");
-  const match = text.match(/https:\/\/image\.maxpreps\.io\/school-mascot\/[^"'<>\s]+/i);
-  if (!match) return null;
-  return normalizeMaxPrepsLogoUrl(match[0].replace(/&amp;/g, "&")) || null;
-}
-
-async function fetchIdentity(identity, fetchFn, school) {
-  const response = await fetchFn(identity.sourceUrl, {
-    headers: { "user-agent": "LocalBleachersAR-branding/1.0", accept: "text/html" },
-    redirect: "follow"
-  });
-  if (!response.ok) throw new Error(`${identity.sourceName} HTTP ${response.status}`);
-  const html = await response.text();
-  if (identity.sourceType && identity.sourceType !== "maxpreps") {
-    return { logoUrl: identity.logoUrl || null, mascot: identity.mascot || null, canonicalUrl: response.url || identity.sourceUrl };
-  }
-  const parsed = parseMaxPrepsSchoolPage(html, {
-    name: school.location_matched_name || school.name,
-    sourceName: identity.sourceName,
-    city: school.city,
-    sourceUrl: identity.sourceUrl,
-    finalUrl: response.url
-  });
+function resolvedIdentity(identity) {
+  if (!identity.logoUrl) throw new Error(`${identity.sourceName} curated identity has no explicit logo URL`);
   return {
-    logoUrl: identity.logoUrl || pageLogoUrl(html),
-    mascot: identity.mascot || parsed.mascot || null,
-    canonicalUrl: parsed.canonicalUrl || response.url || identity.sourceUrl
+    logoUrl: identity.logoUrl,
+    mascot: identity.mascot || null,
+    canonicalUrl: identity.sourceUrl
   };
 }
 
-export async function syncCuratedSchoolBranding(env, { fetchFn = fetch, now = new Date(), force = false } = {}) {
+export async function syncCuratedSchoolBranding(env, { now = new Date(), force = false } = {}) {
   const checkedAt = now.toISOString();
   const { results: schools } = await env.DB.prepare(`SELECT s.id,s.name,s.city,s.state,s.level,s.location_matched_name
     FROM schools s
@@ -75,29 +52,26 @@ export async function syncCuratedSchoolBranding(env, { fetchFn = fetch, now = ne
     }
     matched++;
     const existing = await env.DB.prepare("SELECT status,logo_url,mascot FROM school_brand_assets WHERE school_id=?").bind(school.id).first();
-    if (!force && existing?.status === "curated" && existing?.logo_url && existing?.mascot) {
+    const mascotSatisfied = identity.mascot == null || Boolean(existing?.mascot);
+    if (!force && existing?.status === "curated" && existing?.logo_url && mascotSatisfied) {
       populated++;
       continue;
     }
     try {
-      const resolved = await fetchIdentity(identity, fetchFn, school);
-      if (!resolved.logoUrl && !identity.logoUrl) {
-        failures.push({ schoolId: school.id, name: school.location_matched_name || school.name, reason: "no_logo_found", sourceUrl: identity.sourceUrl });
-        continue;
-      }
-      const logoUrl = resolved.logoUrl || identity.logoUrl;
-      const mascot = resolved.mascot || identity.mascot || null;
+      const resolved = resolvedIdentity(identity);
+      const logoUrl = resolved.logoUrl;
+      const mascot = resolved.mascot;
       await env.DB.prepare(`INSERT INTO school_brand_assets
         (school_id,mascot,logo_url,provider,provider_name,source_url,mascot_source_url,match_method,match_confidence,status,last_checked_at,mascot_checked_at,verified_at,updated_at)
         VALUES(?,?,?,?,?,?,?,?,?,'curated',?,?,?,?)
         ON CONFLICT(school_id) DO UPDATE SET
-          mascot=COALESCE(excluded.mascot,school_brand_assets.mascot),logo_url=COALESCE(excluded.logo_url,school_brand_assets.logo_url),
+          mascot=COALESCE(excluded.mascot,school_brand_assets.mascot),logo_url=excluded.logo_url,
           provider=excluded.provider,provider_name=excluded.provider_name,source_url=excluded.source_url,mascot_source_url=excluded.mascot_source_url,
           match_method=excluded.match_method,match_confidence=excluded.match_confidence,status='curated',last_checked_at=excluded.last_checked_at,
           mascot_checked_at=excluded.mascot_checked_at,verified_at=excluded.verified_at,updated_at=excluded.updated_at`)
         .bind(school.id, mascot, logoUrl, identity.sourceType || "maxpreps", identity.sourceName, identity.sourceUrl,
-          resolved.canonicalUrl || identity.sourceUrl, "curated-identity", 1, checkedAt, checkedAt, checkedAt, checkedAt).run();
-      await env.DB.prepare(`UPDATE schools SET mascot=COALESCE(?,mascot),logo_url=COALESCE(?,logo_url),updated_at=? WHERE id=?`)
+          resolved.canonicalUrl, "curated-identity", 1, checkedAt, checkedAt, checkedAt, checkedAt).run();
+      await env.DB.prepare(`UPDATE schools SET mascot=COALESCE(?,mascot),logo_url=?,updated_at=? WHERE id=?`)
         .bind(mascot, logoUrl, checkedAt, school.id).run();
       populated++;
     } catch (error) {
