@@ -1,23 +1,23 @@
-const TEAM_STATUS = {
-  "conway|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
-  "conway|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"6A Central"},
-  "conway|basketball|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
-  "conway|basketball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"7A Central"},
-  "uca|football|men":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"UAC"},
-  "uca|volleyball|women":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"ASUN"},
-  "uca|soccer|women":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"ASUN"},
-  "hendrix|football|men":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"SAA"},
-  "hendrix|volleyball|women":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"SAA"},
-  "hendrix|soccer|women":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"SAA"},
-  "cbc|volleyball|women":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"AMC"},
-  "cbc|soccer|men":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"AMC"},
-  "cbc|soccer|women":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"AMC"},
-  "greenbrier|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
-  "greenbrier|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
-  "vilonia|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
-  "vilonia|volleyball|girls":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"},
-  "mayflower|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"4A Region 2"},
-  "maumelle|football|boys":{overall:"0-0",conference:"0-0",standing:"Preseason",conferenceName:"5A Central"}
+const TEAM_CONFERENCE_FALLBACKS = {
+  "conway|football|boys":"7A Central",
+  "conway|volleyball|girls":"6A Central",
+  "conway|basketball|boys":"7A Central",
+  "conway|basketball|girls":"7A Central",
+  "uca|football|men":"UAC",
+  "uca|volleyball|women":"ASUN",
+  "uca|soccer|women":"ASUN",
+  "hendrix|football|men":"SAA",
+  "hendrix|volleyball|women":"SAA",
+  "hendrix|soccer|women":"SAA",
+  "cbc|volleyball|women":"AMC",
+  "cbc|soccer|men":"AMC",
+  "cbc|soccer|women":"AMC",
+  "greenbrier|football|boys":"5A Central",
+  "greenbrier|volleyball|girls":"5A Central",
+  "vilonia|football|boys":"5A Central",
+  "vilonia|volleyball|girls":"5A Central",
+  "mayflower|football|boys":"4A Region 2",
+  "maumelle|football|boys":"5A Central"
 };
 
 function sportSvg(sport){
@@ -29,10 +29,22 @@ function sportSvg(sport){
   return `<svg ${common}><circle cx="24" cy="24" r="15"/><path d="M18 24h12M24 18v12"/></svg>`;
 }
 
+function recordLabel(w=0,l=0,t=0){return Number(t)?`${Number(w)||0}-${Number(l)||0}-${Number(t)||0}`:`${Number(w)||0}-${Number(l)||0}`;}
+
 function getTeamStatus(event){
   const key=`${event.teamId}|${event.sport}|${event.gender}`;
-  return TEAM_STATUS[key] || {overall:"—",conference:"—",standing:"Not posted",conferenceName:"Conference"};
+  const record=event.record || null;
+  const conferenceName=record?.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key] || "Conference";
+  if (!record) return {overall:"—",conference:"—",standing:"Not posted",conferenceName};
+  const hasConference=Boolean(record.conference_id || record.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key]);
+  return {
+    overall:recordLabel(record.wins,record.losses,record.ties),
+    conference:hasConference?recordLabel(record.conference_wins,record.conference_losses,record.conference_ties):"—",
+    standing:record.rank?`#${record.rank}`:"Not posted",
+    conferenceName
+  };
 }
+
 
 function polishedSourceLabel(event){
   if(event.source!=="official") return "MaxPreps schedule";

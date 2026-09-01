@@ -40,3 +40,14 @@ test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /legacyPolishedSourceLabel/);
   assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
+
+
+test("live calculated records replace the old hardcoded 0-0 status table", async () => {
+  const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.doesNotMatch(polish, /const TEAM_STATUS/);
+  assert.match(polish, /event\.record/);
+  assert.match(polish, /recordLabel\(record\.wins,record\.losses,record\.ties\)/);
+  assert.match(live, /normalizeRecord/);
+  assert.match(live, /recordOverride/);
+  assert.match(detail, /selectedEvents\.find\(event => event\.record\)/);
+});
