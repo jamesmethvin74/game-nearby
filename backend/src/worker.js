@@ -6,8 +6,14 @@ import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { ensureInitialStatewideData } from "./statewide-initializer.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
 import { rebuildStatewideRecords } from "./record-rebuild.js";
+import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
 
 let liveConfigReady = false;
+
+function defer(ctx, promise) {
+  if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
+  else promise.catch(error => console.error("background task failed", error));
+}
 
 async function ensureLiveConfig(env) {
   if (liveConfigReady) return;
@@ -130,14 +136,37 @@ async function publicCatalogResponse(request,response,env){
   return new Response(JSON.stringify(body),{status:response.status,headers:response.headers});
 }
 
+function publicJson(request,body,status=200){
+  const origin=request.headers.get("origin");
+  const allowed=!origin || origin==="https://jamesmethvin74.github.io" || origin.startsWith("http://localhost:") ? (origin||"*") : "null";
+  return new Response(JSON.stringify(body),{status,headers:{
+    "content-type":"application/json; charset=utf-8",
+    "cache-control":"no-store",
+    "access-control-allow-origin":allowed,
+    "vary":"Origin"
+  }});
+}
+
 export default {
   async fetch(request, env, ctx) {
     await ensureStatewideSchema(env);
     await ensureLiveConfig(env);
     const path=new URL(request.url).pathname;
+
+    if (request.method==="GET" && path==="/api/v1/branding/report") {
+      try {
+        await syncMaxPrepsSchoolBranding(env);
+        defer(ctx,enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
+        return publicJson(request,await getSchoolBrandingReport(env));
+      } catch (error) {
+        return publicJson(request,{error:"branding_report_failed",message:String(error?.message||error)},500);
+      }
+    }
+
     if (request.method==="GET" && (path==="/api/v1/schools" || path==="/api/v1/games")) {
       try {
         await ensureInitialStatewideData(env);
+        defer(ctx,enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
       } catch (error) {
         console.error("statewide volleyball initial production bootstrap failed",error);
       }
@@ -170,6 +199,14 @@ export default {
       });
     } catch (error) {
       console.error("statewide volleyball location sync failed",error);
+    }
+
+    try {
+      const branding=await syncMaxPrepsSchoolBranding(env);
+      const mascots=await enrichMaxPrepsSchoolMascots(env,{limit:20});
+      console.log("statewide school branding",{branding,mascots});
+    } catch (error) {
+      console.error("statewide school branding sync failed",error);
     }
 
     try {
