@@ -89,47 +89,55 @@ async function listNearbyGamesBounded(request,env,url){
   const hasGeo=[lat,lon,radius].every(Number.isFinite);
 
   let geoSql="";
-  const binds=[since,until,since,until];
+  const binds=[since,until];
   if (hasGeo) {
     const latDelta=radius/69;
     const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
     const lonDelta=radius/(69*lonScale);
     geoSql=`
-      AND COALESCE(ce.latitude,g.latitude) BETWEEN ? AND ?
-      AND COALESCE(ce.longitude,g.longitude) BETWEEN ? AND ?`;
+      AND g.latitude BETWEEN ? AND ?
+      AND g.longitude BETWEEN ? AND ?`;
     binds.push(lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta);
   }
 
   const {results}=await env.DB.prepare(`
-    SELECT g.*,t.sport,t.gender,t.season,t.conference_id,
-      sch.id AS school_id,sch.name AS school_name,sch.level,sch.mascot,
-      c.name AS conference_name,
-      r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at,
-      st.rank,
+    SELECT g.*,
+      t.sport,t.gender,t.season,t.conference_id,
+      sch.id AS school_id,
+      COALESCE(NULLIF(sch.location_matched_name,''),sch.name) AS school_name,
+      sch.level,sch.mascot,
+      COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) AS opponent,
+      r.wins,r.losses,r.ties,
+      r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at,
+      NULL AS rank,
       src.source_type,src.parser_type,src.authority_rank,src.source_priority,
       src.last_successful_fetch_at AS source_last_successful_fetch_at,
-      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,
-      ce.venue AS canonical_venue,ce.latitude AS canonical_latitude,ce.longitude AS canonical_longitude,
-      ce.conference_game AS canonical_conference_game,
-      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
-      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
-      ce.trust_state AS data_trust,ce.conflict_count,
-      hs.name AS canonical_home_name,aws.name AS canonical_away_name
+      CASE WHEN g.home_away='home' THEN t.school_id WHEN g.home_away='away' THEN g.opponent_school_id END AS canonical_home_school_id,
+      CASE WHEN g.home_away='away' THEN t.school_id WHEN g.home_away='home' THEN g.opponent_school_id END AS canonical_away_school_id,
+      CASE WHEN g.home_away='home' THEN COALESCE(NULLIF(sch.location_matched_name,''),sch.name)
+           WHEN g.home_away='away' THEN COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) END AS canonical_home_name,
+      CASE WHEN g.home_away='away' THEN COALESCE(NULLIF(sch.location_matched_name,''),sch.name)
+           WHEN g.home_away='home' THEN COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) END AS canonical_away_name,
+      g.scheduled_at AS canonical_scheduled_at,
+      g.scheduled_time_known AS canonical_time_known,
+      g.venue AS canonical_venue,
+      g.latitude AS canonical_latitude,
+      g.longitude AS canonical_longitude,
+      g.conference_game AS canonical_conference_game,
+      g.status AS canonical_status,
+      CASE WHEN g.home_away='home' THEN g.team_score WHEN g.home_away='away' THEN g.opponent_score END AS canonical_home_score,
+      CASE WHEN g.home_away='away' THEN g.team_score WHEN g.home_away='home' THEN g.opponent_score END AS canonical_away_score,
+      'SINGLE_SOURCE_LIVE' AS data_trust,
+      0 AS conflict_count
     FROM games g
     JOIN teams t ON t.id=g.team_id AND t.active=1
     JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local'
     JOIN sources src ON src.id=g.source_id
-    LEFT JOIN conferences c ON c.id=t.conference_id
+    LEFT JOIN schools opp ON opp.id=g.opponent_school_id
     LEFT JOIN team_records r ON r.team_id=t.id
-    LEFT JOIN standings st ON st.team_id=t.id AND st.conference_id=t.conference_id
-    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
-    LEFT JOIN schools hs ON hs.id=ce.home_school_id
-    LEFT JOIN schools aws ON aws.id=ce.away_school_id
-    WHERE ((ce.id IS NOT NULL AND ce.scheduled_at BETWEEN ? AND ?)
-       OR (ce.id IS NULL AND g.scheduled_at BETWEEN ? AND ?))
+    WHERE g.scheduled_at BETWEEN ? AND ?
       ${geoSql}
-    ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at),
-      COALESCE(g.canonical_event_id,g.id),src.authority_rank,src.source_priority,src.id
+    ORDER BY g.scheduled_at,COALESCE(g.canonical_event_id,g.id),src.authority_rank,src.source_priority,src.id
   `).bind(...binds).all();
 
   const chosen=[];
@@ -147,7 +155,7 @@ async function listNearbyGamesBounded(request,env,url){
     chosen.push(game);
   }
 
-  return {games:await normalizePublicGames(env,chosen)};
+  return {games:chosen};
 }
 
 async function publicCatalogResponse(request,response,env){

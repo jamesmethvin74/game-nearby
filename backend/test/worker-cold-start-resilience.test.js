@@ -23,13 +23,16 @@ test("normal public API reads perform no request-time maintenance", () => {
   assert.match(scheduledBlock, /await\s+runDragonFlyStatewideCollection\(env/);
 });
 
-test("nearby games may use a bounded read-only query without startup maintenance", () => {
+test("nearby games use a minimal bounded read that returns card record fields", () => {
   assert.match(worker, /path==="\/api\/v1\/games"/);
   assert.match(worker, /listNearbyGamesBounded/);
   assert.match(worker, /LEFT JOIN team_records r ON r\.team_id=t\.id/);
-  assert.match(worker, /LEFT JOIN standings st ON st\.team_id=t\.id/);
-  assert.match(worker, /COALESCE\(ce\.latitude,g\.latitude\) BETWEEN \? AND \?/);
-  assert.match(worker, /r\.wins,r\.losses,r\.ties,r\.conference_wins,r\.conference_losses,r\.conference_ties/);
+  assert.match(worker, /g\.latitude BETWEEN \? AND \?/);
+  assert.match(worker, /g\.longitude BETWEEN \? AND \?/);
+  assert.match(worker, /r\.wins,r\.losses,r\.ties/);
+  assert.match(worker, /r\.conference_wins,r\.conference_losses,r\.conference_ties,r\.calculated_at/);
+  assert.doesNotMatch(worker, /LEFT JOIN standings st ON st\.team_id=t\.id/);
+  assert.doesNotMatch(worker, /LEFT JOIN canonical_events ce ON ce\.id=g\.canonical_event_id/);
 });
 
 test("explicit branding report remains allowed to refresh branding on demand", () => {
