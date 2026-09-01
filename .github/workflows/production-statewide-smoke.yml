@@ -96,11 +96,13 @@ jobs:
             if node <<'NODE'
           const fs=require('fs');
           try {
-            const conway=JSON.parse(fs.readFileSync('conway.tmp','utf8')).games||[];
-            const valley=JSON.parse(fs.readFileSync('valley.tmp','utf8')).games||[];
+            const conwayPayload=JSON.parse(fs.readFileSync('conway.tmp','utf8'));
+            const valleyPayload=JSON.parse(fs.readFileSync('valley.tmp','utf8'));
+            const conway=conwayPayload.games||[];
+            const valley=valleyPayload.games||[];
             const lakeside=conway.filter(g=>/lakeside/i.test(String(g.opponent||'')) && String(g.scheduled_at||'').startsWith('2026-08-31T23:00'));
             const melbourne=valley.find(g=>/melbourne/i.test(String(g.opponent||'')));
-            process.exit(lakeside.length===1 && lakeside[0].canonical_event_id && lakeside[0].venue==='Buzz Bolding Arena' && Number(lakeside[0].schedule_observation_count)>=2 && lakeside[0].schedule_confirmed_by_school===true && melbourne?.opponent==='Melbourne High School' ? 0 : 1);
+            process.exit(lakeside.length===1 && lakeside[0].canonical_event_id && lakeside[0].venue==='Buzz Bolding Arena' && Number(lakeside[0].schedule_observation_count)>=2 && lakeside[0].schedule_confirmed_by_school===true && melbourne?.opponent==='Melbourne High School' && conwayPayload.record && valleyPayload.record ? 0 : 1);
           } catch { process.exit(1); }
           NODE
             then
@@ -115,8 +117,10 @@ jobs:
           test -f valley.json
           node <<'NODE'
           const fs=require('fs');
-          const conway=JSON.parse(fs.readFileSync('conway.json','utf8')).games||[];
-          const valley=JSON.parse(fs.readFileSync('valley.json','utf8')).games||[];
+          const conwayPayload=JSON.parse(fs.readFileSync('conway.json','utf8'));
+          const valleyPayload=JSON.parse(fs.readFileSync('valley.json','utf8'));
+          const conway=conwayPayload.games||[];
+          const valley=valleyPayload.games||[];
           const lakeside=conway.filter(g=>/lakeside/i.test(String(g.opponent||'')) && String(g.scheduled_at||'').startsWith('2026-08-31T23:00'));
           if(lakeside.length!==1) throw new Error(`Expected one Conway/Lakeside schedule row, got ${lakeside.length}`);
           const game=lakeside[0];
@@ -125,27 +129,106 @@ jobs:
           if(Number(game.schedule_observation_count)<2 || game.schedule_confirmed_by_school!==true) throw new Error('Conway/Lakeside did not retain multi-source confirmation');
           if(valley.some(g=>g.opponent==='MELBOURNE HIGH SCHOOL')) throw new Error('Valley Springs schedule still exposes raw all-caps Melbourne name');
           if(!valley.some(g=>g.opponent==='Melbourne High School')) throw new Error('Valley Springs schedule is missing cleaned Melbourne High School');
+          if(!conwayPayload.record || !valleyPayload.record) throw new Error('Full schedule payload is missing calculated record data');
           console.log(`Production schedule normalization verified: Conway ${conway.length} rows; Valley Springs ${valley.length} rows.`);
           NODE
 
-      - name: Verify GitHub Pages serves statewide frontend
+      - name: Verify every available statewide result feeds team records
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const fetchJson=async url=>{
+            const response=await fetch(url,{headers:{accept:'application/json'}});
+            if(!response.ok) return {status:response.status,payload:null};
+            return {status:response.status,payload:await response.json()};
+          };
+          const schoolsResult=await fetchJson(`${API}/api/v1/schools`);
+          if(schoolsResult.status!==200) throw new Error(`Schools request failed: ${schoolsResult.status}`);
+          const schools=schoolsResult.payload.schools||[];
+          let cursor=0;
+          const checked=[];
+          const skipped=[];
+          const failures=[];
+          function expectedRecord(games){
+            const record={wins:0,losses:0,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored:0};
+            for(const game of games||[]){
+              if(game.status!=='FINAL' || Number(game.counts_for_record||0)===0 || game.team_score==null || game.opponent_score==null) continue;
+              const team=Number(game.team_score),opp=Number(game.opponent_score);
+              if(!Number.isFinite(team)||!Number.isFinite(opp)) continue;
+              record.scored++;
+              const suffix=team===opp?'ties':team>opp?'wins':'losses';
+              record[suffix]++;
+              if(Number(game.conference_game||0)===1) record[`conference_${suffix}`]++;
+            }
+            return record;
+          }
+          async function worker(){
+            while(true){
+              const index=cursor++; if(index>=schools.length) return;
+              const school=schools[index];
+              const teamId=`${school.id}-volleyball-2026`;
+              const scheduleResult=await fetchJson(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/schedule`);
+              if(scheduleResult.status===404){skipped.push({school:school.location_matched_name||school.name,teamId});continue;}
+              if(scheduleResult.status!==200){failures.push({teamId,error:`schedule HTTP ${scheduleResult.status}`});continue;}
+              const recordResult=await fetchJson(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/record`);
+              if(recordResult.status!==200){failures.push({teamId,error:`record HTTP ${recordResult.status}`});continue;}
+              const payload=scheduleResult.payload;
+              const games=payload.games||[];
+              const expected=expectedRecord(games);
+              const scheduleRecord=payload.record||{};
+              const routeRecord=recordResult.payload.record||{};
+              for(const [name,record] of [['schedule',scheduleRecord],['record',routeRecord]]){
+                for(const field of ['wins','losses','ties','conference_wins','conference_losses','conference_ties']){
+                  if(Number(record[field]||0)!==Number(expected[field]||0)){
+                    failures.push({teamId,school:school.location_matched_name||school.name,source:name,field,expected:expected[field],actual:record[field],scored:expected.scored});
+                  }
+                }
+              }
+              checked.push({teamId,school:school.location_matched_name||school.name,scored:expected.scored,record:routeRecord});
+            }
+          }
+          await Promise.all(Array.from({length:12},()=>worker()));
+          const totalScored=checked.reduce((sum,row)=>sum+row.scored,0);
+          if(checked.length<150) throw new Error(`Expected at least 150 varsity volleyball teams with schedule endpoints, got ${checked.length}`);
+          if(totalScored<300) throw new Error(`Expected at least 300 scored final team-results, got ${totalScored}`);
+          if(failures.length) throw new Error(`Result/record mismatches: ${JSON.stringify(failures.slice(0,12))}`);
+          for(const wanted of ['Conway High School','Valley Springs High School','Greenwood High School','Pulaski Academy']){
+            const row=checked.find(item=>item.school.toLowerCase()===wanted.toLowerCase());
+            if(!row) throw new Error(`Did not verify ${wanted}`);
+            if(row.scored<1) throw new Error(`${wanted} has no scored finals in verification`);
+            console.log(`${wanted}: ${row.record.wins}-${row.record.losses}${Number(row.record.ties||0)?`-${row.record.ties}`:''} from ${row.scored} scored finals`);
+          }
+          console.log(`Verified ${checked.length} varsity volleyball teams, ${totalScored} scored team-results, ${skipped.length} non-volleyball catalog entries skipped, 0 record mismatches.`);
+          NODE
+
+      - name: Verify GitHub Pages serves live-record frontend
         if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
           APP="https://jamesmethvin74.github.io/game-nearby"
-          rm -f live-data.js school-follow-logic.js
+          rm -f live-data.js school-follow-logic.js polish.js team-detail.js
 
           for attempt in $(seq 1 20); do
             echo "Pages attempt ${attempt}/20"
-            curl -fsS --max-time 30 "$APP/live-data.js?v=48" -o live-data.tmp || true
-            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=48" -o follow.tmp || true
+            curl -fsS --max-time 30 "$APP/live-data.js?v=49" -o live-data.tmp || true
+            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=49" -o follow.tmp || true
+            curl -fsS --max-time 30 "$APP/polish.js?v=49" -o polish.tmp || true
+            curl -fsS --max-time 30 "$APP/team-detail.js?v=49" -o detail.tmp || true
             if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
-              && grep -q 'scheduleSourceLabel' live-data.tmp 2>/dev/null \
-              && grep -q '/api/v1/games?' live-data.tmp 2>/dev/null \
-              && grep -q 'orientEventToFollowedSchool' follow.tmp 2>/dev/null; then
+              && grep -q 'normalizeRecord' live-data.tmp 2>/dev/null \
+              && grep -q 'recordOverride' live-data.tmp 2>/dev/null \
+              && grep -q 'orientEventToFollowedSchool' follow.tmp 2>/dev/null \
+              && grep -q 'event.record' polish.tmp 2>/dev/null \
+              && ! grep -q 'const TEAM_STATUS' polish.tmp 2>/dev/null \
+              && grep -q 'selectedEvents.find(event => event.record)' detail.tmp 2>/dev/null; then
               mv live-data.tmp live-data.js
               mv follow.tmp school-follow-logic.js
+              mv polish.tmp polish.js
+              mv detail.tmp team-detail.js
               break
             fi
             sleep 15
@@ -153,4 +236,6 @@ jobs:
 
           test -f live-data.js
           test -f school-follow-logic.js
-          echo "GitHub Pages v48 schedule frontend verified."
+          test -f polish.js
+          test -f team-detail.js
+          echo "GitHub Pages v49 live-record frontend verified."

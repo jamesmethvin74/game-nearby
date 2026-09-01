@@ -122,8 +122,9 @@
     const selectedEvents = active
       ? all.filter(e => e.sport === state.sport && (e.gender || "") === state.gender)
       : all;
+    const statusSeed = selectedEvents.find(event => event.record) || selectedEvents[0] || {};
     const status = typeof getTeamStatus === "function" && state.sport
-      ? getTeamStatus({ teamId: state.schoolId, sport: state.sport, gender: state.gender })
+      ? getTeamStatus({ ...statusSeed, teamId: state.schoolId, sport: state.sport, gender: state.gender })
       : { overall: "—", conference: "—", standing: "Not posted", conferenceName: "Conference" };
 
     const logoEl = dialog.querySelector("#teamDetailLogo");
