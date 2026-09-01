@@ -1,7 +1,8 @@
-const CACHE_NAME = "localbleachersar-shell-v53";
+const CACHE_NAME = "localbleachersar-shell-v54";
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./teams.html",
   "./standings.html",
   "./manifest.json",
   "./styles.css",
@@ -9,6 +10,7 @@ const CORE_ASSETS = [
   "./brand-exact.css",
   "./pitched-layout.css",
   "./reference-layout.css",
+  "./teams-page.css",
   "./standings.css",
   "./app.js",
   "./school-expansion.js",
@@ -20,6 +22,7 @@ const CORE_ASSETS = [
   "./team-detail.js",
   "./live-data.js",
   "./school-logo-ui.js",
+  "./teams-page.js",
   "./standings.js",
   "./assets/app-icon-192-v35.png",
   "./assets/app-icon-512-v35.png",
@@ -44,8 +47,9 @@ self.addEventListener("fetch", event => {
 
   if (event.request.mode === "navigate") {
     const requestUrl = new URL(event.request.url);
+    const isTeams = /\/teams(?:\.html)?\/?$/.test(requestUrl.pathname);
     const isStandings = /\/standings(?:\.html)?\/?$/.test(requestUrl.pathname);
-    const cacheKey = isStandings ? "./standings.html" : "./index.html";
+    const cacheKey = isTeams ? "./teams.html" : isStandings ? "./standings.html" : "./index.html";
     const network = fetch(event.request).then(async response => {
       if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
