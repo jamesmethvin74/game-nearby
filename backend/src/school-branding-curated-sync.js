@@ -10,6 +10,9 @@ function cityKey(value) {
 }
 
 function findSchool(schools, identity) {
+  if (identity.targetSchoolId) {
+    return schools.find(school => school.id === identity.targetSchoolId) || null;
+  }
   const keys = new Set(identity.targetNames.map(normalizeSchoolAlias).filter(Boolean));
   let matches = schools.filter(school => {
     const schoolKeys = [school.name, school.location_matched_name].map(normalizeSchoolAlias).filter(Boolean);
@@ -47,7 +50,7 @@ export async function syncCuratedSchoolBranding(env, { now = new Date(), force =
   for (const identity of CURATED_SCHOOL_BRANDING_IDENTITIES) {
     const school = findSchool(schools, identity);
     if (!school) {
-      unresolved.push({ targetNames: identity.targetNames, targetCity: identity.targetCity || null });
+      unresolved.push({ targetSchoolId: identity.targetSchoolId || null, targetNames: identity.targetNames, targetCity: identity.targetCity || null });
       continue;
     }
     matched++;
