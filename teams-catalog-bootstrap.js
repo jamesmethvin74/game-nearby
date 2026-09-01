@@ -25,6 +25,18 @@
     return String(value ?? "").trim();
   }
 
+  function statusMessage(message = "") {
+    const element = document.getElementById("teamAddStatus");
+    if (!element) return;
+    if (message) {
+      element.dataset.catalogStatus = "true";
+      element.textContent = message;
+    } else if (element.dataset.catalogStatus === "true") {
+      delete element.dataset.catalogStatus;
+      element.textContent = "";
+    }
+  }
+
   function safeLogoUrl(value) {
     const raw = clean(value);
     try {
@@ -81,6 +93,7 @@
       }
     }
 
+    if (source === "network") statusMessage("");
     document.dispatchEvent(new CustomEvent("localbleachers:catalog", {
       detail: { count: normalized.length, source }
     }));
@@ -144,6 +157,9 @@
       }
 
       state.error = String(lastError?.message || lastError || "School catalog unavailable");
+      statusMessage(state.source === "fallback"
+        ? "The live statewide school list is temporarily unavailable. Showing a limited fallback list and retrying automatically."
+        : "The live statewide school list is temporarily unavailable. Showing your last saved school list and retrying automatically.");
       document.dispatchEvent(new CustomEvent("localbleachers:catalog-error", {
         detail: { message: state.error, source: state.source, count: state.count }
       }));
