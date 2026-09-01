@@ -81,6 +81,53 @@ jobs:
           console.log(`Production nearby proof: ${match.school_name} vs ${match.opponent}, distance ${match.distance_miles} miles, canonical ${match.canonical_event_id || match.id}`);
           NODE
 
+      - name: Verify normalized production schedules
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          rm -f conway.json valley.json
+
+          for attempt in $(seq 1 20); do
+            echo "Schedule normalization attempt ${attempt}/20"
+            curl -fsS --max-time 60 "$API/api/v1/teams/conway-volleyball-2026/schedule" -o conway.tmp || true
+            curl -fsS --max-time 60 "$API/api/v1/teams/df-t5drr3-volleyball-2026/schedule" -o valley.tmp || true
+            if node <<'NODE'
+          const fs=require('fs');
+          try {
+            const conway=JSON.parse(fs.readFileSync('conway.tmp','utf8')).games||[];
+            const valley=JSON.parse(fs.readFileSync('valley.tmp','utf8')).games||[];
+            const lakeside=conway.filter(g=>/lakeside/i.test(String(g.opponent||'')) && String(g.scheduled_at||'').startsWith('2026-08-31T23:00'));
+            const melbourne=valley.find(g=>/melbourne/i.test(String(g.opponent||'')));
+            process.exit(lakeside.length===1 && lakeside[0].canonical_event_id && lakeside[0].venue==='Buzz Bolding Arena' && Number(lakeside[0].schedule_observation_count)>=2 && lakeside[0].schedule_confirmed_by_school===true && melbourne?.opponent==='Melbourne High School' ? 0 : 1);
+          } catch { process.exit(1); }
+          NODE
+            then
+              mv conway.tmp conway.json
+              mv valley.tmp valley.json
+              break
+            fi
+            sleep 15
+          done
+
+          test -f conway.json
+          test -f valley.json
+          node <<'NODE'
+          const fs=require('fs');
+          const conway=JSON.parse(fs.readFileSync('conway.json','utf8')).games||[];
+          const valley=JSON.parse(fs.readFileSync('valley.json','utf8')).games||[];
+          const lakeside=conway.filter(g=>/lakeside/i.test(String(g.opponent||'')) && String(g.scheduled_at||'').startsWith('2026-08-31T23:00'));
+          if(lakeside.length!==1) throw new Error(`Expected one Conway/Lakeside schedule row, got ${lakeside.length}`);
+          const game=lakeside[0];
+          if(!game.canonical_event_id) throw new Error('Conway/Lakeside lost its canonical event id');
+          if(game.venue!=='Buzz Bolding Arena') throw new Error(`Expected Buzz Bolding Arena, got ${game.venue}`);
+          if(Number(game.schedule_observation_count)<2 || game.schedule_confirmed_by_school!==true) throw new Error('Conway/Lakeside did not retain multi-source confirmation');
+          if(valley.some(g=>g.opponent==='MELBOURNE HIGH SCHOOL')) throw new Error('Valley Springs schedule still exposes raw all-caps Melbourne name');
+          if(!valley.some(g=>g.opponent==='Melbourne High School')) throw new Error('Valley Springs schedule is missing cleaned Melbourne High School');
+          console.log(`Production schedule normalization verified: Conway ${conway.length} rows; Valley Springs ${valley.length} rows.`);
+          NODE
+
       - name: Verify GitHub Pages serves statewide frontend
         if: github.event_name != 'pull_request'
         shell: bash
@@ -91,12 +138,12 @@ jobs:
 
           for attempt in $(seq 1 20); do
             echo "Pages attempt ${attempt}/20"
-            curl -fsS --max-time 30 "$APP/live-data.js?v=46" -o live-data.tmp || true
-            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=46" -o follow.tmp || true
+            curl -fsS --max-time 30 "$APP/live-data.js?v=48" -o live-data.tmp || true
+            curl -fsS --max-time 30 "$APP/school-follow-logic.js?v=48" -o follow.tmp || true
             if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
-              && grep -q 'location_matched_name' live-data.tmp 2>/dev/null \
+              && grep -q 'scheduleSourceLabel' live-data.tmp 2>/dev/null \
               && grep -q '/api/v1/games?' live-data.tmp 2>/dev/null \
-              && grep -q 'Search Arkansas schools' follow.tmp 2>/dev/null; then
+              && grep -q 'orientEventToFollowedSchool' follow.tmp 2>/dev/null; then
               mv live-data.tmp live-data.js
               mv follow.tmp school-follow-logic.js
               break
@@ -106,4 +153,4 @@ jobs:
 
           test -f live-data.js
           test -f school-follow-logic.js
-          echo "GitHub Pages statewide frontend verified with authoritative school names."
+          echo "GitHub Pages v48 schedule frontend verified."

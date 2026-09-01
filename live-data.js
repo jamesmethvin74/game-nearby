@@ -67,8 +67,6 @@
       SCHOOL_REGISTRY.splice(0, SCHOOL_REGISTRY.length, ...normalized);
     }
 
-    // Keep the legacy badge registry small. The statewide catalog belongs in
-    // SCHOOL_REGISTRY, not in the old hardcoded teams array used by card badges.
     if (typeof teams !== "undefined") {
       for (const school of normalized) {
         const existing = teams.find(team => team.id === school.id);
@@ -98,8 +96,16 @@
 
   function eventSourceUrl(game) {
     if (game.source_url) return game.source_url;
-    if (game.parser_type === "dragonfly-public" || game.sport === "volleyball") return DRAGONFLY_VOLLEYBALL_URL;
+    if (game.parser_type === "dragonfly-public") return DRAGONFLY_VOLLEYBALL_URL;
     return API_BASE;
+  }
+
+  function scheduleSourceLabel(game) {
+    if (game.parser_type === "dragonfly-public") {
+      return game.schedule_confirmed_by_school ? "Arkansas varsity schedule · school confirmed" : "Arkansas varsity schedule";
+    }
+    if (game.source_type === "official-school" || game.source_type === "official-athletics") return "School athletics schedule";
+    return "Live schedule";
   }
 
   function mapApiGame(game, school = null) {
@@ -116,9 +122,17 @@
       id: `live:${game.canonical_event_id || game.id}`,
       backendGameId: game.id,
       backendCanonicalEventId: game.canonical_event_id || null,
+      canonicalHomeSchoolId: game.canonical_home_school_id || null,
+      canonicalAwaySchoolId: game.canonical_away_school_id || null,
+      canonicalHomeName: game.canonical_home_name || "",
+      canonicalAwayName: game.canonical_away_name || "",
       liveData: true,
       dataTrust: game.data_trust || "SINGLE_SOURCE_LIVE",
       sourceConflictCount: Number(game.conflict_count || 0),
+      scheduleObservationCount: Number(game.schedule_observation_count || 1),
+      scheduleConfirmedBySchool: Boolean(game.schedule_confirmed_by_school),
+      sourceType: game.source_type || "",
+      parserType: game.parser_type || "",
       teamId: schoolId,
       schoolIds,
       team: schoolName,
@@ -132,7 +146,7 @@
       lon: game.longitude == null ? NaN : Number(game.longitude),
       venue: game.venue || game.canonical_venue || "Venue TBA",
       source: "live",
-      sourceLabel: game.source_type === "official-conference" ? "Arkansas varsity schedule" : "Live schedule",
+      sourceLabel: scheduleSourceLabel(game),
       sourceUrl: eventSourceUrl(game),
       status: game.status || "SCHEDULED",
       teamScore: game.team_score,
@@ -151,8 +165,6 @@
       .map(game => mapApiGame(game))
       .filter(game => Number.isFinite(game.lat) && Number.isFinite(game.lon));
 
-    // Nearby discovery is a view, not the application's master schedule store.
-    // Keeping it separate prevents a radius refresh from erasing team schedules.
     nearbyEvents.splice(0, nearbyEvents.length, ...mapped);
     state.nearbyCount = mapped.length;
     state.nearbyLoadedAt = new Date().toISOString();
@@ -191,8 +203,6 @@
   }
 
   function teamIdForSchool(schoolId) {
-    // Statewide volleyball team IDs are deterministic. The curated pilot IDs use
-    // the same pattern, so this works for both old and newly discovered schools.
     return `${schoolId}-volleyball-2026`;
   }
 
@@ -210,6 +220,10 @@
 
   if (typeof sourceLabel === "function") {
     sourceLabel = event => event.sourceLabel || (event.liveData ? "Live schedule" : "Schedule source");
+  }
+  if (typeof polishedSourceLabel === "function") {
+    const legacyPolishedSourceLabel = polishedSourceLabel;
+    polishedSourceLabel = event => event.sourceLabel || legacyPolishedSourceLabel(event);
   }
 
   if (typeof radiusEl !== "undefined") {
