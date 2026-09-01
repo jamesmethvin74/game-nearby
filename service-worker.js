@@ -19,6 +19,7 @@ const CORE_ASSETS = [
   "./reference-layout.js",
   "./team-detail.js",
   "./live-data.js",
+  "./record-recovery.js",
   "./school-logo-ui.js",
   "./standings.js",
   "./assets/app-icon-192-v35.png",
