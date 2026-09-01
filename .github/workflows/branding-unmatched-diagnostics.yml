@@ -6,6 +6,7 @@ on:
       - '.github/workflows/branding-unmatched-diagnostics.yml'
       - 'backend/src/school-branding.js'
       - 'backend/src/school-branding-curated.js'
+      - 'backend/src/school-branding-curated-sync.js'
       - 'backend/test/school-branding.test.js'
 
 jobs:
@@ -14,10 +15,14 @@ jobs:
     steps:
       - name: Print production unmatched branding identities
         run: |
+          curl -fsSL \
+            -A 'Mozilla/5.0 LocalBleachersAR branding diagnostics' \
+            -H 'Accept: application/json' \
+            'https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/branding/report' \
+            -o /tmp/branding.json
           python - <<'PY'
-          import json, urllib.request
-          url='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/branding/report'
-          with urllib.request.urlopen(url, timeout=30) as r:
-              data=json.load(r)
+          import json
+          with open('/tmp/branding.json') as f:
+              data=json.load(f)
           print(json.dumps(data.get('unmatched', []), indent=2))
           PY
