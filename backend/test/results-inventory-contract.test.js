@@ -5,12 +5,13 @@ import { readFile } from "node:fs/promises";
 const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
 const statewide = await readFile(new URL("../src/dragonfly-statewide.js", import.meta.url), "utf8");
 
-test("statewide ingestion rebuilds persistent records while worker startup only queues repair", () => {
+test("statewide ingestion rebuilds persistent records while request startup queues maintenance", () => {
   assert.match(statewide, /await rebuildStatewideRecords\(env,checkedAt\)/);
-  assert.match(worker, /queueRecordRepair\(env,ctx\)/);
-  assert.match(worker, /rebuildStatewideRecords\(env, calculatedAt\)/);
-  const ensureStart = worker.indexOf("async function ensureLiveConfig");
-  const ensureEnd = worker.indexOf("async function displayNamesForGames");
-  assert.ok(ensureStart >= 0 && ensureEnd > ensureStart, "ensureLiveConfig block not found");
-  assert.doesNotMatch(worker.slice(ensureStart, ensureEnd), /await\s+rebuildStatewideRecords/);
+  assert.match(worker, /queueStartupMaintenance\(env,ctx\)/);
+  assert.match(worker, /await rebuildStatewideRecords\(env, new Date\(\)\.toISOString\(\)\)/);
+  const fetchStart = worker.indexOf("async fetch(request, env, ctx)");
+  const scheduledStart = worker.indexOf("async scheduled(controller, env, ctx)");
+  assert.ok(fetchStart >= 0 && scheduledStart > fetchStart, "public fetch block not found");
+  const fetchBlock = worker.slice(fetchStart, scheduledStart);
+  assert.doesNotMatch(fetchBlock, /await\s+ensureStatewideSchema|await\s+ensureLiveConfig|await\s+rebuildStatewideRecords/);
 });
