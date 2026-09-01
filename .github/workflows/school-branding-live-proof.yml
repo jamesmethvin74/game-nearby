@@ -38,7 +38,7 @@ jobs:
           console.log(JSON.stringify({visibleSchools:schools.length,sourceEntries:entries.length,matched:result.matches.length,unresolved:result.unresolved.map(s=>({id:s.id,name:s.location_matched_name||s.name,city:s.city})),ambiguous:result.ambiguous},null,2));
           if(schools.length<190) throw new Error(`Expected statewide catalog, got ${schools.length}`);
           if(entries.length<185) throw new Error(`Expected statewide logo directory, got ${entries.length}`);
-          if(result.matches.length<160) throw new Error(`Expected at least 160 deterministic logo matches, got ${result.matches.length}`);
+          if(result.matches.length<165) throw new Error(`Expected at least 165 deterministic logo matches, got ${result.matches.length}`);
           for(const wanted of ['Conway High School','Valley Springs High School']){
             const school=schools.find(s=>String(s.location_matched_name||s.name).toLowerCase()===wanted.toLowerCase());
             if(!school) throw new Error(`Missing ${wanted} from live LocalBleachers catalog`);
