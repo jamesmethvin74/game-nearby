@@ -2,6 +2,7 @@ import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js"
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { syncMaxPrepsSchoolBranding } from "./school-branding.js";
+import { syncCuratedSchoolBranding } from "./school-branding-curated-sync.js";
 
 let bootstrapPromise = null;
 
@@ -32,6 +33,12 @@ async function ensureBranding(env) {
     if (branding?.status !== "SKIPPED") console.log("statewide school branding", branding);
   } catch (error) {
     console.error("statewide school branding sync failed; keeping last-known logos", error);
+  }
+  try {
+    const curated = await syncCuratedSchoolBranding(env);
+    if (curated?.status !== "SUCCESS" || curated?.populated) console.log("statewide curated school branding", curated);
+  } catch (error) {
+    console.error("statewide curated school branding sync failed; keeping last-known logos", error);
   }
 }
 
