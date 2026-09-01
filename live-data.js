@@ -108,7 +108,22 @@
     return "Live schedule";
   }
 
-  function mapApiGame(game, school = null) {
+  function normalizeRecord(value) {
+    if (!value) return null;
+    const fields = ["wins","losses","ties","conference_wins","conference_losses","conference_ties"];
+    if (!fields.some(field => value[field] != null)) return null;
+    const number = field => Number(value[field] || 0);
+    return {
+      wins:number("wins"),losses:number("losses"),ties:number("ties"),
+      conference_wins:number("conference_wins"),conference_losses:number("conference_losses"),conference_ties:number("conference_ties"),
+      conference_id:value.conference_id || null,
+      conference_name:value.conference_name || null,
+      rank:value.rank == null ? null : Number(value.rank),
+      calculated_at:value.calculated_at || null
+    };
+  }
+
+  function mapApiGame(game, school = null, recordOverride = null) {
     const schoolId = school?.id || game.school_id;
     const schoolName = school?.name || game.school_name || "Arkansas school";
     const schoolIds = [...new Set([
@@ -118,6 +133,7 @@
       game.canonical_away_school_id
     ].filter(Boolean))];
     const date = game.scheduled_at || game.canonical_scheduled_at;
+    const record = normalizeRecord(recordOverride || game);
     return {
       id: `live:${game.canonical_event_id || game.id}`,
       backendGameId: game.id,
@@ -133,6 +149,8 @@
       scheduleConfirmedBySchool: Boolean(game.schedule_confirmed_by_school),
       sourceType: game.source_type || "",
       parserType: game.parser_type || "",
+      record,
+      conferenceName: record?.conference_name || game.conference_name || null,
       teamId: schoolId,
       schoolIds,
       team: schoolName,
@@ -212,9 +230,10 @@
     const teamId = teamIdForSchool(schoolId);
     const payload = await fetchJson(`/api/v1/teams/${encodeURIComponent(teamId)}/schedule`, 15000);
     if (!Array.isArray(payload?.games)) throw new Error("API returned no team schedule");
+    const record = normalizeRecord(payload?.record);
     return payload.games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
-      .map(game => mapApiGame(game, school))
+      .map(game => mapApiGame(game, school, record))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   }
 

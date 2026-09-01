@@ -1,5 +1,6 @@
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { collectionSafety, dateKeyInZone } from "./schedule-authority-core.js";
+import { rebuildStatewideRecords } from "./record-rebuild.js";
 
 const STATE_ID="dragonfly:ArkAA:2026:WVB_Varsity";
 const DEFAULT_FEED="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
@@ -220,19 +221,7 @@ export async function runDragonFlyStatewideCollection(env,{
       ) UPDATE sources SET last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=200,
         consecutive_failures=0,last_game_count=COALESCE((SELECT game_count FROM input WHERE input.id=sources.id),0),suspicious_game_count=0,updated_at=?
       WHERE id IN (SELECT id FROM input)`).bind(JSON.stringify(sourceHealth),checkedAt,checkedAt,checkedAt).run();
-    await env.DB.prepare(`INSERT INTO team_records(team_id,wins,losses,ties,conference_wins,conference_losses,conference_ties,calculated_at)
-      SELECT t.id,
-        SUM(CASE WHEN ce.status='FINAL' AND ((ce.home_school_id=t.school_id AND ce.home_score>ce.away_score) OR (ce.away_school_id=t.school_id AND ce.away_score>ce.home_score)) THEN 1 ELSE 0 END),
-        SUM(CASE WHEN ce.status='FINAL' AND ((ce.home_school_id=t.school_id AND ce.home_score<ce.away_score) OR (ce.away_school_id=t.school_id AND ce.away_score<ce.home_score)) THEN 1 ELSE 0 END),
-        SUM(CASE WHEN ce.status='FINAL' AND ce.home_score=ce.away_score AND (ce.home_school_id=t.school_id OR ce.away_school_id=t.school_id) THEN 1 ELSE 0 END),
-        SUM(CASE WHEN ce.status='FINAL' AND ce.conference_game=1 AND ((ce.home_school_id=t.school_id AND ce.home_score>ce.away_score) OR (ce.away_school_id=t.school_id AND ce.away_score>ce.home_score)) THEN 1 ELSE 0 END),
-        SUM(CASE WHEN ce.status='FINAL' AND ce.conference_game=1 AND ((ce.home_school_id=t.school_id AND ce.home_score<ce.away_score) OR (ce.away_school_id=t.school_id AND ce.away_score<ce.home_score)) THEN 1 ELSE 0 END),
-        SUM(CASE WHEN ce.status='FINAL' AND ce.conference_game=1 AND ce.home_score=ce.away_score AND (ce.home_school_id=t.school_id OR ce.away_school_id=t.school_id) THEN 1 ELSE 0 END),?
-      FROM teams t JOIN sources src ON src.team_id=t.id AND src.collection_mode='statewide'
-      LEFT JOIN canonical_events ce ON ce.sport=t.sport AND ce.gender=t.gender AND ce.season=t.season AND (ce.home_school_id=t.school_id OR ce.away_school_id=t.school_id)
-      GROUP BY t.id
-      ON CONFLICT(team_id) DO UPDATE SET wins=excluded.wins,losses=excluded.losses,ties=excluded.ties,
-        conference_wins=excluded.conference_wins,conference_losses=excluded.conference_losses,conference_ties=excluded.conference_ties,calculated_at=excluded.calculated_at`).bind(checkedAt).run();
+    await rebuildStatewideRecords(env,checkedAt);
 
     const details={pagesFetched,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,chunkSize};
     await env.DB.prepare(`INSERT INTO statewide_collection_state

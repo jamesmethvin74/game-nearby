@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, recordFromScheduleRows, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";
 
 const displayNames = new Map([
   ["conway", "Conway High School"],
@@ -82,4 +82,15 @@ test("same opponent at materially different times remains separate", () => {
   const b = { school_id:"conway", sport:"volleyball", gender:"girls", scheduled_at:"2026-09-19T17:00:00.000Z", opponent:"Nixa Springfield Classic" };
   assert.equal(scheduleRowsLikelyDuplicate(a,b), false);
   assert.equal(dedupeScheduleRows([a,b]).length, 2);
+});
+
+
+test("record calculation counts one real result when providers duplicate the same final", () => {
+  const rows = [
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway High School",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-a",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"AUTHORITATIVE_LIVE"},
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-b",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"},
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-28T23:00:00.000Z",opponent:"Benton High School",status:"FINAL",team_score:1,opponent_score:3,conference_game:1,counts_for_record:1,canonical_event_id:"ce-c",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"}
+  ];
+  const record=recordFromScheduleRows(rows,{reportingSchoolId:"greenwood"});
+  assert.deepEqual(record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:1,conference_ties:0,scored_finals:2});
 });

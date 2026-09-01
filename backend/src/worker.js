@@ -5,6 +5,7 @@ import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { ensureInitialStatewideData } from "./statewide-initializer.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
+import { rebuildStatewideRecords } from "./record-rebuild.js";
 
 let liveConfigReady = false;
 
@@ -75,6 +76,7 @@ async function ensureLiveConfig(env) {
     `).bind(now)
   ]);
 
+  await rebuildStatewideRecords(env,now);
   liveConfigReady = true;
 }
 
