@@ -58,6 +58,27 @@ test("school page parser handles a city-prefixed canonical slug", () => {
   assert.equal(parseMaxPrepsSchoolPage(page).mascot,"Grizzlies");
 });
 
+test("school page parser derives mascot from old team-page title metadata", () => {
+  const page = `<html><head><title>Conway Wampus Cats (Conway, AR) Varsity Volleyball</title><meta property="og:title" content="Conway Wampus Cats - Conway, AR" /></head></html>`;
+  const parsed = parseMaxPrepsSchoolPage(page,{name:"Conway High School",city:"Conway",sourceUrl:"https://www.maxpreps.com/m/team/default.aspx?schoolid=x"});
+  assert.equal(parsed.mascot,"Wampus Cats");
+});
+
+test("school page parser derives mascot from final canonical URL hint", () => {
+  const parsed = parseMaxPrepsSchoolPage("<html></html>",{
+    name:"Valley Springs High School",
+    city:"Valley Springs",
+    finalUrl:"https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/"
+  });
+  assert.equal(parsed.mascot,"Tigers");
+  assert.equal(parsed.canonicalUrl,"https://www.maxpreps.com/ar/valley-springs/valley-springs-tigers/");
+});
+
+test("school page parser does not mistake generic team metadata for a mascot", () => {
+  const page = `<title>Conway High School Varsity Volleyball - MaxPreps</title>`;
+  assert.equal(parseMaxPrepsSchoolPage(page,{name:"Conway High School",city:"Conway"}).mascot,null);
+});
+
 test("matcher uses authoritative name plus city and refuses ambiguous duplicate names", () => {
   const schools = [
     {id:"valley",name:"VALLEY SPRINGS HIGH SCHOOL",location_matched_name:"Valley Springs High School",city:"Valley Springs"},
