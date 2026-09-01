@@ -4,16 +4,29 @@ import { readFile } from "node:fs/promises";
 
 const html = await readFile(new URL("../../standings.html", import.meta.url), "utf8");
 const js = await readFile(new URL("../../standings.js", import.meta.url), "utf8");
+const css = await readFile(new URL("../../standings.css", import.meta.url), "utf8");
 const home = await readFile(new URL("../../index.html", import.meta.url), "utf8");
 const serviceWorker = await readFile(new URL("../../service-worker.js", import.meta.url), "utf8");
 const wrapper = await readFile(new URL("../src/standings-worker.js", import.meta.url), "utf8");
 
-test("Standings page exposes sport and conference selectors and a live standings table", () => {
-  assert.match(html, /id="standingsSport"/);
-  assert.match(html, /id="standingsConference"/);
+test("Standings page uses custom sport and conference pickers instead of native selects", () => {
+  assert.match(html, /id="standingsSportTrigger"/);
+  assert.match(html, /id="standingsConferenceTrigger"/);
+  assert.match(html, /id="standingsPickerDialog"/);
+  assert.match(html, /id="standingsPickerOptions"/);
+  assert.doesNotMatch(html, /<select\b/i);
+  assert.match(js, /openPicker\("sport"\)/);
+  assert.match(js, /openPicker\("conference"\)/);
+  assert.match(js, /showModal\(\)/);
+});
+
+test("Standings page keeps live conference and overall records visible on phones", () => {
   assert.match(html, /id="standingsBody"/);
-  assert.match(html, />Conference</);
-  assert.match(html, />Overall</);
+  assert.match(html, />Conf\.<\/th>/);
+  assert.match(html, />Overall<\/th>/);
+  assert.match(css, /table-layout:\s*fixed/);
+  assert.doesNotMatch(css, /min-width:\s*500px/);
+  assert.match(css, /\.standings-table \.pct-col\s*\{\s*display:\s*none/);
 });
 
 test("Standings UI loads options and standings from the public API", () => {
@@ -23,15 +36,15 @@ test("Standings UI loads options and standings from the public API", () => {
   assert.match(wrapper, /\/api\/v1\/standings/);
 });
 
-test("Home navigation and PWA shell include Standings", () => {
+test("Home navigation and PWA shell include polished Standings v52", () => {
   assert.match(home, /href="standings\.html"[^>]*>[^<]*<span>Standings<\/span>/);
-  assert.match(serviceWorker, /localbleachersar-shell-v51/);
+  assert.match(serviceWorker, /localbleachersar-shell-v52/);
   assert.match(serviceWorker, /\.\/standings\.html/);
   assert.match(serviceWorker, /\.\/standings\.js/);
   assert.match(serviceWorker, /\.\/standings\.css/);
 });
 
-test("Standings page identifies the published official Arkansas source", () => {
-  assert.match(html, /Arkansas Activities Association scores and statistics partner/);
+test("Standings page identifies the published Arkansas source compactly", () => {
+  assert.match(html, /Arkansas Activities Association scores &amp; stats partner/);
   assert.match(html, />MaxPreps<\/a>/);
 });
