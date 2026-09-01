@@ -70,6 +70,23 @@ function schoolNameBases(name, city = "") {
   return [...unique.values()].sort((a, b) => b.length - a.length);
 }
 
+function mascotFromUrlSegments(urlValue, name, city = "") {
+  const url = clean(urlValue);
+  if (!url || !name) return "";
+  try {
+    const segments = new URL(url).pathname.split("/").filter(Boolean);
+    for (let index = segments.length - 1; index >= 0; index--) {
+      const slugWords = words(segments[index]);
+      for (const base of schoolNameBases(name, city)) {
+        if (!startsWithTokens(slugWords, base)) continue;
+        const remainder = slugWords.slice(base.length);
+        if (remainder.length && remainder.length <= 5) return titleWords(remainder);
+      }
+    }
+  } catch {}
+  return "";
+}
+
 function highSchoolJsonLd(text) {
   const scripts = [...String(text || "").matchAll(/<script\b[^>]*type=(?:"application\/ld\+json"|'application\/ld\+json')[^>]*>([\s\S]*?)<\/script>/gi)];
   const candidates = [];
@@ -85,21 +102,7 @@ function highSchoolJsonLd(text) {
 }
 
 function mascotFromCanonicalSlug(page) {
-  const canonicalUrl = clean(page?.url);
-  const name = clean(page?.name);
-  const city = clean(page?.address?.addressLocality);
-  if (!canonicalUrl || !name) return "";
-  try {
-    const path = new URL(canonicalUrl).pathname.split("/").filter(Boolean);
-    const slug = path[path.length - 1] || "";
-    const slugWords = words(slug);
-    for (const base of schoolNameBases(name, city)) {
-      if (!startsWithTokens(slugWords, base)) continue;
-      const remainder = slugWords.slice(base.length);
-      if (remainder.length && remainder.length <= 5) return titleWords(remainder);
-    }
-  } catch {}
-  return "";
+  return mascotFromUrlSegments(page?.url, page?.name, page?.address?.addressLocality);
 }
 
 function mascotFromHeaderLink(text, page) {
@@ -145,18 +148,7 @@ function metadataValues(text) {
 }
 
 function mascotFromUrl(urlValue, name, city = "") {
-  const url = clean(urlValue);
-  if (!url || !name) return "";
-  try {
-    const path = new URL(url).pathname.split("/").filter(Boolean);
-    const slugWords = words(path[path.length - 1] || "");
-    for (const base of schoolNameBases(name, city)) {
-      if (!startsWithTokens(slugWords, base)) continue;
-      const remainder = slugWords.slice(base.length);
-      if (remainder.length && remainder.length <= 5) return titleWords(remainder);
-    }
-  } catch {}
-  return "";
+  return mascotFromUrlSegments(urlValue, name, city);
 }
 
 function mascotFromMetadata(text, hints = {}) {
