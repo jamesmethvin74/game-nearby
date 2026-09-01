@@ -3,30 +3,12 @@ import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js"
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
-import { ensureInitialStatewideData } from "./statewide-initializer.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
-import { rebuildStatewideRecords } from "./record-rebuild.js";
 import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
-
-let startupMaintenanceQueued = false;
 
 function defer(ctx, promise) {
   if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
   else promise.catch(error => console.error("background task failed", error));
-}
-
-function queueStartupMaintenance(env, ctx) {
-  if (startupMaintenanceQueued) return;
-  startupMaintenanceQueued = true;
-  defer(ctx, (async () => {
-    try {
-      await ensureStatewideSchema(env);
-      await rebuildStatewideRecords(env, new Date().toISOString());
-    } catch (error) {
-      startupMaintenanceQueued = false;
-      console.error("startup maintenance failed; serving last-known-good data", error);
-    }
-  })());
 }
 
 async function displayNamesForGames(env, games, extraSchoolIds = []) {
@@ -92,7 +74,6 @@ function publicJson(request,body,status=200){
 
 export default {
   async fetch(request, env, ctx) {
-    queueStartupMaintenance(env,ctx);
     const path=new URL(request.url).pathname;
 
     if (request.method==="GET" && path==="/api/v1/branding/report") {
@@ -105,10 +86,6 @@ export default {
       }
     }
 
-    if (request.method==="GET" && (path==="/api/v1/schools" || path==="/api/v1/games")) {
-      defer(ctx,ensureInitialStatewideData(env).catch(error=>console.error("statewide volleyball initial production bootstrap failed",error)));
-      defer(ctx,enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
-    }
     const response=await core.fetch(request, env, ctx);
     return publicCatalogResponse(request,response,env);
   },
