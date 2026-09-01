@@ -22,11 +22,12 @@ jobs:
           const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const [schoolResponse,directoryResponse]=await Promise.all([
             fetch(`${API}/api/v1/schools`,{headers:{accept:'application/json'}}),
-            fetch('https://www.maxpreps.com/ar/volleyball/schools/',{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding diagnostics'}})
+            fetch('https://www.maxpreps.com/ar/schools/',{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding diagnostics'}})
           ]);
           const schools=(await schoolResponse.json()).schools||[];
           const entries=parseMaxPrepsSchoolDirectory(await directoryResponse.text());
           const result=matchMaxPrepsBranding(entries,schools,[]);
+          console.log('SUMMARY',JSON.stringify({visibleSchools:schools.length,sourceEntries:entries.length,matched:result.matches.length,unresolved:result.unresolved.length,ambiguous:result.ambiguous.length}));
           const tokens=value=>new Set(normalizeSchoolAlias(value).split(/\s+/).filter(Boolean));
           const score=(a,b)=>{
             const aa=tokens(a),bb=tokens(b); if(!aa.size||!bb.size)return 0;
