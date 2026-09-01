@@ -71,13 +71,11 @@ async function runInitialStatewideCycle(env) {
 }
 
 export async function ensureInitialStatewideData(env) {
-  if (String(env.LAZY_STATEWIDE_BOOTSTRAP || "") !== "1") return false;
-
-  // Branding freshness is independent from schedule freshness. Run the cheap
-  // state check on every catalog/nearby request so a stale logo catalog can
-  // refresh even when statewide schedule data is already healthy.
+  // Branding has its own freshness state and should refresh even if lazy schedule
+  // bootstrap is disabled. This keeps mascot logos independent from schedule ingest.
   await ensureBranding(env);
 
+  if (String(env.LAZY_STATEWIDE_BOOTSTRAP || "") !== "1") return false;
   if (await statewideDataReady(env)) return true;
 
   if (!bootstrapPromise) {
