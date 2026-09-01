@@ -74,3 +74,18 @@ test("matcher uses authoritative name plus city and refuses ambiguous duplicate 
   assert.equal(result.matches.find(row => row.schoolId === "lakeside-hot-springs")?.entry.externalSchoolId, "h");
   assert.ok(result.ambiguous.some(row => row.entry.externalSchoolId === "x"));
 });
+
+test("matcher accepts conservative same-city institutional name variants", () => {
+  const schools = [
+    {id:"episcopal",name:"Episcopal Collegiate School",location_matched_name:"Episcopal Collegiate School",city:"Little Rock"},
+    {id:"robinson",name:"Joe T. Robinson High School",location_matched_name:"Joe T. Robinson High School",city:"Little Rock"},
+    {id:"other-central",name:"Central Arkansas Christian",location_matched_name:"Central Arkansas Christian",city:"Little Rock"}
+  ];
+  const entries = [
+    {externalSchoolId:"e",name:"Episcopal",city:"Little Rock",logoUrl:"https://image.maxpreps.io/school-mascot/e.gif",sourceUrl:"e"},
+    {externalSchoolId:"r",name:"Robinson",city:"Little Rock",logoUrl:"https://image.maxpreps.io/school-mascot/r.gif",sourceUrl:"r"}
+  ];
+  const result = matchMaxPrepsBranding(entries, schools, []);
+  assert.equal(result.matches.find(row => row.schoolId === "episcopal")?.matchMethod,"city-token-containment");
+  assert.equal(result.matches.find(row => row.schoolId === "robinson")?.matchMethod,"city-token-containment");
+});
