@@ -65,6 +65,10 @@ function formatRecord(wins, losses, ties = 0) {
   return ties ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
 }
 
+function rowRecordGames(row = {}) {
+  return Number(row.wins || 0) + Number(row.losses || 0) + Number(row.ties || 0);
+}
+
 export function parseFearlessFridaySeasonRecord(html, season = 2026) {
   const text = cleanText(html);
   const pattern = new RegExp(`\\b${season}\\b\\s+Record:\\s*(\\d+)\\s*-\\s*(\\d+)\\s*-\\s*(\\d+)`, "i");
@@ -130,4 +134,46 @@ export async function reconcileFootballOverallRecords(result, { sport, fetchFn =
     result.conference.secondary_source_url = "https://fearlessfriday.com/";
   }
   return result;
+}
+
+export async function reconcileFootballGameRecords(games, { fetchFn = fetch, maxTeams = 8 } = {}) {
+  if (!Array.isArray(games) || !games.length) return games;
+
+  const candidates = [];
+  const seen = new Set();
+  for (const game of games) {
+    if (String(game?.sport || "").toLowerCase() !== "football") continue;
+    if (String(game?.level || "").toLowerCase() !== "high-school") continue;
+    if (rowRecordGames(game) !== 0) continue;
+    const schoolName = String(game?.school_name || "").trim();
+    if (!schoolName) continue;
+    const key = String(game?.team_id || schoolName).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    candidates.push({ key, schoolName, season: Number(game?.season) || 2026 });
+    if (candidates.length >= maxTeams) break;
+  }
+  if (!candidates.length) return games;
+
+  const records = new Map();
+  await Promise.all(candidates.map(async candidate => {
+    const secondary = await fetchFearlessRecord(candidate.schoolName, {
+      fetchFn,
+      season: candidate.season
+    });
+    if (secondary?.games > 0) records.set(candidate.key, secondary);
+  }));
+
+  if (!records.size) return games;
+  for (const game of games) {
+    const key = String(game?.team_id || game?.school_name || "").toLowerCase();
+    const secondary = records.get(key);
+    if (!secondary || secondary.games <= rowRecordGames(game)) continue;
+    game.wins = secondary.wins;
+    game.losses = secondary.losses;
+    game.ties = secondary.ties;
+    game.overall_record_source = "Fearless Friday";
+    game.overall_record_source_url = secondary.source_url;
+  }
+  return games;
 }

@@ -5,6 +5,7 @@ import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
 import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
+import { reconcileFootballGameRecords } from "./football-record-reconciliation.js";
 
 function defer(ctx, promise) {
   if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
@@ -155,6 +156,7 @@ async function listNearbyGamesBounded(request,env,url){
     chosen.push(game);
   }
 
+  await reconcileFootballGameRecords(chosen);
   return {games:chosen};
 }
 
