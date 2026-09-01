@@ -24,9 +24,9 @@ test("database record rebuild persists duplicate-safe statewide totals", async()
   const insertCanonical=db.prepare(`INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at) VALUES(?,'volleyball','girls','2026','a','b','a','b',?,1,0,'FINAL',3,0,'a-statewide',?,0,'{}',?,?)`);
   insertCanonical.run('ce-one','2026-08-31T23:00:00.000Z','CORROBORATED',now,now);
   insertCanonical.run('ce-duplicate','2026-08-31T23:00:00.000Z','AUTHORITATIVE_LIVE',now,now);
-  const gameInsert=db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,source_url,last_checked_at,updated_at,canonical_event_id) VALUES(?,?,?,?,?,?,?,?,?,0,1,'FINAL',3,0,'W','https://example.test',?,?,?)`);
-  gameInsert.run('g-one','a-volleyball-2026','a-statewide','native:one','Beta High School','b','2026-08-31T23:00:00.000Z',1,'home',now,now,'ce-one');
-  gameInsert.run('g-dup','a-volleyball-2026','a-statewide','native:dup','Beta High School','b','2026-08-31T23:00:00.000Z',1,'home',now,now,'ce-duplicate');
+  const gameInsert=db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id) VALUES(?,?,?,?,?,?,?,?,?,0,1,'FINAL',3,0,'W','https://example.test',?,?,?,?)`);
+  gameInsert.run('g-one','a-volleyball-2026','a-statewide','native:one','Beta High School','b','2026-08-31T23:00:00.000Z',1,'home',now,now,now,'ce-one');
+  gameInsert.run('g-dup','a-volleyball-2026','a-statewide','native:dup','Beta High School','b','2026-08-31T23:00:00.000Z',1,'home',now,now,now,'ce-duplicate');
   await rebuildStatewideRecords(env,now);
   let record=db.prepare("SELECT * FROM team_records WHERE team_id='a-volleyball-2026'").get();
   assert.equal(record.wins,1); assert.equal(record.losses,0);
