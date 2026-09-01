@@ -1,6 +1,7 @@
 import app from "./worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
+import { fetchCollegeRecord } from "./college-records.js";
 
 function publicJson(request, body, status = 200) {
   const origin = request.headers.get("origin");
@@ -41,6 +42,20 @@ async function handleStandingsRequest(request) {
       return publicJson(request, { ...result, retrieved_at: new Date().toISOString() });
     } catch (error) {
       return publicJson(request, { error: "standings_unavailable", message: String(error?.message || error) }, 502);
+    }
+  }
+
+  if (url.pathname === "/api/v1/college-record") {
+    const schoolId = String(url.searchParams.get("school") || "").toLowerCase();
+    const sport = String(url.searchParams.get("sport") || "").toLowerCase();
+    const gender = String(url.searchParams.get("gender") || "").toLowerCase();
+    if (!schoolId || !sport || !gender) return publicJson(request, { error:"school_sport_gender_required" }, 400);
+    try {
+      const record = await fetchCollegeRecord({ schoolId, sport, gender });
+      if (!record) return publicJson(request, { error:"college_record_not_supported" }, 404);
+      return publicJson(request, { record, retrieved_at:new Date().toISOString() });
+    } catch (error) {
+      return publicJson(request, { error:"college_record_unavailable", message:String(error?.message || error) }, 502);
     }
   }
 
