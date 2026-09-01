@@ -70,14 +70,16 @@ function schoolNameBases(name, city = "") {
   return [...unique.values()].sort((a, b) => b.length - a.length);
 }
 
-function mascotFromUrlSegments(urlValue, name, city = "") {
+function mascotFromUrlSegments(urlValue, name, city = "", alternateNames = []) {
   const url = clean(urlValue);
-  if (!url || !name) return "";
+  const candidateNames = [...new Set([name, ...alternateNames].map(clean).filter(Boolean))];
+  if (!url || !candidateNames.length) return "";
   try {
     const segments = new URL(url).pathname.split("/").filter(Boolean);
+    const bases = candidateNames.flatMap(candidateName => schoolNameBases(candidateName, city));
     for (let index = segments.length - 1; index >= 0; index--) {
       const slugWords = words(segments[index]);
-      for (const base of schoolNameBases(name, city)) {
+      for (const base of bases) {
         if (!startsWithTokens(slugWords, base)) continue;
         const remainder = slugWords.slice(base.length);
         if (remainder.length && remainder.length <= 5) return titleWords(remainder);
@@ -101,8 +103,13 @@ function highSchoolJsonLd(text) {
   return candidates.find(item => String(item?.["@type"] || "").toLowerCase() === "highschool") || null;
 }
 
-function mascotFromCanonicalSlug(page) {
-  return mascotFromUrlSegments(page?.url, page?.name, page?.address?.addressLocality);
+function mascotFromCanonicalSlug(page, hints = {}) {
+  return mascotFromUrlSegments(
+    page?.url,
+    page?.name || hints.name,
+    page?.address?.addressLocality || hints.city,
+    [hints.sourceName, hints.name]
+  );
 }
 
 function mascotFromHeaderLink(text, page) {
@@ -147,8 +154,8 @@ function metadataValues(text) {
   return [...new Set(values.map(clean).filter(Boolean))];
 }
 
-function mascotFromUrl(urlValue, name, city = "") {
-  return mascotFromUrlSegments(urlValue, name, city);
+function mascotFromUrl(urlValue, name, city = "", alternateNames = []) {
+  return mascotFromUrlSegments(urlValue, name, city, alternateNames);
 }
 
 function mascotFromMetadata(text, hints = {}) {
@@ -206,9 +213,8 @@ function fuzzyCityMatch(entry, schools) {
   const scored = [];
   for (const school of schools) {
     if (cityKey(school.city) !== entryCity) continue;
-    const names = [school.location_matched_name, school.name].filter(Boolean);
-    let best = 0;
-    for (const name of names) best = Math.max(best, tokenContainmentScore(entryTokens, brandingTokens(name)));
+    const authoritativeName = school.location_matched_name || school.name;
+    const best = tokenContainmentScore(entryTokens, brandingTokens(authoritativeName));
     if (best > 0) scored.push({ school, score: best });
   }
   scored.sort((a, b) => b.score - a.score || a.school.id.localeCompare(b.school.id));
@@ -274,9 +280,9 @@ export function parseMaxPrepsSchoolPage(html, hints = {}) {
   const city = clean(page?.address?.addressLocality || hints.city);
   const explicitMascot = decodeHtml(text.match(/<dt[^>]*>\s*Mascot\s*<\/dt>\s*<dd[^>]*>([^<]+)<\/dd>/i)?.[1] || "");
   const mascot = explicitMascot
+    || mascotFromCanonicalSlug(page, hints)
+    || mascotFromUrl(hints.finalUrl || hints.sourceUrl, name, city, [hints.sourceName, hints.name])
     || mascotFromHeaderLink(text, page)
-    || mascotFromCanonicalSlug(page)
-    || mascotFromUrl(hints.finalUrl || hints.sourceUrl, name, city)
     || mascotFromMetadata(text, { name, city });
   const colorMatches = [...text.matchAll(/background-color:\s*#([0-9a-f]{6})/gi)].map(match => `#${match[1].toUpperCase()}`);
   return {
@@ -361,13 +367,14 @@ export async function ensureSchoolBrandingSchema(env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS school_brand_assets (
     school_id TEXT PRIMARY KEY REFERENCES schools(id) ON DELETE CASCADE,
     mascot TEXT, logo_url TEXT, primary_color TEXT, secondary_color TEXT,
-    provider TEXT, external_school_id TEXT, source_url TEXT, mascot_source_url TEXT,
+    provider TEXT, provider_name TEXT, external_school_id TEXT, source_url TEXT, mascot_source_url TEXT,
     match_method TEXT, match_confidence REAL,
     status TEXT NOT NULL DEFAULT 'unresolved' CHECK(status IN ('matched','curated','unresolved')),
     last_checked_at TEXT, mascot_checked_at TEXT, verified_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`).run();
+  await addColumnIfMissing(env, "school_brand_assets", "provider_name", "TEXT");
   await addColumnIfMissing(env, "school_brand_assets", "mascot_source_url", "TEXT");
   await addColumnIfMissing(env, "school_brand_assets", "mascot_checked_at", "TEXT");
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_school_brand_assets_provider ON school_brand_assets(provider,external_school_id)").run();
@@ -417,7 +424,7 @@ export async function enrichMaxPrepsSchoolMascots(env, {
   const checkedAt = now.toISOString();
   const retryBefore = new Date(now.getTime() - retryDays * 24 * 60 * 60 * 1000).toISOString();
   const { results: pending } = await env.DB.prepare(`
-    SELECT b.school_id,b.source_url,s.name,s.city
+    SELECT b.school_id,b.provider_name,b.source_url,s.name,s.city
     FROM school_brand_assets b JOIN schools s ON s.id=b.school_id
     WHERE b.provider=? AND b.status='matched' AND b.source_url IS NOT NULL
       AND (b.mascot IS NULL OR TRIM(b.mascot)='')
@@ -434,7 +441,13 @@ export async function enrichMaxPrepsSchoolMascots(env, {
     const results = await Promise.allSettled(chunk.map(async row => {
       const response = await fetchFn(row.source_url, { headers: { "user-agent": "LocalBleachersAR-branding/1.0", accept: "text/html" }, redirect: "follow" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const parsed = parseMaxPrepsSchoolPage(await response.text(), { name: row.name, city: row.city, sourceUrl: row.source_url, finalUrl: response.url });
+      const parsed = parseMaxPrepsSchoolPage(await response.text(), {
+        name: row.name,
+        sourceName: row.provider_name,
+        city: row.city,
+        sourceUrl: row.source_url,
+        finalUrl: response.url
+      });
       if (!parsed.mascot) return { row, parsed, updated: false };
       await env.DB.prepare(`UPDATE school_brand_assets SET
         mascot=?,primary_color=COALESCE(?,primary_color),secondary_color=COALESCE(?,secondary_color),
@@ -473,8 +486,8 @@ export async function getSchoolBrandingReport(env) {
       AND b.logo_url IS NULL
     ORDER BY name`).all();
   const { results: missingMascot } = await env.DB.prepare(`SELECT
-      s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS name,s.name AS provider_name,s.city,s.state,s.level,
-      b.logo_url,b.source_url,b.mascot_checked_at
+      s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS name,s.name AS school_provider_name,s.city,s.state,s.level,
+      b.provider_name,b.logo_url,b.source_url,b.mascot_checked_at
     FROM schools s JOIN school_brand_assets b ON b.school_id=s.id
     WHERE s.catalog_scope='local'
       AND EXISTS(SELECT 1 FROM teams t WHERE t.school_id=s.id AND t.active=1)
@@ -526,14 +539,14 @@ export async function syncMaxPrepsSchoolBranding(env, {
     for (const match of matches) {
       const entry = match.entry;
       statements.push(env.DB.prepare(`INSERT INTO school_brand_assets
-        (school_id,logo_url,provider,external_school_id,source_url,match_method,match_confidence,status,last_checked_at,verified_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,'matched',?,?,?)
+        (school_id,logo_url,provider,provider_name,external_school_id,source_url,match_method,match_confidence,status,last_checked_at,verified_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,'matched',?,?,?)
         ON CONFLICT(school_id) DO UPDATE SET
-          logo_url=excluded.logo_url,provider=excluded.provider,external_school_id=excluded.external_school_id,
+          logo_url=excluded.logo_url,provider=excluded.provider,provider_name=excluded.provider_name,external_school_id=excluded.external_school_id,
           source_url=excluded.source_url,match_method=excluded.match_method,match_confidence=excluded.match_confidence,
           status='matched',last_checked_at=excluded.last_checked_at,verified_at=excluded.verified_at,updated_at=excluded.updated_at
         WHERE school_brand_assets.status!='curated'`)
-        .bind(match.schoolId, entry.logoUrl, PROVIDER, entry.externalSchoolId, entry.sourceUrl, match.matchMethod, match.confidence, checkedAt, checkedAt, checkedAt));
+        .bind(match.schoolId, entry.logoUrl, PROVIDER, entry.name, entry.externalSchoolId, entry.sourceUrl, match.matchMethod, match.confidence, checkedAt, checkedAt, checkedAt));
     }
     for (const school of unresolved) {
       statements.push(env.DB.prepare(`INSERT INTO school_brand_assets(school_id,status,last_checked_at,updated_at)
