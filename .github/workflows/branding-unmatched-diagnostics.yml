@@ -1,0 +1,23 @@
+name: Branding unmatched diagnostics
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/branding-unmatched-diagnostics.yml'
+      - 'backend/src/school-branding.js'
+      - 'backend/src/school-branding-curated.js'
+      - 'backend/test/school-branding.test.js'
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print production unmatched branding identities
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          url='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/branding/report'
+          with urllib.request.urlopen(url, timeout=30) as r:
+              data=json.load(r)
+          print(json.dumps(data.get('unmatched', []), indent=2))
+          PY
