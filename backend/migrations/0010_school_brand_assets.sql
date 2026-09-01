@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS school_brand_assets (
   primary_color TEXT,
   secondary_color TEXT,
   provider TEXT,
+  provider_name TEXT,
   external_school_id TEXT,
   source_url TEXT,
   mascot_source_url TEXT,
