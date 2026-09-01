@@ -1,13 +1,15 @@
-const CACHE_NAME = "localbleachersar-shell-v50";
+const CACHE_NAME = "localbleachersar-shell-v51";
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./standings.html",
   "./manifest.json",
   "./styles.css",
   "./polish.css",
   "./brand-exact.css",
   "./pitched-layout.css",
   "./reference-layout.css",
+  "./standings.css",
   "./app.js",
   "./school-expansion.js",
   "./school-ticket-links.js",
@@ -18,6 +20,7 @@ const CORE_ASSETS = [
   "./team-detail.js",
   "./live-data.js",
   "./school-logo-ui.js",
+  "./standings.js",
   "./assets/app-icon-192-v35.png",
   "./assets/app-icon-512-v35.png",
   "./assets/splash-logo-v35.webp"
@@ -40,17 +43,20 @@ self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
 
   if (event.request.mode === "navigate") {
+    const requestUrl = new URL(event.request.url);
+    const isStandings = /\/standings(?:\.html)?\/?$/.test(requestUrl.pathname);
+    const cacheKey = isStandings ? "./standings.html" : "./index.html";
     const network = fetch(event.request).then(async response => {
       if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
-        await cache.put("./index.html", response.clone());
+        await cache.put(cacheKey, response.clone());
       }
       return response;
     });
 
     event.waitUntil(network.catch(() => undefined));
     event.respondWith((async () => {
-      const cached = await caches.match("./index.html", {ignoreSearch:true});
+      const cached = await caches.match(cacheKey, {ignoreSearch:true});
       if (cached) return cached;
       try {
         return await network;

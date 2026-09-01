@@ -1,0 +1,67 @@
+name: Standings live proof
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/published-standings.js"
+      - "backend/src/standings-worker.js"
+      - "backend/test/published-standings.test.js"
+      - "backend/test/standings-ui.test.js"
+      - "standings.html"
+      - "standings.js"
+      - "standings.css"
+      - "service-worker.js"
+      - ".github/workflows/standings-live-proof.yml"
+  push:
+    branches: [feature/standings-page-v1]
+    paths:
+      - "backend/src/published-standings.js"
+      - "backend/src/standings-worker.js"
+      - "backend/test/published-standings.test.js"
+      - "backend/test/standings-ui.test.js"
+      - "standings.html"
+      - "standings.js"
+      - "standings.css"
+      - "service-worker.js"
+      - ".github/workflows/standings-live-proof.yml"
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify current Arkansas published standings
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { listPublishedStandingsOptions, fetchPublishedStandings } from './src/published-standings.js';
+
+          const options = await listPublishedStandingsOptions({ sport: 'volleyball' });
+          assert.ok(options.conferences.length >= 10, `expected broad Arkansas conference discovery, found ${options.conferences.length}`);
+          const central = options.conferences.find(row => row.id === '6a-central');
+          assert.ok(central, 'current 6A Central volleyball conference was not discovered');
+          assert.match(central.source_url, /\/ar\/volleyball\/26-27\/conference\/6a-central\//);
+
+          const standings = await fetchPublishedStandings({ sport: 'volleyball', conferenceId: '6a-central' });
+          assert.ok(standings.standings.length >= 5, `6A Central standings suspiciously small: ${standings.standings.length}`);
+          const names = new Set(standings.standings.map(row => row.school_name.toLowerCase()));
+          assert.ok([...names].some(name => name.includes('conway')), '6A Central live standings missing Conway');
+          assert.ok(standings.standings.every(row => /^\d+-\d+(?:-\d+)?$/.test(row.overall_record)), 'invalid overall record in live standings');
+          assert.ok(standings.standings.every(row => /^\d+-\d+(?:-\d+)?$/.test(row.conference_record)), 'invalid conference record in live standings');
+
+          console.log(JSON.stringify({
+            verified: true,
+            conferences: options.conferences.length,
+            source: standings.conference.source_url,
+            rows: standings.standings.length,
+            teams: standings.standings.map(row => ({ rank: row.rank, team: row.school_name, conference: row.conference_record, overall: row.overall_record }))
+          }, null, 2));
+          JS

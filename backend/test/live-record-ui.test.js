@@ -8,13 +8,15 @@ const logos = await readFile(new URL("../../school-logo-ui.js", import.meta.url)
 const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
 const branding = await readFile(new URL("../src/school-branding.js", import.meta.url), "utf8");
 
-test("v50 forces installed clients onto the mascot-logo frontend", () => {
+test("v51 keeps the mascot-logo frontend while adding the standings shell", () => {
   assert.match(html, /polish\.js\?v=49/);
   assert.match(html, /team-detail\.js\?v=49/);
   assert.match(html, /live-data\.js\?v=49/);
   assert.match(html, /school-logo-ui\.js\?v=50/);
-  assert.match(sw, /localbleachersar-shell-v50/);
+  assert.match(html, /href="standings\.html"/);
+  assert.match(sw, /localbleachersar-shell-v51/);
   assert.match(sw, /school-logo-ui\.js/);
+  assert.match(sw, /standings\.html/);
   assert.match(logos, /school-mascot-logo/);
   assert.match(logos, /team-choice-logo/);
   assert.match(logos, /badgeFor = badgeMarkup/);
