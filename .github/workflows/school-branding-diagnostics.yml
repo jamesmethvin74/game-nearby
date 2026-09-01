@@ -1,0 +1,47 @@
+name: School branding diagnostics
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/school-branding-diagnostics.yml"
+      - "backend/src/school-branding.js"
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compare unmatched LocalBleachers schools to MaxPreps directory
+        run: |
+          node --input-type=module <<'JS'
+          import { parseMaxPrepsSchoolDirectory, matchMaxPrepsBranding } from './backend/src/school-branding.js';
+          import { normalizeSchoolAlias } from './backend/src/schedule-authority-core.js';
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const [schoolResponse,directoryResponse]=await Promise.all([
+            fetch(`${API}/api/v1/schools`,{headers:{accept:'application/json'}}),
+            fetch('https://www.maxpreps.com/ar/volleyball/schools/',{headers:{'user-agent':'Mozilla/5.0 LocalBleachersAR branding diagnostics'}})
+          ]);
+          const schools=(await schoolResponse.json()).schools||[];
+          const entries=parseMaxPrepsSchoolDirectory(await directoryResponse.text());
+          const result=matchMaxPrepsBranding(entries,schools,[]);
+          const tokens=value=>new Set(normalizeSchoolAlias(value).split(/\s+/).filter(Boolean));
+          const score=(a,b)=>{
+            const aa=tokens(a),bb=tokens(b); if(!aa.size||!bb.size)return 0;
+            const inter=[...aa].filter(x=>bb.has(x)).length;
+            return (2*inter)/(aa.size+bb.size);
+          };
+          for(const school of result.unresolved){
+            const name=school.location_matched_name||school.name;
+            const city=String(school.city||'').toLowerCase();
+            const candidates=entries.map(entry=>({
+              name:entry.name,city:entry.city,id:entry.externalSchoolId,
+              nameScore:score(name,entry.name),citySame:city&&String(entry.city||'').toLowerCase()===city
+            })).sort((a,b)=>(Number(b.citySame)-Number(a.citySame))||(b.nameScore-a.nameScore)).slice(0,5);
+            console.log('\nUNRESOLVED',JSON.stringify({id:school.id,name,city:school.city,level:school.level,mascot:school.mascot}));
+            console.log('CANDIDATES',JSON.stringify(candidates));
+          }
+          console.log('\nAMBIGUOUS',JSON.stringify(result.ambiguous,null,2));
+          JS
