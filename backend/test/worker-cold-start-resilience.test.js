@@ -5,12 +5,10 @@ import { readFile } from "node:fs/promises";
 const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf8");
 const statewide = await readFile(new URL("../src/dragonfly-statewide.js", import.meta.url), "utf8");
 
-test("public API cold start does not synchronously gate on a statewide record rebuild", () => {
-  const ensureStart = worker.indexOf("async function ensureLiveConfig");
-  const ensureEnd = worker.indexOf("async function displayNamesForGames");
-  assert.ok(ensureStart >= 0 && ensureEnd > ensureStart, "ensureLiveConfig block not found");
-  const ensureBlock = worker.slice(ensureStart, ensureEnd);
-  assert.doesNotMatch(ensureBlock, /await\s+rebuildStatewideRecords/);
+test("public API cold start does not synchronously gate on runtime seed or statewide record repair", () => {
+  assert.doesNotMatch(worker, /ensureLiveConfig/);
+  assert.doesNotMatch(worker, /env\.DB\.batch\(/);
+  assert.doesNotMatch(worker, /await\s+rebuildStatewideRecords/);
   assert.match(worker, /queueRecordRepair/);
   assert.match(worker, /record rebuild background repair failed/);
 });
