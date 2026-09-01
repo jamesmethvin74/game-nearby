@@ -110,10 +110,9 @@ export function matchMaxPrepsBranding(entries, schools, aliases = []) {
     let candidates = [...(idsByName.get(key) || [])].map(id => schoolById.get(id)).filter(Boolean);
     if (!candidates.length) continue;
     const entryCity = cityKey(entry.city);
-    if (entryCity) {
+    if (candidates.length > 1 && entryCity) {
       const cityMatches = candidates.filter(school => cityKey(school.city) === entryCity);
-      if (cityMatches.length) candidates = cityMatches;
-      else if (candidates.some(school => cityKey(school.city))) continue;
+      if (cityMatches.length === 1) candidates = cityMatches;
     }
     if (candidates.length !== 1) {
       ambiguous.push({ entry, schoolIds: candidates.map(school => school.id) });
@@ -125,11 +124,12 @@ export function matchMaxPrepsBranding(entries, schools, aliases = []) {
       continue;
     }
     claimedSchools.add(school.id);
+    const cityAgrees = Boolean(entryCity && cityKey(school.city) === entryCity);
     matches.push({
       schoolId: school.id,
       entry,
-      matchMethod: entryCity && cityKey(school.city) === entryCity ? "normalized-name+city" : "normalized-name",
-      confidence: entryCity && cityKey(school.city) === entryCity ? 1 : 0.96
+      matchMethod: cityAgrees ? "normalized-name+city" : "normalized-name",
+      confidence: cityAgrees ? 1 : 0.98
     });
   }
   const matchedIds = new Set(matches.map(match => match.schoolId));
