@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "localbleachersar-sports-api",
-  "main": "src/standings-worker.js",
+  "main": "src/public-cors-worker.js",
   "compatibility_date": "2026-08-24",
   "workers_dev": true,
   "vars": {
