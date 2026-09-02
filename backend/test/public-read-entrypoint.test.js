@@ -13,6 +13,7 @@ test("public API entrypoint never runs schema maintenance on GET requests", () =
 
 test("public GET CORS wrapper remains outside the read path", () => {
   assert.match(corsWorker, /access-control-allow-origin", "\*"/);
-  assert.match(corsWorker, /x-localbleachers-api-cors", "public-get-v1"/);
+  assert.match(corsWorker, /x-localbleachers-api-cors", "public-get-v2"/);
+  assert.match(corsWorker, /x-localbleachers-api-release", "public-read-safe-v2"/);
   assert.match(corsWorker, /const response = await app\.fetch\(request, env, ctx\)/);
 });
