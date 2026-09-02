@@ -2,15 +2,23 @@
   const DEFAULT_API_BASE = "https://localbleachersar-sports-api.james-methvin74.workers.dev";
   const CACHE_KEY = "localBleachersAR:schoolCatalog:v1";
   const CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+
+  // Colleges currently supported by LocalBleachersAR's college schedule layer.
+  // The live statewide endpoint is a high-school catalog, so these must be
+  // preserved when that catalog refreshes instead of being overwritten.
+  const COLLEGE_SCHOOLS = [
+    { id:"uca", name:"University of Central Arkansas", mascot:"Bears / Sugar Bears", city:"Conway", state:"AR", level:"college", teamCount:1 },
+    { id:"hendrix", name:"Hendrix College", mascot:"Warriors", city:"Conway", state:"AR", level:"college", teamCount:1 },
+    { id:"cbc", name:"Central Baptist College", mascot:"Mustangs", city:"Conway", state:"AR", level:"college", teamCount:1 }
+  ];
+
   const FALLBACK_SCHOOLS = [
     { id:"conway", name:"Conway High School", mascot:"Wampus Cats", city:"Conway", state:"AR", level:"high-school" },
     { id:"greenbrier", name:"Greenbrier High School", mascot:"Panthers", city:"Greenbrier", state:"AR", level:"high-school" },
     { id:"vilonia", name:"Vilonia High School", mascot:"Eagles", city:"Vilonia", state:"AR", level:"high-school" },
     { id:"mayflower", name:"Mayflower High School", mascot:"Eagles", city:"Mayflower", state:"AR", level:"high-school" },
     { id:"maumelle", name:"Maumelle High School", mascot:"Hornets", city:"Maumelle", state:"AR", level:"high-school" },
-    { id:"uca", name:"University of Central Arkansas", mascot:"Bears / Sugar Bears", city:"Conway", state:"AR", level:"college" },
-    { id:"hendrix", name:"Hendrix College", mascot:"Warriors", city:"Conway", state:"AR", level:"college" },
-    { id:"cbc", name:"Central Baptist College", mascot:"Mustangs", city:"Conway", state:"AR", level:"college" }
+    ...COLLEGE_SCHOOLS
   ];
 
   const state = {
@@ -68,12 +76,22 @@
     };
   }
 
+  function withSupportedColleges(schools) {
+    const byId = new Map();
+    for (const school of COLLEGE_SCHOOLS) {
+      const normalized = normalizeSchool(school);
+      if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
+    }
+    for (const school of schools || []) {
+      const normalized = normalizeSchool(school);
+      if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   function installCatalog(schools, source, { cache = false } = {}) {
     if (!Array.isArray(schools)) return 0;
-    const normalized = schools
-      .map(normalizeSchool)
-      .filter(school => school.id && school.name)
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const normalized = withSupportedColleges(schools);
     if (!normalized.length) return 0;
 
     if (typeof SCHOOL_REGISTRY !== "undefined") {
