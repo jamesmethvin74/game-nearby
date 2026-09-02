@@ -5,14 +5,21 @@ on:
     paths:
       - "backend/**"
       - "live-data.js"
+      - "school-schedule.js"
       - "polish.js"
+      - "RESOURCE_BUDGETS.md"
       - ".github/workflows/backend-check.yml"
+      - ".github/workflows/production-statewide-smoke.yml"
   push:
     branches: [main]
     paths:
       - "backend/**"
       - "live-data.js"
+      - "school-schedule.js"
       - "polish.js"
+      - "RESOURCE_BUDGETS.md"
+      - ".github/workflows/backend-check.yml"
+      - ".github/workflows/production-statewide-smoke.yml"
 
 jobs:
   check:
