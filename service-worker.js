@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v55";
+const CACHE_NAME = "localbleachersar-shell-v56";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -47,8 +47,13 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
 
+  // Do not proxy requests to the sports API (or any other external origin)
+  // through the PWA service worker. Let the browser perform the normal CORS
+  // request directly. The service worker only owns the LocalBleachersAR shell.
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
+
   if (event.request.mode === "navigate") {
-    const requestUrl = new URL(event.request.url);
     const isTeams = /\/teams(?:\.html)?\/?$/.test(requestUrl.pathname);
     const isStandings = /\/standings(?:\.html)?\/?$/.test(requestUrl.pathname);
     const cacheKey = isTeams ? "./teams.html" : isStandings ? "./standings.html" : "./index.html";
@@ -76,7 +81,7 @@ self.addEventListener("fetch", event => {
   event.respondWith((async () => {
     try {
       const response = await fetch(event.request);
-      if (response.ok && event.request.url.startsWith(self.location.origin)) {
+      if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
         cache.put(event.request, response.clone());
       }
