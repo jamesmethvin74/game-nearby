@@ -11,9 +11,13 @@ test("public API entrypoint never runs schema maintenance on GET requests", () =
   assert.match(standingsWorker, /return app\.fetch\(request, env, ctx\)/);
 });
 
-test("public GET CORS wrapper remains outside the read path", () => {
+test("public read wrapper keeps CORS and last-good fallback outside the D1 route", () => {
   assert.match(corsWorker, /access-control-allow-origin", "\*"/);
-  assert.match(corsWorker, /x-localbleachers-api-cors", "public-get-v2"/);
-  assert.match(corsWorker, /x-localbleachers-api-release", "public-read-safe-v2"/);
-  assert.match(corsWorker, /const response = await app\.fetch\(request, env, ctx\)/);
+  assert.match(corsWorker, /const CORS_MARKER = "public-get-v3"/);
+  assert.match(corsWorker, /const RELEASE = "public-read-resilient-v3"/);
+  assert.match(corsWorker, /x-localbleachers-api-stale/);
+  assert.match(corsWorker, /x-localbleachers-cache-source/);
+  assert.match(corsWorker, /cacheDescriptor\(request\)/);
+  assert.match(corsWorker, /response\.status >= 500/);
+  assert.match(corsWorker, /staleRead\(cache, descriptor, request\)/);
 });
