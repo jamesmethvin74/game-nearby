@@ -7,11 +7,13 @@ const ui = await readFile(new URL("../../teams-page.js", import.meta.url), "utf8
 const css = await readFile(new URL("../../teams-page.css", import.meta.url), "utf8");
 const catalog = await readFile(new URL("../../teams-catalog-bootstrap.js", import.meta.url), "utf8");
 
-test("Teams picker does not truncate the statewide school list", () => {
+test("Teams picker does not truncate or hide schools from the statewide list", () => {
   assert.doesNotMatch(ui, /\.slice\(0\s*,\s*40\)/);
+  assert.doesNotMatch(ui, /\.filter\(school => !followed\.includes\(school\.id\)\)/);
   assert.match(ui, /function filteredSchools\(\)/);
   assert.match(ui, /school-result-follow/);
   assert.match(ui, /data-follow-id/);
+  assert.match(ui, /is-following/);
   assert.doesNotMatch(page, /id="followSchoolBtn"/);
 });
 
