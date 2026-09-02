@@ -14,21 +14,28 @@ test("Teams picker does not truncate or hide schools from the statewide list", (
   assert.match(ui, /school-result-follow/);
   assert.match(ui, /data-follow-id/);
   assert.match(ui, /is-following/);
-  assert.doesNotMatch(page, /id="followSchoolBtn"/);
 });
 
-test("Teams picker traps scrolling inside the open school list", () => {
-  assert.match(ui, /school-picker-open/);
+test("Teams picker opens a modal sheet with its own visible search box", () => {
+  assert.match(page, /<dialog id="schoolPickerDialog"/);
+  assert.match(page, /id="schoolPickerSearch"/);
+  assert.match(page, /id="schoolPickerTrigger"/);
+  assert.match(ui, /pickerDialog\.showModal\(\)/);
+  assert.match(css, /\.school-picker-dialog::backdrop/);
+  assert.match(css, /grid-template-rows:auto auto minmax\(0,1fr\)/);
+  assert.match(css, /\.school-search-results\{[^}]*overflow-y:auto/);
   assert.match(css, /overscroll-behavior:contain/);
-  assert.match(css, /html\.school-picker-open,body\.school-picker-open\{overflow:hidden/);
   assert.match(css, /touch-action:pan-y/);
 });
 
-test("live high-school refresh preserves supported colleges", () => {
+test("college picker has an explicit supported college source independent of high-school refresh", () => {
   assert.match(catalog, /const COLLEGE_SCHOOLS = \[/);
   assert.match(catalog, /University of Central Arkansas/);
   assert.match(catalog, /Hendrix College/);
   assert.match(catalog, /Central Baptist College/);
-  assert.match(catalog, /function withSupportedColleges\(schools\)/);
-  assert.match(catalog, /for \(const school of COLLEGE_SCHOOLS\)/);
+  assert.match(catalog, /getColleges: \(\) => COLLEGE_SCHOOLS\.map\(normalizeSchool\)/);
+  assert.match(ui, /const FALLBACK_COLLEGES = \[/);
+  assert.match(ui, /function supportedColleges\(\)/);
+  assert.match(ui, /getColleges/);
+  assert.match(ui, /level:"college"/);
 });
