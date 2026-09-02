@@ -222,7 +222,8 @@ export default {
         return publicJson(request,await listNearbyGamesBounded(request,env,url));
       } catch (error) {
         console.error("bounded nearby games query failed",error);
-        return publicJson(request,{error:"nearby_games_failed"},500);
+        const diagnostic=request.headers.get("x-localbleachers-diagnostic")==="read-v1";
+        return publicJson(request,{error:"nearby_games_failed",...(diagnostic?{diagnostic:String(error?.message||error)}:{})},500);
       }
     }
 
