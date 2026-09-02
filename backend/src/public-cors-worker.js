@@ -1,6 +1,6 @@
 import app from "./standings-worker.js";
 
-const RELEASE = "public-read-budget-v4";
+const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
 
 function applyPublicReadCors(request, response) {
@@ -105,6 +105,10 @@ async function readCached(cache, key, request, options = {}) {
   return cached ? cachedResponse(request, cached, options) : null;
 }
 
+async function staleRead(cache, descriptor, request) {
+  return readCached(cache, descriptor.staleKey, request, { stale: true });
+}
+
 async function putCached(cache, key, response, ttl, source) {
   const copy = response.clone();
   const headers = new Headers(copy.headers);
@@ -154,7 +158,7 @@ export default {
 
     if (descriptor && cache && response.status >= 500) {
       try {
-        const stale = await readCached(cache, descriptor.staleKey, request, { stale: true });
+        const stale = await staleRead(cache, descriptor, request);
         if (stale) return stale;
       } catch (error) {
         console.warn("public last-good cache fallback failed", error);
