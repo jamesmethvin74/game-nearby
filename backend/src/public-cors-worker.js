@@ -39,10 +39,11 @@ function dateBucket(value) {
   return Number.isFinite(parsed) ? new Date(parsed).toISOString().slice(0, 10) : "na";
 }
 
-function descriptor(origin, basePath, freshTtl, staleTtl) {
+function descriptor(origin, basePath, freshTtl, staleTtl, legacyBasePath = basePath) {
   return {
     freshKey: new Request(`${origin}/__localbleachers_cache__/fresh${basePath}`),
     staleKey: new Request(`${origin}/__localbleachers_cache__/last-good${basePath}`),
+    legacyKey: new Request(`${origin}/__localbleachers_cache__${legacyBasePath}`),
     freshTtl,
     staleTtl
   };
@@ -67,7 +68,8 @@ function cacheDescriptor(request) {
     const since = dateBucket(url.searchParams.get("since"));
     const until = dateBucket(url.searchParams.get("until"));
     const query = `lat=${lat}&lon=${lon}&radius=${radius}&since=${since}&until=${until}`;
-    return descriptor(origin, `/games?${query}`, 5 * 60, 12 * 60 * 60);
+    const legacyQuery = `lat=${lat}&lon=${lon}&radius=${radius}`;
+    return descriptor(origin, `/games?${query}`, 5 * 60, 12 * 60 * 60, `/games?${legacyQuery}`);
   }
 
   const teamMatch = path.match(/^\/api\/v1\/teams\/[^/]+(?:\/(schedule|record))?$/);
@@ -86,10 +88,10 @@ function cacheDescriptor(request) {
   return null;
 }
 
-function cachedResponse(request, cached, { stale = false } = {}) {
+function cachedResponse(request, cached, { stale = false, source = null } = {}) {
   const headers = new Headers(cached.headers);
   headers.set("cache-control", "no-store");
-  headers.set("x-localbleachers-cache-source", stale ? "last-good" : "edge-fresh");
+  headers.set("x-localbleachers-cache-source", source || (stale ? "last-good" : "edge-fresh"));
   if (stale) headers.set("x-localbleachers-api-stale", "1");
   else headers.delete("x-localbleachers-api-stale");
   const response = new Response(cached.body, {
@@ -106,7 +108,9 @@ async function readCached(cache, key, request, options = {}) {
 }
 
 async function staleRead(cache, descriptor, request) {
-  return readCached(cache, descriptor.staleKey, request, { stale: true });
+  const current = await readCached(cache, descriptor.staleKey, request, { stale: true });
+  if (current) return current;
+  return readCached(cache, descriptor.legacyKey, request, { stale: true, source: "legacy-last-good" });
 }
 
 async function putCached(cache, key, response, ttl, source) {
