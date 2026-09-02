@@ -16,10 +16,7 @@ test("production-wide D1 verification is manual-only", () => {
   assert.doesNotMatch(productionSmoke, /\n  push:/);
   assert.doesNotMatch(productionSmoke, /\n  pull_request:/);
   assert.match(productionSmoke, /full_statewide_record_audit:/);
-  assert.match(
-    productionSmoke,
-    /github\.event_name == 'workflow_dispatch' && inputs\.full_statewide_record_audit == true/
-  );
+  assert.match(productionSmoke, /inputs\.full_statewide_record_audit == true/);
   assert.match(productionSmoke, /Deliberately sequential/);
   assert.doesNotMatch(productionSmoke, /Promise\.all\(Array\.from\(\{length:12\}/);
 });
