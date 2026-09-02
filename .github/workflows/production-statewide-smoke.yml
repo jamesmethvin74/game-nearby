@@ -1,16 +1,6 @@
 name: Production statewide smoke
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/production-statewide-smoke.yml"
-  push:
-    branches: [main]
-    paths:
-      - "backend/**"
-      - ".github/workflows/production-statewide-smoke.yml"
   workflow_dispatch:
     inputs:
       full_statewide_record_audit:
@@ -22,10 +12,11 @@ on:
 permissions:
   contents: read
 
-# D1 Free is a shared daily budget. Keep automatic production checks bounded.
-# Any statewide/all-team fan-out must remain manual-only.
+# Production D1 reads are a shared daily budget. This workflow is deliberately
+# manual-only. Local/in-memory tests are the default; live production audits are
+# explicit diagnostic actions, never automatic CI.
 concurrency:
-  group: production-statewide-smoke-${{ github.ref }}
+  group: production-statewide-smoke
   cancel-in-progress: true
 
 jobs:
@@ -40,7 +31,6 @@ jobs:
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           rm -f schools.json
 
-          # Automatic budget: at most three D1-backed catalog requests.
           for attempt in $(seq 1 3); do
             echo "Catalog attempt ${attempt}/3"
             code=$(curl -sS --max-time 45 -o schools.tmp -w '%{http_code}' "$API/api/v1/schools" || true)
@@ -100,14 +90,12 @@ jobs:
           NODE
 
       - name: Verify normalized production schedules
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           rm -f conway.json valley.json
 
-          # Manual smoke only; bounded to six schedule requests total.
           for attempt in $(seq 1 3); do
             echo "Schedule normalization attempt ${attempt}/3"
             curl -fsS --max-time 45 "$API/api/v1/teams/conway-volleyball-2026/schedule" -o conway.tmp || true
@@ -137,7 +125,7 @@ jobs:
           node -e 'const c=require("./conway.json"),v=require("./valley.json"); console.log(`Manual schedule proof: Conway ${c.games.length}; Valley Springs ${v.games.length}`)'
 
       - name: Verify every available statewide result feeds team records
-        if: github.event_name == 'workflow_dispatch' && inputs.full_statewide_record_audit == true
+        if: inputs.full_statewide_record_audit == true
         shell: bash
         run: |
           set -euo pipefail
@@ -190,7 +178,6 @@ jobs:
           NODE
 
       - name: Verify GitHub Pages serves live-record frontend
-        if: github.event_name != 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
