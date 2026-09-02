@@ -13,23 +13,28 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify deployed public GET CORS
+      - name: Verify corrected public-read Worker release
         shell: bash
         run: |
           set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools"
-          rm -f headers.txt body.json
-          for attempt in $(seq 1 20); do
-            echo "Deployment probe ${attempt}/20"
-            curl -sS -D headers.txt -o body.json -H "Origin: https://example.com" "$API"
-            cat headers.txt
-            if grep -Eqi '^access-control-allow-origin: \*$' headers.txt \
-              && grep -Eqi '^x-localbleachers-api-cors: public-get-v1$' headers.txt \
+          rm -f headers.txt headers.norm body.json
+          for attempt in $(seq 1 28); do
+            echo "Deployment probe ${attempt}/28"
+            code=$(curl -sS -D headers.txt -o body.json -w '%{http_code}' -H "Origin: https://example.com" "$API" || true)
+            tr -d '\r' < headers.txt > headers.norm
+            cat headers.norm
+            echo "HTTP $code"
+            if [ "$code" = "200" ] \
+              && grep -Eqi '^access-control-allow-origin: \*$' headers.norm \
+              && grep -Eqi '^x-localbleachers-api-cors: public-get-v2$' headers.norm \
+              && grep -Eqi '^x-localbleachers-api-release: public-read-safe-v2$' headers.norm \
               && node -e 'const p=require("./body.json"); process.exit(Array.isArray(p.schools)&&p.schools.length>=100?0:1)'; then
-              echo "Production public GET CORS deployment verified."
+              node -e 'const p=require("./body.json"); console.log(`Visible schools: ${p.schools.length}`)'
+              echo "Corrected production Worker release verified."
               exit 0
             fi
             sleep 15
           done
-          echo "Production Worker did not expose the expected CORS marker in time."
+          echo "Corrected production Worker release did not become healthy in time."
           exit 1
