@@ -3,16 +3,14 @@
   const levelEl = document.getElementById("schoolLevel");
   const searchEl = document.getElementById("schoolSearch");
   const resultsEl = document.getElementById("schoolSearchResults");
-  const selectedEl = document.getElementById("selectedSchool");
-  const followBtn = document.getElementById("followSchoolBtn");
   const addStatusEl = document.getElementById("teamAddStatus");
   const catalogCountEl = document.getElementById("schoolCatalogCount");
   const followedCountEl = document.getElementById("followedTeamCount");
   const followedGridEl = document.getElementById("followedTeamsGrid");
   const themeToggle = document.getElementById("themeToggle");
+  const comboboxEl = document.getElementById("schoolCombobox");
 
   let followed = readFollowed();
-  let selectedSchoolId = "";
 
   function readFollowed() {
     try {
@@ -67,6 +65,10 @@
     return level === "college" ? "College" : "High School";
   }
 
+  function levelPlural(level) {
+    return level === "college" ? "colleges" : "schools";
+  }
+
   function schoolDetail(school) {
     const parts = [];
     if (school.mascot || school.subtitle) parts.push(clean(school.mascot || school.subtitle));
@@ -94,64 +96,50 @@
     const needle = clean(searchEl.value).toLowerCase();
     return allSchools()
       .filter(school => levelFor(school) === level)
-      .filter(school => !followed.includes(school.id))
       .filter(school => {
         if (!needle) return true;
         const haystack = [school.name, school.providerName, school.mascot, school.subtitle, school.city, school.state]
           .map(clean).join(" ").toLowerCase();
         return haystack.includes(needle);
-      })
-      .slice(0, 40);
+      });
+  }
+
+  function setPickerOpen(open) {
+    resultsEl.hidden = !open;
+    searchEl.setAttribute("aria-expanded", open ? "true" : "false");
+    document.documentElement.classList.toggle("school-picker-open", open);
+    document.body.classList.toggle("school-picker-open", open);
   }
 
   function renderSearchResults(forceOpen = false) {
     const schools = filteredSchools();
-    if (!forceOpen && document.activeElement !== searchEl) return;
+    if (!forceOpen && document.activeElement !== searchEl && resultsEl.hidden) return;
 
+    const summary = `<div class="school-results-summary">${schools.length} ${levelPlural(levelEl.value)}</div>`;
     if (!schools.length) {
-      resultsEl.innerHTML = `<div class="school-results-empty">No ${levelLabel(levelEl.value).toLowerCase()} schools match that search.</div>`;
+      resultsEl.innerHTML = `${summary}<div class="school-results-empty">No ${levelLabel(levelEl.value).toLowerCase()} schools match that search.</div>`;
     } else {
-      resultsEl.innerHTML = schools.map(school => `
-        <button type="button" class="school-result" role="option" data-school-id="${escapeHtml(school.id)}">
-          ${logoMarkup(school, "school-result-logo")}
-          <span class="school-result-copy"><strong>${escapeHtml(school.name)}</strong><small>${escapeHtml(schoolDetail(school))}</small></span>
-        </button>`).join("");
+      resultsEl.innerHTML = summary + schools.map(school => {
+        const isFollowed = followed.includes(school.id);
+        return `
+          <div class="school-result" role="option" data-school-id="${escapeHtml(school.id)}">
+            ${logoMarkup(school, "school-result-logo")}
+            <span class="school-result-copy"><strong>${escapeHtml(school.name)}</strong><small>${escapeHtml(schoolDetail(school))}</small></span>
+            <button type="button" class="school-result-follow${isFollowed ? " is-following" : ""}" data-follow-id="${escapeHtml(school.id)}" aria-label="${isFollowed ? "Following" : "Follow"} ${escapeHtml(school.name)}" ${isFollowed ? "disabled" : ""}>${isFollowed ? "Following" : "Follow"}</button>
+          </div>`;
+      }).join("");
     }
-    resultsEl.hidden = false;
-    searchEl.setAttribute("aria-expanded", "true");
+    setPickerOpen(true);
   }
 
   function closeSearchResults() {
-    resultsEl.hidden = true;
-    searchEl.setAttribute("aria-expanded", "false");
-  }
-
-  function clearSelection() {
-    selectedSchoolId = "";
-    selectedEl.hidden = true;
-    selectedEl.innerHTML = "";
-    followBtn.disabled = true;
-  }
-
-  function selectSchool(id) {
-    const school = schoolById(id);
-    if (!school) return;
-    selectedSchoolId = id;
-    searchEl.value = school.name;
-    selectedEl.innerHTML = `
-      ${logoMarkup(school, "selected-school-logo")}
-      <span><strong>${escapeHtml(school.name)}</strong><small>${escapeHtml(schoolDetail(school))}</small></span>
-      <span class="selected-school-level">${escapeHtml(levelLabel(levelFor(school)))}</span>`;
-    selectedEl.hidden = false;
-    followBtn.disabled = followed.includes(id);
-    addStatusEl.textContent = "";
-    closeSearchResults();
+    setPickerOpen(false);
   }
 
   function renderCatalogCount() {
     const level = levelEl.value;
     const count = allSchools().filter(school => levelFor(school) === level).length;
-    catalogCountEl.textContent = count ? `${count} schools` : "Loading…";
+    catalogCountEl.textContent = `${count} ${levelPlural(level)}`;
   }
 
   function renderFollowedTeams() {
@@ -174,7 +162,19 @@
       </article>`).join("");
   }
 
+  function followSchool(id) {
+    const school = schoolById(id);
+    if (!school || followed.includes(id)) return;
+    followed.push(id);
+    saveFollowed();
+    addStatusEl.textContent = `${school.name} added to My Teams.`;
+    renderCatalogCount();
+    renderFollowedTeams();
+    renderSearchResults(true);
+  }
+
   function renderAll() {
+    followed = readFollowed();
     renderCatalogCount();
     renderFollowedTeams();
     if (!resultsEl.hidden) renderSearchResults(true);
@@ -182,41 +182,35 @@
 
   levelEl.addEventListener("change", () => {
     searchEl.value = "";
-    clearSelection();
+    addStatusEl.textContent = "";
     renderCatalogCount();
-    renderSearchResults(document.activeElement === searchEl);
+    if (!resultsEl.hidden || document.activeElement === searchEl) renderSearchResults(true);
   });
 
   searchEl.addEventListener("focus", () => renderSearchResults(true));
-  searchEl.addEventListener("input", () => {
-    clearSelection();
-    renderSearchResults(true);
-  });
+  searchEl.addEventListener("input", () => renderSearchResults(true));
   searchEl.addEventListener("keydown", event => {
-    if (event.key === "Escape") closeSearchResults();
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSearchResults();
+      searchEl.blur();
+    }
     if (event.key === "Enter") {
-      const first = resultsEl.querySelector(".school-result");
+      const first = resultsEl.querySelector(".school-result-follow:not(:disabled)");
       if (first) {
         event.preventDefault();
-        selectSchool(first.dataset.schoolId);
+        followSchool(first.dataset.followId);
       }
     }
   });
 
   resultsEl.addEventListener("click", event => {
-    const option = event.target.closest(".school-result");
-    if (option) selectSchool(option.dataset.schoolId);
-  });
-
-  followBtn.addEventListener("click", () => {
-    const school = schoolById(selectedSchoolId);
-    if (!school || followed.includes(school.id)) return;
-    followed.push(school.id);
-    saveFollowed();
-    addStatusEl.textContent = `${school.name} added to My Teams.`;
-    searchEl.value = "";
-    clearSelection();
-    renderAll();
+    const button = event.target.closest(".school-result-follow");
+    if (button && !button.disabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      followSchool(button.dataset.followId);
+    }
   });
 
   followedGridEl.addEventListener("click", event => {
@@ -232,7 +226,7 @@
   });
 
   document.addEventListener("click", event => {
-    if (!document.getElementById("schoolCombobox").contains(event.target)) closeSearchResults();
+    if (!comboboxEl.contains(event.target)) closeSearchResults();
   });
 
   document.addEventListener("localbleachers:catalog", renderAll);
