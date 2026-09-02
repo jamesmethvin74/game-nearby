@@ -17,10 +17,17 @@ test("normal public API reads perform no request-time maintenance", () => {
   assert.doesNotMatch(worker, /ensureLiveConfig/);
   assert.doesNotMatch(worker, /env\.DB\.batch\(/);
 
-  const scheduledBlock = worker.slice(scheduledStart);
-  assert.match(scheduledBlock, /await\s+ensureStatewideSchema\(env\)/);
-  assert.match(scheduledBlock, /await\s+syncMaxPrepsSchoolBranding\(env\)/);
-  assert.match(scheduledBlock, /await\s+runDragonFlyStatewideCollection\(env/);
+  const maintenanceStart = worker.indexOf("async function runCatalogMaintenance");
+  const refreshStart = worker.indexOf("async function runStatewideRefresh");
+  const schedulePlanStart = worker.indexOf("async function runScheduledPlan");
+  assert.ok(maintenanceStart >= 0 && refreshStart > maintenanceStart, "weekly maintenance block not found");
+  assert.ok(schedulePlanStart > refreshStart, "scheduled cadence block not found");
+
+  const maintenanceBlock = worker.slice(maintenanceStart, refreshStart);
+  assert.match(maintenanceBlock, /await\s+ensureStatewideSchema\(env\)/);
+  assert.match(maintenanceBlock, /await\s+syncMaxPrepsSchoolBranding\(env\)/);
+  assert.match(worker.slice(refreshStart, schedulePlanStart), /await\s+runDragonFlyStatewideCollection\(env/);
+  assert.match(worker.slice(scheduledStart), /return runScheduledPlan\(controller,env,ctx\)/);
 });
 
 test("nearby games use a minimal bounded read that returns card record fields", () => {

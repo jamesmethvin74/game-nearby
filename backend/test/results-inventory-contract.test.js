@@ -14,7 +14,13 @@ test("statewide ingestion owns persistent rebuild while public reads stay mainte
   assert.ok(fetchStart >= 0 && scheduledStart > fetchStart, "public fetch block not found");
   const fetchBlock = worker.slice(fetchStart, scheduledStart);
   assert.doesNotMatch(fetchBlock, /rebuildStatewideRecords|ensureStatewideSchema|ensureInitialStatewideData|queueStartupMaintenance/);
-  assert.match(worker.slice(scheduledStart), /await ensureStatewideSchema\(env\)/);
+
+  const maintenanceStart = worker.indexOf("async function runCatalogMaintenance");
+  const refreshStart = worker.indexOf("async function runStatewideRefresh");
+  assert.ok(maintenanceStart >= 0 && refreshStart > maintenanceStart, "weekly maintenance block not found");
+  const maintenanceBlock = worker.slice(maintenanceStart, refreshStart);
+  assert.match(maintenanceBlock, /await ensureStatewideSchema\(env\)/);
+  assert.match(worker.slice(scheduledStart), /return runScheduledPlan\(controller,env,ctx\)/);
 });
 
 test("runtime no longer reseeds pilot config on every fresh Worker isolate", () => {
