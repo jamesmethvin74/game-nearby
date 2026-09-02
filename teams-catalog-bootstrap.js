@@ -78,11 +78,13 @@
 
   function withSupportedColleges(schools) {
     const byId = new Map();
-    for (const school of COLLEGE_SCHOOLS) {
+    for (const school of schools || []) {
       const normalized = normalizeSchool(school);
       if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
     }
-    for (const school of schools || []) {
+    // Explicit college definitions win over anything accidentally classified by
+    // the high-school feed or restored from an older cache.
+    for (const school of COLLEGE_SCHOOLS) {
       const normalized = normalizeSchool(school);
       if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
     }
@@ -192,6 +194,7 @@
   window.LocalBleachersTeamsCatalog = {
     refresh,
     getState: () => ({ ...state }),
+    getColleges: () => COLLEGE_SCHOOLS.map(normalizeSchool),
     apiBase: DEFAULT_API_BASE
   };
 
