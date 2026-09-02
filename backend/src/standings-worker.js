@@ -1,7 +1,6 @@
 import app from "./worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
-import { ensureStatewideSchema } from "./schema-bootstrap.js";
 
 function publicJson(request, body, status = 200) {
   const origin = request.headers.get("origin");
@@ -48,17 +47,8 @@ async function handleStandingsRequest(request) {
   return null;
 }
 
-function needsStatewideSchema(request) {
-  if (request.method !== "GET") return false;
-  const path = new URL(request.url).pathname;
-  return path === "/api/v1/schools"
-    || path === "/api/v1/games"
-    || path.startsWith("/api/v1/teams/");
-}
-
 export default {
   async fetch(request, env, ctx) {
-    if (needsStatewideSchema(request)) await ensureStatewideSchema(env);
     const standingsResponse = await handleStandingsRequest(request);
     if (standingsResponse) return standingsResponse;
     return app.fetch(request, env, ctx);
