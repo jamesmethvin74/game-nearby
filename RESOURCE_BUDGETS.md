@@ -26,13 +26,29 @@ Once the daily read or write limit is reached, D1 queries fail until the reset. 
 9. **Do not use CI as a load test.** Broad correctness audits belong in local/in-memory tests where possible. Production-wide verification should be deliberate and infrequent.
 10. **Estimate before adding recurring work.** For any new job or route, consider: requests per run × runs per day × approximate rows read/written per request.
 
+## Production collection cadence
+
+The Worker receives a lightweight cron tick every 30 minutes so the schedule stays correct through Central Daylight and Standard Time. The tick itself performs no D1 work unless it matches one of the local collection windows below.
+
+- **6:00 AM Central daily:** overnight results/corrections and normal due-source refresh.
+- **3:00 PM Central daily:** schedule, cancellation, time, and venue changes.
+- **11:00 PM Central daily:** evening finals, records, and standings.
+- **Friday 8:30 PM through midnight Central, every 30 minutes:** result-oriented due-source refreshes. The statewide discovery/location/branding pipeline does not run in this window.
+- **Sunday 4:00 AM Central:** catalog discovery, school location matching, branding maintenance, and statewide maintenance collection.
+
+Friday 11:00 PM is naturally part of the half-hour Friday cadence; it is not executed twice. Saturday midnight is the final Friday-night pass. Saturday 6:00 AM catches late finals and corrections.
+
+The cadence is implemented with `America/Chicago` local-time gating rather than hard-coded UTC hours, so DST changes do not shift the intended collection times.
+
 ## Current safeguards
 
-- `production-statewide-smoke.yml` keeps automatic production checks small.
+- `production-statewide-smoke.yml` is manual-only and keeps production verification bounded.
 - The all-team result/record audit requires `workflow_dispatch` plus the explicit `full_statewide_record_audit` input.
 - `school-schedule.js` performs sequential, capped team endpoint discovery and stops on server/quota failures.
 - Successful team schedules are persisted locally and can fall back to recent last-good nearby events.
-- `backend/test/resource-budget-guard.test.js` prevents the key guardrails from being casually removed.
+- Public GETs consult Cloudflare edge cache before D1, with separate short fresh TTLs and longer last-good fallbacks.
+- The production collector no longer runs catalog discovery, GIS matching, and branding maintenance on every scheduled invocation.
+- `backend/budget-tests/` contains regression tests for collection cadence and resource-budget protections.
 
 ## Next architecture improvement
 
