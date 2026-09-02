@@ -96,7 +96,6 @@
     const needle = clean(searchEl.value).toLowerCase();
     return allSchools()
       .filter(school => levelFor(school) === level)
-      .filter(school => !followed.includes(school.id))
       .filter(school => {
         if (!needle) return true;
         const haystack = [school.name, school.providerName, school.mascot, school.subtitle, school.city, school.state]
@@ -116,16 +115,19 @@
     const schools = filteredSchools();
     if (!forceOpen && document.activeElement !== searchEl && resultsEl.hidden) return;
 
-    const summary = `<div class="school-results-summary">${schools.length} ${levelPlural(levelEl.value)} available</div>`;
+    const summary = `<div class="school-results-summary">${schools.length} ${levelPlural(levelEl.value)}</div>`;
     if (!schools.length) {
       resultsEl.innerHTML = `${summary}<div class="school-results-empty">No ${levelLabel(levelEl.value).toLowerCase()} schools match that search.</div>`;
     } else {
-      resultsEl.innerHTML = summary + schools.map(school => `
-        <div class="school-result" role="option" data-school-id="${escapeHtml(school.id)}">
-          ${logoMarkup(school, "school-result-logo")}
-          <span class="school-result-copy"><strong>${escapeHtml(school.name)}</strong><small>${escapeHtml(schoolDetail(school))}</small></span>
-          <button type="button" class="school-result-follow" data-follow-id="${escapeHtml(school.id)}" aria-label="Follow ${escapeHtml(school.name)}">Follow</button>
-        </div>`).join("");
+      resultsEl.innerHTML = summary + schools.map(school => {
+        const isFollowed = followed.includes(school.id);
+        return `
+          <div class="school-result" role="option" data-school-id="${escapeHtml(school.id)}">
+            ${logoMarkup(school, "school-result-logo")}
+            <span class="school-result-copy"><strong>${escapeHtml(school.name)}</strong><small>${escapeHtml(schoolDetail(school))}</small></span>
+            <button type="button" class="school-result-follow${isFollowed ? " is-following" : ""}" data-follow-id="${escapeHtml(school.id)}" aria-label="${isFollowed ? "Following" : "Follow"} ${escapeHtml(school.name)}" ${isFollowed ? "disabled" : ""}>${isFollowed ? "Following" : "Follow"}</button>
+          </div>`;
+      }).join("");
     }
     setPickerOpen(true);
   }
@@ -172,6 +174,7 @@
   }
 
   function renderAll() {
+    followed = readFollowed();
     renderCatalogCount();
     renderFollowedTeams();
     if (!resultsEl.hidden) renderSearchResults(true);
@@ -193,7 +196,7 @@
       searchEl.blur();
     }
     if (event.key === "Enter") {
-      const first = resultsEl.querySelector(".school-result-follow");
+      const first = resultsEl.querySelector(".school-result-follow:not(:disabled)");
       if (first) {
         event.preventDefault();
         followSchool(first.dataset.followId);
@@ -203,7 +206,7 @@
 
   resultsEl.addEventListener("click", event => {
     const button = event.target.closest(".school-result-follow");
-    if (button) {
+    if (button && !button.disabled) {
       event.preventDefault();
       event.stopPropagation();
       followSchool(button.dataset.followId);
