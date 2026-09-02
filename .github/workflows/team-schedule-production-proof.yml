@@ -1,0 +1,58 @@
+name: Team schedule production proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/team-schedule-production-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify Conway and Conway Christian team schedules
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          probe_team() {
+            label="$1"
+            team_id="$2"
+            out="$3"
+            for attempt in $(seq 1 28); do
+              echo "[$label] attempt ${attempt}/28"
+              rm -f headers.tmp body.tmp
+              code=$(curl -sS --max-time 60 -D headers.tmp -o body.tmp -w '%{http_code}' \
+                "$API/api/v1/teams/${team_id}/schedule" || true)
+              tr -d '\r' < headers.tmp > headers.norm 2>/dev/null || true
+              echo "HTTP $code"
+              grep -Ei '^(x-localbleachers-api-release|x-localbleachers-api-cors|x-localbleachers-api-stale|x-localbleachers-cache-source):' headers.norm || true
+              if [ "$code" = "200" ] && node - "$label" "$team_id" body.tmp <<'NODE'
+          const fs = require('fs');
+          const [label, teamId, file] = process.argv.slice(2);
+          const payload = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const games = Array.isArray(payload.games) ? payload.games : [];
+          if (!games.length) process.exit(1);
+          const record = payload.record || {};
+          console.log(`${label}: ${games.length} games; record ${Number(record.wins||0)}-${Number(record.losses||0)}; conference ${Number(record.conference_wins||0)}-${Number(record.conference_losses||0)}; team ${teamId}`);
+          NODE
+              then
+                cp body.tmp "$out"
+                return 0
+              fi
+              if [ "$code" != "404" ]; then head -c 500 body.tmp 2>/dev/null || true; echo; fi
+              sleep 15
+            done
+            echo "$label did not become healthy in time"
+            return 1
+          }
+
+          probe_team "Conway volleyball" "conway-volleyball-2026" conway.json
+          probe_team "Conway Christian volleyball" "df-jxkf8l-volleyball-2026" conway-christian.json
+
+          echo "Both production team schedule endpoints are healthy."
