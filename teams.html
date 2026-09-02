@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="polish.css?v=55" />
   <link rel="stylesheet" href="brand-exact.css?v=55" />
   <link rel="stylesheet" href="pitched-layout.css?v=55" />
-  <link rel="stylesheet" href="teams-page.css?v=55" />
+  <link rel="stylesheet" href="teams-page.css?v=59" />
 </head>
 <body class="teams-page">
   <header class="app-header branded-header">
@@ -48,15 +48,15 @@
           </select>
         </label>
 
-        <div class="team-picker-field school-combobox" id="schoolCombobox">
-          <label for="schoolSearch">School</label>
-          <input id="schoolSearch" type="search" autocomplete="off" placeholder="Search schools…" aria-autocomplete="list" aria-controls="schoolSearchResults" aria-expanded="false" />
-          <div id="schoolSearchResults" class="school-search-results" role="listbox" hidden></div>
+        <div class="team-picker-field">
+          <span>School</span>
+          <button id="schoolPickerTrigger" class="school-picker-trigger" type="button" aria-haspopup="dialog" aria-controls="schoolPickerDialog">
+            <span id="schoolPickerTriggerText">Search schools…</span>
+            <span class="school-picker-chevron" aria-hidden="true">⌄</span>
+          </button>
         </div>
       </div>
-
-      <div id="selectedSchool" class="selected-school" hidden></div>
-      <button id="followSchoolBtn" class="primary-btn follow-school-btn" type="button" disabled>Follow team</button>
+      <p class="school-picker-hint">Open the list, search if you want, then tap Follow beside any school.</p>
       <div id="teamAddStatus" class="team-add-status" aria-live="polite"></div>
     </section>
 
@@ -69,6 +69,23 @@
     </section>
   </main>
 
+  <dialog id="schoolPickerDialog" class="school-picker-dialog" aria-labelledby="schoolPickerTitle">
+    <section class="school-picker-sheet">
+      <header class="school-picker-header">
+        <div>
+          <p id="schoolPickerEyebrow" class="eyebrow">HIGH SCHOOL</p>
+          <h2 id="schoolPickerTitle">Choose a high school</h2>
+        </div>
+        <button id="schoolPickerClose" class="school-picker-close" type="button" aria-label="Close school picker">×</button>
+      </header>
+      <div class="school-picker-search-row">
+        <input id="schoolPickerSearch" type="search" autocomplete="off" placeholder="Search high schools…" aria-controls="schoolSearchResults" />
+        <span id="schoolPickerVisibleCount" class="school-picker-visible-count"></span>
+      </div>
+      <div id="schoolSearchResults" class="school-search-results" role="listbox"></div>
+    </section>
+  </dialog>
+
   <nav class="bottom-nav teams-bottom-nav" aria-label="Primary navigation">
     <a class="nav-item" href="index.html">⌂<span>Home</span></a>
     <a class="nav-item active" href="teams.html" aria-current="page">☆<span>Teams</span></a>
@@ -79,11 +96,11 @@
 
   <script>const SCHOOL_REGISTRY=[];const teams=[];const events=[];</script>
   <script src="live-data.js?v=55"></script>
-  <script src="teams-catalog-bootstrap.js?v=55"></script>
+  <script src="teams-catalog-bootstrap.js?v=59"></script>
   <script src="school-schedule.js?v=55"></script>
   <script src="team-detail.js?v=55"></script>
   <script src="school-logo-ui.js?v=55"></script>
-  <script src="teams-page.js?v=55"></script>
+  <script src="teams-page.js?v=59"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
