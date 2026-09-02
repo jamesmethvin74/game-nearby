@@ -37,9 +37,9 @@ test("Standings UI loads options and standings from the public API", () => {
   assert.match(wrapper, /reconcileFootballOverallRecords/);
 });
 
-test("Home navigation and PWA shell include reconciled Standings v53", () => {
+test("Home navigation and PWA shell include reconciled Standings", () => {
   assert.match(home, /href="standings\.html"[^>]*>[^<]*<span>Standings<\/span>/);
-  assert.match(serviceWorker, /localbleachersar-shell-v53/);
+  assert.match(serviceWorker, /localbleachersar-shell-v\d+/);
   assert.match(serviceWorker, /\.\/standings\.html/);
   assert.match(serviceWorker, /\.\/standings\.js/);
   assert.match(serviceWorker, /\.\/standings\.css/);

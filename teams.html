@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#071426" />
+  <meta name="description" content="Follow Arkansas high school and college teams in LocalBleachersAR." />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
+  <title>Teams · LocalBleachersAR</title>
+  <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
+  <link rel="manifest" href="manifest.json?v=55" />
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
+  <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
+  <link rel="stylesheet" href="styles.css?v=55" />
+  <link rel="stylesheet" href="polish.css?v=55" />
+  <link rel="stylesheet" href="brand-exact.css?v=55" />
+  <link rel="stylesheet" href="pitched-layout.css?v=55" />
+  <link rel="stylesheet" href="teams-page.css?v=55" />
+</head>
+<body class="teams-page">
+  <header class="app-header branded-header">
+    <a class="header-btn teams-back" href="index.html" aria-label="Back to home">‹</a>
+    <div class="brand-lockup" aria-label="LocalBleachersAR"><span class="brand-name"><span class="brand-local">Local</span><span class="brand-core">Bleachers</span><span class="brand-ar">AR</span></span></div>
+    <div class="header-actions"><button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button></div>
+  </header>
+
+  <main class="teams-main">
+    <section class="teams-hero">
+      <div><p class="eyebrow">YOUR BLEACHERS</p><h1>Teams</h1></div>
+      <p>Follow the schools you care about. Tap any followed team to see its schedules.</p>
+    </section>
+
+    <section class="team-add-card" aria-labelledby="addTeamTitle">
+      <div class="team-add-heading">
+        <div><p class="eyebrow">ADD A TEAM</p><h2 id="addTeamTitle">Find a school</h2></div>
+        <span id="schoolCatalogCount" class="count-pill">Loading…</span>
+      </div>
+
+      <div class="team-add-fields">
+        <label class="team-picker-field" for="schoolLevel">
+          <span>School type</span>
+          <select id="schoolLevel">
+            <option value="high-school">High School</option>
+            <option value="college">College</option>
+          </select>
+        </label>
+
+        <div class="team-picker-field school-combobox" id="schoolCombobox">
+          <label for="schoolSearch">School</label>
+          <input id="schoolSearch" type="search" autocomplete="off" placeholder="Search schools…" aria-autocomplete="list" aria-controls="schoolSearchResults" aria-expanded="false" />
+          <div id="schoolSearchResults" class="school-search-results" role="listbox" hidden></div>
+        </div>
+      </div>
+
+      <div id="selectedSchool" class="selected-school" hidden></div>
+      <button id="followSchoolBtn" class="primary-btn follow-school-btn" type="button" disabled>Follow team</button>
+      <div id="teamAddStatus" class="team-add-status" aria-live="polite"></div>
+    </section>
+
+    <section class="my-teams-section" aria-labelledby="myTeamsTitle">
+      <div class="section-title teams-section-title">
+        <div class="section-heading"><span class="section-icon" aria-hidden="true">★</span><div><p class="eyebrow">FOLLOWING</p><h2 id="myTeamsTitle">My Teams</h2></div></div>
+        <span id="followedTeamCount" class="count-pill"></span>
+      </div>
+      <div id="followedTeamsGrid" class="followed-teams-grid" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav teams-bottom-nav" aria-label="Primary navigation">
+    <a class="nav-item" href="index.html">⌂<span>Home</span></a>
+    <a class="nav-item active" href="teams.html" aria-current="page">☆<span>Teams</span></a>
+    <a class="nav-item" href="standings.html">▤<span>Standings</span></a>
+    <a class="nav-item" href="index.html#alerts">♧<span>Alerts</span></a>
+    <a class="nav-item" href="index.html">•••<span>More</span></a>
+  </nav>
+
+  <script>const SCHOOL_REGISTRY=[];const teams=[];const events=[];</script>
+  <script src="live-data.js?v=55"></script>
+  <script src="teams-catalog-bootstrap.js?v=55"></script>
+  <script src="school-schedule.js?v=55"></script>
+  <script src="team-detail.js?v=55"></script>
+  <script src="school-logo-ui.js?v=55"></script>
+  <script src="teams-page.js?v=55"></script>
+  <script>
+    if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
+  </script>
+</body>
+</html>

@@ -1,7 +1,8 @@
-const CACHE_NAME = "localbleachersar-shell-v53";
+const CACHE_NAME = "localbleachersar-shell-v56";
 const CORE_ASSETS = [
   "./",
   "./index.html",
+  "./teams.html",
   "./standings.html",
   "./manifest.json",
   "./styles.css",
@@ -9,6 +10,7 @@ const CORE_ASSETS = [
   "./brand-exact.css",
   "./pitched-layout.css",
   "./reference-layout.css",
+  "./teams-page.css",
   "./standings.css",
   "./app.js",
   "./school-expansion.js",
@@ -19,7 +21,10 @@ const CORE_ASSETS = [
   "./reference-layout.js",
   "./team-detail.js",
   "./live-data.js",
+  "./teams-catalog-bootstrap.js",
+  "./school-schedule.js",
   "./school-logo-ui.js",
+  "./teams-page.js",
   "./standings.js",
   "./assets/app-icon-192-v35.png",
   "./assets/app-icon-512-v35.png",
@@ -42,10 +47,16 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
 
+  // Do not proxy requests to the sports API (or any other external origin)
+  // through the PWA service worker. Let the browser perform the normal CORS
+  // request directly. The service worker only owns the LocalBleachersAR shell.
+  const requestUrl = new URL(event.request.url);
+  if (requestUrl.origin !== self.location.origin) return;
+
   if (event.request.mode === "navigate") {
-    const requestUrl = new URL(event.request.url);
+    const isTeams = /\/teams(?:\.html)?\/?$/.test(requestUrl.pathname);
     const isStandings = /\/standings(?:\.html)?\/?$/.test(requestUrl.pathname);
-    const cacheKey = isStandings ? "./standings.html" : "./index.html";
+    const cacheKey = isTeams ? "./teams.html" : isStandings ? "./standings.html" : "./index.html";
     const network = fetch(event.request).then(async response => {
       if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
@@ -70,7 +81,7 @@ self.addEventListener("fetch", event => {
   event.respondWith((async () => {
     try {
       const response = await fetch(event.request);
-      if (response.ok && event.request.url.startsWith(self.location.origin)) {
+      if (response.ok) {
         const cache = await caches.open(CACHE_NAME);
         cache.put(event.request, response.clone());
       }
