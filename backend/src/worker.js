@@ -110,7 +110,7 @@ async function listNearbyGamesBounded(request,env,url){
       COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) AS opponent,
       r.wins,r.losses,r.ties,
       r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at,
-      NULL AS rank,
+      NULL AS "rank",
       src.source_type,src.parser_type,src.authority_rank,src.source_priority,
       src.last_successful_fetch_at AS source_last_successful_fetch_at,
       CASE WHEN g.home_away='home' THEN t.school_id WHEN g.home_away='away' THEN g.opponent_school_id END AS canonical_home_school_id,
