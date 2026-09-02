@@ -6,6 +6,7 @@ import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
 import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
 import { reconcileFootballGameRecords } from "./football-record-reconciliation.js";
+import { collectionPlanAt } from "./collection-cadence.js";
 
 function defer(ctx, promise) {
   if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
@@ -202,6 +203,85 @@ function publicJson(request,body,status=200){
   }});
 }
 
+async function runCatalogMaintenance(env){
+  await ensureStatewideSchema(env);
+  let catalogPayload=null;
+
+  try {
+    const catalog=await syncDragonFlyVarsityVolleyballCatalog(env);
+    catalogPayload=catalog.payload||null;
+    const {payload,...summary}=catalog;
+    console.log("weekly statewide volleyball catalog",summary);
+  } catch (error) {
+    console.error("weekly statewide volleyball catalog sync failed",error);
+  }
+
+  try {
+    const locations=await syncArkansasSchoolLocations(env);
+    console.log("weekly statewide volleyball locations",{
+      status:locations.status,
+      targetSchools:locations.targetSchools,
+      matchedSchools:locations.matchedSchools,
+      unresolvedSchools:locations.unresolvedSchools,
+      ambiguousSchools:locations.ambiguousSchools,
+      matchRatio:locations.matchRatio
+    });
+  } catch (error) {
+    console.error("weekly statewide volleyball location sync failed",error);
+  }
+
+  try {
+    const branding=await syncMaxPrepsSchoolBranding(env);
+    const mascots=await enrichMaxPrepsSchoolMascots(env,{limit:20});
+    console.log("weekly statewide school branding",{branding,mascots});
+  } catch (error) {
+    console.error("weekly statewide school branding sync failed",error);
+  }
+
+  return catalogPayload;
+}
+
+async function runStatewideRefresh(env,{payload=null,reason="scheduled"}={}){
+  try {
+    const statewide=await runDragonFlyStatewideCollection(env,{payload});
+    console.log("statewide volleyball collection",{reason,...statewide});
+    return statewide;
+  } catch (error) {
+    console.error("statewide volleyball collection failed",{reason,error:String(error?.message||error)});
+    return {status:"FAILURE",error:String(error?.message||error)};
+  } finally {
+    try {
+      await env.DB.prepare("UPDATE sources SET enabled=0 WHERE collection_mode='statewide'").run();
+    } catch (error) {
+      console.warn("statewide source cleanup failed",String(error?.message||error));
+    }
+  }
+}
+
+async function runScheduledPlan(controller,env,ctx){
+  const scheduledTime=Number(controller?.scheduledTime);
+  const when=Number.isFinite(scheduledTime)?new Date(scheduledTime):new Date();
+  const plan=collectionPlanAt(when);
+
+  if (!plan) {
+    console.log("collection cadence tick skipped",{scheduledAt:when.toISOString()});
+    return {status:"SKIPPED"};
+  }
+
+  console.log("collection cadence plan",{scheduledAt:when.toISOString(),...plan});
+  let catalogPayload=null;
+  if (plan.runCatalogMaintenance) catalogPayload=await runCatalogMaintenance(env);
+  if (plan.runStatewide) await runStatewideRefresh(env,{payload:catalogPayload,reason:plan.kind});
+
+  if (plan.runCore) {
+    // The core collector performs its own due check per source. Keeping Friday
+    // cadence here does not force every source to refresh every 30 minutes.
+    return core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
+  }
+
+  return {status:"SUCCESS",plan:plan.kind};
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url=new URL(request.url);
@@ -231,48 +311,6 @@ export default {
     return publicCatalogResponse(request,response,env);
   },
   async scheduled(controller, env, ctx) {
-    await ensureStatewideSchema(env);
-    let catalogPayload=null;
-    try {
-      const catalog=await syncDragonFlyVarsityVolleyballCatalog(env);
-      catalogPayload=catalog.payload||null;
-      const {payload,...summary}=catalog;
-      console.log("statewide volleyball catalog",summary);
-    } catch (error) {
-      console.error("statewide volleyball catalog sync failed",error);
-    }
-
-    try {
-      const locations=await syncArkansasSchoolLocations(env);
-      console.log("statewide volleyball locations",{
-        status:locations.status,
-        targetSchools:locations.targetSchools,
-        matchedSchools:locations.matchedSchools,
-        unresolvedSchools:locations.unresolvedSchools,
-        ambiguousSchools:locations.ambiguousSchools,
-        matchRatio:locations.matchRatio
-      });
-    } catch (error) {
-      console.error("statewide volleyball location sync failed",error);
-    }
-
-    try {
-      const branding=await syncMaxPrepsSchoolBranding(env);
-      const mascots=await enrichMaxPrepsSchoolMascots(env,{limit:20});
-      console.log("statewide school branding",{branding,mascots});
-    } catch (error) {
-      console.error("statewide school branding sync failed",error);
-    }
-
-    try {
-      const statewide=await runDragonFlyStatewideCollection(env,{payload:catalogPayload});
-      console.log("statewide volleyball collection",statewide);
-    } catch (error) {
-      console.error("statewide volleyball collection failed",error);
-    } finally {
-      await env.DB.prepare("UPDATE sources SET enabled=0 WHERE collection_mode='statewide'").run();
-    }
-
-    return core.scheduled(controller, env, ctx);
+    return runScheduledPlan(controller,env,ctx);
   }
 };
