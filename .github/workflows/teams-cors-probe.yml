@@ -13,27 +13,39 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for gated nearby diagnostic and capture exception
+      - name: Verify Teams catalog and Home records repeatedly
         shell: bash
         run: |
           set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          URL="$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=5&since=2030-01-01T00%3A00%3A00.000Z&until=2030-01-02T00%3A00%3A00.000Z"
-          for attempt in $(seq 1 28); do
-            rm -f body.json headers.txt
-            code=$(curl -sS --max-time 30 -D headers.txt -o body.json -w '%{http_code}' -H 'x-localbleachers-diagnostic: read-v1' "$URL" || true)
-            echo "attempt=$attempt HTTP=$code"
-            cat body.json 2>/dev/null || true
-            echo
-            if [ "$code" = "200" ]; then
-              echo "Nearby route recovered before diagnostic detail was needed."
-              exit 0
+          GAMES="$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-08-28T00%3A00%3A00.000Z&until=2026-12-31T23%3A59%3A59.000Z"
+          failures=0
+          conway_seen=0
+          for attempt in $(seq 1 12); do
+            rm -f schools.json games.json schools.headers games.headers
+            school_code=$(curl -sS --max-time 30 -D schools.headers -o schools.json -w '%{http_code}' "$API/api/v1/schools" || true)
+            games_code=$(curl -sS --max-time 30 -D games.headers -o games.json -w '%{http_code}' "$GAMES" || true)
+            school_count=$(node -e 'try{const p=require("./schools.json");console.log(Array.isArray(p.schools)?p.schools.length:0)}catch{console.log(0)}')
+            game_count=$(node -e 'try{const p=require("./games.json");console.log(Array.isArray(p.games)?p.games.length:-1)}catch{console.log(-1)}')
+            conway_record=$(node - <<'NODE'
+          try {
+            const p=require('./games.json');
+            const rows=(p.games||[]).filter(g=>String(g.school_name||'').toLowerCase().includes('conway') && String(g.sport||'').toLowerCase()==='football');
+            if(!rows.length){console.log('none'); process.exit(0)}
+            const g=rows[0];
+            console.log(`${Number(g.wins||0)}-${Number(g.losses||0)} conf ${Number(g.conference_wins||0)}-${Number(g.conference_losses||0)}`)
+          } catch { console.log('parse-error') }
+          NODE
+            )
+            schools_stale=$(tr -d '\r' < schools.headers | awk -F': ' 'tolower($1)=="x-localbleachers-api-stale" {print $2}' | tail -1)
+            games_stale=$(tr -d '\r' < games.headers | awk -F': ' 'tolower($1)=="x-localbleachers-api-stale" {print $2}' | tail -1)
+            echo "attempt=$attempt schools=$school_code/$school_count stale=${schools_stale:-0} games=$games_code/$game_count stale=${games_stale:-0} conway=$conway_record"
+            if [ "$conway_record" != "none" ] && [ "$conway_record" != "parse-error" ]; then conway_seen=$((conway_seen+1)); fi
+            if [ "$school_code" != "200" ] || [ "$school_count" -lt 190 ] || [ "$games_code" != "200" ] || [ "$game_count" -lt 0 ]; then
+              failures=$((failures+1))
             fi
-            if node -e 'try{const p=require("./body.json");process.exit(typeof p.diagnostic==="string"&&p.diagnostic.length?0:1)}catch{process.exit(1)}'; then
-              echo "GATED_DIAGNOSTIC_CAPTURED"
-              exit 0
-            fi
-            sleep 15
+            sleep 3
           done
-          echo "Gated diagnostic did not reach production in time."
-          exit 1
+          echo "failures=$failures conway_record_cycles=$conway_seen"
+          test "$failures" -eq 0
+          test "$conway_seen" -ge 10
