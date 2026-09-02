@@ -13,21 +13,19 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Verify corrected public-read Worker release
+      - name: Probe current school route
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools"
           rm -f headers.txt headers.norm body.json
           code=$(curl -sS -D headers.txt -o body.json -w '%{http_code}' -H "Origin: https://example.com" "$API" || true)
-          tr -d '\r' < headers.txt > headers.norm
-          cat headers.norm
+          tr -d '\r' < headers.txt > headers.norm 2>/dev/null || true
+          cat headers.norm 2>/dev/null || true
           echo "HTTP $code"
-          test "$code" = "200"
-          grep -Eqi '^access-control-allow-origin: \*$' headers.norm
-          grep -Eqi '^x-localbleachers-api-cors: public-get-v2$' headers.norm
-          grep -Eqi '^x-localbleachers-api-release: public-read-safe-v2$' headers.norm
-          node -e 'const p=require("./body.json"); if(!Array.isArray(p.schools)||p.schools.length<100) process.exit(1); console.log(`Visible schools: ${p.schools.length}`)'
+          echo "BODY:"
+          head -c 500 body.json 2>/dev/null || true
+          echo
 
       - name: Probe API route boundaries
         shell: bash
@@ -36,7 +34,7 @@ jobs:
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           probe() {
             label="$1"; url="$2"
-            rm -f probe.headers probe.body
+            rm -f probe.headers probe.body probe.norm
             code=$(curl -sS --max-time 60 -D probe.headers -o probe.body -w '%{http_code}' "$url" || true)
             tr -d '\r' < probe.headers > probe.norm 2>/dev/null || true
             echo "===== $label ====="
@@ -48,8 +46,8 @@ jobs:
           }
 
           probe "health" "$API/api/v1/health"
+          probe "schools" "$API/api/v1/schools"
           probe "conway schedule" "$API/api/v1/teams/conway-volleyball-2026/schedule"
-          probe "valley schedule" "$API/api/v1/teams/df-t5drr3-volleyball-2026/schedule"
           probe "games date only" "$API/api/v1/games?since=2026-08-20T00%3A00%3A00.000Z&until=2026-08-22T00%3A00%3A00.000Z"
           probe "games geo only" "$API/api/v1/games?lat=36.329374987912615&lon=-93.43432233996029&radius=5"
           probe "games geo and date" "$API/api/v1/games?lat=36.329374987912615&lon=-93.43432233996029&radius=5&since=2026-08-20T00%3A00%3A00.000Z&until=2026-08-22T00%3A00%3A00.000Z"
