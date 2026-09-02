@@ -13,32 +13,27 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Isolate production games failure
+      - name: Wait for gated nearby diagnostic and capture exception
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          probe() {
-            label="$1"; url="$2"
-            rm -f probe.headers probe.norm probe.body
-            code=$(curl -sS --max-time 30 -D probe.headers -o probe.body -w '%{http_code}' "$url" || true)
-            tr -d '\r' < probe.headers > probe.norm 2>/dev/null || true
-            release=$(awk -F': ' 'tolower($1)=="x-localbleachers-api-release" {print $2}' probe.norm | tail -1)
-            stale=$(awk -F': ' 'tolower($1)=="x-localbleachers-api-stale" {print $2}' probe.norm | tail -1)
-            cache=$(awk -F': ' 'tolower($1)=="x-localbleachers-cache-source" {print $2}' probe.norm | tail -1)
-            echo "===== $label ====="
-            echo "HTTP=$code release=$release stale=$stale cache=$cache"
-            echo -n "BODY="
-            head -c 800 probe.body 2>/dev/null || true
+          URL="$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=5&since=2030-01-01T00%3A00%3A00.000Z&until=2030-01-02T00%3A00%3A00.000Z"
+          for attempt in $(seq 1 28); do
+            rm -f body.json headers.txt
+            code=$(curl -sS --max-time 30 -D headers.txt -o body.json -w '%{http_code}' -H 'x-localbleachers-diagnostic: read-v1' "$URL" || true)
+            echo "attempt=$attempt HTTP=$code"
+            cat body.json 2>/dev/null || true
             echo
-          }
-
-          probe "health" "$API/api/v1/health"
-          probe "schools" "$API/api/v1/schools"
-          probe "conway football team" "$API/api/v1/teams/conway-football-2026"
-          probe "conway football schedule" "$API/api/v1/teams/conway-football-2026/schedule"
-          probe "conway football record" "$API/api/v1/teams/conway-football-2026/record"
-          probe "7a football standings" "$API/api/v1/standings?sport=football&conference=7a-central"
-          probe "games impossible future no geo" "$API/api/v1/games?since=2030-01-01T00%3A00%3A00.000Z&until=2030-01-02T00%3A00%3A00.000Z"
-          probe "games impossible future geo" "$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=1&since=2030-01-01T00%3A00%3A00.000Z&until=2030-01-02T00%3A00%3A00.000Z"
-          probe "games conway narrow" "$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=5&since=2026-08-28T00%3A00%3A00.000Z&until=2026-09-15T23%3A59%3A59.000Z"
+            if [ "$code" = "200" ]; then
+              echo "Nearby route recovered before diagnostic detail was needed."
+              exit 0
+            fi
+            if node -e 'try{const p=require("./body.json");process.exit(typeof p.diagnostic==="string"&&p.diagnostic.length?0:1)}catch{process.exit(1)}'; then
+              echo "GATED_DIAGNOSTIC_CAPTURED"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Gated diagnostic did not reach production in time."
+          exit 1
