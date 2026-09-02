@@ -7,7 +7,8 @@ function applyPublicReadCors(request, response) {
 
   const headers = new Headers(response.headers);
   headers.set("access-control-allow-origin", "*");
-  headers.set("x-localbleachers-api-cors", "public-get-v1");
+  headers.set("x-localbleachers-api-cors", "public-get-v2");
+  headers.set("x-localbleachers-api-release", "public-read-safe-v2");
   headers.delete("vary");
   return new Response(response.body, {
     status: response.status,
