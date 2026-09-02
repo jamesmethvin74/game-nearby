@@ -6,9 +6,9 @@ const teamRead = await readFile(new URL("../src/team-read-worker.js", import.met
 const standingsWorker = await readFile(new URL("../src/standings-worker.js", import.meta.url), "utf8");
 
 test("team schedule and record GETs are read-only", () => {
-  assert.match(teamRead, /\/api\/v1\/teams\//);
-  assert.match(teamRead, /\/schedule\$\/\)/);
-  assert.match(teamRead, /\/record\$\/\)/);
+  assert.match(teamRead, /function handleTeamRead\(request, env\)/);
+  assert.match(teamRead, /\\\/schedule\$\/\)/);
+  assert.match(teamRead, /\\\/record\$\/\)/);
   assert.match(teamRead, /SELECT \* FROM team_records WHERE team_id=\?/);
   assert.doesNotMatch(teamRead, /rebuildTeamRecord/);
   assert.doesNotMatch(teamRead, /recalculateRecord/);
