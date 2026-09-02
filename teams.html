@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="polish.css?v=55" />
   <link rel="stylesheet" href="brand-exact.css?v=55" />
   <link rel="stylesheet" href="pitched-layout.css?v=55" />
-  <link rel="stylesheet" href="teams-page.css?v=55" />
+  <link rel="stylesheet" href="teams-page.css?v=58" />
 </head>
 <body class="teams-page">
   <header class="app-header branded-header">
@@ -54,9 +54,7 @@
           <div id="schoolSearchResults" class="school-search-results" role="listbox" hidden></div>
         </div>
       </div>
-
-      <div id="selectedSchool" class="selected-school" hidden></div>
-      <button id="followSchoolBtn" class="primary-btn follow-school-btn" type="button" disabled>Follow team</button>
+      <p class="school-picker-hint">Open the school list, then tap Follow beside any school you want on My Teams.</p>
       <div id="teamAddStatus" class="team-add-status" aria-live="polite"></div>
     </section>
 
@@ -79,11 +77,11 @@
 
   <script>const SCHOOL_REGISTRY=[];const teams=[];const events=[];</script>
   <script src="live-data.js?v=55"></script>
-  <script src="teams-catalog-bootstrap.js?v=55"></script>
+  <script src="teams-catalog-bootstrap.js?v=58"></script>
   <script src="school-schedule.js?v=55"></script>
   <script src="team-detail.js?v=55"></script>
   <script src="school-logo-ui.js?v=55"></script>
-  <script src="teams-page.js?v=55"></script>
+  <script src="teams-page.js?v=58"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
