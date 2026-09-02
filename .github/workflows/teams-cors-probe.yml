@@ -13,41 +13,57 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe current school route
+      - name: Wait for v3 production release
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools"
           rm -f headers.txt headers.norm body.json
-          code=$(curl -sS -D headers.txt -o body.json -w '%{http_code}' -H "Origin: https://example.com" "$API" || true)
-          tr -d '\r' < headers.txt > headers.norm 2>/dev/null || true
-          cat headers.norm 2>/dev/null || true
-          echo "HTTP $code"
-          echo "BODY:"
-          head -c 500 body.json 2>/dev/null || true
-          echo
+          for attempt in $(seq 1 32); do
+            echo "v3 deployment probe ${attempt}/32"
+            code=$(curl -sS --max-time 30 -D headers.txt -o body.json -w '%{http_code}' -H "Origin: https://example.com" "$API" || true)
+            tr -d '\r' < headers.txt > headers.norm 2>/dev/null || true
+            release=$(awk -F': ' 'tolower($1)=="x-localbleachers-api-release" {print $2}' headers.norm | tail -1)
+            cors=$(awk -F': ' 'tolower($1)=="x-localbleachers-api-cors" {print $2}' headers.norm | tail -1)
+            echo "HTTP $code release=$release cors=$cors"
+            if [ "$code" = "200" ] \
+              && [ "$release" = "public-read-resilient-v3" ] \
+              && [ "$cors" = "public-get-v3" ] \
+              && node -e 'const p=require("./body.json"); process.exit(Array.isArray(p.schools)&&p.schools.length>=190?0:1)'; then
+              node -e 'const p=require("./body.json"); console.log(`v3 visible schools: ${p.schools.length}`)'
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "v3 production release did not become healthy in time"
+          exit 1
 
-      - name: Probe API route boundaries
+      - name: Hammer public reads after v3
         shell: bash
         run: |
-          set -uo pipefail
+          set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          probe() {
-            label="$1"; url="$2"
-            rm -f probe.headers probe.body probe.norm
-            code=$(curl -sS --max-time 60 -D probe.headers -o probe.body -w '%{http_code}' "$url" || true)
-            tr -d '\r' < probe.headers > probe.norm 2>/dev/null || true
-            echo "===== $label ====="
-            echo "HTTP $code"
-            grep -Ei '^(content-type|content-length|x-localbleachers-api-cors|x-localbleachers-api-release):' probe.norm || true
-            echo "BODY:"
-            head -c 500 probe.body 2>/dev/null || true
-            echo
-          }
-
-          probe "health" "$API/api/v1/health"
-          probe "schools" "$API/api/v1/schools"
-          probe "conway schedule" "$API/api/v1/teams/conway-volleyball-2026/schedule"
-          probe "games date only" "$API/api/v1/games?since=2026-08-20T00%3A00%3A00.000Z&until=2026-08-22T00%3A00%3A00.000Z"
-          probe "games geo only" "$API/api/v1/games?lat=36.329374987912615&lon=-93.43432233996029&radius=5"
-          probe "games geo and date" "$API/api/v1/games?lat=36.329374987912615&lon=-93.43432233996029&radius=5&since=2026-08-20T00%3A00%3A00.000Z&until=2026-08-22T00%3A00%3A00.000Z"
+          GAMES="$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-08-28T00%3A00%3A00.000Z&until=2026-12-31T23%3A59%3A59.000Z"
+          failures=0
+          for attempt in $(seq 1 20); do
+            school_code=$(curl -sS --max-time 30 -o schools.json -w '%{http_code}' "$API/api/v1/schools" || true)
+            games_code=$(curl -sS --max-time 30 -o games.json -w '%{http_code}' "$GAMES" || true)
+            school_count=$(node -e 'try{const p=require("./schools.json");console.log(Array.isArray(p.schools)?p.schools.length:0)}catch{console.log(0)}')
+            game_count=$(node -e 'try{const p=require("./games.json");console.log(Array.isArray(p.games)?p.games.length:-1)}catch{console.log(-1)}')
+            conway_record=$(node - <<'NODE'
+          try {
+            const p=require('./games.json');
+            const g=(p.games||[]).find(g=>String(g.school_name||'').toLowerCase().includes('conway') && String(g.sport||'').toLowerCase()==='football');
+            if(!g){console.log('none'); process.exit(0)}
+            console.log(`${Number(g.wins||0)}-${Number(g.losses||0)} conf ${Number(g.conference_wins||0)}-${Number(g.conference_losses||0)}`)
+          } catch { console.log('parse-error') }
+          NODE
+            )
+            echo "attempt=$attempt schools=$school_code/$school_count games=$games_code/$game_count conway=$conway_record"
+            if [ "$school_code" != "200" ] || [ "$school_count" -lt 190 ] || [ "$games_code" != "200" ] || [ "$game_count" -lt 0 ]; then
+              failures=$((failures+1))
+            fi
+            sleep 3
+          done
+          echo "read failures across 20 cycles: $failures"
+          test "$failures" -eq 0
