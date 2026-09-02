@@ -26,6 +26,7 @@
 .school-result-copy small{display:block;margin-top:3px;color:var(--pitch-muted,var(--muted));font-size:.66rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .school-result-follow{min-width:64px;height:34px;border:1px solid color-mix(in srgb,var(--pitch-blue,var(--blue)) 72%,var(--pitch-line,var(--line)));border-radius:999px;background:color-mix(in srgb,var(--pitch-blue,var(--blue)) 16%,var(--pitch-surface-soft,var(--bg-soft)));color:var(--pitch-blue,var(--blue));font:inherit;font-size:.68rem;font-weight:900;padding:0 12px}
 .school-result-follow:hover,.school-result-follow:focus-visible{background:var(--pitch-blue,var(--blue));color:#fff;outline:none}
+.school-result-follow.is-following{border-color:var(--pitch-line,var(--line));background:var(--pitch-surface-soft,var(--bg-soft));color:var(--pitch-muted,var(--muted));opacity:.8}
 .school-results-empty{padding:14px;text-align:center;color:var(--pitch-muted,var(--muted));font-size:.76rem}
 .selected-school{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:11px;align-items:center;margin-top:14px;padding:11px;border:1px solid var(--pitch-line,var(--line));border-radius:14px;background:var(--pitch-surface-soft,var(--bg-soft))}
 .selected-school-logo{width:50px;height:50px;border-radius:13px}
