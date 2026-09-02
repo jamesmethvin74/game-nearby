@@ -1,0 +1,28 @@
+name: Teams CORS probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/teams-cors-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe public school API CORS
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools"
+          for origin in \
+            "https://jamesmethvin74.github.io" \
+            "https://localbleachersar-sports-api.james-methvin74.workers.dev"; do
+            echo "=== ORIGIN: $origin ==="
+            curl -sS -D headers.txt -o body.json -H "Origin: $origin" "$API"
+            head -n 20 headers.txt
+            node -e 'const p=require("./body.json"); console.log("schools", Array.isArray(p.schools)?p.schools.length:0)'
+          done
