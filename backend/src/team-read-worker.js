@@ -183,7 +183,12 @@ export default {
       if (teamResponse) return teamResponse;
     } catch (error) {
       console.error("read-only team detail failed", error);
-      return json({ error: "team_detail_failed", message: "Team schedule could not be loaded." }, 500);
+      const debug = request.headers.get("x-localbleachers-debug") === "team-detail";
+      return json({
+        error: "team_detail_failed",
+        message: "Team schedule could not be loaded.",
+        ...(debug ? { detail: String(error?.message || error) } : {})
+      }, 500);
     }
     return app.fetch(request, env, ctx);
   },
