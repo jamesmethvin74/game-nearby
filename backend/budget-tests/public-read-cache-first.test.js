@@ -19,11 +19,17 @@ test("fresh edge cache is consulted before the D1-backed app", () => {
 test("fresh and last-good cache lifetimes are separate", () => {
   assert.match(source, /freshKey:/);
   assert.match(source, /staleKey:/);
+  assert.match(source, /legacyKey:/);
   assert.match(source, /freshTtl/);
   assert.match(source, /staleTtl/);
   assert.match(source, /putCached\(cache, descriptor\.freshKey/);
   assert.match(source, /putCached\(cache, descriptor\.staleKey/);
   assert.match(source, /staleRead\(cache, descriptor, request\)/);
+});
+
+test("quota fallback can use pre-migration last-good cache entries", () => {
+  assert.match(source, /readCached\(cache, descriptor\.legacyKey/);
+  assert.match(source, /source: "legacy-last-good"/);
 });
 
 test("nearby cache keys preserve location and coarse date window", () => {
@@ -33,6 +39,7 @@ test("nearby cache keys preserve location and coarse date window", () => {
   assert.match(source, /const since = dateBucket/);
   assert.match(source, /const until = dateBucket/);
   assert.match(source, /lat=\$\{lat\}&lon=\$\{lon\}&radius=\$\{radius\}&since=\$\{since\}&until=\$\{until\}/);
+  assert.match(source, /legacyQuery = `lat=\$\{lat\}&lon=\$\{lon\}&radius=\$\{radius\}`/);
 });
 
 test("diagnostic requests bypass the public cache", () => {
