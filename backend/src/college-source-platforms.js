@@ -3,6 +3,7 @@ import { arkansasRazorbackScheduleUrl } from "./arkansas-razorbacks.js";
 
 const SIDEARM = "sidearm";
 const SIDEARM_MODERN = "sidearm-modern";
+const INSTITUTIONAL_TABLE = "institutional-table";
 const PRESTO = "prestosports";
 const NAIA_PRESTO = "naia-stats-presto";
 const NJCAA_PRESTO = "njcaa-stats-presto";
@@ -48,10 +49,10 @@ export const COLLEGE_SOURCE_PLATFORMS = [
 
   { schoolId:"asu-mid-south", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"events.asumidsouth.edu" },
   { schoolId:"asu-mountain-home", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:"no-supported-teams", serverFetchable:false },
-  { schoolId:"asu-newport", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"asund.edu" },
+  { schoolId:"asu-newport", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:"no-supported-teams", serverFetchable:false, evidencePath:"https://www.asun.edu/news/26-2-3-aviator-athletics.php" },
   { schoolId:"asu-three-rivers", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:"no-supported-teams", serverFetchable:false },
   { schoolId:"national-park", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"np.edu" },
-  { schoolId:"north-arkansas", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"northark.edu" },
+  { schoolId:"north-arkansas", platform:"northark-institutional", host:"www.northark.edu", parserType:INSTITUTIONAL_TABLE, status:"parser-ready", serverFetchable:true, fallbackHost:"northark.edu", evidencePath:"/athletics/mens-basketball/" },
   { schoolId:"nwacc", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"nwacc.edu" },
   { schoolId:"shorter", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"shortercollege.edu" },
   { schoolId:"south-arkansas", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:null, status:PRESTO_BLOCKED, serverFetchable:false, fallbackHost:"southark.edu" },
@@ -94,10 +95,18 @@ export function modernSidearmScheduleUrl(platform, team, season = "2026") {
   return `https://${platform.host}/sports/${sportPath}/schedule/season/${season}`;
 }
 
+export function institutionalTableScheduleUrl(platform, team) {
+  if (platform?.parserType !== INSTITUTIONAL_TABLE || platform.schoolId !== "north-arkansas" || team.sport !== "basketball") return null;
+  if (team.gender === "men") return "https://www.northark.edu/athletics/mens-basketball/";
+  if (team.gender === "women") return "https://www.northark.edu/athletics/womens-basketball/";
+  return null;
+}
+
 function parserReadyUrl(platform, team, season) {
   if (platform.parserType === "sidearm") return sidearmScheduleUrl(platform, team, season);
   if (platform.parserType === "sidearm-modern") return modernSidearmScheduleUrl(platform, team, season);
   if (platform.parserType === "arkansas-razorbacks") return arkansasRazorbackScheduleUrl(team);
+  if (platform.parserType === INSTITUTIONAL_TABLE) return institutionalTableScheduleUrl(platform, team);
   return null;
 }
 
