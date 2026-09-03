@@ -27,19 +27,6 @@ function mapping(externalTeamId,teamId,schoolId){
   };
 }
 
-function schoolMapping(externalSchoolId,teamId,schoolId){
-  return {
-    external_school_id:externalSchoolId,
-    source_id:`${teamId}-dragonfly-statewide`,
-    source_url:"https://example.test/statewide",
-    team_id:teamId,
-    school_id:schoolId,
-    school_name:schoolId,
-    latitude:35.0,
-    longitude:-92.0
-  };
-}
-
 function event({id="event-1",code="MFB",date="2026-09-04T00:00:00.000Z",home,away,status="FINAL"}){
   return {
     eventId:id,
@@ -63,6 +50,18 @@ test("Milestone 2 uses the six verified Arkansas DragonFly varsity feeds",()=>{
     ["WVB","WVB_Varsity","WVB"]
   ]);
   assert.equal(new Set(STATEWIDE_HIGH_SCHOOL_SPORTS.map(item=>item.feedUrl)).size,6);
+});
+
+test("DragonFly team identity namespaces are feed-scoped so raw team IDs may repeat across sports",()=>{
+  assert.equal(new Set(STATEWIDE_HIGH_SCHOOL_SPORTS.map(item=>item.teamIdentityProvider)).size,6);
+  assert.equal(statewideSportConfig("MBB").teamIdentityProvider,"dragonfly:ArkAA:2026:MBB_Varsity");
+  assert.equal(statewideSportConfig("WBB").teamIdentityProvider,"dragonfly:ArkAA:2026:WBB_Varsity");
+  assert.notEqual(statewideSportConfig("MBB").teamIdentityProvider,statewideSportConfig("WBB").teamIdentityProvider);
+
+  const catalog=fs.readFileSync(fileURLToPath(new URL("../src/dragonfly-certified-sport-catalog.js",import.meta.url)),"utf8");
+  const collector=fs.readFileSync(fileURLToPath(new URL("../src/dragonfly-certified-statewide.js",import.meta.url)),"utf8");
+  assert.match(catalog,/bind\(teamProvider,entry\.externalTeamId,teamId/);
+  assert.match(collector,/bind\(config\.teamIdentityProvider,config\.sport,config\.gender,config\.season\)/);
 });
 
 test("each provider mapping is hard-gated to the certified sport target inventory",()=>{
@@ -115,29 +114,6 @@ test("certified Arkansas schedules retain games against an unmapped out-of-state
   assert.equal(rows.games[0].result,"W");
 });
 
-test("school-scoped mappings remain correct when DragonFly reuses a team ID across gender feeds",()=>{
-  const config=statewideSportConfig("WBB");
-  const payload={timestamp:checkedAt,schedule:[event({
-    id:"shared-provider-id-game",
-    code:"WBB",
-    home:{name:"School A Girls",org:"SCHOOLA",teamId:"provider-shared-id",result:{score:58,opponentScore:50,code:"W"}},
-    away:{name:"School B Girls",org:"SCHOOLB",teamId:"school-b-wbb",result:{score:50,opponentScore:58,code:"L"}}
-  })]};
-  const rows=buildCertifiedStatewideRows(payload,[
-    schoolMapping("SCHOOLA","school-a-basketball-girls-2026","school-a"),
-    schoolMapping("SCHOOLB","school-b-basketball-girls-2026","school-b")
-  ],config,{checkedAt});
-
-  assert.equal(rows.games.length,2);
-  assert.equal(rows.canonicals.length,1);
-  assert.equal(rows.games.find(game=>game.team_id==="school-a-basketball-girls-2026")?.team_score,58);
-  assert.equal(rows.games.find(game=>game.team_id==="school-b-basketball-girls-2026")?.team_score,50);
-  assert.deepEqual(new Set(rows.touchedTeamIds),new Set([
-    "school-a-basketball-girls-2026",
-    "school-b-basketball-girls-2026"
-  ]));
-});
-
 test("sport discovery only accepts the configured varsity sport",()=>{
   const payload={schedule:[
     event({id:"mbb",code:"MBB",home:{name:"A",org:"AAA",teamId:"a-mbb"},away:{name:"B",org:"BBB",teamId:"b-mbb"},status:"SCHEDULED"}),
@@ -159,11 +135,9 @@ test("statewide signature is sport-scoped and ignores feed timestamp churn",()=>
   assert.notEqual(certifiedStatewideSignature(payload,"WSO"),certifiedStatewideSignature(payload,"MSO"));
 });
 
-test("multisport collection uses certified school identities and touched-team record rebuild",()=>{
+test("multisport collection uses touched-team record rebuild instead of statewide rebuild",()=>{
   const source=fs.readFileSync(fileURLToPath(new URL("../src/dragonfly-certified-statewide.js",import.meta.url)),"utf8");
   assert.match(source,/rebuildTeamRecords\(env,rows\.touchedTeamIds,checkedAt\)/);
   assert.doesNotMatch(source,/rebuildStatewideRecords/);
-  assert.match(source,/FROM school_external_identities sei/);
-  assert.doesNotMatch(source,/FROM team_external_identities tei/);
   assert.match(source,/source_id IN \(SELECT value FROM json_each\(\?\)\)/);
 });
