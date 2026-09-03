@@ -1,0 +1,1 @@
+Match priority: DragonFly-derived production ID, normalized school name, canonicalized school name, then high-confidence fuzzy match. Collisions are rejected rather than guessed.
