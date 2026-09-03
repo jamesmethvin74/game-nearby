@@ -18,7 +18,7 @@ jobs:
           set -euo pipefail
           mkdir -p probe
           : > probe/summary.txt
-          for code in FB_Varsity MBB_Varsity WBB_Varsity MSO_Varsity WSO_Varsity WVB_Varsity; do
+          for code in MFB_Varsity; do
             url="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/${code}/0"
             status=$(curl -sS -L --max-time 30 -o "probe/${code}.json" -w '%{http_code}' "$url" || true)
             bytes=$(wc -c < "probe/${code}.json" 2>/dev/null || printf '0')
@@ -29,9 +29,9 @@ jobs:
           try {
             const data=JSON.parse(fs.readFileSync(`probe/${code}.json`,'utf8'));
             const shape=Array.isArray(data)?`array:${data.length}`:`object:${Object.keys(data).slice(0,12).join(',')}`;
-            let count=null;
-            for (const key of ['events','data','items','schedules','results']) if (Array.isArray(data?.[key])) { count=data[key].length; break; }
-            console.log(`json=${shape}${count===null?'':` count=${count}`}`);
+            const schedule=Array.isArray(data?.schedule)?data.schedule:[];
+            const sport=schedule[0]?.associatedSports?.[0] || null;
+            console.log(`json=${shape} schedule=${schedule.length} sport=${JSON.stringify(sport)}`);
           } catch (e) {
             console.log('json=invalid');
           }
