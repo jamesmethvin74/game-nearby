@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import usageApp from "../src/d1-usage-public-worker.js";
 import { loadD1Usage, summarizeD1Usage } from "../src/d1-usage-monitor.js";
 
 const NOW = new Date("2026-09-03T16:00:00.000Z");
@@ -60,4 +61,21 @@ test("usage monitor source contains no D1 binding calls", () => {
   const source = fs.readFileSync(new URL("../src/d1-usage-monitor.js", import.meta.url), "utf8");
   assert.doesNotMatch(source, /env\.DB/);
   assert.doesNotMatch(source, /\.prepare\(/);
+});
+
+test("usage endpoint is hidden without the existing refresh token", async () => {
+  const env = {
+    REFRESH_TOKEN: "private-refresh-token",
+    DB: new Proxy({}, { get() { throw new Error("D1 must not be accessed for unauthorized usage requests"); } })
+  };
+  const response = await usageApp.fetch(new Request("https://example.test/api/v1/d1-usage"), env, {});
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "not_found" });
+});
+
+test("usage endpoint does not advertise public CORS or public caching", () => {
+  const source = fs.readFileSync(new URL("../src/d1-usage-public-worker.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /access-control-allow-origin/i);
+  assert.doesNotMatch(source, /public,\s*max-age/i);
+  assert.match(source, /x-refresh-token/);
 });
