@@ -1,0 +1,55 @@
+name: Milestone 1 production reconciliation v2
+
+on:
+  push:
+    branches:
+      - diagnostics/milestone1-production-reconciliation
+    paths:
+      - .github/workflows/milestone1-production-reconciliation-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconcile AAA certified schools to production catalog
+        shell: node {0}
+        run: |
+          import fs from 'node:fs';
+          const REPORT_URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/coverage-report';
+          const names=JSON.parse(fs.readFileSync('./backend/data/arkansas-high-school-team-inventory-names.json','utf8'));
+          const inventory=JSON.parse(fs.readFileSync('./backend/data/arkansas-high-school-team-inventory.json','utf8'));
+          function clean(v){return String(v||'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();}
+          function norm(v){return clean(v).toLowerCase().replace(/&/g,' and ').replace(/\b(?:high school|high|school|hs)\b/g,' ').replace(/\barkansas\b|\bar\b/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();}
+          function canon(v){return norm(v).split(' ').filter(Boolean).filter(t=>!new Set(['sr','senior','world','class','magnet','boys','athletics','k','7','12']).has(t)).map(t=>t==='co'?'county':t==='cons'?'consolidated':t).join(' ').replace(/\bde queen\b/g,'dequeen').replace(/\bmt\b/g,'mount').trim();}
+          function safe(v){return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');}
+          function lev(a,b){a=String(a);b=String(b);const r=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let p=r[0];r[0]=i;for(let j=1;j<=b.length;j++){const o=r[j];r[j]=Math.min(r[j]+1,r[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=o;}}return r[b.length];}
+          function sim(a,b){a=canon(a);b=canon(b);if(!a&&!b)return 1;if(!a||!b)return 0;const l=1-lev(a,b)/Math.max(a.length,b.length);const as=new Set(a.split(' ')),bs=new Set(b.split(' '));const i=[...as].filter(x=>bs.has(x)).length;const d=(2*i)/(as.size+bs.size||1);return .65*l+.35*d;}
+          let report,last;for(let a=1;a<=2;a++){try{const r=await fetch(REPORT_URL,{headers:{accept:'application/json','user-agent':'LocalBleachersAR-milestone1-reconcile/2.0'}});if(!r.ok)throw new Error(`HTTP ${r.status}`);report=await r.json();break;}catch(e){last=e;if(a<2)await new Promise(r=>setTimeout(r,1000));}}if(!report)throw last;
+          const production=(report.schools||[]).filter(s=>s.level==='high-school');
+          const aaa=Object.entries(names.certified_school_names).map(([aaa_id,aaa_name])=>({aaa_id,aaa_name,team_codes:inventory.certified_school_team_codes[aaa_id]||[]}));
+          const byId=new Map(production.map(s=>[String(s.school_id),s])),byNorm=new Map(),byCanon=new Map();
+          for(const p of production){for(const [m,k] of [[byNorm,norm(p.school_name)],[byCanon,canon(p.school_name)]]){if(!m.has(k))m.set(k,[]);m.get(k).push(p);}}
+          const rows=[];
+          for(const a of aaa){let match=null,method='unmatched',score=1,notes='';const direct=byId.get(`df-${safe(a.aaa_id)}`);if(direct){match=direct;method='dragonfly-derived-id';}
+            if(!match){const x=byNorm.get(norm(a.aaa_name))||[];if(x.length===1){match=x[0];method='normalized-name';}else if(x.length>1)notes='multiple normalized candidates';}
+            if(!match){const x=byCanon.get(canon(a.aaa_name))||[];if(x.length===1){match=x[0];method='canonical-name';}else if(x.length>1)notes='multiple canonical candidates';}
+            if(!match){const ranked=production.map(p=>({p,score:sim(a.aaa_name,p.school_name)})).sort((x,y)=>y.score-x.score),best=ranked[0],second=ranked[1],gap=(best?.score||0)-(second?.score||0);if(best&&(best.score>=.95||(best.score>=.88&&gap>=.08))){match=best.p;method='high-confidence-fuzzy';score=+best.score.toFixed(4);notes=`second=${+(second?.score||0).toFixed(4)}`;}else if(best){score=+best.score.toFixed(4);notes=`best=${best.p.school_name}; second=${second?.p?.school_name||''}; gap=${+gap.toFixed(4)}`;}}
+            rows.push({...a,production_school_id:match?.school_id||null,production_school_name:match?.school_name||null,production_city:match?.city||null,match_method:method,match_score:score,notes});}
+          const rank={'dragonfly-derived-id':4,'normalized-name':3,'canonical-name':2,'high-confidence-fuzzy':1},groups=new Map(),collisions=[];
+          for(const r of rows){if(r.production_school_id){if(!groups.has(r.production_school_id))groups.set(r.production_school_id,[]);groups.get(r.production_school_id).push(r);}}
+          for(const [id,rs] of groups){if(rs.length<2)continue;rs.sort((a,b)=>(rank[b.match_method]||0)-(rank[a.match_method]||0)||b.match_score-a.match_score);for(const loser of rs.slice(1)){collisions.push({production_school_id:id,winner_aaa_id:rs[0].aaa_id,loser_aaa_id:loser.aaa_id});loser.notes=`collision with ${rs[0].aaa_id}; prior=${loser.match_method}; ${loser.notes}`;loser.production_school_id=null;loser.production_school_name=null;loser.production_city=null;loser.match_method='collision-unresolved';}}
+          const matched=rows.filter(r=>r.production_school_id),matchedProd=new Set(matched.map(r=>r.production_school_id)),aaaUnmatched=rows.filter(r=>!r.production_school_id),prodUnmatched=production.filter(p=>!matchedProd.has(p.school_id)),methods={};for(const r of rows)methods[r.match_method]=(methods[r.match_method]||0)+1;
+          const summary={version:'milestone1-aaa-production-reconciliation-v1',generated_at:new Date().toISOString(),aaa_certified_schools:aaa.length,production_high_schools:production.length,matched_aaa_schools:matched.length,aaa_not_in_or_not_matched_to_production:aaaUnmatched.length,production_schools_not_matched_to_aaa:prodUnmatched.length,collision_count:collisions.length,match_methods:methods,matched_team_targets:matched.reduce((s,r)=>s+r.team_codes.length,0),aaa_team_targets:aaa.reduce((s,r)=>s+r.team_codes.length,0)};
+          fs.writeFileSync('milestone1-production-reconciliation.json',JSON.stringify({summary,matches:rows,aaa_unmatched:aaaUnmatched,production_unmatched:prodUnmatched,collisions},null,2));
+          console.log(JSON.stringify(summary,null,2));console.log('PRODUCTION UNMATCHED',JSON.stringify(prodUnmatched.map(p=>({school_id:p.school_id,school_name:p.school_name,city:p.city})),null,2));console.log('AAA UNMATCHED SAMPLE',JSON.stringify(aaaUnmatched.slice(0,25).map(r=>({aaa_id:r.aaa_id,aaa_name:r.aaa_name,team_codes:r.team_codes,notes:r.notes})),null,2));
+          if(aaa.length!==295)throw new Error(`expected 295 AAA schools, got ${aaa.length}`);if(production.length<190)throw new Error(`production catalog too small: ${production.length}`);if(matched.length<180)throw new Error(`reconciliation too weak: ${matched.length}`);
+      - name: Upload reconciliation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: milestone1-production-reconciliation-v2
+          path: milestone1-production-reconciliation.json
+          retention-days: 1
