@@ -53,14 +53,14 @@ function matchedTeamCount(db, teams) {
   `).get(JSON.stringify(teams)).n);
 }
 
-test("M3 college catalog seed is exactly the certified 36-school / 132-team denominator", () => {
+test("M3 college catalog seed is exactly the certified 36-school / 130-team denominator", () => {
   const seed = collegeCatalogSeed("2026");
   assert.equal(seed.schools.length, 36);
-  assert.equal(seed.teams.length, 132);
+  assert.equal(seed.teams.length, 130);
   assert.equal(seed.schools.filter(row => row.verificationStatus === "verified").length, 35);
   assert.equal(seed.schools.filter(row => row.verificationStatus === "provisional").length, 1);
   assert.equal(new Set(seed.schools.map(row => row.id)).size, 36);
-  assert.equal(new Set(seed.teams.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 132);
+  assert.equal(new Set(seed.teams.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 130);
 
   const inventoryIds = ARKANSAS_COLLEGE_TEAM_INVENTORY.map(row => row.schoolId).sort();
   const metadataIds = ARKANSAS_COLLEGE_SCHOOL_METADATA.map(row => row.id).sort();
@@ -73,16 +73,18 @@ test("M3 college catalog materializes all targets idempotently without assuming 
 
   applySeed(db, seed);
   assert.equal(matchedSchoolCount(db, seed.schools), 36);
-  assert.equal(matchedTeamCount(db, seed.teams), 132);
+  assert.equal(matchedTeamCount(db, seed.teams), 130);
 
   // UCA/Hendrix have pre-existing pilot team IDs. The target join deliberately
   // verifies school/sport/gender/season rather than requiring generated IDs.
   applySeed(db, seed);
   assert.equal(matchedSchoolCount(db, seed.schools), 36);
-  assert.equal(matchedTeamCount(db, seed.teams), 132);
+  assert.equal(matchedTeamCount(db, seed.teams), 130);
 
   assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM teams WHERE school_id='asu-mountain-home'").get().n), 0);
+  assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM teams WHERE school_id='asu-newport'").get().n), 0);
   assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM teams WHERE school_id='asu-three-rivers'").get().n), 0);
+  assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM teams WHERE school_id='north-arkansas' AND sport='soccer'").get().n), 0);
 });
 
 test("M3 college catalog bootstrap changes catalog only and stays two-statement/set-based", () => {
