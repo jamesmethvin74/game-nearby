@@ -16,6 +16,7 @@ jobs:
         shell: bash
         run: |
           set -u
+          # Single request only. A 404 means the temporary Worker build is not live yet and does not touch D1.
           URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_milestone1-close-20260903"
           curl --silent --show-error --output milestone1-verification.json --write-out '%{http_code}' "$URL" > milestone1-http-status.txt || true
           printf 'HTTP '; cat milestone1-http-status.txt; printf '\n'
