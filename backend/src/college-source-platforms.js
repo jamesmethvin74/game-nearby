@@ -2,6 +2,7 @@ import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "./college-team-inventory.js";
 import { arkansasRazorbackScheduleUrl } from "./arkansas-razorbacks.js";
 
 const SIDEARM = "sidearm";
+const SIDEARM_MODERN = "sidearm-modern";
 const PRESTO = "prestosports";
 const NAIA_PRESTO = "naia-stats-presto";
 const NJCAA_PRESTO = "njcaa-stats-presto";
@@ -19,7 +20,7 @@ export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"arkansas-state", platform:SIDEARM, host:"astateredwolves.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/womens-soccer/schedule/2026" },
   { schoolId:"uapb", platform:SIDEARM, host:"uapblionsroar.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/womens-soccer/schedule/2026" },
   { schoolId:"uca", platform:SIDEARM, host:"ucasports.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/football/schedule/2026" },
-  { schoolId:"little-rock", platform:SIDEARM, host:"lrtrojans.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/womens-soccer/schedule/2026" },
+  { schoolId:"little-rock", platform:SIDEARM_MODERN, host:"lrtrojans.com", parserType:"sidearm-modern", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/womens-soccer/schedule/season/2026" },
   { schoolId:"arkansas-tech", platform:SIDEARM, host:"arkansastechsports.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/football/schedule/2026" },
   { schoolId:"uafs", platform:SIDEARM, host:"uafortsmithlions.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/womens-volleyball/schedule/2026" },
   { schoolId:"uam", platform:SIDEARM, host:"www.uamsports.com", parserType:"sidearm", status:"parser-ready", serverFetchable:true, evidencePath:"/sports/womens-volleyball/schedule/2026" },
@@ -85,8 +86,17 @@ export function sidearmScheduleUrl(platform, team, season = "2026") {
   return `https://${platform.host}/sports/${sportPath}/schedule/${seasonPath}`;
 }
 
+export function modernSidearmScheduleUrl(platform, team, season = "2026") {
+  if (platform?.parserType !== "sidearm-modern") return null;
+  const sportPath=SIDEARM_SPORT_PATH[`${team.sport}|${team.gender}`];
+  if(!sportPath) return null;
+  if(team.sport==="basketball") return `https://${platform.host}/sports/${sportPath}/schedule/`;
+  return `https://${platform.host}/sports/${sportPath}/schedule/season/${season}`;
+}
+
 function parserReadyUrl(platform, team, season) {
   if (platform.parserType === "sidearm") return sidearmScheduleUrl(platform, team, season);
+  if (platform.parserType === "sidearm-modern") return modernSidearmScheduleUrl(platform, team, season);
   if (platform.parserType === "arkansas-razorbacks") return arkansasRazorbackScheduleUrl(team);
   return null;
 }
