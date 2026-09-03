@@ -1,0 +1,30 @@
+name: Milestone 1 production verification capture
+
+on:
+  push:
+    branches:
+      - probe/milestone1-production-verification
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture production verification exactly once
+        shell: bash
+        run: |
+          set -u
+          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_milestone1-close-20260903"
+          curl --silent --show-error --output milestone1-verification.json --write-out '%{http_code}' "$URL" > milestone1-http-status.txt || true
+          printf 'HTTP '; cat milestone1-http-status.txt; printf '\n'
+
+      - name: Upload verification result
+        uses: actions/upload-artifact@v4
+        with:
+          name: milestone1-production-verification
+          path: |
+            milestone1-verification.json
+            milestone1-http-status.txt
+          if-no-files-found: error
