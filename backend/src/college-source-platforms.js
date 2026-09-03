@@ -2,14 +2,13 @@ import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "./college-team-inventory.js";
 
 const SIDEARM = "sidearm";
 const PRESTO = "prestosports";
+const NAIA_PRESTO = "naia-stats-presto";
 const CUSTOM = "custom";
 const PENDING = "pending-audit";
 
-// Read-only provider audit checkpoint, 2026-09-03. A provider can be classified
-// as Sidearm once a current official schedule page on that athletics host has
-// been verified to use the same schedule surface already handled by index.js.
-// PrestoSports sites expose provider-supported RSS schedule feeds, so those are
-// modeled separately for a reusable RSS parser. This file never mutates D1.
+// Read-only provider audit checkpoint, 2026-09-03. Classification here is
+// intentionally stronger than a hostname guess: current public schedule/event
+// evidence must identify the platform family. This file never mutates D1.
 export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"uark", platform:CUSTOM, host:"arkansasrazorbacks.com", parserType:null, status:"needs-parser", evidencePath:"/sport/m-footbl/schedule/" },
 
@@ -35,20 +34,24 @@ export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"ua-cossatot", platform:PRESTO, host:"uacossatot.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/sports/msoc/2025-26/releases/20251025rbo616" },
   { schoolId:"champion-christian", platform:PRESTO, host:"championchristian.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/sports/mbkb/2025-26/schedule" },
 
-  { schoolId:"cbc", platform:PENDING, host:"cbcmustangs.com", parserType:null, status:"provisional-source" },
-  { schoolId:"crowleys-ridge", platform:PENDING, host:"crcpioneers.com", parserType:null, status:"pending-audit" },
-  { schoolId:"philander-smith", platform:PENDING, host:"philander.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"williams-baptist", platform:PENDING, host:"williamsbu.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"asu-mid-south", platform:PENDING, host:"asumidsouth.edu", parserType:null, status:"pending-audit" },
+  // NAIA Stats is a PrestoSports-hosted shared authority. These four Arkansas
+  // schools have current schedule/result evidence there. They remain bulk-feed
+  // candidates until exact 2026-27 sport feed URLs are live-proved.
+  { schoolId:"cbc", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"American_Midwest", evidencePath:"/sports/mbkb/2025-26/conf/American_Midwest/schedule" },
+  { schoolId:"crowleys-ridge", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"American_Midwest", evidencePath:"/sports/wbkb/2025-26" },
+  { schoolId:"williams-baptist", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"American_Midwest", evidencePath:"/sports/bsb/2025-26/conf/americanmidwest/schedule" },
+  { schoolId:"philander-smith", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"hbcuathleticconference", evidencePath:"/sports/bsb/2025-26/conf/hbcuathleticconference/schedule" },
+
+  { schoolId:"asu-mid-south", platform:"localist-events", host:"events.asumidsouth.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/event/asumidsouth.events.1242194" },
   { schoolId:"asu-mountain-home", platform:PENDING, host:"asumh.edu", parserType:null, status:"no-supported-teams" },
   { schoolId:"asu-three-rivers", platform:PENDING, host:"asutr.edu", parserType:null, status:"no-supported-teams" },
   { schoolId:"national-park", platform:PENDING, host:"np.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"north-arkansas", platform:PENDING, host:"northark.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"nwacc", platform:PENDING, host:"nwacc.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"shorter", platform:PENDING, host:"shortercollege.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"south-arkansas", platform:PENDING, host:"southarkstars.com", parserType:null, status:"pending-audit" },
+  { schoolId:"north-arkansas", platform:"institutional-table", host:"northark.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/athletics/mens-basketball/" },
+  { schoolId:"nwacc", platform:"institutional-calendar", host:"nwacc.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/calendar/athletics.html" },
+  { schoolId:"shorter", platform:"wordpress-tribe-events", host:"shortercollege.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/events/category/sports/" },
+  { schoolId:"south-arkansas", platform:"apptegy-thrillshare", host:"southarkstars.com", parserType:null, status:"shared-platform-candidate", evidencePath:"/events" },
   { schoolId:"seark", platform:PENDING, host:"seark.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"sau-tech", platform:PENDING, host:"sautrockets.com", parserType:null, status:"pending-audit" },
+  { schoolId:"sau-tech", platform:CUSTOM, host:"sautrockets.com", parserType:null, status:"shared-platform-candidate", evidencePath:"/mens-basketball/" },
   { schoolId:"ua-rich-mountain", platform:PENDING, host:"uarichmountain.edu", parserType:null, status:"pending-audit" }
 ];
 
@@ -86,49 +89,43 @@ export function sidearmScheduleUrl(platform, team, season = "2026") {
 }
 
 export function prestoRssScheduleUrl(platform, team, season = "2026") {
-  if (platform?.parserType !== "prestosports-rss") return null;
+  if (platform?.platform !== PRESTO || platform?.parserType !== "prestosports-rss") return null;
   const sportPath = PRESTO_SPORT_PATH[`${team.sport}|${team.gender}`];
   if (!sportPath) return null;
   return `https://${platform.host}/sports/${sportPath}/${academicSeason(season)}/schedule?print=rss`;
 }
 
 export function collegeSourceAuditSummary() {
-  let parserReadySchools = 0;
-  let parserReadyTeams = 0;
-  let feedReadyParserNeededSchools = 0;
-  let feedReadyParserNeededTeams = 0;
-  let needsParserSchools = 0;
-  let needsParserTeams = 0;
-  let pendingTeams = 0;
+  const summary = {
+    schools: COLLEGE_SOURCE_PLATFORMS.length,
+    parserReadySchools:0, parserReadyTeams:0,
+    feedReadyParserNeededSchools:0, feedReadyParserNeededTeams:0,
+    bulkFeedCandidateSchools:0, bulkFeedCandidateTeams:0,
+    sharedPlatformCandidateSchools:0, sharedPlatformCandidateTeams:0,
+    needsParserSchools:0, needsParserTeams:0,
+    pendingTeams:0, totalTeams:0
+  };
 
   for (const school of ARKANSAS_COLLEGE_TEAM_INVENTORY) {
     const platform = bySchool.get(school.schoolId);
     if (!platform) continue;
+    const n = school.teams.length;
     if (platform.status === "parser-ready") {
-      parserReadySchools += 1;
-      parserReadyTeams += school.teams.length;
+      summary.parserReadySchools += 1; summary.parserReadyTeams += n;
     } else if (platform.status === "feed-ready-parser-needed") {
-      feedReadyParserNeededSchools += 1;
-      feedReadyParserNeededTeams += school.teams.length;
+      summary.feedReadyParserNeededSchools += 1; summary.feedReadyParserNeededTeams += n;
+    } else if (platform.status === "bulk-feed-candidate") {
+      summary.bulkFeedCandidateSchools += 1; summary.bulkFeedCandidateTeams += n;
+    } else if (platform.status === "shared-platform-candidate") {
+      summary.sharedPlatformCandidateSchools += 1; summary.sharedPlatformCandidateTeams += n;
     } else if (platform.status === "needs-parser") {
-      needsParserSchools += 1;
-      needsParserTeams += school.teams.length;
+      summary.needsParserSchools += 1; summary.needsParserTeams += n;
     } else {
-      pendingTeams += school.teams.length;
+      summary.pendingTeams += n;
     }
+    summary.totalTeams += n;
   }
-
-  return {
-    schools: COLLEGE_SOURCE_PLATFORMS.length,
-    parserReadySchools,
-    parserReadyTeams,
-    feedReadyParserNeededSchools,
-    feedReadyParserNeededTeams,
-    needsParserSchools,
-    needsParserTeams,
-    pendingTeams,
-    totalTeams: parserReadyTeams + feedReadyParserNeededTeams + needsParserTeams + pendingTeams
-  };
+  return summary;
 }
 
 export function parserReadyCollegeSourceCandidates(season = "2026") {
