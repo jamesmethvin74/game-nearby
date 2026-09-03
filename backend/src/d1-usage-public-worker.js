@@ -1,4 +1,4 @@
-import app from "./public-cors-worker.js";
+import app from "./milestone2-scheduled-worker.js";
 import { loadD1Usage, publicBudgetSnapshot } from "./d1-usage-monitor.js";
 
 const USAGE_PATH = "/api/v1/d1-usage";
