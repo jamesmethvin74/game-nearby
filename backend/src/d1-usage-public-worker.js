@@ -1,6 +1,5 @@
 import app from "./public-cors-worker.js";
 import { loadD1Usage, publicBudgetSnapshot } from "./d1-usage-monitor.js";
-import { MILESTONE1_VERIFY_PATH, milestoneOneVerification } from "./milestone1-production-verification.js";
 
 const USAGE_PATH = "/api/v1/d1-usage";
 const BUDGET_PATH = "/api/v1/d1-budget";
@@ -69,15 +68,6 @@ async function publicBudgetResponse(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === MILESTONE1_VERIFY_PATH) {
-      try {
-        return privateJson(await milestoneOneVerification(env));
-      } catch (error) {
-        console.error("Milestone 1 verification failed", error);
-        return privateJson({ error: "milestone1_verification_failed", message: String(error?.message || error) }, 500);
-      }
-    }
-
     if (request.method === "GET" && url.pathname === BUDGET_PATH) {
       return publicBudgetResponse(request, env, ctx);
     }
