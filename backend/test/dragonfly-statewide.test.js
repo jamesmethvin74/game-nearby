@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { buildStatewideDragonFlyRows, STATEWIDE_SQL } from "../src/dragonfly-statewide.js";
+import { buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL } from "../src/dragonfly-statewide.js";
 
 const fixture=fileURLToPath(new URL("./fixtures/dragonfly-greenbrier-vilonia-2026.json",import.meta.url));
 const checkedAt="2026-08-31T20:00:00.000Z";
@@ -34,6 +34,18 @@ test("builds reciprocal observations and one canonical event from one DragonFly 
   assert.equal(gb.team_score,3);
   assert.equal(gb.opponent_score,0);
   assert.equal(gb.result,"W");
+});
+
+test("statewide signature ignores volatile payload metadata but changes when a result changes",()=>{
+  const payload=JSON.parse(fs.readFileSync(fixture,"utf8"));
+  const same=structuredClone(payload);
+  same.timestamp="2099-01-01T00:00:00.000Z";
+  assert.equal(statewideDragonFlySignature(payload),statewideDragonFlySignature(same));
+
+  const changed=structuredClone(payload);
+  const participant=changed.schedule[0].participants.find(item=>item?.result?.score!==undefined);
+  participant.result.score=Number(participant.result.score||0)+1;
+  assert.notEqual(statewideDragonFlySignature(payload),statewideDragonFlySignature(changed));
 });
 
 test("external team ids disambiguate schools with the same display name",()=>{
