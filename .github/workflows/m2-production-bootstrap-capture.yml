@@ -1,4 +1,4 @@
-name: M2 bootstrap diagnostic capture
+name: M2 production bootstrap v2 capture
 
 on:
   pull_request:
@@ -12,33 +12,53 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Allow Cloudflare diagnostic deployment to settle
-        shell: bash
-        run: sleep 30
-
-      - name: Capture bounded read-only M2 bootstrap status exactly once
+      - name: Wait for v2 no-D1 readiness marker
         shell: bash
         run: |
           set -euo pipefail
-          status_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-status-20260903-1102"
-          status=$(curl -sS -L --max-time 60 \
+          ready_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-ready-20260903"
+          for attempt in $(seq 1 60); do
+            status=$(curl -sS -L --max-time 10 -o ready.json -w '%{http_code}' "$ready_url" || true)
+            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-20260903-v2' ready.json; then
+              cat ready.json
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "M2 bootstrap v2 readiness marker did not become available" >&2
+          exit 1
+
+      - name: Run approved optimized M2 bootstrap exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-run-20260903-1102"
+          status=$(curl -sS -L --max-time 300 \
             -H 'x-localbleachers-m2-bootstrap: approved-certified-1102-20260903' \
-            -o m2-bootstrap-status.json \
+            -o m2-production-bootstrap-v2.json \
             -w '%{http_code}' \
-            "$status_url")
-          printf '%s\n' "$status" > m2-bootstrap-status-http-status.txt
-          cat m2-bootstrap-status.json
+            "$run_url")
+          printf '%s\n' "$status" > m2-production-bootstrap-v2-http-status.txt
+          cat m2-production-bootstrap-v2.json
           if [ "$status" != "200" ]; then
-            echo "Status probe returned HTTP $status" >&2
+            echo "Bootstrap v2 returned HTTP $status" >&2
             exit 1
           fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const payload=JSON.parse(fs.readFileSync('m2-production-bootstrap-v2.json','utf8'));
+          if (payload.status !== 'SUCCESS' || payload?.verification?.complete !== true) {
+            console.error('M2 bootstrap v2 verification was not complete', payload.status, payload?.stage, payload?.verification?.complete);
+            process.exit(1);
+          }
+          NODE
 
-      - name: Upload diagnostic result
+      - name: Upload bootstrap v2 result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m2-bootstrap-diagnostic-result
+          name: m2-production-bootstrap-v2-result
           path: |
-            m2-bootstrap-status.json
-            m2-bootstrap-status-http-status.txt
+            m2-production-bootstrap-v2.json
+            m2-production-bootstrap-v2-http-status.txt
           if-no-files-found: warn
