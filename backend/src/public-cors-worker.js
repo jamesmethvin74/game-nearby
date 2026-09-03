@@ -1,4 +1,4 @@
-import app from "./standings-worker.js";
+import app from "./coverage-report-worker.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
@@ -59,6 +59,10 @@ function cacheDescriptor(request) {
 
   if (path === "/api/v1/schools") {
     return descriptor(origin, "/schools", 6 * 60 * 60, 48 * 60 * 60);
+  }
+
+  if (path === "/api/v1/coverage-report") {
+    return descriptor(origin, "/coverage-report", 6 * 60 * 60, 48 * 60 * 60);
   }
 
   if (path === "/api/v1/games") {
