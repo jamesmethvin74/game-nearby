@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 const reconciliation=JSON.parse(fs.readFileSync(new URL('../data/arkansas-high-school-production-reconciliation.json',import.meta.url),'utf8'));
 const migrationUrl=new URL('../migrations/0011_milestone1_aaa_catalog_completion.sql',import.meta.url);
 const migrationSql=fs.readFileSync(migrationUrl,'utf8');
+const CHECKPOINT_MIGRATION='0011_milestone1_aaa_catalog_completion.sql';
 
 const CODE_BY_TEAM={
   'football|boys':'FB',
@@ -19,7 +20,7 @@ const CODE_BY_TEAM={
 function buildDatabase(){
   const db=new DatabaseSync(':memory:');
   const migrationDir=new URL('../migrations/',import.meta.url);
-  for(const file of fs.readdirSync(migrationDir).filter(name=>name.endsWith('.sql')).sort()){
+  for(const file of fs.readdirSync(migrationDir).filter(name=>name.endsWith('.sql')&&name<=CHECKPOINT_MIGRATION).sort()){
     db.exec(fs.readFileSync(new URL(file,migrationDir),'utf8'));
   }
   return db;
