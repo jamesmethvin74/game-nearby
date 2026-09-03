@@ -179,6 +179,18 @@ export async function rebuildTeamRecord(env, teamId, calculatedAt = new Date().t
   return built[0].record;
 }
 
+export async function rebuildTeamRecords(env, teamIds, calculatedAt = new Date().toISOString()) {
+  const scopedTeamIds=[...new Set((teamIds||[]).filter(Boolean))];
+  if (!scopedTeamIds.length) return {teams:0,scoredFinals:0};
+  const inputs = await loadRecordInputs(env, { teamIds: scopedTeamIds });
+  const built = buildRecordsFromInputs(inputs);
+  await persistRecords(env, built, calculatedAt);
+  return {
+    teams: built.length,
+    scoredFinals: built.reduce((sum, item) => sum + Number(item.record.scored_finals || 0), 0)
+  };
+}
+
 export async function rebuildStatewideRecords(env, calculatedAt = new Date().toISOString()) {
   const inputs = await loadRecordInputs(env);
   const built = buildRecordsFromInputs(inputs);
