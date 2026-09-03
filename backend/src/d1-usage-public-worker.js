@@ -1,10 +1,5 @@
 import app from "./milestone2-scheduled-worker.js";
 import { loadD1Usage, publicBudgetSnapshot } from "./d1-usage-monitor.js";
-import { maybeHandleM2ProductionBootstrap } from "./m2-production-bootstrap.js";
-import { maybeHandleM2ProductionBootstrapV2 } from "./m2-production-bootstrap-v2-route.js";
-import { maybeHandleM2ProductionBootstrapV3 } from "./m2-production-bootstrap-v3-route.js";
-import { maybeHandleM2ProductionBootstrapV4 } from "./m2-production-bootstrap-v4-route.js";
-import { maybeHandleM2BootstrapStatus } from "./m2-bootstrap-status.js";
 
 const USAGE_PATH = "/api/v1/d1-usage";
 const BUDGET_PATH = "/api/v1/d1-budget";
@@ -72,21 +67,6 @@ async function publicBudgetResponse(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
-    const feedScopedV4Bootstrap = await maybeHandleM2ProductionBootstrapV4(request, env);
-    if (feedScopedV4Bootstrap) return feedScopedV4Bootstrap;
-
-    const sportScopedV3Bootstrap = await maybeHandleM2ProductionBootstrapV3(request, env);
-    if (sportScopedV3Bootstrap) return sportScopedV3Bootstrap;
-
-    const uniqueV2Bootstrap = await maybeHandleM2ProductionBootstrapV2(request, env);
-    if (uniqueV2Bootstrap) return uniqueV2Bootstrap;
-
-    const statusProbe = await maybeHandleM2BootstrapStatus(request, env);
-    if (statusProbe) return statusProbe;
-
-    const bootstrap = await maybeHandleM2ProductionBootstrap(request, env);
-    if (bootstrap) return bootstrap;
-
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === BUDGET_PATH) {
       return publicBudgetResponse(request, env, ctx);
