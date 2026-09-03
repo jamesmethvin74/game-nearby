@@ -1,0 +1,66 @@
+name: M3 84-source live proof
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-84-source-live-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe exact parser-ready URLs
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { parserReadyCollegeSourceCandidates } from './backend/src/college-source-platforms.js';
+          import { normalizeArkansasRazorbackHtml } from './backend/src/arkansas-razorbacks.js';
+
+          const candidates=parserReadyCollegeSourceCandidates('2026');
+          const results=[];
+          let cursor=0;
+          async function worker(){
+            while(true){
+              const index=cursor++;
+              if(index>=candidates.length) return;
+              const source=candidates[index];
+              let status=null, ok=false, marker=false, parsed=null, error=null, finalUrl=null;
+              try{
+                const response=await fetch(source.sourceUrl,{redirect:'follow',headers:{
+                  'user-agent':'LocalBleachersAR-M3-source-proof/1.0 (+https://github.com/jamesmethvin74/game-nearby)',
+                  'accept':'text/html,application/xhtml+xml'
+                }});
+                status=response.status;
+                finalUrl=response.url;
+                const body=await response.text();
+                if(source.parserType==='sidearm'){
+                  marker=/sidearm-schedule-game(?:-row)?/i.test(body);
+                  ok=response.ok && marker;
+                }else if(source.parserType==='arkansas-razorbacks'){
+                  const events=normalizeArkansasRazorbackHtml(body,{...source,timezone:'America/Chicago'});
+                  parsed=events.length;
+                  marker=/<div\b[^>]*class=["']item(?:\s[^"']*)?["']/i.test(body);
+                  ok=response.ok && marker && events.length>0;
+                }
+              }catch(e){ error=String(e?.message||e); }
+              results.push({...source,status,ok,marker,parsed,finalUrl,error});
+              console.log(JSON.stringify(results.at(-1)));
+            }
+          }
+          await Promise.all(Array.from({length:6},()=>worker()));
+          results.sort((a,b)=>`${a.schoolId}|${a.sport}|${a.gender}`.localeCompare(`${b.schoolId}|${b.sport}|${b.gender}`));
+          const passed=results.filter(r=>r.ok);
+          const failed=results.filter(r=>!r.ok);
+          console.log('===== M3 SOURCE PROOF SUMMARY =====');
+          console.log(JSON.stringify({total:results.length,passed:passed.length,failed:failed.length,failedRows:failed},null,2));
+          if(results.length!==84) process.exitCode=2;
+          NODE
