@@ -1,0 +1,77 @@
+name: M3 fallback live proof
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-fallback-live-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe candidate fallback authorities
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const targets = [
+            ['northark-mbb','https://www.northark.edu/athletics/mens-basketball/'],
+            ['northark-wbb','https://www.northark.edu/athletics/womens-basketball/'],
+            ['southark-events','https://www.southarkstars.com/events'],
+            ['southark-ical','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events/generate_ical?filter_ids=&section_ids='],
+            ['npc-msoc','https://np.edu/student-life-services/athletics/mens-soccer/'],
+            ['npc-wsoc','https://np.edu/student-life-services/athletics/womens-soccer/'],
+            ['npc-mbb','https://np.edu/student-life-services/athletics/mens-basketball/'],
+            ['npc-wbb','https://np.edu/student-life-services/athletics/womens-basketball/'],
+            ['nwacc-institution','https://www.nwacc.edu/athletics.html'],
+            ['nwacc-eagles','https://www.nwacceagles.com/'],
+            ['shorter-mbb-pdf','https://shortercollege.edu/wp-content/uploads/2025/12/2026-MBB-Schedule.pdf'],
+            ['southark-home','https://www.southarkstars.com/'],
+            ['sau-tech','https://www.sautrockets.com/'],
+            ['rich-mountain','https://bucksathletics.com/landing/index'],
+            ['philander-athletics','https://philanderathletics.com/'],
+            ['philander-hbcuac','https://media.hbcuac.org/schools/philander-smith/'],
+            ['hbcuac-basketball','https://tournaments.hbcuac.org/basketball/'],
+            ['cossatot','https://www.cccua.edu/student-life/athletics.html'],
+            ['asu-mid-south-event','https://events.asumidsouth.edu/event/asumidsouth.events.1242194'],
+            ['asu-newport','https://www.asun.edu/'],
+            ['champion-home','https://www.champion.edu/'],
+            ['champion-presto-control','https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule'],
+            ['amc-schedule-control','https://amcsportsonline.com/schedule.aspx?schedule=2277'],
+            ['region2-control','https://region2.prestosports.com/landing/index'],
+            ['pccua-region2-crosscheck','https://www.pccua.edu/mbb/']
+          ];
+          const results=[];
+          let cursor=0;
+          async function worker(){
+            while(true){
+              const i=cursor++;
+              if(i>=targets.length) return;
+              const [name,url]=targets[i];
+              const row={name,url,status:null,ok:false,type:null,size:0,finalUrl:null,markers:[]};
+              try{
+                const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-fallback-proof/1.0','accept':'text/html,application/xhtml+xml,text/calendar,application/pdf,*/*'}});
+                row.status=r.status; row.ok=r.ok; row.type=r.headers.get('content-type'); row.finalUrl=r.url;
+                const buf=Buffer.from(await r.arrayBuffer()); row.size=buf.length;
+                const text=buf.subarray(0,200000).toString('utf8');
+                for(const [label,re] of [
+                  ['schedule',/schedule/i],['2026',/2026/],['basketball',/basketball/i],['soccer',/soccer/i],
+                  ['ical',/BEGIN:VCALENDAR/i],['sidearm',/sidearm/i],['presto',/prestosports/i],['thrillshare',/thrillshare/i],
+                  ['cloudflare-challenge',/cf-chl|challenge-platform|Just a moment/i]
+                ]) if(re.test(text)) row.markers.push(label);
+              }catch(e){row.error=String(e?.message||e);}
+              results.push(row); console.log(JSON.stringify(row));
+            }
+          }
+          await Promise.all(Array.from({length:6},()=>worker()));
+          console.log('===== SUMMARY =====');
+          console.log(JSON.stringify(results.sort((a,b)=>a.name.localeCompare(b.name)),null,2));
+          NODE
