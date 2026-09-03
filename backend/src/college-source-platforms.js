@@ -8,8 +8,8 @@ const PENDING = "pending-audit";
 // Read-only provider audit checkpoint, 2026-09-03. A provider can be classified
 // as Sidearm once a current official schedule page on that athletics host has
 // been verified to use the same schedule surface already handled by index.js.
-// PrestoSports hosts are identified separately because they need a dedicated
-// parser before source rows can be certified. This file never mutates D1.
+// PrestoSports sites expose provider-supported RSS schedule feeds, so those are
+// modeled separately for a reusable RSS parser. This file never mutates D1.
 export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"uark", platform:CUSTOM, host:"arkansasrazorbacks.com", parserType:null, status:"needs-parser", evidencePath:"/sport/m-footbl/schedule/" },
 
@@ -31,9 +31,9 @@ export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"john-brown", platform:SIDEARM, host:"jbuathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
   { schoolId:"ecclesia", platform:SIDEARM, host:"goroyals.org", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/mens-soccer/schedule" },
 
-  { schoolId:"asu-newport", platform:PRESTO, host:"arkansasstatenewport.prestosports.com", parserType:null, status:"needs-parser", evidencePath:"/composite" },
-  { schoolId:"ua-cossatot", platform:PRESTO, host:"uacossatot.prestosports.com", parserType:null, status:"needs-parser", evidencePath:"/sports/msoc/2025-26/releases/20251025rbo616" },
-  { schoolId:"champion-christian", platform:PRESTO, host:"championchristian.prestosports.com", parserType:null, status:"needs-parser", evidencePath:"/sports/mbkb/2025-26/schedule" },
+  { schoolId:"asu-newport", platform:PRESTO, host:"arkansasstatenewport.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/composite" },
+  { schoolId:"ua-cossatot", platform:PRESTO, host:"uacossatot.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/sports/msoc/2025-26/releases/20251025rbo616" },
+  { schoolId:"champion-christian", platform:PRESTO, host:"championchristian.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/sports/mbkb/2025-26/schedule" },
 
   { schoolId:"cbc", platform:PENDING, host:"cbcmustangs.com", parserType:null, status:"provisional-source" },
   { schoolId:"crowleys-ridge", platform:PENDING, host:"crcpioneers.com", parserType:null, status:"pending-audit" },
@@ -63,17 +63,40 @@ export const SIDEARM_SPORT_PATH = Object.freeze({
   "volleyball|women": "womens-volleyball"
 });
 
+export const PRESTO_SPORT_PATH = Object.freeze({
+  "basketball|men": "mbkb",
+  "basketball|women": "wbkb",
+  "soccer|men": "msoc",
+  "soccer|women": "wsoc",
+  "volleyball|women": "wvball"
+});
+
+function academicSeason(season) {
+  const start = Number(season);
+  if (!Number.isInteger(start)) throw new Error(`Invalid college season ${season}`);
+  return `${start}-${String(start + 1).slice(-2)}`;
+}
+
 export function sidearmScheduleUrl(platform, team, season = "2026") {
   if (platform?.parserType !== "sidearm") return null;
   const sportPath = SIDEARM_SPORT_PATH[`${team.sport}|${team.gender}`];
   if (!sportPath) return null;
-  const seasonPath = team.sport === "basketball" ? `${season}-27` : season;
+  const seasonPath = team.sport === "basketball" ? academicSeason(season) : season;
   return `https://${platform.host}/sports/${sportPath}/schedule/${seasonPath}`;
+}
+
+export function prestoRssScheduleUrl(platform, team, season = "2026") {
+  if (platform?.parserType !== "prestosports-rss") return null;
+  const sportPath = PRESTO_SPORT_PATH[`${team.sport}|${team.gender}`];
+  if (!sportPath) return null;
+  return `https://${platform.host}/sports/${sportPath}/${academicSeason(season)}/schedule?print=rss`;
 }
 
 export function collegeSourceAuditSummary() {
   let parserReadySchools = 0;
   let parserReadyTeams = 0;
+  let feedReadyParserNeededSchools = 0;
+  let feedReadyParserNeededTeams = 0;
   let needsParserSchools = 0;
   let needsParserTeams = 0;
   let pendingTeams = 0;
@@ -84,6 +107,9 @@ export function collegeSourceAuditSummary() {
     if (platform.status === "parser-ready") {
       parserReadySchools += 1;
       parserReadyTeams += school.teams.length;
+    } else if (platform.status === "feed-ready-parser-needed") {
+      feedReadyParserNeededSchools += 1;
+      feedReadyParserNeededTeams += school.teams.length;
     } else if (platform.status === "needs-parser") {
       needsParserSchools += 1;
       needsParserTeams += school.teams.length;
@@ -96,10 +122,12 @@ export function collegeSourceAuditSummary() {
     schools: COLLEGE_SOURCE_PLATFORMS.length,
     parserReadySchools,
     parserReadyTeams,
+    feedReadyParserNeededSchools,
+    feedReadyParserNeededTeams,
     needsParserSchools,
     needsParserTeams,
     pendingTeams,
-    totalTeams: parserReadyTeams + needsParserTeams + pendingTeams
+    totalTeams: parserReadyTeams + feedReadyParserNeededTeams + needsParserTeams + pendingTeams
   };
 }
 
@@ -118,6 +146,29 @@ export function parserReadyCollegeSourceCandidates(season = "2026") {
         sourceType: "official-athletics",
         parserType: "sidearm",
         certificationState: "platform-ready-source-pending-live-proof"
+      });
+    }
+  }
+  return candidates;
+}
+
+export function prestoCollegeSourceCandidates(season = "2026") {
+  const candidates = [];
+  for (const school of ARKANSAS_COLLEGE_TEAM_INVENTORY) {
+    const platform = bySchool.get(school.schoolId);
+    if (platform?.status !== "feed-ready-parser-needed") continue;
+    for (const team of school.teams) {
+      const sourceUrl = prestoRssScheduleUrl(platform, team, season);
+      if (!sourceUrl) throw new Error(`Unsupported PrestoSports target ${school.schoolId}:${team.sport}:${team.gender}`);
+      candidates.push({
+        schoolId: school.schoolId,
+        sport: team.sport,
+        gender: team.gender,
+        season,
+        sourceUrl,
+        sourceType: "official-athletics",
+        parserType: "prestosports-rss",
+        certificationState: "feed-identified-parser-pending-live-proof"
       });
     }
   }
