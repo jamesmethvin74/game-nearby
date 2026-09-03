@@ -1,0 +1,62 @@
+name: M3 live parser proof v2
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-parser-live-proof-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prove exact 84 college source surfaces
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { parserReadyCollegeSourceCandidates } from './backend/src/college-source-platforms.js';
+          import { normalizeArkansasRazorbackHtml } from './backend/src/arkansas-razorbacks.js';
+          import { normalizeModernSidearmHtml } from './backend/src/sidearm-modern.js';
+
+          const candidates=parserReadyCollegeSourceCandidates('2026');
+          const results=[];
+          let cursor=0;
+          async function worker(){
+            while(true){
+              const i=cursor++;
+              if(i>=candidates.length) return;
+              const source=candidates[i];
+              let status=null,ok=false,parsed=null,error=null,finalUrl=null;
+              try{
+                const response=await fetch(source.sourceUrl,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-live-proof/2.0','accept':'text/html,application/xhtml+xml'}});
+                status=response.status; finalUrl=response.url;
+                const body=await response.text();
+                if(source.parserType==='sidearm'){
+                  ok=response.ok && /sidearm-schedule-game(?:-row)?/i.test(body);
+                }else if(source.parserType==='sidearm-modern'){
+                  const events=normalizeModernSidearmHtml(body,{...source,timezone:'America/Chicago'});
+                  parsed=events.length; ok=response.ok && events.length>0;
+                }else if(source.parserType==='arkansas-razorbacks'){
+                  const events=normalizeArkansasRazorbackHtml(body,{...source,timezone:'America/Chicago'});
+                  parsed=events.length; ok=response.ok && events.length>0;
+                }
+              }catch(e){error=String(e?.message||e);}
+              const row={...source,status,ok,parsed,finalUrl,error};
+              results.push(row); console.log(JSON.stringify(row));
+            }
+          }
+          await Promise.all(Array.from({length:6},()=>worker()));
+          const failed=results.filter(r=>!r.ok);
+          const byParser=Object.fromEntries([...new Set(results.map(r=>r.parserType))].map(parser=>[parser,{total:results.filter(r=>r.parserType===parser).length,passed:results.filter(r=>r.parserType===parser&&r.ok).length}]));
+          console.log('===== SUMMARY =====');
+          console.log(JSON.stringify({total:results.length,passed:results.length-failed.length,failed:failed.length,byParser,failedRows:failed},null,2));
+          if(results.length!==84 || failed.length) process.exitCode=1;
+          NODE
