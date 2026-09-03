@@ -1,0 +1,44 @@
+name: M3 provider capture
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-provider-capture.yml
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture Presto RSS and Arkansas schedule markup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import urllib.request
+          urls = {
+              'champion_rss': 'https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule?print=rss',
+              'naia_amc_rss': 'https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule?print=rss',
+              'njcaa_d2_rss': 'https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule?print=rss',
+              'arkansas_football': 'https://arkansasrazorbacks.com/sport/m-footbl/schedule/',
+          }
+          for name, url in urls.items():
+              print(f'===== {name} {url} =====')
+              req = urllib.request.Request(url, headers={
+                  'User-Agent':'LocalBleachersAR-M3-provider-audit/1.0',
+                  'Accept':'application/rss+xml,application/xml,text/html;q=0.9,*/*;q=0.8'
+              })
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      body = response.read().decode('utf-8','replace')
+                      print('STATUS', response.status)
+                      print('CONTENT-TYPE', response.headers.get('content-type'))
+                      print('FINAL-URL', response.geturl())
+                      print(body[:20000])
+              except Exception as exc:
+                  print('ERROR', repr(exc))
+          PY
