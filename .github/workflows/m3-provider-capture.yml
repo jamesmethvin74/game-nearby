@@ -14,56 +14,33 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture provider markup details
+      - name: Capture Presto integration surfaces
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re, urllib.request, urllib.error
+          import urllib.request, urllib.error
 
-          def get(url, accept='text/html,*/*;q=0.8', referer=None):
-              headers={
-                  'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152.0 Safari/537.36',
+          def get(url, accept):
+              req=urllib.request.Request(url,headers={
+                  'User-Agent':'LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)',
                   'Accept':accept,
-                  'Accept-Language':'en-US,en;q=0.9',
-              }
-              if referer: headers['Referer']=referer
-              req=urllib.request.Request(url,headers=headers)
+                  'Accept-Language':'en-US,en;q=0.9'
+              })
               try:
                   with urllib.request.urlopen(req,timeout=30) as r:
                       return r.status,r.headers.get('content-type'),r.geturl(),r.read().decode('utf-8','replace')
               except urllib.error.HTTPError as e:
                   return e.code,e.headers.get('content-type'),e.geturl(),e.read().decode('utf-8','replace')
 
-          pages={
-              'champion_html':'https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule',
-              'naia_html':'https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule',
-              'njcaa_html':'https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule',
-              'arkansas_html':'https://arkansasrazorbacks.com/sport/m-footbl/schedule/',
+          urls={
+              'champion_ical':'https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule?print=ical',
+              'naia_amc_ical':'https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule?print=ical',
+              'njcaa_d2_ical':'https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule?print=ical',
+              'champion_rss':'https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule?print=rss',
           }
-          bodies={}
-          for name,url in pages.items():
-              status,ctype,final,body=get(url)
-              bodies[name]=body
-              print(f'===== {name} STATUS={status} TYPE={ctype} URL={final} LEN={len(body)} =====')
-              needles={
-                  'champion_html':['Pensacola Christian','RSS Feed','schedule'],
-                  'naia_html':['Central Baptist (Ark.)','RSS Feed','schedule'],
-                  'njcaa_html':['Arkansas State Mid-South','schedule'],
-                  'arkansas_html':['North Alabama','schedule-game','schedule'],
-              }[name]
-              for needle in needles:
-                  idx=body.lower().find(needle.lower())
-                  print(f'--- needle={needle!r} idx={idx} ---')
-                  if idx>=0: print(body[max(0,idx-2500):idx+5000])
-
-          rss={
-              'champion_rss':('https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule?print=rss',pages['champion_html']),
-              'naia_rss':('https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule?print=rss',pages['naia_html']),
-              'njcaa_rss':('https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule?print=rss',pages['njcaa_html']),
-          }
-          for name,(url,ref) in rss.items():
-              status,ctype,final,body=get(url,'application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8',ref)
+          for name,url in urls.items():
+              status,ctype,final,body=get(url,'text/calendar,application/ics,application/rss+xml,application/xml,text/plain;q=0.9,*/*;q=0.8')
               print(f'===== {name} STATUS={status} TYPE={ctype} URL={final} LEN={len(body)} =====')
               print(body[:12000])
           PY
