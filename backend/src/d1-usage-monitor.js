@@ -1,6 +1,8 @@
 const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
 const PAID_INCLUDED_READS = 25_000_000_000;
 const PAID_INCLUDED_WRITES = 50_000_000;
+const FREE_DAILY_READS = 5_000_000;
+const FREE_DAILY_WRITES = 100_000;
 
 const D1_USAGE_QUERY = `
 query LocalBleachersD1Usage(
@@ -102,6 +104,43 @@ export function summarizeD1Usage(groups = [], now = new Date()) {
         rows_written_percent_used: percent(monthUsage.rows_written, PAID_INCLUDED_WRITES)
       },
       ...paidOverage(monthUsage.rows_read, monthUsage.rows_written)
+    }
+  };
+}
+
+export function publicBudgetSnapshot(report = {}) {
+  const today = report.today || {};
+  const month = report.month_to_date || {};
+  const rowsReadToday = asNumber(today.rows_read);
+  const rowsWrittenToday = asNumber(today.rows_written);
+  const rowsReadMonth = asNumber(month.rows_read);
+  const rowsWrittenMonth = asNumber(month.rows_written);
+  return {
+    generated_at: report.generated_at || null,
+    today: {
+      date: today.date || null,
+      rows_read: rowsReadToday,
+      rows_written: rowsWrittenToday,
+      free_daily_reference: {
+        rows_read_limit: FREE_DAILY_READS,
+        rows_written_limit: FREE_DAILY_WRITES,
+        rows_read_percent_used: percent(rowsReadToday, FREE_DAILY_READS),
+        rows_written_percent_used: percent(rowsWrittenToday, FREE_DAILY_WRITES),
+        within_limits: rowsReadToday <= FREE_DAILY_READS && rowsWrittenToday <= FREE_DAILY_WRITES
+      }
+    },
+    month_to_date: {
+      start_date: month.start_date || null,
+      end_date: month.end_date || null,
+      rows_read: rowsReadMonth,
+      rows_written: rowsWrittenMonth,
+      paid_allowance: {
+        included_rows_read: PAID_INCLUDED_READS,
+        included_rows_written: PAID_INCLUDED_WRITES,
+        rows_read_percent_used: percent(rowsReadMonth, PAID_INCLUDED_READS),
+        rows_written_percent_used: percent(rowsWrittenMonth, PAID_INCLUDED_WRITES)
+      },
+      estimated_overage_usd: paidOverage(rowsReadMonth, rowsWrittenMonth).estimated_total_overage_usd
     }
   };
 }
