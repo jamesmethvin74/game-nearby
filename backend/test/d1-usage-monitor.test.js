@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import usageApp from "../src/d1-usage-public-worker.js";
-import { loadD1Usage, summarizeD1Usage } from "../src/d1-usage-monitor.js";
+import { loadD1Usage, publicBudgetSnapshot, summarizeD1Usage } from "../src/d1-usage-monitor.js";
 
 const NOW = new Date("2026-09-03T16:00:00.000Z");
 
@@ -34,6 +34,30 @@ test("D1 usage summary reports today and month-to-date paid allowance consumptio
   assert.equal(summary.month_to_date.estimated_total_overage_usd, 0);
 });
 
+test("public budget snapshot exposes only safe budget totals and Free-tier reference", () => {
+  const full = {
+    database_id: "db-1",
+    account_id: "acct-1",
+    token: "must-never-leak",
+    ...summarizeD1Usage(sampleGroups(), NOW)
+  };
+  const budget = publicBudgetSnapshot(full);
+
+  assert.equal(budget.today.rows_read, 4_000_000);
+  assert.equal(budget.today.rows_written, 5_000);
+  assert.equal(budget.today.free_daily_reference.rows_read_limit, 5_000_000);
+  assert.equal(budget.today.free_daily_reference.rows_written_limit, 100_000);
+  assert.equal(budget.today.free_daily_reference.rows_read_percent_used, 80);
+  assert.equal(budget.today.free_daily_reference.rows_written_percent_used, 5);
+  assert.equal(budget.today.free_daily_reference.within_limits, true);
+  assert.equal(budget.month_to_date.rows_read, 7_000_000);
+  assert.equal(budget.month_to_date.rows_written, 10_000);
+  assert.equal(budget.month_to_date.estimated_overage_usd, 0);
+
+  const serialized = JSON.stringify(budget);
+  assert.doesNotMatch(serialized, /database_id|account_id|read_queries|write_queries|must-never-leak/i);
+});
+
 test("D1 usage loader uses Cloudflare Analytics API without touching the D1 binding", async () => {
   const env = {
     CLOUDFLARE_ANALYTICS_TOKEN: "read-only-token",
@@ -63,7 +87,7 @@ test("usage monitor source contains no D1 binding calls", () => {
   assert.doesNotMatch(source, /\.prepare\(/);
 });
 
-test("usage endpoint is hidden without the existing refresh token", async () => {
+test("protected usage endpoint remains hidden without the existing refresh token", async () => {
   const env = {
     REFRESH_TOKEN: "private-refresh-token",
     DB: new Proxy({}, { get() { throw new Error("D1 must not be accessed for unauthorized usage requests"); } })
@@ -73,9 +97,11 @@ test("usage endpoint is hidden without the existing refresh token", async () => 
   assert.deepEqual(await response.json(), { error: "not_found" });
 });
 
-test("usage endpoint does not advertise public CORS or public caching", () => {
+test("public budget route is cached, sanitized, and never references D1 directly", () => {
   const source = fs.readFileSync(new URL("../src/d1-usage-public-worker.js", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /access-control-allow-origin/i);
-  assert.doesNotMatch(source, /public,\s*max-age/i);
-  assert.match(source, /x-refresh-token/);
+  assert.match(source, /\/api\/v1\/d1-budget/);
+  assert.match(source, /BUDGET_CACHE_TTL_SECONDS\s*=\s*300/);
+  assert.match(source, /publicBudgetSnapshot/);
+  assert.doesNotMatch(source, /env\.DB/);
+  assert.match(source, /budget_usage_unavailable/);
 });
