@@ -35,16 +35,19 @@ jobs:
             ['champion-home','https://www.champion.edu/'],
             ['philander-hbcuac','https://media.hbcuac.org/schools/philander-smith/']
           ];
-          const interesting = /(?:https?:\\/\\/[^"'<>\\s]+|\\/[^"'<>\\s]*(?:api|event|calendar|schedule|ical|json|feed)[^"'<>\\s]*)/ig;
+          function discoverUrls(text){
+            const quoted=[...text.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map(m=>m[1]);
+            return [...new Set(quoted.map(v=>v.replace(/&amp;/g,'&')).filter(v=>/(api|event|calendar|schedule|ical|json|feed|athletic)/i.test(v)).filter(v=>!/(facebook|instagram|youtube|linkedin|fonts|analytics|doubleclick)/i.test(v)))].slice(0,160);
+          }
           for (const [name,url] of targets) {
-            const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-discovery/1.0','accept':'text/html,*/*'}});
+            const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-discovery/2.0','accept':'text/html,*/*'}});
             const text=await r.text();
-            const urls=[...new Set((text.match(interesting)||[]).map(v=>v.replace(/&amp;/g,'&')).filter(v=>!(/(?:facebook|instagram|youtube|linkedin|fonts|analytics|doubleclick)/i.test(v))))].slice(0,120);
-            const needles=['2026-2027','2026–27','2026-27','Women\'s Soccer','Men\'s Soccer','Women\'s Basketball','Men\'s Basketball','schedule','events','calendar'];
+            const urls=discoverUrls(text);
+            const needles=['2026-2027','2026–27','2026-27',"Women's Soccer","Men's Soccer","Women's Basketball","Men's Basketball",'schedule','events','calendar'];
             const snippets=[];
             for(const needle of needles){
               const i=text.toLowerCase().indexOf(needle.toLowerCase());
-              if(i>=0) snippets.push({needle,text:text.slice(Math.max(0,i-220),Math.min(text.length,i+600)).replace(/\\s+/g,' ')});
+              if(i>=0) snippets.push({needle,text:text.slice(Math.max(0,i-220),Math.min(text.length,i+700)).replace(/\s+/g,' ')});
             }
             console.log('===== '+name+' =====');
             console.log(JSON.stringify({status:r.status,finalUrl:r.url,size:text.length,urls,snippets},null,2));
