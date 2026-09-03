@@ -37,16 +37,18 @@ test("M3 provider audit distinguishes server-fetchable sources from blocked auth
   });
 });
 
-test("M3 parser-ready candidates cover 79 Sidearm targets plus all 5 Razorback targets", () => {
+test("M3 parser-ready candidates cover 75 classic Sidearm, 4 modern Sidearm and 5 Razorback targets", () => {
   const candidates = parserReadyCollegeSourceCandidates("2026");
   assert.equal(candidates.length,84);
   assert.equal(new Set(candidates.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size,84);
 
-  const razorbacks = candidates.filter(row => row.schoolId === "uark");
-  const sidearm = candidates.filter(row => row.parserType === "sidearm");
+  const razorbacks = candidates.filter(row => row.parserType === "arkansas-razorbacks");
+  const classic = candidates.filter(row => row.parserType === "sidearm");
+  const modern = candidates.filter(row => row.parserType === "sidearm-modern");
   assert.equal(razorbacks.length,5);
-  assert.equal(sidearm.length,79);
-  assert.ok(razorbacks.every(row => row.parserType === "arkansas-razorbacks"));
+  assert.equal(classic.length,75);
+  assert.equal(modern.length,4);
+  assert.ok(modern.every(row=>row.schoolId==="little-rock"));
 
   for (const source of candidates) {
     assert.equal(source.sourceType,"official-athletics");
@@ -54,8 +56,9 @@ test("M3 parser-ready candidates cover 79 Sidearm targets plus all 5 Razorback t
     assert.match(source.sourceUrl,/^https:\/\//);
     if (source.parserType === "sidearm") {
       assert.match(source.sourceUrl,/\/sports\/.+\/schedule\/2026(?:-27)?$/);
-      if (source.sport === "basketball") assert.match(source.sourceUrl,/\/2026-27$/);
-      else assert.match(source.sourceUrl,/\/2026$/);
+    } else if (source.parserType === "sidearm-modern") {
+      if(source.sport==="basketball") assert.match(source.sourceUrl,/^https:\/\/lrtrojans\.com\/sports\/(?:mens|womens)-basketball\/schedule\/$/);
+      else assert.match(source.sourceUrl,/^https:\/\/lrtrojans\.com\/sports\/womens-(?:soccer|volleyball)\/schedule\/season\/2026$/);
     } else {
       assert.match(source.sourceUrl,/^https:\/\/arkansasrazorbacks\.com\/sport\/(?:m-footbl|m-baskbl|w-baskbl|w-soccer|w-volley)\/schedule\/$/);
     }
