@@ -1,0 +1,47 @@
+name: Milestone 1 final production capture
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for no-D1 readiness marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          READY_URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m1-0013-ready-20260903-629'
+          for attempt in $(seq 1 24); do
+            if curl -fsS --max-time 10 "$READY_URL" | tee ready.json | grep -q '"ready":true'; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Cloudflare readiness marker did not become available' >&2
+          exit 1
+
+      - name: Run exactly one combined D1 verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERIFY_URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m1-final-verify-20260903-629'
+          status=$(curl -sS --max-time 30 -o verification.json -w '%{http_code}' "$VERIFY_URL")
+          printf '%s\n' "$status" > http-status.txt
+          cat verification.json
+          test "$status" = '200'
+
+      - name: Upload verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-final-production-verification
+          path: |
+            ready.json
+            verification.json
+            http-status.txt
+          if-no-files-found: error
