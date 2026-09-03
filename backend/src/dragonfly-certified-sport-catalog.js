@@ -1,3 +1,4 @@
+import inventory from "../data/arkansas-high-school-team-inventory.json" with { type: "json" };
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { statewideSportConfig, STATEWIDE_HIGH_SCHOOL_SPORTS } from "./statewide-sport-config.js";
 
@@ -12,6 +13,19 @@ function eventMatches(event,config){
     const level=clean(item?.level).toLowerCase();
     return code===config.providerSportCode && (!level || level.includes("varsity"));
   });
+}
+
+export function certifiedTargetSchoolIds(sportConfig){
+  const config=statewideSportConfig(sportConfig);
+  const ids=new Set(
+    Object.entries(inventory.certified_school_team_codes||{})
+      .filter(([,codes])=>Array.isArray(codes) && codes.includes(config.teamCode))
+      .map(([id])=>String(id).toUpperCase())
+  );
+  if (ids.size!==config.expectedTargets) {
+    throw new Error(`Certified ${config.teamCode} inventory mismatch: expected ${config.expectedTargets}, found ${ids.size}`);
+  }
+  return ids;
 }
 
 export function discoverCertifiedSportParticipants(payload,sportConfig){
@@ -55,6 +69,7 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
   payload=null,force=false,maxAgeHours=24,fetchFn=fetch,now=new Date()
 }={}){
   const config=statewideSportConfig(sportConfig);
+  const certifiedTargets=certifiedTargetSchoolIds(config);
   if (!force && !payload && await catalogFresh(env,config.catalogSyncId,now,maxAgeHours)) {
     return {status:"SKIPPED",reason:"catalog_fresh",config,payload:null};
   }
@@ -94,14 +109,18 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
     const quarantined=[];
 
     for (const entry of entries) {
+      if (!certifiedTargets.has(entry.externalSchoolId)) {
+        quarantined.push({...entry,reason:"outside_certified_sport_target"});
+        continue;
+      }
       const schoolId=schoolByExternal.get(entry.externalSchoolId);
       if (!schoolId) {
-        quarantined.push({...entry,reason:"uncertified_or_unmapped_school"});
+        quarantined.push({...entry,reason:"certified_school_identity_missing"});
         continue;
       }
       const teamId=teamBySchool.get(schoolId);
       if (!teamId) {
-        quarantined.push({...entry,schoolId,reason:"sport_not_certified_for_school"});
+        quarantined.push({...entry,schoolId,reason:"certified_team_row_missing"});
         continue;
       }
       const existingTeamId=existingTeamByExternal.get(entry.externalTeamId);
@@ -131,6 +150,7 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
     if (!mapped.length) throw new Error(`DragonFly ${config.feedCode} produced zero certified team mappings`);
     await batchStatements(env,statements);
 
+    const mappedSchools=new Set(mapped.map(item=>item.schoolId)).size;
     const details={
       feedCode:config.feedCode,
       providerSportCode:config.providerSportCode,
@@ -138,8 +158,9 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
       rawEvents:Array.isArray(workingPayload?.schedule)?workingPayload.schedule.length:0,
       discoveredParticipants:entries.length,
       mappedParticipants:mapped.length,
-      mappedSchools:new Set(mapped.map(item=>item.schoolId)).size,
-      expectedTargets:config.expectedTargets,
+      mappedSchools,
+      expectedTargets:certifiedTargets.size,
+      missingCertifiedTargets:Math.max(0,certifiedTargets.size-mappedSchools),
       quarantinedCount:quarantined.length,
       quarantined:quarantined.slice(0,100)
     };
@@ -152,9 +173,9 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
         discovered_school_count=excluded.discovered_school_count,discovered_team_count=excluded.discovered_team_count,
         active_source_count=excluded.active_source_count,ambiguous_name_count=excluded.ambiguous_name_count,
         last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at
-    `).bind(config.catalogSyncId,PROVIDER,config.feedUrl,checkedAt,checkedAt,details.mappedSchools,mapped.length,0,quarantined.length,JSON.stringify(details),checkedAt).run();
+    `).bind(config.catalogSyncId,PROVIDER,config.feedUrl,checkedAt,checkedAt,mappedSchools,mapped.length,0,quarantined.length,JSON.stringify(details),checkedAt).run();
 
-    return {status:"SUCCESS",config,pagesFetched,mapped:mapped.length,mappedSchools:details.mappedSchools,quarantined:quarantined.length,payload:workingPayload};
+    return {status:"SUCCESS",config,pagesFetched,mapped:mapped.length,mappedSchools,missingCertifiedTargets:details.missingCertifiedTargets,quarantined:quarantined.length,payload:workingPayload};
   } catch (error) {
     const message=String(error?.message||error).slice(0,1000);
     await env.DB.prepare(`
