@@ -98,11 +98,21 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   query = policy.dueMode === "source-refresh"
     ? query.bind(policy.maxSources)
     : query.bind(policy.activeMinutes, policy.maxSources);
-  const { results = [] } = await query.all();
+  const selection = await query.all();
+  const results = selection.results || [];
+  console.log("d1 cadence selector", {
+    kind: plan.kind,
+    scope: plan.scope,
+    maxSources: policy.maxSources,
+    selectedSources: results.length,
+    rowsRead: Number(selection.meta?.rows_read || 0),
+    rowsWritten: Number(selection.meta?.rows_written || 0),
+    durationMs: Number(selection.meta?.duration || 0) || null
+  });
 
   if (!results.length) {
     console.log("scoped cadence has no due sources", { kind: plan.kind, scope: plan.scope });
-    return { status: "SKIPPED", plan: plan.kind, scope: plan.scope, sources: 0, outcomes: [] };
+    return { status: "SKIPPED", plan: plan.kind, scope: plan.scope, sources: 0, selectorRowsRead: Number(selection.meta?.rows_read || 0), outcomes: [] };
   }
 
   const scopedEnv = internalEnv(env);
@@ -139,6 +149,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     scope: plan.scope,
     selectedSources: results.length,
     attemptedSources: outcomes.length,
+    selectorRowsRead: Number(selection.meta?.rows_read || 0),
     outcomes
   };
 }
