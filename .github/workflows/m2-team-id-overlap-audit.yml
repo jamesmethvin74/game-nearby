@@ -1,0 +1,80 @@
+name: M2 DragonFly team ID overlap audit
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Audit provider team ID reuse
+        working-directory: backend
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' | tee ../m2-team-id-overlap.json
+          import { fetchDragonFlyPagedPayload } from './src/dragonfly-feed.js';
+          import { discoverCertifiedSportParticipants, certifiedTargetSchoolIds } from './src/dragonfly-certified-sport-catalog.js';
+          import { STATEWIDE_HIGH_SCHOOL_SPORTS } from './src/statewide-sport-config.js';
+
+          const byCode=new Map();
+          for (const config of STATEWIDE_HIGH_SCHOOL_SPORTS) {
+            const {payload}=await fetchDragonFlyPagedPayload(config.feedUrl,{
+              headers:{'user-agent':'LocalBleachersAR-M2-overlap-audit/1.0','accept':'application/json'}
+            });
+            const certified=certifiedTargetSchoolIds(config);
+            const entries=discoverCertifiedSportParticipants(payload,config).filter(entry=>certified.has(entry.externalSchoolId));
+            const map=new Map();
+            for (const entry of entries) {
+              const existing=map.get(entry.externalTeamId)||new Set();
+              existing.add(entry.externalSchoolId);
+              map.set(entry.externalTeamId,existing);
+            }
+            byCode.set(config.teamCode,{config,map,entries});
+          }
+
+          const pairs=[];
+          const codes=[...byCode.keys()];
+          for (let i=0;i<codes.length;i++) {
+            for (let j=i+1;j<codes.length;j++) {
+              const a=byCode.get(codes[i]);
+              const b=byCode.get(codes[j]);
+              const overlap=[];
+              for (const [id,aSchools] of a.map) {
+                const bSchools=b.map.get(id);
+                if (!bSchools) continue;
+                const sameSchool=[...aSchools].some(s=>bSchools.has(s));
+                overlap.push({
+                  externalTeamId:id,
+                  aSchools:[...aSchools].sort(),
+                  bSchools:[...bSchools].sort(),
+                  sameSchool
+                });
+              }
+              if (overlap.length) {
+                pairs.push({
+                  a:a.config.teamCode,
+                  b:b.config.teamCode,
+                  overlapCount:overlap.length,
+                  sameSchoolCount:overlap.filter(x=>x.sameSchool).length,
+                  crossSchoolCount:overlap.filter(x=>!x.sameSchool).length,
+                  overlaps:overlap
+                });
+              }
+            }
+          }
+          console.log(JSON.stringify({generatedAt:new Date().toISOString(),pairs},null,2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m2-team-id-overlap-audit
+          path: m2-team-id-overlap.json
+          if-no-files-found: error
