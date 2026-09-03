@@ -32,23 +32,26 @@ function textFromHtml(value) {
     .replace(/<[^>]+>/g, " ")));
 }
 
+function firstClassExpression(className, closingTag = "[^>]+") {
+  return new RegExp(`<[^>]+class=["']${className}(?:\\s[^"']*)?["'][^>]*>([\\s\\S]*?)<\\/${closingTag}>`, "i");
+}
+
 function classText(block, className) {
-  const expression = new RegExp(`<[^>]+class=["'][^"']*\\b${className}\\b[^"']*["'][^>]*>([\\s\\S]*?)<\\/[^>]+>`, "i");
-  return textFromHtml(block.match(expression)?.[1] || "");
+  return textFromHtml(block.match(firstClassExpression(className))?.[1] || "");
 }
 
 function opponentText(block) {
-  const opponentBlock = block.match(/<[^>]+class=["'][^"']*\bopponent\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] || "";
+  const opponentBlock = block.match(firstClassExpression("opponent", "div"))?.[1] || "";
   return textFromHtml(opponentBlock);
 }
 
 function resultText(block) {
-  const resultBlock = block.match(/<[^>]+class=["'][^"']*\bresults-container\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] || "";
+  const resultBlock = block.match(firstClassExpression("results-container", "div"))?.[1] || "";
   return textFromHtml(resultBlock);
 }
 
 function eventBlocks(html) {
-  const marker = /<div\b[^>]*class=["'][^"']*\bitem\b[^"']*["'][^>]*>/gi;
+  const marker = /<div\b[^>]*class=["']item(?:\s[^"']*)?["'][^>]*>/gi;
   const starts = [];
   let match;
   while ((match = marker.exec(html))) starts.push(match.index);
