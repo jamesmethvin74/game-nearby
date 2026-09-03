@@ -21,7 +21,8 @@ test("M3 source bootstrap can represent exactly the 84 currently parser-ready ta
   const rows=certifiedCollegeSourceRows(certified,"2026");
   assert.equal(rows.length,84);
   assert.equal(new Set(rows.map(row=>row.sourceId)).size,84);
-  assert.equal(rows.filter(row=>row.parserType==="sidearm").length,79);
+  assert.equal(rows.filter(row=>row.parserType==="sidearm").length,75);
+  assert.equal(rows.filter(row=>row.parserType==="sidearm-modern").length,4);
   assert.equal(rows.filter(row=>row.parserType==="arkansas-razorbacks").length,5);
   assert.ok(rows.every(row=>row.activeResultMinutes===30));
 });
