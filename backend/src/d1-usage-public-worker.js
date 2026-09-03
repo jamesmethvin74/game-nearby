@@ -1,5 +1,6 @@
-import app from "./public-cors-worker.js";
+import app from "./milestone2-scheduled-worker.js";
 import { loadD1Usage, publicBudgetSnapshot } from "./d1-usage-monitor.js";
+import { maybeHandleM2ProductionBootstrap } from "./m2-production-bootstrap.js";
 
 const USAGE_PATH = "/api/v1/d1-usage";
 const BUDGET_PATH = "/api/v1/d1-budget";
@@ -67,6 +68,9 @@ async function publicBudgetResponse(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
+    const bootstrap = await maybeHandleM2ProductionBootstrap(request, env);
+    if (bootstrap) return bootstrap;
+
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === BUDGET_PATH) {
       return publicBudgetResponse(request, env, ctx);
