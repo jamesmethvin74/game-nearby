@@ -1,0 +1,60 @@
+name: Milestone 1 DragonFly team inventory diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/milestone1-dragonfly-team-inventory
+    paths:
+      - .github/workflows/milestone1-dragonfly-team-inventory-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe six official AAA varsity schedule feeds
+        shell: python
+        run: |
+          import json, urllib.request, urllib.error
+
+          CODES=["FB_Varsity","MBB_Varsity","WBB_Varsity","MSOC_Varsity","WSOC_Varsity","WVB_Varsity"]
+          BASE="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/{code}/0"
+          headers={"User-Agent":"LocalBleachersAR-milestone1-diagnostic/1.0","Accept":"application/json"}
+          report=[]
+          for code in CODES:
+            url=BASE.format(code=code)
+            try:
+              req=urllib.request.Request(url,headers=headers)
+              with urllib.request.urlopen(req,timeout=30) as response:
+                payload=json.loads(response.read().decode("utf-8"))
+                status=response.status
+              schedule=payload.get("schedule") if isinstance(payload,dict) else None
+              schedule=schedule if isinstance(schedule,list) else []
+              sports={}
+              teams={}
+              for event in schedule:
+                for sport in event.get("associatedSports") or []:
+                  key=(str(sport.get("code") or ""),str(sport.get("name") or ""),str(sport.get("level") or ""))
+                  sports[key]=sports.get(key,0)+1
+                for participant in event.get("participants") or []:
+                  team=participant.get("team") or {}
+                  team_id=str(team.get("teamId") or "").strip()
+                  level=str(team.get("level") or "").lower()
+                  if team_id and (not level or "varsity" in level):
+                    teams[team_id]={"teamId":team_id,"name":participant.get("name"),"orgShortCode":participant.get("orgShortCode"),"teamCode":team.get("code"),"level":team.get("level")}
+              report.append({"code":code,"url":url,"http_status":status,"schedule_count":len(schedule),"varsity_team_count":len(teams),"sports":[{"code":k[0],"name":k[1],"level":k[2],"event_count":v} for k,v in sorted(sports.items())],"sample_teams":list(teams.values())[:5],"payload_keys":list(payload.keys()) if isinstance(payload,dict) else []})
+            except urllib.error.HTTPError as e:
+              report.append({"code":code,"url":url,"http_status":e.code,"error":str(e)})
+            except Exception as e:
+              report.append({"code":code,"url":url,"http_status":None,"error":str(e)})
+          with open("dragonfly-feed-probe.json","w",encoding="utf-8") as f: json.dump(report,f,indent=2,ensure_ascii=False)
+          print(json.dumps(report,indent=2,ensure_ascii=False))
+
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: milestone1-dragonfly-feed-probe
+          path: dragonfly-feed-probe.json
+          retention-days: 1
