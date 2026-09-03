@@ -1,9 +1,9 @@
 name: M2 DragonFly feed probe
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/milestone2-statewide-schedules-v1
+      - main
 
 permissions:
   contents: read
