@@ -1,0 +1,78 @@
+name: Generate corrective M1 migration 0013
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate one-statement materialization migration
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const inventory = JSON.parse(fs.readFileSync('backend/data/arkansas-high-school-team-inventory.json','utf8'));
+          const map = inventory.certified_school_team_codes || {};
+          const schoolCount = Object.keys(map).length;
+          const targetCount = Object.values(map).reduce((n,codes)=>n+codes.length,0);
+          if (schoolCount !== 295 || targetCount !== 1102) throw new Error(`inventory mismatch ${schoolCount}/${targetCount}`);
+          const seed = JSON.stringify(map).replaceAll("'", "''");
+          const sql = `PRAGMA foreign_keys = ON;
+
+-- Milestone 1 corrective team materialization.
+-- Checkpoint dependency: the bounded production verification proved all 295 certified
+-- AAA/DragonFly school identities are already represented in local high-school scope.
+-- This migration therefore performs exactly one persistent set-based DML statement:
+-- materialize any missing 2026 supported team targets. It creates no sources, games,
+-- records, standings, schedules, or collection work.
+
+WITH target_schools AS (
+  SELECT key AS aaa_id, value AS team_codes
+  FROM json_each('${seed}')
+),
+sport_map(code,sport,gender,id_slug) AS (
+  VALUES
+    ('FB','football','boys','football'),
+    ('MBB','basketball','boys','boys-basketball'),
+    ('WBB','basketball','girls','girls-basketball'),
+    ('MSO','soccer','boys','boys-soccer'),
+    ('WSO','soccer','girls','girls-soccer'),
+    ('WVB','volleyball','girls','volleyball')
+)
+INSERT OR IGNORE INTO teams
+  (id,school_id,sport,gender,season,conference_id,active)
+SELECT
+  identity.school_id || '-' || sport_map.id_slug || '-2026',
+  identity.school_id,
+  sport_map.sport,
+  sport_map.gender,
+  '2026',
+  NULL,
+  1
+FROM target_schools target
+JOIN school_external_identities identity
+  ON identity.provider='dragonfly'
+ AND identity.external_school_id=target.aaa_id
+JOIN json_each(target.team_codes) team_code
+JOIN sport_map
+  ON sport_map.code=team_code.value;
+`;
+          fs.writeFileSync('0013_milestone1_complete_team_materialization.sql',sql);
+          console.log(JSON.stringify({schoolCount,targetCount,bytes:Buffer.byteLength(sql)}));
+          NODE
+      - name: Upload generated migration
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-generated-0013
+          path: 0013_milestone1_complete_team_materialization.sql
+          if-no-files-found: error
