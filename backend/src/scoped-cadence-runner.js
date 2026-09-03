@@ -4,17 +4,37 @@ export function scopePolicy(plan = {}) {
   if (plan.scope === "football-game-day") {
     return {
       where: "t.sport='football'",
-      requireGameWindow: true,
       activeMinutes: Number(plan.activeResultMinutes || 30),
-      maxSources: 32
+      maxSources: 16,
+      gameWindow: `AND EXISTS (
+        SELECT 1
+        FROM games gx
+        WHERE gx.team_id=t.id
+          AND gx.status='SCHEDULED'
+          AND gx.scheduled_time_known=1
+          AND datetime(gx.scheduled_at) BETWEEN datetime('now','-330 minutes') AND datetime('now','-120 minutes')
+      )`
     };
   }
   if (plan.scope === "college-game-day") {
     return {
       where: "sch.level='college'",
-      requireGameWindow: true,
       activeMinutes: Number(plan.activeResultMinutes || 30),
-      maxSources: 48
+      maxSources: 8,
+      gameWindow: `AND EXISTS (
+        SELECT 1
+        FROM games gx
+        WHERE gx.team_id=t.id
+          AND gx.status='SCHEDULED'
+          AND gx.scheduled_time_known=1
+          AND (
+            (t.sport='football' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-360 minutes') AND datetime('now','-120 minutes')) OR
+            (t.sport='basketball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-210 minutes') AND datetime('now','-75 minutes')) OR
+            (t.sport='soccer' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-240 minutes') AND datetime('now','-90 minutes')) OR
+            (t.sport='volleyball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-270 minutes') AND datetime('now','-75 minutes')) OR
+            (t.sport NOT IN ('football','basketball','soccer','volleyball') AND datetime(gx.scheduled_at) BETWEEN datetime('now','-300 minutes') AND datetime('now','-90 minutes'))
+          )
+      )`
     };
   }
   return null;
@@ -38,15 +58,12 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   const policy = scopePolicy(plan);
   if (!policy) return null;
 
-  const gameWindow = policy.requireGameWindow
-    ? `AND EXISTS (
-        SELECT 1
-        FROM games gx
-        WHERE gx.team_id=t.id
-          AND datetime(gx.scheduled_at) BETWEEN datetime('now','-8 hours') AND datetime('now','+12 hours')
-      )`
-    : "";
-
+  // Frequent event-night/event-day polling is intentionally result-oriented.
+  // A source is eligible only while a known-time game is still SCHEDULED and
+  // far enough past its start time that a result could reasonably exist. Once
+  // the game becomes FINAL/CANCELED/POSTPONED, it immediately drops out of the
+  // frequent-poll path. Ordinary 6 AM / 3 PM / 11 PM collection still catches
+  // schedule corrections and unknown-time events.
   const { results = [] } = await env.DB.prepare(`
     SELECT src.id, src.team_id, src.last_checked_at
     FROM sources src
@@ -54,7 +71,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local'
     WHERE src.enabled=1
       AND ${policy.where}
-      ${gameWindow}
+      ${policy.gameWindow}
       AND (
         src.last_checked_at IS NULL OR
         datetime(src.last_checked_at, '+' || ? || ' minutes') <= datetime('now')
@@ -64,7 +81,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   `).bind(policy.activeMinutes, policy.maxSources).all();
 
   if (!results.length) {
-    console.log("scoped cadence has no due game-day sources", { kind: plan.kind, scope: plan.scope });
+    console.log("scoped cadence has no due result-window sources", { kind: plan.kind, scope: plan.scope });
     return { status: "SKIPPED", plan: plan.kind, scope: plan.scope, sources: 0, outcomes: [] };
   }
 
