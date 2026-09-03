@@ -1,0 +1,49 @@
+name: M3 school Presto RSS proof
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-school-presto-rss-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe school sport composite RSS feeds
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const schools = [
+            ['cbc','https://cbcmustangs.com'],
+            ['crc','https://crcpioneers.com'],
+            ['wbu','https://www.wbueagles.com'],
+            ['philander','https://philanderathletics.com'],
+            ['champion','https://championchristian.prestosports.com']
+          ];
+          const sports=['mbkb','wbkb','msoc','wsoc','wvball'];
+          async function probe(name,url){
+            const row={name,url,status:null,type:null,size:0,challenge:false,itemCount:0,titles:[],dates:[]};
+            try{
+              const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-school-rss-proof/1.0','accept':'application/rss+xml,application/xml,text/xml,text/html,*/*'}});
+              const text=await r.text();
+              row.status=r.status; row.type=r.headers.get('content-type'); row.size=text.length; row.finalUrl=r.url;
+              row.challenge=/cf-chl|challenge-platform|Just a moment/i.test(text);
+              row.itemCount=(text.match(/<item\b/gi)||[]).length;
+              row.titles=[...text.matchAll(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/gi)].map(m=>m[1].replace(/<[^>]+>/g,'').replace(/&amp;/g,'&').trim()).filter(Boolean).slice(0,12);
+              row.dates=[...text.matchAll(/<(?:pubDate|dc:date|ps:date|date)>([\s\S]*?)<\//gi)].map(m=>m[1].trim()).slice(0,12);
+            }catch(e){row.error=String(e?.message||e)}
+            console.log(JSON.stringify(row));
+          }
+          for(const [school,base] of schools){
+            await probe(`${school}-all`,`${base}/composite?print=rss`);
+            for(const sport of sports) await probe(`${school}-${sport}`,`${base}/sports/${sport}/composite?print=rss`);
+          }
+          NODE
