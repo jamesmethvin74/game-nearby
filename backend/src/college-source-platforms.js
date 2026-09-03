@@ -1,13 +1,15 @@
 import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "./college-team-inventory.js";
 
 const SIDEARM = "sidearm";
+const PRESTO = "prestosports";
 const CUSTOM = "custom";
 const PENDING = "pending-audit";
 
 // Read-only provider audit checkpoint, 2026-09-03. A provider can be classified
 // as Sidearm once a current official schedule page on that athletics host has
 // been verified to use the same schedule surface already handled by index.js.
-// This file does not create or enable D1 sources.
+// PrestoSports hosts are identified separately because they need a dedicated
+// parser before source rows can be certified. This file never mutates D1.
 export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"uark", platform:CUSTOM, host:"arkansasrazorbacks.com", parserType:null, status:"needs-parser", evidencePath:"/sport/m-footbl/schedule/" },
 
@@ -25,17 +27,20 @@ export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"hendrix", platform:SIDEARM, host:"hendrixwarriors.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
   { schoolId:"lyon", platform:SIDEARM, host:"lyonscots.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
   { schoolId:"ozarks", platform:SIDEARM, host:"uofoathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"arkansas-baptist", platform:SIDEARM, host:"abcbuffaloes.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/football/schedule/2026" },
   { schoolId:"john-brown", platform:SIDEARM, host:"jbuathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
   { schoolId:"ecclesia", platform:SIDEARM, host:"goroyals.org", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/mens-soccer/schedule" },
 
-  { schoolId:"arkansas-baptist", platform:PENDING, host:"arkansasbaptist.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"asu-newport", platform:PRESTO, host:"arkansasstatenewport.prestosports.com", parserType:null, status:"needs-parser", evidencePath:"/composite" },
+  { schoolId:"ua-cossatot", platform:PRESTO, host:"uacossatot.prestosports.com", parserType:null, status:"needs-parser", evidencePath:"/sports/msoc/2025-26/releases/20251025rbo616" },
+  { schoolId:"champion-christian", platform:PRESTO, host:"championchristian.prestosports.com", parserType:null, status:"needs-parser", evidencePath:"/sports/mbkb/2025-26/schedule" },
+
   { schoolId:"cbc", platform:PENDING, host:"cbcmustangs.com", parserType:null, status:"provisional-source" },
   { schoolId:"crowleys-ridge", platform:PENDING, host:"crcpioneers.com", parserType:null, status:"pending-audit" },
   { schoolId:"philander-smith", platform:PENDING, host:"philander.edu", parserType:null, status:"pending-audit" },
   { schoolId:"williams-baptist", platform:PENDING, host:"williamsbu.edu", parserType:null, status:"pending-audit" },
   { schoolId:"asu-mid-south", platform:PENDING, host:"asumidsouth.edu", parserType:null, status:"pending-audit" },
   { schoolId:"asu-mountain-home", platform:PENDING, host:"asumh.edu", parserType:null, status:"no-supported-teams" },
-  { schoolId:"asu-newport", platform:PENDING, host:"arkansasstatenewport.prestosports.com", parserType:null, status:"pending-audit" },
   { schoolId:"asu-three-rivers", platform:PENDING, host:"asutr.edu", parserType:null, status:"no-supported-teams" },
   { schoolId:"national-park", platform:PENDING, host:"np.edu", parserType:null, status:"pending-audit" },
   { schoolId:"north-arkansas", platform:PENDING, host:"northark.edu", parserType:null, status:"pending-audit" },
@@ -44,9 +49,7 @@ export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"south-arkansas", platform:PENDING, host:"southarkstars.com", parserType:null, status:"pending-audit" },
   { schoolId:"seark", platform:PENDING, host:"seark.edu", parserType:null, status:"pending-audit" },
   { schoolId:"sau-tech", platform:PENDING, host:"sautrockets.com", parserType:null, status:"pending-audit" },
-  { schoolId:"ua-rich-mountain", platform:PENDING, host:"uarichmountain.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"ua-cossatot", platform:PENDING, host:"cccua.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"champion-christian", platform:PENDING, host:"champion.edu", parserType:null, status:"pending-audit" }
+  { schoolId:"ua-rich-mountain", platform:PENDING, host:"uarichmountain.edu", parserType:null, status:"pending-audit" }
 ];
 
 const bySchool = new Map(COLLEGE_SOURCE_PLATFORMS.map(row => [row.schoolId, row]));
@@ -71,6 +74,7 @@ export function sidearmScheduleUrl(platform, team, season = "2026") {
 export function collegeSourceAuditSummary() {
   let parserReadySchools = 0;
   let parserReadyTeams = 0;
+  let needsParserSchools = 0;
   let needsParserTeams = 0;
   let pendingTeams = 0;
 
@@ -81,6 +85,7 @@ export function collegeSourceAuditSummary() {
       parserReadySchools += 1;
       parserReadyTeams += school.teams.length;
     } else if (platform.status === "needs-parser") {
+      needsParserSchools += 1;
       needsParserTeams += school.teams.length;
     } else {
       pendingTeams += school.teams.length;
@@ -91,6 +96,7 @@ export function collegeSourceAuditSummary() {
     schools: COLLEGE_SOURCE_PLATFORMS.length,
     parserReadySchools,
     parserReadyTeams,
+    needsParserSchools,
     needsParserTeams,
     pendingTeams,
     totalTeams: parserReadyTeams + needsParserTeams + pendingTeams
