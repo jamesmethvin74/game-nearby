@@ -1,0 +1,39 @@
+name: M1 verification Worker dry-run build
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install
+        working-directory: backend
+        run: npm ci
+      - name: Check and dry-run bundle
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee ../m1-check.log
+          npx wrangler deploy --dry-run 2>&1 | tee ../m1-wrangler-dry-run.log
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-worker-build-dry-run
+          path: |
+            m1-check.log
+            m1-wrangler-dry-run.log
+          if-no-files-found: warn
