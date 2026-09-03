@@ -19,6 +19,7 @@ jobs:
       - name: Generate one-statement materialization migration
         shell: bash
         run: |
+          # Artifact generation only; no Cloudflare or D1 access.
           node <<'NODE'
           const fs = require('node:fs');
           const inventory = JSON.parse(fs.readFileSync('backend/data/arkansas-high-school-team-inventory.json','utf8'));
