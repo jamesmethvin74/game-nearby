@@ -11,101 +11,95 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  inventory:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve codes and fetch complete official AAA feeds
-        shell: python
+      - uses: actions/checkout@v4
+
+      - name: Build Arkansas-only varsity inventory from official feeds
+        shell: bash
         run: |
-          import json, urllib.request, urllib.error
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { fetchDragonFlyPagedPayload } from './backend/src/dragonfly-feed.js';
+          import { fetchArkansasSchoolLocationFeatures, matchArkansasSchoolLocations } from './backend/src/arkansas-school-locations.js';
 
-          CANDIDATES=[
-            "MFB_Varsity","FB_Varsity","BFB_Varsity",
-            "MBB_Varsity","WBB_Varsity",
-            "MSO_Varsity","WSO_Varsity","BSO_Varsity","GSO_Varsity",
-            "MSOC_Varsity","WSOC_Varsity","BSOC_Varsity","GSOC_Varsity",
-            "WVB_Varsity"
-          ]
-          BASE="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/{code}/{page}"
-          headers={"User-Agent":"LocalBleachersAR-milestone1-diagnostic/2.0","Accept":"application/json"}
+          const feeds = [
+            {sport:'football',gender:'boys',code:'MFB_Varsity'},
+            {sport:'basketball',gender:'boys',code:'MBB_Varsity'},
+            {sport:'basketball',gender:'girls',code:'WBB_Varsity'},
+            {sport:'soccer',gender:'boys',code:'MSO_Varsity'},
+            {sport:'soccer',gender:'girls',code:'WSO_Varsity'},
+            {sport:'volleyball',gender:'girls',code:'WVB_Varsity'}
+          ];
+          const base = code => `https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/${code}/0`;
+          const headers = {'user-agent':'LocalBleachersAR-milestone1-diagnostic/3.0','accept':'application/json'};
+          const participants = new Map();
+          const targets = [];
+          const feedSummary = [];
 
-          def fetch(code,page):
-            url=BASE.format(code=code,page=page)
-            req=urllib.request.Request(url,headers=headers)
-            with urllib.request.urlopen(req,timeout=30) as response:
-              raw=response.read().decode("utf-8",errors="replace")
-              try: payload=json.loads(raw)
-              except Exception: return {"ok":False,"http_status":response.status,"url":url,"body_prefix":raw[:200]}
-            return {"ok":True,"http_status":response.status,"url":url,"payload":payload}
+          for (const feed of feeds) {
+            const {payload,pageCount} = await fetchDragonFlyPagedPayload(base(feed.code), {headers,maxPages:20});
+            const byTeam = new Map();
+            for (const event of payload.schedule || []) {
+              for (const participant of event.participants || []) {
+                const team = participant.team || {};
+                const teamId = String(team.teamId || '').trim();
+                const orgShortCode = String(participant.orgShortCode || '').trim().toUpperCase();
+                const name = String(participant.name || '').replace(/\s+/g,' ').trim();
+                const level = String(team.level || '').toLowerCase();
+                if (!teamId || !orgShortCode || !name || /^(?:TBD|TBA)$/i.test(name) || (level && !level.includes('varsity'))) continue;
+                participants.set(orgShortCode,{id:orgShortCode,name,city:''});
+                byTeam.set(teamId,{external_team_id:teamId,external_school_id:orgShortCode,school_name:name,sport:feed.sport,gender:feed.gender,team_code:String(team.code || ''),feed_code:feed.code});
+              }
+            }
+            targets.push(...byTeam.values());
+            feedSummary.push({sport:feed.sport,gender:feed.gender,feed_code:feed.code,pages:pageCount,events:payload.schedule.length,participant_teams:byTeam.size});
+          }
 
-          resolved=[]
-          for code in CANDIDATES:
-            try:
-              result=fetch(code,0)
-              if not result["ok"]:
-                resolved.append({"candidate":code,"valid_json":False,"http_status":result["http_status"],"body_prefix":result.get("body_prefix")})
-                continue
-              payload=result["payload"]
-              schedule=payload.get("schedule") if isinstance(payload,dict) else []
-              sports={}
-              for event in schedule or []:
-                for sport in event.get("associatedSports") or []:
-                  key=(str(sport.get("code") or ""),str(sport.get("name") or ""),str(sport.get("level") or ""))
-                  sports[key]=sports.get(key,0)+1
-              resolved.append({"candidate":code,"valid_json":True,"http_status":result["http_status"],"event_count":len(schedule or []),"has_next":bool(payload.get("hasNextPage")),"sports":[{"code":k[0],"name":k[1],"level":k[2],"events":v} for k,v in sorted(sports.items())]})
-            except urllib.error.HTTPError as e:
-              resolved.append({"candidate":code,"valid_json":False,"http_status":e.code,"error":str(e)})
-            except Exception as e:
-              resolved.append({"candidate":code,"valid_json":False,"http_status":None,"error":str(e)})
+          const gis = await fetchArkansasSchoolLocationFeatures({pageSize:500});
+          const locationMatches = matchArkansasSchoolLocations([...participants.values()], gis.features);
+          const matchedIds = new Set(locationMatches.matched.map(row => row.school_id));
+          const arkansasTargets = targets.filter(row => matchedIds.has(row.external_school_id));
+          const uniqueTargetKeys = new Map();
+          for (const row of arkansasTargets) uniqueTargetKeys.set(`${row.external_school_id}|${row.sport}|${row.gender}`, row);
+          const expectedTeams = [...uniqueTargetKeys.values()].sort((a,b)=>a.school_name.localeCompare(b.school_name)||a.sport.localeCompare(b.sport)||a.gender.localeCompare(b.gender));
+          const schoolById = new Map(locationMatches.matched.map(row => [row.school_id,row]));
+          const expectedSchools = [...new Set(expectedTeams.map(row=>row.external_school_id))].map(id=>schoolById.get(id)).filter(Boolean).sort((a,b)=>a.school_name.localeCompare(b.school_name));
 
-          # Keep one endpoint per actual desired varsity sport.
-          desired_names={"football","boys' basketball","girls' basketball","boys' soccer","girls' soccer","girls' volleyball"}
-          selected={}
-          for row in resolved:
-            if not row.get("valid_json") or not row.get("sports"): continue
-            for sport in row["sports"]:
-              if str(sport.get("level") or "").lower()!="varsity": continue
-              name=str(sport.get("name") or "").strip().lower()
-              if name in desired_names and name not in selected:
-                selected[name]=row["candidate"]
+          const perSport = feeds.map(feed => {
+            const all = targets.filter(row=>row.sport===feed.sport && row.gender===feed.gender);
+            const ar = expectedTeams.filter(row=>row.sport===feed.sport && row.gender===feed.gender);
+            return {sport:feed.sport,gender:feed.gender,participant_team_ids:all.length,arkansas_expected_teams:ar.length};
+          });
 
-          feeds=[]
-          for sport_name,code in selected.items():
-            events={}; teams={}; pages=0; sample_participants=[]
-            for page in range(20):
-              result=fetch(code,page)
-              if not result["ok"]: raise SystemExit(f"Invalid JSON while paging {code} page {page}")
-              payload=result["payload"]; pages+=1
-              schedule=payload.get("schedule") or []
-              for event in schedule:
-                event_id=str(event.get("eventId") or event.get("id") or f"{page}:{len(events)}")
-                events[event_id]=event
-                for participant in event.get("participants") or []:
-                  if len(sample_participants)<8: sample_participants.append(participant)
-                  team=participant.get("team") or {}
-                  team_id=str(team.get("teamId") or "").strip()
-                  level=str(team.get("level") or "").strip().lower()
-                  if not team_id or (level and "varsity" not in level): continue
-                  teams[team_id]={
-                    "teamId":team_id,
-                    "name":str(participant.get("name") or "").strip(),
-                    "orgShortCode":str(participant.get("orgShortCode") or "").strip(),
-                    "participantUri":str(participant.get("uri") or "").strip(),
-                    "teamCode":str(team.get("code") or "").strip(),
-                    "teamLevel":str(team.get("level") or "").strip()
-                  }
-              if not payload.get("hasNextPage"): break
-            else: raise SystemExit(f"{code} exceeded 20 pages")
-            feeds.append({"sport_name":sport_name,"endpoint_code":code,"pages":pages,"event_count":len(events),"participant_team_count":len(teams),"teams":sorted(teams.values(),key=lambda r:(r["name"],r["teamId"])),"sample_participants":sample_participants})
+          const output = {
+            generated_at:new Date().toISOString(),
+            authority:'DragonFly ArkAA varsity feeds filtered through Arkansas GIS public/private school layers',
+            feed_summary:feedSummary,
+            summary:{
+              dragonfly_participant_orgs:participants.size,
+              gis_public_features:gis.publicFeatures.length,
+              gis_private_features:gis.privateFeatures.length,
+              matched_arkansas_schools:expectedSchools.length,
+              expected_team_targets:expectedTeams.length,
+              unresolved_participant_orgs:locationMatches.unresolved.length,
+              ambiguous_participant_orgs:locationMatches.ambiguous.length
+            },
+            per_sport:perSport,
+            schools:expectedSchools,
+            teams:expectedTeams,
+            unresolved:locationMatches.unresolved,
+            ambiguous:locationMatches.ambiguous
+          };
+          fs.writeFileSync('arkansas-high-school-team-inventory.json',JSON.stringify(output,null,2));
+          console.log(JSON.stringify({summary:output.summary,per_sport:output.per_sport,feeds:feedSummary},null,2));
+          if (expectedSchools.length < 150 || expectedTeams.length < 500) throw new Error('Arkansas-only inventory unexpectedly small');
+          NODE
 
-          output={"resolved_candidates":resolved,"selected":selected,"feeds":feeds}
-          with open("dragonfly-full-inventory.json","w",encoding="utf-8") as f: json.dump(output,f,indent=2,ensure_ascii=False)
-          print(json.dumps({"selected":selected,"feeds":[{k:v for k,v in row.items() if k not in ("teams","sample_participants")} for row in feeds]},indent=2))
-          if len(selected)<5: raise SystemExit(f"Resolved only {len(selected)} of six desired sports")
-
-      - name: Upload inventory
+      - name: Upload Arkansas-only inventory
         uses: actions/upload-artifact@v4
         with:
-          name: milestone1-dragonfly-full-inventory
-          path: dragonfly-full-inventory.json
+          name: milestone1-arkansas-high-school-team-inventory
+          path: arkansas-high-school-team-inventory.json
           retention-days: 1
