@@ -1,6 +1,7 @@
 import app from "./milestone2-scheduled-worker.js";
 import { loadD1Usage, publicBudgetSnapshot } from "./d1-usage-monitor.js";
 import { maybeHandleM2ProductionBootstrap } from "./m2-production-bootstrap.js";
+import { maybeHandleM2ProductionBootstrapV2 } from "./m2-production-bootstrap-v2-route.js";
 import { maybeHandleM2BootstrapStatus } from "./m2-bootstrap-status.js";
 
 const USAGE_PATH = "/api/v1/d1-usage";
@@ -69,6 +70,9 @@ async function publicBudgetResponse(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
+    const uniqueV2Bootstrap = await maybeHandleM2ProductionBootstrapV2(request, env);
+    if (uniqueV2Bootstrap) return uniqueV2Bootstrap;
+
     const statusProbe = await maybeHandleM2BootstrapStatus(request, env);
     if (statusProbe) return statusProbe;
 
