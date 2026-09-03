@@ -7,6 +7,7 @@ import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response
 import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
 import { reconcileFootballGameRecords } from "./football-record-reconciliation.js";
 import { collectionPlanAt } from "./collection-cadence.js";
+import { runScopedCadence } from "./scoped-cadence-runner.js";
 
 function defer(ctx, promise) {
   if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
@@ -274,8 +275,8 @@ async function runScheduledPlan(controller,env,ctx){
   if (plan.runStatewide) await runStatewideRefresh(env,{payload:catalogPayload,reason:plan.kind});
 
   if (plan.runCore) {
-    // The core collector performs its own due check per source. Keeping Friday
-    // cadence here does not force every source to refresh every 30 minutes.
+    const scoped=await runScopedCadence({core,env,ctx,controller,plan});
+    if (scoped) return scoped;
     return core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
   }
 
