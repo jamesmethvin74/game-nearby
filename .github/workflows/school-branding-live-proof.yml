@@ -1,16 +1,7 @@
 name: School branding live proof
 
 on:
-  pull_request:
-    paths:
-      - "backend/src/school-branding.js"
-      - "backend/src/statewide-initializer.js"
-      - "backend/migrations/0010_school_brand_assets.sql"
-      - "backend/test/school-branding.test.js"
-      - "school-logo-ui.js"
-      - "index.html"
-      - "service-worker.js"
-      - ".github/workflows/school-branding-live-proof.yml"
+  workflow_dispatch:
 
 jobs:
   proof:

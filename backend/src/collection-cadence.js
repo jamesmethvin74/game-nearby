@@ -33,6 +33,7 @@ function plan(kind, options = {}) {
 export function collectionPlanAt(value = new Date()) {
   const { weekday, hour, minute } = localParts(value);
 
+  // Weekly maintenance is intentionally isolated from ordinary result polling.
   if (weekday === "Sun" && hour === 4 && minute === 0) {
     return plan("weekly-catalog-maintenance", {
       runStatewide: true,
@@ -41,6 +42,7 @@ export function collectionPlanAt(value = new Date()) {
     });
   }
 
+  // Friday high-school/football result window: 8:30 PM through midnight Central.
   const fridayEvening = weekday === "Fri" && (
     (hour === 20 && minute === 30) ||
     (hour >= 21 && hour <= 23 && (minute === 0 || minute === 30))
@@ -54,6 +56,10 @@ export function collectionPlanAt(value = new Date()) {
     });
   }
 
+  // Saturday is the college-heavy live-update day. Poll only college teams that
+  // have a game in the active game-day window; do not run catalog, GIS, or
+  // branding maintenance. Start before the earliest common kickoffs and keep a
+  // final buffer through 1:00 AM Sunday for late road games and final scores.
   const saturdayCollege = weekday === "Sat" && (
     (hour === 10 && minute === 30) ||
     (hour >= 11 && hour <= 23 && (minute === 0 || minute === 30))

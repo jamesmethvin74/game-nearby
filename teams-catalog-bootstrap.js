@@ -3,13 +3,58 @@
   const CACHE_KEY = "localBleachersAR:schoolCatalog:v1";
   const CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
-  // Colleges currently supported by LocalBleachersAR's college schedule layer.
-  // The live statewide endpoint is a high-school catalog, so these must be
-  // preserved when that catalog refreshes instead of being overwritten.
+  // Arkansas colleges and universities that sponsor intercollegiate athletics
+  // across NCAA, NAIA, NJCAA, and NCCAA. The live statewide endpoint is
+  // primarily a high-school catalog, so these are preserved explicitly when
+  // the high-school catalog refreshes. Schedule support is handled separately.
   const COLLEGE_SCHOOLS = [
+    // NCAA Division I
+    { id:"uark", name:"University of Arkansas", mascot:"Razorbacks", city:"Fayetteville", state:"AR", level:"college", teamCount:1 },
+    { id:"arkansas-state", name:"Arkansas State University", mascot:"Red Wolves", city:"Jonesboro", state:"AR", level:"college", teamCount:1 },
+    { id:"uapb", name:"University of Arkansas at Pine Bluff", mascot:"Golden Lions", city:"Pine Bluff", state:"AR", level:"college", teamCount:1 },
     { id:"uca", name:"University of Central Arkansas", mascot:"Bears / Sugar Bears", city:"Conway", state:"AR", level:"college", teamCount:1 },
+    { id:"little-rock", name:"University of Arkansas at Little Rock", mascot:"Trojans", city:"Little Rock", state:"AR", level:"college", teamCount:1 },
+
+    // NCAA Division II
+    { id:"arkansas-tech", name:"Arkansas Tech University", mascot:"Wonder Boys / Golden Suns", city:"Russellville", state:"AR", level:"college", teamCount:1 },
+    { id:"uafs", name:"University of Arkansas at Fort Smith", mascot:"Lions", city:"Fort Smith", state:"AR", level:"college", teamCount:1 },
+    { id:"uam", name:"University of Arkansas at Monticello", mascot:"Boll Weevils / Cotton Blossoms", city:"Monticello", state:"AR", level:"college", teamCount:1 },
+    { id:"harding", name:"Harding University", mascot:"Bisons", city:"Searcy", state:"AR", level:"college", teamCount:1 },
+    { id:"henderson-state", name:"Henderson State University", mascot:"Reddies", city:"Arkadelphia", state:"AR", level:"college", teamCount:1 },
+    { id:"ouachita-baptist", name:"Ouachita Baptist University", mascot:"Tigers", city:"Arkadelphia", state:"AR", level:"college", teamCount:1 },
+    { id:"southern-arkansas", name:"Southern Arkansas University", mascot:"Muleriders", city:"Magnolia", state:"AR", level:"college", teamCount:1 },
+
+    // NCAA Division III
     { id:"hendrix", name:"Hendrix College", mascot:"Warriors", city:"Conway", state:"AR", level:"college", teamCount:1 },
-    { id:"cbc", name:"Central Baptist College", mascot:"Mustangs", city:"Conway", state:"AR", level:"college", teamCount:1 }
+    { id:"lyon", name:"Lyon College", mascot:"Scots", city:"Batesville", state:"AR", level:"college", teamCount:1 },
+    { id:"ozarks", name:"University of the Ozarks", mascot:"Eagles", city:"Clarksville", state:"AR", level:"college", teamCount:1 },
+
+    // NAIA
+    { id:"arkansas-baptist", name:"Arkansas Baptist College", mascot:"Buffaloes", city:"Little Rock", state:"AR", level:"college", teamCount:1 },
+    { id:"cbc", name:"Central Baptist College", mascot:"Mustangs", city:"Conway", state:"AR", level:"college", teamCount:1 },
+    { id:"crowleys-ridge", name:"Crowley's Ridge College", mascot:"Pioneers", city:"Paragould", state:"AR", level:"college", teamCount:1 },
+    { id:"john-brown", name:"John Brown University", mascot:"Golden Eagles", city:"Siloam Springs", state:"AR", level:"college", teamCount:1 },
+    { id:"philander-smith", name:"Philander Smith University", mascot:"Panthers", city:"Little Rock", state:"AR", level:"college", teamCount:1 },
+    { id:"williams-baptist", name:"Williams Baptist University", mascot:"Eagles", city:"Walnut Ridge", state:"AR", level:"college", teamCount:1 },
+
+    // NJCAA
+    { id:"asu-mid-south", name:"Arkansas State University Mid-South", mascot:"Greyhounds", city:"West Memphis", state:"AR", level:"college", teamCount:1 },
+    { id:"asu-mountain-home", name:"Arkansas State University-Mountain Home", mascot:"Trailblazers", city:"Mountain Home", state:"AR", level:"college", teamCount:1 },
+    { id:"asu-newport", name:"Arkansas State University-Newport", mascot:"Aviators", city:"Newport", state:"AR", level:"college", teamCount:1 },
+    { id:"asu-three-rivers", name:"Arkansas State University Three Rivers", mascot:"Eagles", city:"Malvern", state:"AR", level:"college", teamCount:1 },
+    { id:"national-park", name:"National Park College", mascot:"Nighthawks", city:"Hot Springs", state:"AR", level:"college", teamCount:1 },
+    { id:"north-arkansas", name:"North Arkansas College", mascot:"Pioneers", city:"Harrison", state:"AR", level:"college", teamCount:1 },
+    { id:"nwacc", name:"NorthWest Arkansas Community College", mascot:"Eagles", city:"Bentonville", state:"AR", level:"college", teamCount:1 },
+    { id:"shorter", name:"Shorter College", mascot:"Bulldogs", city:"North Little Rock", state:"AR", level:"college", teamCount:1 },
+    { id:"south-arkansas", name:"South Arkansas College", mascot:"Stars", city:"El Dorado", state:"AR", level:"college", teamCount:1 },
+    { id:"seark", name:"Southeast Arkansas College", mascot:"Sharks", city:"Pine Bluff", state:"AR", level:"college", teamCount:1 },
+    { id:"sau-tech", name:"Southern Arkansas University Tech", mascot:"Rockets", city:"Camden", state:"AR", level:"college", teamCount:1 },
+    { id:"ua-rich-mountain", name:"University of Arkansas Rich Mountain", mascot:"Bucks", city:"Mena", state:"AR", level:"college", teamCount:1 },
+    { id:"ua-cossatot", name:"University of Arkansas Cossatot", mascot:"Colts", city:"De Queen", state:"AR", level:"college", teamCount:1 },
+
+    // NCCAA
+    { id:"champion-christian", name:"Champion Christian College", mascot:"Tigers", city:"Hot Springs", state:"AR", level:"college", teamCount:1 },
+    { id:"ecclesia", name:"Ecclesia College", mascot:"Royals", city:"Springdale", state:"AR", level:"college", teamCount:1 }
   ];
 
   const FALLBACK_SCHOOLS = [
