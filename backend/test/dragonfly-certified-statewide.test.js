@@ -10,7 +10,7 @@ import {
   buildCertifiedStatewideRows,
   certifiedStatewideSignature
 } from "../src/dragonfly-certified-statewide.js";
-import { discoverCertifiedSportParticipants } from "../src/dragonfly-certified-sport-catalog.js";
+import { certifiedTargetSchoolIds, discoverCertifiedSportParticipants } from "../src/dragonfly-certified-sport-catalog.js";
 
 const checkedAt="2026-09-03T20:00:00.000Z";
 
@@ -50,6 +50,13 @@ test("Milestone 2 uses the six verified Arkansas DragonFly varsity feeds",()=>{
     ["WVB","WVB_Varsity","WVB"]
   ]);
   assert.equal(new Set(STATEWIDE_HIGH_SCHOOL_SPORTS.map(item=>item.feedUrl)).size,6);
+});
+
+test("each provider mapping is hard-gated to the certified sport target inventory",()=>{
+  assert.deepEqual(
+    STATEWIDE_HIGH_SCHOOL_SPORTS.map(config=>[config.teamCode,certifiedTargetSchoolIds(config).size]),
+    [["FB",194],["MBB",286],["WBB",281],["MSO",79],["WSO",77],["WVB",185]]
+  );
 });
 
 test("football feed builds reciprocal observations and a football canonical event",()=>{
