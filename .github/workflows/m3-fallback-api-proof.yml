@@ -1,0 +1,74 @@
+name: M3 fallback API proof
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-fallback-api-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prove candidate bulk APIs
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          async function probe(name,url){
+            try{
+              const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-api-proof/1.0','accept':'application/json,text/calendar,text/html,*/*'}});
+              const text=await r.text();
+              let parsed=null;
+              try{ parsed=JSON.parse(text); }catch{}
+              const summary={name,status:r.status,type:r.headers.get('content-type'),size:text.length,finalUrl:r.url};
+              if(parsed){
+                summary.jsonKeys=Object.keys(parsed).slice(0,30);
+                const events=parsed.events || parsed.data || parsed.results || parsed.items || parsed;
+                if(Array.isArray(events)){
+                  summary.count=events.length;
+                  summary.sample=events.slice(0,3).map(e=>({id:e.id,title:e.title||e.name||e.summary,start:e.start_at||e.start||e.startDate||e.date,end:e.end_at||e.end||e.endDate,filters:e.filter_ids||e.filters||e.categories||null}));
+                }
+                if(parsed.filters) summary.filters=parsed.filters.map?.(f=>({id:f.id,name:f.name})).slice(0,30);
+                if(parsed.links) summary.links=parsed.links;
+              } else {
+                summary.markers={ical:/BEGIN:VCALENDAR/i.test(text),mbb:/Men['’]s Basketball/i.test(text),wbb:/Women['’]s Basketball/i.test(text),soccer:/Soccer/i.test(text)};
+                summary.preview=text.slice(0,1200).replace(/\s+/g,' ');
+              }
+              console.log(JSON.stringify(summary));
+            }catch(e){ console.log(JSON.stringify({name,error:String(e?.message||e)})); }
+          }
+
+          const urls=[
+            ['southark-api','https://thrillshare.com/api/v4/o/23722/cms/events?page_no=1'],
+            ['southark-service-api','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events?page_no=1'],
+            ['southark-wbb-filter','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events?page_no=1&filter_ids=516033'],
+            ['southark-mbb-filter','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events?page_no=1&filter_ids=516034'],
+            ['southark-wbb-ical','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events/generate_ical?filter_ids=516033&section_ids='],
+            ['southark-mbb-ical','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events/generate_ical?filter_ids=516034&section_ids='],
+            ['asu-mid-api2','https://events.asumidsouth.edu/api/2/events'],
+            ['asu-mid-api-events','https://events.asumidsouth.edu/api/events'],
+            ['nwacc-calendar-json','https://www.nwacc.edu/calendar/calendar.json'],
+            ['nwacc-events-json','https://www.nwacc.edu/calendar/events.json'],
+            ['nwacc-full','https://www.nwacc.edu/calendar/full.html']
+          ];
+          for(const [n,u] of urls) await probe(n,u);
+
+          async function contexts(name,url,needles){
+            const r=await fetch(url,{headers:{'user-agent':'LocalBleachersAR-M3-api-proof/1.0'}}); const text=await r.text();
+            console.log('===== CONTEXT '+name+' '+r.status+' =====');
+            for(const needle of needles){
+              let from=0,shown=0;
+              while(shown<6){ const i=text.toLowerCase().indexOf(needle.toLowerCase(),from); if(i<0) break; console.log(needle+' :: '+text.slice(Math.max(0,i-300),Math.min(text.length,i+900)).replace(/\s+/g,' ')); from=i+needle.length; shown++; }
+            }
+          }
+          await contexts('asu-mid','https://events.asumidsouth.edu/event/asumidsouth.events.1242194',['api/','graphql','event451','endpoint','occurrence']);
+          await contexts('nwacc-full','https://www.nwacc.edu/calendar/full.html',['calendar','event-details','json','api','events']);
+          await contexts('sau-tech','https://www.sautrockets.com/',['WomensBasketballGameSchedule','MensBasketballGameSchedule','2026','schedule']);
+          NODE
