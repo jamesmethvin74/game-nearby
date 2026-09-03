@@ -15,21 +15,22 @@ test("M3 provider audit classifies every college exactly once", () => {
   assert.equal(new Set(ids).size, 36);
 });
 
-test("M3 provider audit identifies the existing Sidearm parser as reusable for 76 targets", () => {
+test("M3 provider audit identifies the existing Sidearm parser as reusable for 79 targets", () => {
   assert.deepEqual(collegeSourceAuditSummary(), {
     schools: 36,
-    parserReadySchools: 16,
-    parserReadyTeams: 76,
-    needsParserTeams: 5,
-    pendingTeams: 51,
+    parserReadySchools: 17,
+    parserReadyTeams: 79,
+    needsParserSchools: 4,
+    needsParserTeams: 15,
+    pendingTeams: 38,
     totalTeams: 132
   });
 });
 
 test("M3 Sidearm source candidates map every parser-ready target to one official https schedule URL", () => {
   const candidates = parserReadyCollegeSourceCandidates("2026");
-  assert.equal(candidates.length, 76);
-  assert.equal(new Set(candidates.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 76);
+  assert.equal(candidates.length, 79);
+  assert.equal(new Set(candidates.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 79);
 
   for (const source of candidates) {
     assert.equal(source.parserType, "sidearm");
