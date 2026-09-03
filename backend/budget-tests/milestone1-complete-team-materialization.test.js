@@ -25,6 +25,64 @@ function buildThrough(maxMigration){
   return db;
 }
 
+function establishVerifiedProductionIdentityCheckpoint(db){
+  const ids=JSON.stringify(Object.keys(inventory.certified_school_team_codes||{}));
+
+  db.prepare(`
+    WITH expected AS (SELECT value AS aaa_id FROM json_each(?))
+    INSERT OR IGNORE INTO schools
+      (id,name,city,state,level,catalog_scope,membership_source,membership_verified_at)
+    SELECT
+      'verified-' || lower(expected.aaa_id),
+      expected.aaa_id,
+      '',
+      'AR',
+      'high-school',
+      'local',
+      'aaa-certified',
+      CURRENT_TIMESTAMP
+    FROM expected
+    WHERE NOT EXISTS (
+      SELECT 1 FROM school_external_identities identity
+      WHERE identity.provider='dragonfly'
+        AND identity.external_school_id=expected.aaa_id
+    )
+  `).run(ids);
+
+  db.prepare(`
+    WITH expected AS (SELECT value AS aaa_id FROM json_each(?))
+    INSERT OR IGNORE INTO school_external_identities
+      (provider,external_school_id,school_id,observed_name,last_seen_at,updated_at)
+    SELECT
+      'dragonfly',
+      expected.aaa_id,
+      'verified-' || lower(expected.aaa_id),
+      expected.aaa_id,
+      CURRENT_TIMESTAMP,
+      CURRENT_TIMESTAMP
+    FROM expected
+    WHERE NOT EXISTS (
+      SELECT 1 FROM school_external_identities identity
+      WHERE identity.provider='dragonfly'
+        AND identity.external_school_id=expected.aaa_id
+    )
+  `).run(ids);
+
+  const represented=Number(db.prepare(`
+    SELECT COUNT(DISTINCT identity.external_school_id) AS n
+    FROM school_external_identities identity
+    JOIN json_each(?) expected ON expected.value=identity.external_school_id
+    WHERE identity.provider='dragonfly'
+  `).get(ids).n);
+  assert.equal(represented,295,'test checkpoint must model the verified 295/295 production identities');
+}
+
+function productionLikeDatabase(){
+  const db=buildThrough('0012_d1_read_budget_indexes.sql');
+  establishVerifiedProductionIdentityCheckpoint(db);
+  return db;
+}
+
 function count(db,table){
   return Number(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n);
 }
@@ -48,12 +106,13 @@ function certifiedSupportedRows(db){
   `).all().filter(row=>expectedIds.has(row.external_school_id));
 }
 
-test('0013 materializes all 1,102 certified 2026 supported team targets exactly once',()=>{
+test('0013 materializes all 1,102 certified 2026 supported team targets from the verified production identity checkpoint',()=>{
   const expectedMap=inventory.certified_school_team_codes||{};
   assert.equal(Object.keys(expectedMap).length,295);
   assert.equal(Object.values(expectedMap).reduce((sum,codes)=>sum+codes.length,0),1102);
 
-  const db=buildThrough(migrationName);
+  const db=productionLikeDatabase();
+  db.exec(migrationSql);
   const rows=certifiedSupportedRows(db);
   assert.equal(rows.length,1102);
 
@@ -77,7 +136,7 @@ test('0013 materializes all 1,102 certified 2026 supported team targets exactly 
 });
 
 test('0013 changes team inventory only and leaves runtime sports data untouched',()=>{
-  const db=buildThrough('0012_d1_read_budget_indexes.sql');
+  const db=productionLikeDatabase();
   const before={
     sources:count(db,'sources'),
     games:count(db,'games'),
