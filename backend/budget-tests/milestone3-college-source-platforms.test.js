@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "../src/college-team-inventory.js";
 import {
   COLLEGE_SOURCE_PLATFORMS,
+  bulkCollegeTargetSummary,
   collegeSourceAuditSummary,
   parserReadyCollegeSourceCandidates,
   prestoCollegeSourceCandidates
@@ -16,21 +17,26 @@ test("M3 provider audit classifies every college exactly once", () => {
   assert.equal(new Set(ids).size, 36);
 });
 
-test("M3 provider audit reduces truly unclassified coverage to eight targets", () => {
+test("M3 provider audit leaves zero team targets platform-unclassified", () => {
   assert.deepEqual(collegeSourceAuditSummary(), {
     schools: 36,
     parserReadySchools: 17,
     parserReadyTeams: 79,
-    feedReadyParserNeededSchools: 3,
-    feedReadyParserNeededTeams: 10,
-    bulkFeedCandidateSchools: 4,
-    bulkFeedCandidateTeams: 16,
-    sharedPlatformCandidateSchools: 6,
-    sharedPlatformCandidateTeams: 14,
+    feedReadyParserNeededSchools: 1,
+    feedReadyParserNeededTeams: 5,
+    bulkFeedCandidateSchools: 15,
+    bulkFeedCandidateTeams: 43,
     needsParserSchools: 1,
     needsParserTeams: 5,
-    pendingTeams: 8,
+    noSupportedTeamSchools: 2,
+    pendingTeams: 0,
     totalTeams: 132
+  });
+  assert.deepEqual(bulkCollegeTargetSummary(), {
+    schools: 15,
+    teams: 43,
+    naiaSchools: 4,
+    njcaaSchools: 11
   });
 });
 
@@ -50,11 +56,11 @@ test("M3 Sidearm source candidates map every parser-ready target to one official
   }
 });
 
-test("M3 PrestoSports targets use provider-supported season RSS feeds", () => {
+test("M3 direct PrestoSports candidate is Champion Christian only after NJCAA consolidation", () => {
   const candidates = prestoCollegeSourceCandidates("2026");
-  assert.equal(candidates.length, 10);
-  assert.equal(new Set(candidates.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 10);
-  assert.deepEqual([...new Set(candidates.map(row => row.schoolId))].sort(), ["asu-newport","champion-christian","ua-cossatot"].sort());
+  assert.equal(candidates.length, 5);
+  assert.equal(new Set(candidates.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 5);
+  assert.deepEqual([...new Set(candidates.map(row => row.schoolId))], ["champion-christian"]);
 
   for (const source of candidates) {
     assert.equal(source.parserType, "prestosports-rss");
@@ -67,6 +73,6 @@ test("M3 PrestoSports targets use provider-supported season RSS feeds", () => {
 
 test("M3 direct-source candidates remain read-only metadata pending live proof", () => {
   const candidates = [...parserReadyCollegeSourceCandidates("2026"), ...prestoCollegeSourceCandidates("2026")];
-  assert.equal(candidates.length, 89);
+  assert.equal(candidates.length, 84);
   assert.ok(candidates.every(row => row.certificationState.includes("pending-live-proof")));
 });
