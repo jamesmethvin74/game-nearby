@@ -1,0 +1,119 @@
+import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "./college-team-inventory.js";
+
+const SIDEARM = "sidearm";
+const CUSTOM = "custom";
+const PENDING = "pending-audit";
+
+// Read-only provider audit checkpoint, 2026-09-03. A provider can be classified
+// as Sidearm once a current official schedule page on that athletics host has
+// been verified to use the same schedule surface already handled by index.js.
+// This file does not create or enable D1 sources.
+export const COLLEGE_SOURCE_PLATFORMS = [
+  { schoolId:"uark", platform:CUSTOM, host:"arkansasrazorbacks.com", parserType:null, status:"needs-parser", evidencePath:"/sport/m-footbl/schedule/" },
+
+  { schoolId:"arkansas-state", platform:SIDEARM, host:"astateredwolves.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-soccer/schedule/2026" },
+  { schoolId:"uapb", platform:SIDEARM, host:"uapblionsroar.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-soccer/schedule/2026" },
+  { schoolId:"uca", platform:SIDEARM, host:"ucasports.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/football/schedule/2026" },
+  { schoolId:"little-rock", platform:SIDEARM, host:"lrtrojans.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-soccer/schedule/2026" },
+  { schoolId:"arkansas-tech", platform:SIDEARM, host:"arkansastechsports.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/football/schedule/2026" },
+  { schoolId:"uafs", platform:SIDEARM, host:"uafortsmithlions.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"uam", platform:SIDEARM, host:"www.uamsports.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"harding", platform:SIDEARM, host:"hardingsports.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/football/schedule/2026" },
+  { schoolId:"henderson-state", platform:SIDEARM, host:"hsusports.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"ouachita-baptist", platform:SIDEARM, host:"obutigers.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/mens-soccer/schedule/2026" },
+  { schoolId:"southern-arkansas", platform:SIDEARM, host:"muleriderathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/football/schedule/2026" },
+  { schoolId:"hendrix", platform:SIDEARM, host:"hendrixwarriors.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"lyon", platform:SIDEARM, host:"lyonscots.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"ozarks", platform:SIDEARM, host:"uofoathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"john-brown", platform:SIDEARM, host:"jbuathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
+  { schoolId:"ecclesia", platform:SIDEARM, host:"goroyals.org", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/mens-soccer/schedule" },
+
+  { schoolId:"arkansas-baptist", platform:PENDING, host:"arkansasbaptist.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"cbc", platform:PENDING, host:"cbcmustangs.com", parserType:null, status:"provisional-source" },
+  { schoolId:"crowleys-ridge", platform:PENDING, host:"crcpioneers.com", parserType:null, status:"pending-audit" },
+  { schoolId:"philander-smith", platform:PENDING, host:"philander.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"williams-baptist", platform:PENDING, host:"williamsbu.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"asu-mid-south", platform:PENDING, host:"asumidsouth.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"asu-mountain-home", platform:PENDING, host:"asumh.edu", parserType:null, status:"no-supported-teams" },
+  { schoolId:"asu-newport", platform:PENDING, host:"arkansasstatenewport.prestosports.com", parserType:null, status:"pending-audit" },
+  { schoolId:"asu-three-rivers", platform:PENDING, host:"asutr.edu", parserType:null, status:"no-supported-teams" },
+  { schoolId:"national-park", platform:PENDING, host:"np.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"north-arkansas", platform:PENDING, host:"northark.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"nwacc", platform:PENDING, host:"nwacc.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"shorter", platform:PENDING, host:"shortercollege.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"south-arkansas", platform:PENDING, host:"southarkstars.com", parserType:null, status:"pending-audit" },
+  { schoolId:"seark", platform:PENDING, host:"seark.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"sau-tech", platform:PENDING, host:"sautrockets.com", parserType:null, status:"pending-audit" },
+  { schoolId:"ua-rich-mountain", platform:PENDING, host:"uarichmountain.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"ua-cossatot", platform:PENDING, host:"cccua.edu", parserType:null, status:"pending-audit" },
+  { schoolId:"champion-christian", platform:PENDING, host:"champion.edu", parserType:null, status:"pending-audit" }
+];
+
+const bySchool = new Map(COLLEGE_SOURCE_PLATFORMS.map(row => [row.schoolId, row]));
+
+export const SIDEARM_SPORT_PATH = Object.freeze({
+  "football|men": "football",
+  "basketball|men": "mens-basketball",
+  "basketball|women": "womens-basketball",
+  "soccer|men": "mens-soccer",
+  "soccer|women": "womens-soccer",
+  "volleyball|women": "womens-volleyball"
+});
+
+export function sidearmScheduleUrl(platform, team, season = "2026") {
+  if (platform?.parserType !== "sidearm") return null;
+  const sportPath = SIDEARM_SPORT_PATH[`${team.sport}|${team.gender}`];
+  if (!sportPath) return null;
+  const seasonPath = team.sport === "basketball" ? `${season}-27` : season;
+  return `https://${platform.host}/sports/${sportPath}/schedule/${seasonPath}`;
+}
+
+export function collegeSourceAuditSummary() {
+  let parserReadySchools = 0;
+  let parserReadyTeams = 0;
+  let needsParserTeams = 0;
+  let pendingTeams = 0;
+
+  for (const school of ARKANSAS_COLLEGE_TEAM_INVENTORY) {
+    const platform = bySchool.get(school.schoolId);
+    if (!platform) continue;
+    if (platform.status === "parser-ready") {
+      parserReadySchools += 1;
+      parserReadyTeams += school.teams.length;
+    } else if (platform.status === "needs-parser") {
+      needsParserTeams += school.teams.length;
+    } else {
+      pendingTeams += school.teams.length;
+    }
+  }
+
+  return {
+    schools: COLLEGE_SOURCE_PLATFORMS.length,
+    parserReadySchools,
+    parserReadyTeams,
+    needsParserTeams,
+    pendingTeams,
+    totalTeams: parserReadyTeams + needsParserTeams + pendingTeams
+  };
+}
+
+export function parserReadyCollegeSourceCandidates(season = "2026") {
+  const candidates = [];
+  for (const school of ARKANSAS_COLLEGE_TEAM_INVENTORY) {
+    const platform = bySchool.get(school.schoolId);
+    if (platform?.status !== "parser-ready") continue;
+    for (const team of school.teams) {
+      candidates.push({
+        schoolId: school.schoolId,
+        sport: team.sport,
+        gender: team.gender,
+        season,
+        sourceUrl: sidearmScheduleUrl(platform, team, season),
+        sourceType: "official-athletics",
+        parserType: "sidearm",
+        certificationState: "platform-ready-source-pending-live-proof"
+      });
+    }
+  }
+  return candidates;
+}
