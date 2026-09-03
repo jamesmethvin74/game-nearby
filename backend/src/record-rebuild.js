@@ -4,6 +4,21 @@ function teamKey(team) {
   return `${team.sport}|${team.gender}|${team.season}`;
 }
 
+function logD1QueryMeta(stage, result, { scopedTeamCount = null } = {}) {
+  const meta = result?.meta || {};
+  const rowsRead = Number(meta.rows_read || 0);
+  const rowsWritten = Number(meta.rows_written || 0);
+  if (!rowsRead && !rowsWritten) return;
+  console.log("d1 record rebuild query", {
+    stage,
+    scope: scopedTeamCount == null ? "statewide" : "team-scoped",
+    scopedTeamCount,
+    rowsRead,
+    rowsWritten,
+    durationMs: Number(meta.duration || 0) || null
+  });
+}
+
 function canonicalCandidate(event, team) {
   const isHome = event.home_school_id === team.school_id;
   const isAway = event.away_school_id === team.school_id;
@@ -65,6 +80,7 @@ function upsertRecordStatement(env, teamId, record, calculatedAt) {
 async function loadRecordInputs(env, { teamIds = null } = {}) {
   const scopedTeamIds = teamIds?.length ? [...new Set(teamIds.filter(Boolean))] : null;
   const teamIdsJson = scopedTeamIds ? JSON.stringify(scopedTeamIds) : null;
+  const metaContext = { scopedTeamCount: scopedTeamIds?.length ?? null };
 
   let teamQuery = `
     SELECT t.id,t.school_id,t.sport,t.gender,t.season,t.conference_id
@@ -72,7 +88,9 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
     WHERE t.active=1`;
   let prepared = env.DB.prepare(teamQuery + (scopedTeamIds ? " AND t.id IN (SELECT value FROM json_each(?))" : ""));
   if (scopedTeamIds) prepared = prepared.bind(teamIdsJson);
-  const { results: teams } = await prepared.all();
+  const teamResult = await prepared.all();
+  logD1QueryMeta("teams", teamResult, metaContext);
+  const teams = teamResult.results || [];
   if (!teams.length) return { teams: [], canonicals: [], raw: [] };
 
   // IMPORTANT: when rebuilding one/few teams, keep the restriction inside SQL.
@@ -96,7 +114,9 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
   if (scopedTeamIds) canonicalQuery += " AND cem.reporting_team_id IN (SELECT value FROM json_each(?))";
   let canonicalPrepared = env.DB.prepare(canonicalQuery);
   if (scopedTeamIds) canonicalPrepared = canonicalPrepared.bind(teamIdsJson);
-  const { results: canonicals } = await canonicalPrepared.all();
+  const canonicalResult = await canonicalPrepared.all();
+  logD1QueryMeta("canonical-finals", canonicalResult, metaContext);
+  const canonicals = canonicalResult.results || [];
 
   let rawQuery = `
     SELECT g.*,src.source_type,src.parser_type,os.name AS opponent_name
@@ -110,7 +130,9 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
   if (scopedTeamIds) rawQuery += " AND g.team_id IN (SELECT value FROM json_each(?))";
   let rawPrepared = env.DB.prepare(rawQuery);
   if (scopedTeamIds) rawPrepared = rawPrepared.bind(teamIdsJson);
-  const { results: raw } = await rawPrepared.all();
+  const rawResult = await rawPrepared.all();
+  logD1QueryMeta("raw-finals", rawResult, metaContext);
+  const raw = rawResult.results || [];
 
   return { teams, canonicals, raw };
 }
