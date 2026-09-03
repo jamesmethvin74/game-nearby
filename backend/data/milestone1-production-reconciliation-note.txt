@@ -1,0 +1,1 @@
+Source: live production GET /api/v1/coverage-report compared against AAA/DragonFly certified high-school inventory checkpoint. Generated 2026-09-03T12:07:19.830Z.
