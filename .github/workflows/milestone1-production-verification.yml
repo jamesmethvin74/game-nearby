@@ -1,9 +1,6 @@
 name: Milestone 1 production verification capture
 
 on:
-  push:
-    branches:
-      - probe/milestone1-production-verification
   pull_request:
     branches:
       - main
