@@ -1,0 +1,64 @@
+name: M2 production bootstrap capture
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for no-D1 bootstrap readiness marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-ready-20260903"
+          for attempt in $(seq 1 60); do
+            status=$(curl -sS -L --max-time 10 -o ready.json -w '%{http_code}' "$ready_url" || true)
+            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-20260903' ready.json; then
+              cat ready.json
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "M2 bootstrap readiness marker did not become available" >&2
+          exit 1
+
+      - name: Run approved M2 bootstrap exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-run-20260903-1102"
+          status=$(curl -sS -L --max-time 300 \
+            -H 'x-localbleachers-m2-bootstrap: approved-certified-1102-20260903' \
+            -o m2-production-bootstrap.json \
+            -w '%{http_code}' \
+            "$run_url")
+          printf '%s\n' "$status" > m2-production-bootstrap-http-status.txt
+          cat m2-production-bootstrap.json
+          if [ "$status" != "200" ]; then
+            echo "Bootstrap returned HTTP $status" >&2
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const payload=JSON.parse(fs.readFileSync('m2-production-bootstrap.json','utf8'));
+          if (payload.status !== 'SUCCESS' || payload?.verification?.complete !== true) {
+            console.error('M2 bootstrap verification was not complete', payload.status, payload?.verification?.complete);
+            process.exit(1);
+          }
+          NODE
+
+      - name: Upload bootstrap result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m2-production-bootstrap-result
+          path: |
+            m2-production-bootstrap.json
+            m2-production-bootstrap-http-status.txt
+          if-no-files-found: warn
