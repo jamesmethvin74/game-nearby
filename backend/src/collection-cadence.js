@@ -25,7 +25,8 @@ function plan(kind, options = {}) {
     runStatewide: Boolean(options.runStatewide),
     runCore: Boolean(options.runCore),
     runCatalogMaintenance: Boolean(options.runCatalogMaintenance),
-    scope: options.scope || "all"
+    scope: options.scope || "all",
+    activeResultMinutes: Number(options.activeResultMinutes || 0) || null
   };
 }
 
@@ -48,7 +49,24 @@ export function collectionPlanAt(value = new Date()) {
   if (fridayEvening || fridayMidnight) {
     return plan("friday-football-results", {
       runCore: true,
-      scope: "football"
+      scope: "football-game-day",
+      activeResultMinutes: 30
+    });
+  }
+
+  const saturdayCollege = weekday === "Sat" && (
+    (hour === 10 && minute === 30) ||
+    (hour >= 11 && hour <= 23 && (minute === 0 || minute === 30))
+  );
+  const saturdayLate = weekday === "Sun" && (
+    (hour === 0 && (minute === 0 || minute === 30)) ||
+    (hour === 1 && minute === 0)
+  );
+  if (saturdayCollege || saturdayLate) {
+    return plan("saturday-college-results", {
+      runCore: true,
+      scope: "college-game-day",
+      activeResultMinutes: 30
     });
   }
 
