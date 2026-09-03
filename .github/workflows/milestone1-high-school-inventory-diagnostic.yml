@@ -1,0 +1,97 @@
+name: Milestone 1 high school inventory diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/milestone1-high-school-inventory
+    paths:
+      - .github/workflows/milestone1-high-school-inventory-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch six bounded Arkansas team directories
+        shell: python
+        run: |
+          import json, re, urllib.request
+          from html.parser import HTMLParser
+          from urllib.parse import urljoin, urlparse
+
+          SOURCES = [
+            ("football", "boys", "https://www.maxpreps.com/ar/football/schools/", r"^/ar/[^/]+/[^/]+/football/?$"),
+            ("basketball", "boys", "https://www.maxpreps.com/ar/basketball/schools/", r"^/ar/[^/]+/[^/]+/basketball/?$"),
+            ("basketball", "girls", "https://www.maxpreps.com/ar/basketball/girls/schools/", r"^/ar/[^/]+/[^/]+/basketball/girls/?$"),
+            ("soccer", "boys", "https://www.maxpreps.com/ar/soccer/schools/", r"^/ar/[^/]+/[^/]+/soccer/?$"),
+            ("soccer", "girls", "https://www.maxpreps.com/ar/soccer/girls/schools/", r"^/ar/[^/]+/[^/]+/soccer/girls/?$"),
+            ("volleyball", "girls", "https://www.maxpreps.com/ar/volleyball/schools/", r"^/ar/[^/]+/[^/]+/volleyball/?$"),
+          ]
+
+          class Links(HTMLParser):
+            def __init__(self):
+              super().__init__()
+              self.current = None
+              self.links = []
+            def handle_starttag(self, tag, attrs):
+              if tag.lower() != "a": return
+              href = dict(attrs).get("href")
+              if href:
+                self.current = [href, []]
+            def handle_data(self, data):
+              if self.current is not None:
+                self.current[1].append(data)
+            def handle_endtag(self, tag):
+              if tag.lower() == "a" and self.current is not None:
+                href, text = self.current
+                label = " ".join("".join(text).split())
+                self.links.append((href, label))
+                self.current = None
+
+          out = {"generated_by":"milestone1-high-school-inventory-diagnostic", "sources":[], "teams":[]}
+          seen = set()
+          headers = {"User-Agent":"Mozilla/5.0 LocalBleachersAR-inventory-diagnostic/1.0", "Accept":"text/html"}
+          for sport, gender, source_url, path_pattern in SOURCES:
+            req = urllib.request.Request(source_url, headers=headers)
+            with urllib.request.urlopen(req, timeout=25) as response:
+              html = response.read().decode("utf-8", errors="replace")
+            parser = Links(); parser.feed(html)
+            pattern = re.compile(path_pattern, re.I)
+            count = 0
+            for href, label in parser.links:
+              absolute = urljoin(source_url, href)
+              path = urlparse(absolute).path
+              if not pattern.match(path):
+                continue
+              key = (sport, gender, path.rstrip("/").lower())
+              if key in seen:
+                continue
+              seen.add(key); count += 1
+              parts = [p for p in path.split("/") if p]
+              out["teams"].append({
+                "sport": sport,
+                "gender": gender,
+                "source_url": source_url,
+                "team_url": absolute,
+                "directory_label": label,
+                "city_slug": parts[1] if len(parts) > 1 else None,
+                "school_slug": parts[2] if len(parts) > 2 else None,
+              })
+            out["sources"].append({"sport":sport,"gender":gender,"url":source_url,"team_count":count})
+
+          out["teams"].sort(key=lambda x:(x["sport"],x["gender"],x["school_slug"] or "",x["team_url"]))
+          with open("high-school-team-inventory.json","w",encoding="utf-8") as f:
+            json.dump(out,f,indent=2,ensure_ascii=False)
+          print(json.dumps(out["sources"], indent=2))
+          print("TOTAL TEAM TARGETS", len(out["teams"]))
+          if len(out["teams"]) < 500:
+            raise SystemExit("Inventory unexpectedly small; refusing to treat diagnostic as valid")
+
+      - name: Upload inventory snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: milestone1-high-school-team-inventory
+          path: high-school-team-inventory.json
+          retention-days: 1
