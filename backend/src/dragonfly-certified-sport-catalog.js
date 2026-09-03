@@ -107,6 +107,7 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
     const statements=[];
     const mapped=[];
     const quarantined=[];
+    const sourceTeamsSeen=new Set();
 
     for (const entry of entries) {
       if (!certifiedTargets.has(entry.externalSchoolId)) {
@@ -137,20 +138,26 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
         ON CONFLICT(provider,external_team_id) DO UPDATE SET
           team_id=excluded.team_id,external_code=excluded.external_code,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at
       `).bind(PROVIDER,entry.externalTeamId,teamId,entry.externalTeamCode||config.providerSportCode,checkedAt,checkedAt));
-      statements.push(env.DB.prepare(`
-        INSERT INTO sources
-          (id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
-        VALUES(?,?,?,'official-conference',1,'dragonfly-public','5','America/Chicago',?,180,30,0,10,720,'statewide',?)
-        ON CONFLICT(id) DO UPDATE SET
-          team_id=excluded.team_id,source_url=excluded.source_url,parser_version=excluded.parser_version,
-          expected_min_games=excluded.expected_min_games,enabled=0,authority_rank=10,stale_after_minutes=720,collection_mode='statewide',updated_at=excluded.updated_at
-      `).bind(sourceId,teamId,config.feedUrl,Math.max(1,Math.min(5,entry.eventCount)),checkedAt));
+
+      if (!sourceTeamsSeen.has(teamId)) {
+        sourceTeamsSeen.add(teamId);
+        statements.push(env.DB.prepare(`
+          INSERT INTO sources
+            (id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
+          VALUES(?,?,?,'official-conference',1,'dragonfly-public','5','America/Chicago',?,180,30,0,10,720,'statewide',?)
+          ON CONFLICT(id) DO UPDATE SET
+            team_id=excluded.team_id,source_url=excluded.source_url,parser_version=excluded.parser_version,
+            expected_min_games=excluded.expected_min_games,enabled=0,authority_rank=10,stale_after_minutes=720,collection_mode='statewide',updated_at=excluded.updated_at
+        `).bind(sourceId,teamId,config.feedUrl,Math.max(1,Math.min(5,entry.eventCount)),checkedAt));
+      }
     }
 
-    if (!mapped.length) throw new Error(`DragonFly ${config.feedCode} produced zero certified team mappings`);
+    const mappedSchools=new Set(mapped.map(item=>item.schoolId)).size;
+    if (mappedSchools!==certifiedTargets.size) {
+      throw new Error(`DragonFly ${config.feedCode} resolved ${mappedSchools}/${certifiedTargets.size} certified targets; refusing partial catalog writes`);
+    }
     await batchStatements(env,statements);
 
-    const mappedSchools=new Set(mapped.map(item=>item.schoolId)).size;
     const details={
       feedCode:config.feedCode,
       providerSportCode:config.providerSportCode,
@@ -160,7 +167,8 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
       mappedParticipants:mapped.length,
       mappedSchools,
       expectedTargets:certifiedTargets.size,
-      missingCertifiedTargets:Math.max(0,certifiedTargets.size-mappedSchools),
+      missingCertifiedTargets:0,
+      statewideSources:sourceTeamsSeen.size,
       quarantinedCount:quarantined.length,
       quarantined:quarantined.slice(0,100)
     };
@@ -175,7 +183,7 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
         last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at
     `).bind(config.catalogSyncId,PROVIDER,config.feedUrl,checkedAt,checkedAt,mappedSchools,mapped.length,0,quarantined.length,JSON.stringify(details),checkedAt).run();
 
-    return {status:"SUCCESS",config,pagesFetched,mapped:mapped.length,mappedSchools,missingCertifiedTargets:details.missingCertifiedTargets,quarantined:quarantined.length,payload:workingPayload};
+    return {status:"SUCCESS",config,pagesFetched,mapped:mapped.length,mappedSchools,statewideSources:sourceTeamsSeen.size,missingCertifiedTargets:0,quarantined:quarantined.length,payload:workingPayload};
   } catch (error) {
     const message=String(error?.message||error).slice(0,1000);
     await env.DB.prepare(`
