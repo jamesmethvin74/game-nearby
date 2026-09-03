@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { COLLEGE_CATALOG_SEED, materializeCollegeCatalog } from "../src/college-catalog.js";
+import { collegeCatalogSeed } from "../src/college-catalog.js";
 import { SOURCE_INSERT_SQL, certifiedCollegeSourceRows } from "../src/college-source-bootstrap.js";
 import { parserReadyCollegeSourceCandidates } from "../src/college-source-platforms.js";
 
@@ -36,21 +36,9 @@ test("M3 source bootstrap only emits explicitly certified keys",()=>{
 
 test("M3 source materialization is one set-based disabled insert with no schedule side effects",()=>{
   const db=buildDb();
-  const env={DB:{
-    prepare(sql){
-      return {
-        bind(value){
-          return {run(){ const result=db.prepare(sql).run(value); return {meta:{rows_written:Number(result.changes||0),rows_read:0}}; }};
-        }
-      };
-    }
-  }};
-  // materializeCollegeCatalog uses D1-style async calls; emulate the two statements directly for this SQL-focused test.
-  const seed=JSON.stringify(COLLEGE_CATALOG_SEED);
-  db.prepare(`WITH incoming AS (SELECT json_extract(value,'$.id') id,json_extract(value,'$.name') name,json_extract(value,'$.city') city,json_extract(value,'$.state') state,json_extract(value,'$.mascot') mascot FROM json_each(?)) INSERT OR IGNORE INTO schools(id,name,city,state,level,mascot,catalog_scope,membership_source,membership_verified_at) SELECT id,name,city,state,'college',mascot,'local','m3-college-inventory',CURRENT_TIMESTAMP FROM incoming`).run(seed);
-  const targets=[];
-  for(const school of COLLEGE_CATALOG_SEED) for(const team of school.teams) targets.push({schoolId:school.id,...team,season:"2026"});
-  db.prepare(`WITH incoming AS (SELECT json_extract(value,'$.schoolId') school_id,json_extract(value,'$.sport') sport,json_extract(value,'$.gender') gender,json_extract(value,'$.season') season FROM json_each(?)) INSERT OR IGNORE INTO teams(id,school_id,sport,gender,season,active) SELECT 'college-'||school_id||'-'||sport||'-'||gender||'-'||season,school_id,sport,gender,season,1 FROM incoming WHERE NOT EXISTS (SELECT 1 FROM teams t WHERE t.school_id=incoming.school_id AND t.sport=incoming.sport AND t.gender=incoming.gender AND t.season=incoming.season)`).run(JSON.stringify(targets));
+  const seed=collegeCatalogSeed("2026");
+  db.prepare(`WITH incoming AS (SELECT json_extract(value,'$.id') id,json_extract(value,'$.name') name,json_extract(value,'$.city') city,json_extract(value,'$.state') state,json_extract(value,'$.mascot') mascot FROM json_each(?)) INSERT OR IGNORE INTO schools(id,name,city,state,level,mascot,catalog_scope,membership_source,membership_verified_at) SELECT id,name,city,state,'college',mascot,'local','m3-college-inventory',CURRENT_TIMESTAMP FROM incoming`).run(JSON.stringify(seed.schools));
+  db.prepare(`WITH incoming AS (SELECT json_extract(value,'$.id') id,json_extract(value,'$.schoolId') school_id,json_extract(value,'$.sport') sport,json_extract(value,'$.gender') gender,json_extract(value,'$.season') season FROM json_each(?)) INSERT OR IGNORE INTO teams(id,school_id,sport,gender,season,active) SELECT id,school_id,sport,gender,season,1 FROM incoming WHERE NOT EXISTS (SELECT 1 FROM teams t WHERE t.school_id=incoming.school_id AND t.sport=incoming.sport AND t.gender=incoming.gender AND t.season=incoming.season)`).run(JSON.stringify(seed.teams));
 
   const candidates=parserReadyCollegeSourceCandidates("2026");
   const rows=certifiedCollegeSourceRows(new Set(candidates.map(key)),"2026");
