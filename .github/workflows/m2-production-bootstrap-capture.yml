@@ -1,4 +1,4 @@
-name: M2 post-retry status capture
+name: M2 deployment-unique bootstrap v2 capture
 
 on:
   pull_request:
@@ -12,29 +12,60 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture bounded read-only M2 status exactly once
+      - name: Require stable unique-v2 readiness without D1
         shell: bash
         run: |
           set -euo pipefail
-          status_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-status-20260903-1102"
-          status=$(curl -sS -L --max-time 60 \
+          ready_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-v2-ready-20260903"
+          consecutive=0
+          for attempt in $(seq 1 90); do
+            status=$(curl -sS -L --max-time 10 -o ready.json -w '%{http_code}' "$ready_url" || true)
+            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-unique-v2-20260903' ready.json; then
+              consecutive=$((consecutive+1))
+              if [ "$consecutive" -ge 5 ]; then
+                cat ready.json
+                sleep 15
+                exit 0
+              fi
+            else
+              consecutive=0
+            fi
+            sleep 2
+          done
+          echo "Deployment-unique M2 v2 readiness did not stabilize" >&2
+          exit 1
+
+      - name: Run approved deployment-unique M2 bootstrap exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-v2-run-20260903-1102"
+          status=$(curl -sS -L --max-time 300 \
             -H 'x-localbleachers-m2-bootstrap: approved-certified-1102-20260903' \
-            -o m2-post-retry-status.json \
+            -o m2-production-bootstrap-unique-v2.json \
             -w '%{http_code}' \
-            "$status_url")
-          printf '%s\n' "$status" > m2-post-retry-status-http-status.txt
-          cat m2-post-retry-status.json
+            "$run_url")
+          printf '%s\n' "$status" > m2-production-bootstrap-unique-v2-http-status.txt
+          cat m2-production-bootstrap-unique-v2.json
           if [ "$status" != "200" ]; then
-            echo "Status probe returned HTTP $status" >&2
+            echo "Deployment-unique bootstrap returned HTTP $status" >&2
             exit 1
           fi
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const payload=JSON.parse(fs.readFileSync('m2-production-bootstrap-unique-v2.json','utf8'));
+          if (payload.status !== 'SUCCESS' || payload?.verification?.complete !== true) {
+            console.error('M2 unique-v2 verification incomplete', payload.status, payload?.stage, payload?.verification?.complete);
+            process.exit(1);
+          }
+          NODE
 
-      - name: Upload post-retry status
+      - name: Upload unique-v2 result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m2-post-retry-status
+          name: m2-production-bootstrap-unique-v2-result
           path: |
-            m2-post-retry-status.json
-            m2-post-retry-status-http-status.txt
+            m2-production-bootstrap-unique-v2.json
+            m2-production-bootstrap-unique-v2-http-status.txt
           if-no-files-found: warn
