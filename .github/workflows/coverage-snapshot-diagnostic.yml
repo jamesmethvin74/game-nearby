@@ -1,0 +1,30 @@
+name: Coverage snapshot diagnostic
+
+on:
+  push:
+    branches:
+      - diagnostics/coverage-snapshot
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch one cached production coverage snapshot
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            -H 'accept: application/json' \
+            'https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/coverage-report' \
+            -o coverage-report.json
+          python - <<'PY'
+          import json
+          p=json.load(open('coverage-report.json'))
+          print(json.dumps(p.get('summary', {}), indent=2))
+          PY
+      - name: Upload coverage snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: localbleachers-coverage-snapshot
+          path: coverage-report.json
+          retention-days: 1
