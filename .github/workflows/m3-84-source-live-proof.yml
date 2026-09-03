@@ -1,4 +1,4 @@
-name: M3 84-source live proof
+name: M3 Little Rock schedule markup proof
 
 on:
   pull_request:
@@ -14,53 +14,24 @@ jobs:
   proof:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Probe exact parser-ready URLs
+      - name: Capture current Little Rock schedule structures
         shell: bash
         run: |
-          node --input-type=module <<'NODE'
-          import { parserReadyCollegeSourceCandidates } from './backend/src/college-source-platforms.js';
-          import { normalizeArkansasRazorbackHtml } from './backend/src/arkansas-razorbacks.js';
-
-          const candidates=parserReadyCollegeSourceCandidates('2026');
-          const results=[];
-          let cursor=0;
-          async function worker(){
-            while(true){
-              const index=cursor++;
-              if(index>=candidates.length) return;
-              const source=candidates[index];
-              let status=null, ok=false, marker=false, parsed=null, error=null, finalUrl=null;
-              try{
-                const response=await fetch(source.sourceUrl,{redirect:'follow',headers:{
-                  'user-agent':'LocalBleachersAR-M3-source-proof/1.0 (+https://github.com/jamesmethvin74/game-nearby)',
-                  'accept':'text/html,application/xhtml+xml'
-                }});
-                status=response.status;
-                finalUrl=response.url;
-                const body=await response.text();
-                if(source.parserType==='sidearm'){
-                  marker=/sidearm-schedule-game(?:-row)?/i.test(body);
-                  ok=response.ok && marker;
-                }else if(source.parserType==='arkansas-razorbacks'){
-                  const events=normalizeArkansasRazorbackHtml(body,{...source,timezone:'America/Chicago'});
-                  parsed=events.length;
-                  marker=/<div\b[^>]*class=["']item(?:\s[^"']*)?["']/i.test(body);
-                  ok=response.ok && marker && events.length>0;
-                }
-              }catch(e){ error=String(e?.message||e); }
-              results.push({...source,status,ok,marker,parsed,finalUrl,error});
-              console.log(JSON.stringify(results.at(-1)));
-            }
+          python3 - <<'PY'
+          import urllib.request
+          urls={
+            'soccer_grid':'https://lrtrojans.com/sports/womens-soccer/schedule/2026?grid=true',
+            'volleyball_grid':'https://lrtrojans.com/sports/womens-volleyball/schedule/2026?grid=true',
+            'mbb_current':'https://lrtrojans.com/sports/mens-basketball/schedule/',
+            'wbb_current':'https://lrtrojans.com/sports/womens-basketball/schedule/'
           }
-          await Promise.all(Array.from({length:6},()=>worker()));
-          results.sort((a,b)=>`${a.schoolId}|${a.sport}|${a.gender}`.localeCompare(`${b.schoolId}|${b.sport}|${b.gender}`));
-          const passed=results.filter(r=>r.ok);
-          const failed=results.filter(r=>!r.ok);
-          console.log('===== M3 SOURCE PROOF SUMMARY =====');
-          console.log(JSON.stringify({total:results.length,passed:passed.length,failed:failed.length,failedRows:failed},null,2));
-          if(results.length!==84) process.exitCode=2;
-          NODE
+          for name,url in urls.items():
+            req=urllib.request.Request(url,headers={'User-Agent':'LocalBleachersAR-M3-source-proof/1.0','Accept':'text/html,application/xhtml+xml'})
+            with urllib.request.urlopen(req,timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              print(f'===== {name} STATUS={r.status} URL={r.geturl()} LEN={len(body)} =====')
+              for needle in ['<table','schedule','August 15','Jackson State','Oct 17']:
+                idx=body.lower().find(needle.lower())
+                print(f'--- {needle} idx={idx} ---')
+                if idx>=0: print(body[max(0,idx-2500):idx+8500])
+          PY
