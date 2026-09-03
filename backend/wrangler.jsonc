@@ -1,13 +1,15 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "localbleachersar-sports-api",
-  "main": "src/public-cors-worker.js",
+  "main": "src/d1-usage-public-worker.js",
   "compatibility_date": "2026-08-24",
   "workers_dev": true,
   "vars": {
     "ENVIRONMENT": "production",
     "ALLOWED_ORIGIN": "https://jamesmethvin74.github.io",
-    "LAZY_STATEWIDE_BOOTSTRAP": "1"
+    "LAZY_STATEWIDE_BOOTSTRAP": "1",
+    "CLOUDFLARE_ACCOUNT_ID": "588568148fa47810445f37081e49562c",
+    "D1_DATABASE_ID": "50806cc9-7710-4f21-8ab3-159623f6a0a9"
   },
   "assets": {
     "directory": "../",
