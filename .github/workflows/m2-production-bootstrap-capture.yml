@@ -1,4 +1,4 @@
-name: M2 deployment-unique bootstrap v2 capture
+name: M2 sport-scoped bootstrap v3 capture
 
 on:
   pull_request:
@@ -12,60 +12,120 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Require stable unique-v2 readiness without D1
+      - name: Run bounded sport-scoped M2 bootstrap v3
         shell: bash
         run: |
           set -euo pipefail
-          ready_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-v2-ready-20260903"
+          base="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1"
+          header='x-localbleachers-m2-bootstrap: approved-certified-1102-20260903'
+          codes=(FB MBB WBB MSO WSO WVB)
+
+          echo "Waiting for deployment-unique v3 readiness marker..."
           consecutive=0
           for attempt in $(seq 1 90); do
-            status=$(curl -sS -L --max-time 10 -o ready.json -w '%{http_code}' "$ready_url" || true)
-            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-unique-v2-20260903' ready.json; then
+            status=$(curl -sS -L --max-time 10 -o ready-v3.json -w '%{http_code}' "$base/_m2-bootstrap-v3-ready-20260903" || true)
+            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-sport-scoped-v3-20260903' ready-v3.json; then
               consecutive=$((consecutive+1))
               if [ "$consecutive" -ge 5 ]; then
-                cat ready.json
-                sleep 15
-                exit 0
+                cat ready-v3.json
+                sleep 10
+                break
               fi
             else
               consecutive=0
             fi
+            if [ "$attempt" -eq 90 ]; then
+              echo "V3 readiness did not stabilize" >&2
+              exit 1
+            fi
             sleep 2
           done
-          echo "Deployment-unique M2 v2 readiness did not stabilize" >&2
-          exit 1
 
-      - name: Run approved deployment-unique M2 bootstrap exactly once
-        shell: bash
-        run: |
-          set -euo pipefail
-          run_url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/_m2-bootstrap-v2-run-20260903-1102"
-          status=$(curl -sS -L --max-time 300 \
-            -H 'x-localbleachers-m2-bootstrap: approved-certified-1102-20260903' \
-            -o m2-production-bootstrap-unique-v2.json \
+          echo "Running six read-only sport preflights. No writes occur in this phase."
+          for code in "${codes[@]}"; do
+            file="preflight-${code}.json"
+            status=$(curl -sS -L --max-time 180 \
+              -H "$header" \
+              -o "$file" \
+              -w '%{http_code}' \
+              "$base/_m2-bootstrap-v3-preflight-20260903-${code}")
+            printf '%s\n' "$status" > "preflight-${code}-http-status.txt"
+            cat "$file"
+            CODE="$code" FILE="$file" STATUS="$status" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const code=process.env.CODE;
+          const status=process.env.STATUS;
+          const payload=JSON.parse(fs.readFileSync(process.env.FILE,'utf8'));
+          if (status !== '200' || payload.status !== 'SUCCESS' || payload.safe !== true) {
+            console.error(`Preflight ${code} failed`, status, payload);
+            process.exit(1);
+          }
+          NODE
+          done
+
+          echo "All six preflights passed. Beginning approved sport-scoped writes."
+          run_failed=0
+          for code in "${codes[@]}"; do
+            file="run-${code}.json"
+            status=$(curl -sS -L --max-time 300 \
+              -H "$header" \
+              -o "$file" \
+              -w '%{http_code}' \
+              "$base/_m2-bootstrap-v3-run-20260903-${code}" || true)
+            printf '%s\n' "$status" > "run-${code}-http-status.txt"
+            cat "$file" || true
+            if ! CODE="$code" FILE="$file" STATUS="$status" node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const code=process.env.CODE;
+          const status=process.env.STATUS;
+          let payload={};
+          try { payload=JSON.parse(fs.readFileSync(process.env.FILE,'utf8')); } catch {}
+          if (status !== '200' || payload.status !== 'SUCCESS') {
+            console.error(`Sport run ${code} failed`, status, payload);
+            process.exit(1);
+          }
+          NODE
+            then
+              run_failed=1
+              echo "Stopping writes after failed sport ${code}." >&2
+              break
+            fi
+          done
+
+          echo "Running one lightweight combined verification."
+          verify_status=$(curl -sS -L --max-time 120 \
+            -H "$header" \
+            -o verify-v3.json \
             -w '%{http_code}' \
-            "$run_url")
-          printf '%s\n' "$status" > m2-production-bootstrap-unique-v2-http-status.txt
-          cat m2-production-bootstrap-unique-v2.json
-          if [ "$status" != "200" ]; then
-            echo "Deployment-unique bootstrap returned HTTP $status" >&2
+            "$base/_m2-bootstrap-v3-verify-20260903" || true)
+          printf '%s\n' "$verify_status" > verify-v3-http-status.txt
+          cat verify-v3.json || true
+
+          if [ "$run_failed" -ne 0 ]; then
             exit 1
           fi
-          node --input-type=module <<'NODE'
+
+          STATUS="$verify_status" node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const payload=JSON.parse(fs.readFileSync('m2-production-bootstrap-unique-v2.json','utf8'));
-          if (payload.status !== 'SUCCESS' || payload?.verification?.complete !== true) {
-            console.error('M2 unique-v2 verification incomplete', payload.status, payload?.stage, payload?.verification?.complete);
+          const status=process.env.STATUS;
+          const payload=JSON.parse(fs.readFileSync('verify-v3.json','utf8'));
+          if (status !== '200' || payload.status !== 'SUCCESS' || payload.complete !== true) {
+            console.error('M2 v3 verification incomplete', status, payload);
             process.exit(1);
           }
           NODE
 
-      - name: Upload unique-v2 result
+      - name: Upload v3 result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m2-production-bootstrap-unique-v2-result
+          name: m2-production-bootstrap-v3-result
           path: |
-            m2-production-bootstrap-unique-v2.json
-            m2-production-bootstrap-unique-v2-http-status.txt
+            ready-v3.json
+            preflight-*.json
+            preflight-*-http-status.txt
+            run-*.json
+            run-*-http-status.txt
+            verify-v3.json
+            verify-v3-http-status.txt
           if-no-files-found: warn
