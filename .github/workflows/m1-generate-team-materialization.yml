@@ -1,0 +1,140 @@
+name: Generate M1 team materialization migration
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate migration 0013 from certified inventory
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const inventory = JSON.parse(fs.readFileSync('backend/data/arkansas-high-school-team-inventory.json','utf8'));
+          const names = JSON.parse(fs.readFileSync('backend/data/arkansas-high-school-team-inventory-names.json','utf8'));
+          const entries = Object.entries(inventory.certified_school_team_codes || {})
+            .map(([aaa_id, team_codes]) => ({ aaa_id, school_name: names.certified_school_names?.[aaa_id] || aaa_id, team_codes }))
+            .sort((a,b) => a.aaa_id.localeCompare(b.aaa_id));
+          if (entries.length !== 295) throw new Error(`expected 295 certified schools, got ${entries.length}`);
+          const targetCount = entries.reduce((sum,row) => sum + row.team_codes.length, 0);
+          if (targetCount !== 1102) throw new Error(`expected 1102 team targets, got ${targetCount}`);
+          const seed = JSON.stringify(entries).replaceAll("'", "''");
+          const sql = `PRAGMA foreign_keys = ON;
+
+-- Milestone 1 corrective materialization.
+-- The authoritative denominator is the certified 295-school / 1,102-target inventory.
+-- This migration is intentionally set-based and creates no sources, schedules, games,
+-- records, standings, or collection work.
+
+CREATE VIEW IF NOT EXISTS _m1_full_aaa_catalog_seed AS
+SELECT
+  json_extract(value,'$.aaa_id') AS aaa_id,
+  json_extract(value,'$.school_name') AS school_name,
+  json_extract(value,'$.team_codes') AS team_codes
+FROM json_each('${seed}');
+
+-- Defensive/idempotent catalog completion for fresh databases. On the verified
+-- production state all 295 identities already exist, so these statements are no-ops.
+INSERT OR IGNORE INTO schools
+  (id,name,city,state,level,catalog_scope,membership_source,membership_verified_at)
+SELECT
+  'aaa-' || lower(seed.aaa_id),
+  seed.school_name,
+  '',
+  'AR',
+  'high-school',
+  'local',
+  'aaa-certified',
+  CURRENT_TIMESTAMP
+FROM _m1_full_aaa_catalog_seed seed
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM school_external_identities identity
+  WHERE identity.provider='dragonfly'
+    AND identity.external_school_id=seed.aaa_id
+);
+
+INSERT OR IGNORE INTO school_external_identities
+  (provider,external_school_id,school_id,observed_name,last_seen_at,updated_at)
+SELECT
+  'dragonfly',
+  seed.aaa_id,
+  'aaa-' || lower(seed.aaa_id),
+  seed.school_name,
+  CURRENT_TIMESTAMP,
+  CURRENT_TIMESTAMP
+FROM _m1_full_aaa_catalog_seed seed;
+
+-- Only promote a mapped certified school if its catalog classification is wrong.
+-- This is zero-write on the verified production state (295/295 already local AR high schools).
+UPDATE schools
+SET catalog_scope='local',
+    state='AR',
+    level='high-school',
+    membership_source='aaa-certified',
+    membership_verified_at=CURRENT_TIMESTAMP,
+    updated_at=CURRENT_TIMESTAMP
+WHERE id IN (
+  SELECT identity.school_id
+  FROM school_external_identities identity
+  JOIN _m1_full_aaa_catalog_seed seed
+    ON seed.aaa_id=identity.external_school_id
+  WHERE identity.provider='dragonfly'
+)
+AND (
+  catalog_scope<>'local'
+  OR state<>'AR'
+  OR level<>'high-school'
+);
+
+-- Materialize every certified 2026 supported team target. The UNIQUE constraint on
+-- (school_id,sport,gender,season) makes this idempotent and preserves existing rows.
+WITH sport_map(code,sport,gender,id_slug) AS (
+  VALUES
+    ('FB','football','boys','football'),
+    ('MBB','basketball','boys','boys-basketball'),
+    ('WBB','basketball','girls','girls-basketball'),
+    ('MSO','soccer','boys','boys-soccer'),
+    ('WSO','soccer','girls','girls-soccer'),
+    ('WVB','volleyball','girls','volleyball')
+)
+INSERT OR IGNORE INTO teams
+  (id,school_id,sport,gender,season,conference_id,active)
+SELECT
+  identity.school_id || '-' || sport_map.id_slug || '-2026',
+  identity.school_id,
+  sport_map.sport,
+  sport_map.gender,
+  '2026',
+  NULL,
+  1
+FROM _m1_full_aaa_catalog_seed seed
+JOIN school_external_identities identity
+  ON identity.provider='dragonfly'
+ AND identity.external_school_id=seed.aaa_id
+JOIN json_each(seed.team_codes) team_code
+JOIN sport_map
+  ON sport_map.code=team_code.value;
+
+DROP VIEW IF EXISTS _m1_full_aaa_catalog_seed;
+`;
+          fs.writeFileSync('0013_milestone1_complete_team_materialization.sql', sql);
+          console.log(JSON.stringify({schools:entries.length,targets:targetCount,bytes:Buffer.byteLength(sql)}));
+          NODE
+      - name: Upload generated migration
+        uses: actions/upload-artifact@v4
+        with:
+          name: m1-generated-migration-0013
+          path: 0013_milestone1_complete_team_materialization.sql
+          if-no-files-found: error
