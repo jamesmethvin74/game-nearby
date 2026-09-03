@@ -14,47 +14,98 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe six official AAA varsity schedule feeds
+      - name: Resolve codes and fetch complete official AAA feeds
         shell: python
         run: |
           import json, urllib.request, urllib.error
 
-          CODES=["FB_Varsity","MBB_Varsity","WBB_Varsity","MSOC_Varsity","WSOC_Varsity","WVB_Varsity"]
-          BASE="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/{code}/0"
-          headers={"User-Agent":"LocalBleachersAR-milestone1-diagnostic/1.0","Accept":"application/json"}
-          report=[]
-          for code in CODES:
-            url=BASE.format(code=code)
+          CANDIDATES=[
+            "MFB_Varsity","FB_Varsity","BFB_Varsity",
+            "MBB_Varsity","WBB_Varsity",
+            "MSO_Varsity","WSO_Varsity","BSO_Varsity","GSO_Varsity",
+            "MSOC_Varsity","WSOC_Varsity","BSOC_Varsity","GSOC_Varsity",
+            "WVB_Varsity"
+          ]
+          BASE="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/{code}/{page}"
+          headers={"User-Agent":"LocalBleachersAR-milestone1-diagnostic/2.0","Accept":"application/json"}
+
+          def fetch(code,page):
+            url=BASE.format(code=code,page=page)
+            req=urllib.request.Request(url,headers=headers)
+            with urllib.request.urlopen(req,timeout=30) as response:
+              raw=response.read().decode("utf-8",errors="replace")
+              try: payload=json.loads(raw)
+              except Exception: return {"ok":False,"http_status":response.status,"url":url,"body_prefix":raw[:200]}
+            return {"ok":True,"http_status":response.status,"url":url,"payload":payload}
+
+          resolved=[]
+          for code in CANDIDATES:
             try:
-              req=urllib.request.Request(url,headers=headers)
-              with urllib.request.urlopen(req,timeout=30) as response:
-                payload=json.loads(response.read().decode("utf-8"))
-                status=response.status
-              schedule=payload.get("schedule") if isinstance(payload,dict) else None
-              schedule=schedule if isinstance(schedule,list) else []
+              result=fetch(code,0)
+              if not result["ok"]:
+                resolved.append({"candidate":code,"valid_json":False,"http_status":result["http_status"],"body_prefix":result.get("body_prefix")})
+                continue
+              payload=result["payload"]
+              schedule=payload.get("schedule") if isinstance(payload,dict) else []
               sports={}
-              teams={}
-              for event in schedule:
+              for event in schedule or []:
                 for sport in event.get("associatedSports") or []:
                   key=(str(sport.get("code") or ""),str(sport.get("name") or ""),str(sport.get("level") or ""))
                   sports[key]=sports.get(key,0)+1
+              resolved.append({"candidate":code,"valid_json":True,"http_status":result["http_status"],"event_count":len(schedule or []),"has_next":bool(payload.get("hasNextPage")),"sports":[{"code":k[0],"name":k[1],"level":k[2],"events":v} for k,v in sorted(sports.items())]})
+            except urllib.error.HTTPError as e:
+              resolved.append({"candidate":code,"valid_json":False,"http_status":e.code,"error":str(e)})
+            except Exception as e:
+              resolved.append({"candidate":code,"valid_json":False,"http_status":None,"error":str(e)})
+
+          # Keep one endpoint per actual desired varsity sport.
+          desired_names={"football","boys' basketball","girls' basketball","boys' soccer","girls' soccer","girls' volleyball"}
+          selected={}
+          for row in resolved:
+            if not row.get("valid_json") or not row.get("sports"): continue
+            for sport in row["sports"]:
+              if str(sport.get("level") or "").lower()!="varsity": continue
+              name=str(sport.get("name") or "").strip().lower()
+              if name in desired_names and name not in selected:
+                selected[name]=row["candidate"]
+
+          feeds=[]
+          for sport_name,code in selected.items():
+            events={}; teams={}; pages=0; sample_participants=[]
+            for page in range(20):
+              result=fetch(code,page)
+              if not result["ok"]: raise SystemExit(f"Invalid JSON while paging {code} page {page}")
+              payload=result["payload"]; pages+=1
+              schedule=payload.get("schedule") or []
+              for event in schedule:
+                event_id=str(event.get("eventId") or event.get("id") or f"{page}:{len(events)}")
+                events[event_id]=event
                 for participant in event.get("participants") or []:
+                  if len(sample_participants)<8: sample_participants.append(participant)
                   team=participant.get("team") or {}
                   team_id=str(team.get("teamId") or "").strip()
-                  level=str(team.get("level") or "").lower()
-                  if team_id and (not level or "varsity" in level):
-                    teams[team_id]={"teamId":team_id,"name":participant.get("name"),"orgShortCode":participant.get("orgShortCode"),"teamCode":team.get("code"),"level":team.get("level")}
-              report.append({"code":code,"url":url,"http_status":status,"schedule_count":len(schedule),"varsity_team_count":len(teams),"sports":[{"code":k[0],"name":k[1],"level":k[2],"event_count":v} for k,v in sorted(sports.items())],"sample_teams":list(teams.values())[:5],"payload_keys":list(payload.keys()) if isinstance(payload,dict) else []})
-            except urllib.error.HTTPError as e:
-              report.append({"code":code,"url":url,"http_status":e.code,"error":str(e)})
-            except Exception as e:
-              report.append({"code":code,"url":url,"http_status":None,"error":str(e)})
-          with open("dragonfly-feed-probe.json","w",encoding="utf-8") as f: json.dump(report,f,indent=2,ensure_ascii=False)
-          print(json.dumps(report,indent=2,ensure_ascii=False))
+                  level=str(team.get("level") or "").strip().lower()
+                  if not team_id or (level and "varsity" not in level): continue
+                  teams[team_id]={
+                    "teamId":team_id,
+                    "name":str(participant.get("name") or "").strip(),
+                    "orgShortCode":str(participant.get("orgShortCode") or "").strip(),
+                    "participantUri":str(participant.get("uri") or "").strip(),
+                    "teamCode":str(team.get("code") or "").strip(),
+                    "teamLevel":str(team.get("level") or "").strip()
+                  }
+              if not payload.get("hasNextPage"): break
+            else: raise SystemExit(f"{code} exceeded 20 pages")
+            feeds.append({"sport_name":sport_name,"endpoint_code":code,"pages":pages,"event_count":len(events),"participant_team_count":len(teams),"teams":sorted(teams.values(),key=lambda r:(r["name"],r["teamId"])),"sample_participants":sample_participants})
 
-      - name: Upload probe
+          output={"resolved_candidates":resolved,"selected":selected,"feeds":feeds}
+          with open("dragonfly-full-inventory.json","w",encoding="utf-8") as f: json.dump(output,f,indent=2,ensure_ascii=False)
+          print(json.dumps({"selected":selected,"feeds":[{k:v for k,v in row.items() if k not in ("teams","sample_participants")} for row in feeds]},indent=2))
+          if len(selected)<5: raise SystemExit(f"Resolved only {len(selected)} of six desired sports")
+
+      - name: Upload inventory
         uses: actions/upload-artifact@v4
         with:
-          name: milestone1-dragonfly-feed-probe
-          path: dragonfly-feed-probe.json
+          name: milestone1-dragonfly-full-inventory
+          path: dragonfly-full-inventory.json
           retention-days: 1
