@@ -3,6 +3,7 @@ import { loadD1Usage, publicBudgetSnapshot } from "./d1-usage-monitor.js";
 import { maybeHandleM2ProductionBootstrap } from "./m2-production-bootstrap.js";
 import { maybeHandleM2ProductionBootstrapV2 } from "./m2-production-bootstrap-v2-route.js";
 import { maybeHandleM2ProductionBootstrapV3 } from "./m2-production-bootstrap-v3-route.js";
+import { maybeHandleM2ProductionBootstrapV4 } from "./m2-production-bootstrap-v4-route.js";
 import { maybeHandleM2BootstrapStatus } from "./m2-bootstrap-status.js";
 
 const USAGE_PATH = "/api/v1/d1-usage";
@@ -71,6 +72,9 @@ async function publicBudgetResponse(request, env, ctx) {
 
 export default {
   async fetch(request, env, ctx) {
+    const schoolScopedV4Bootstrap = await maybeHandleM2ProductionBootstrapV4(request, env);
+    if (schoolScopedV4Bootstrap) return schoolScopedV4Bootstrap;
+
     const sportScopedV3Bootstrap = await maybeHandleM2ProductionBootstrapV3(request, env);
     if (sportScopedV3Bootstrap) return sportScopedV3Bootstrap;
 
