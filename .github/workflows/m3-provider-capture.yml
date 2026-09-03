@@ -14,31 +14,56 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture Presto RSS and Arkansas schedule markup
+      - name: Capture provider markup details
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import urllib.request
-          urls = {
-              'champion_rss': 'https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule?print=rss',
-              'naia_amc_rss': 'https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule?print=rss',
-              'njcaa_d2_rss': 'https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule?print=rss',
-              'arkansas_football': 'https://arkansasrazorbacks.com/sport/m-footbl/schedule/',
-          }
-          for name, url in urls.items():
-              print(f'===== {name} {url} =====')
-              req = urllib.request.Request(url, headers={
-                  'User-Agent':'LocalBleachersAR-M3-provider-audit/1.0',
-                  'Accept':'application/rss+xml,application/xml,text/html;q=0.9,*/*;q=0.8'
-              })
+          import re, urllib.request, urllib.error
+
+          def get(url, accept='text/html,*/*;q=0.8', referer=None):
+              headers={
+                  'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/152.0 Safari/537.36',
+                  'Accept':accept,
+                  'Accept-Language':'en-US,en;q=0.9',
+              }
+              if referer: headers['Referer']=referer
+              req=urllib.request.Request(url,headers=headers)
               try:
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      body = response.read().decode('utf-8','replace')
-                      print('STATUS', response.status)
-                      print('CONTENT-TYPE', response.headers.get('content-type'))
-                      print('FINAL-URL', response.geturl())
-                      print(body[:20000])
-              except Exception as exc:
-                  print('ERROR', repr(exc))
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      return r.status,r.headers.get('content-type'),r.geturl(),r.read().decode('utf-8','replace')
+              except urllib.error.HTTPError as e:
+                  return e.code,e.headers.get('content-type'),e.geturl(),e.read().decode('utf-8','replace')
+
+          pages={
+              'champion_html':'https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule',
+              'naia_html':'https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule',
+              'njcaa_html':'https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule',
+              'arkansas_html':'https://arkansasrazorbacks.com/sport/m-footbl/schedule/',
+          }
+          bodies={}
+          for name,url in pages.items():
+              status,ctype,final,body=get(url)
+              bodies[name]=body
+              print(f'===== {name} STATUS={status} TYPE={ctype} URL={final} LEN={len(body)} =====')
+              needles={
+                  'champion_html':['Pensacola Christian','RSS Feed','schedule'],
+                  'naia_html':['Central Baptist (Ark.)','RSS Feed','schedule'],
+                  'njcaa_html':['Arkansas State Mid-South','schedule'],
+                  'arkansas_html':['North Alabama','schedule-game','schedule'],
+              }[name]
+              for needle in needles:
+                  idx=body.lower().find(needle.lower())
+                  print(f'--- needle={needle!r} idx={idx} ---')
+                  if idx>=0: print(body[max(0,idx-2500):idx+5000])
+
+          rss={
+              'champion_rss':('https://championchristian.prestosports.com/sports/mbkb/2025-26/schedule?print=rss',pages['champion_html']),
+              'naia_rss':('https://naiastats.prestosports.com/sports/mbkb/2025-26/conf/American_Midwest/Schedule?print=rss',pages['naia_html']),
+              'njcaa_rss':('https://njcaastats.prestosports.com/sports/mbkb/2025-26/div2/schedule?print=rss',pages['njcaa_html']),
+          }
+          for name,(url,ref) in rss.items():
+              status,ctype,final,body=get(url,'application/rss+xml,application/xml,text/xml;q=0.9,*/*;q=0.8',ref)
+              print(f'===== {name} STATUS={status} TYPE={ctype} URL={final} LEN={len(body)} =====')
+              print(body[:12000])
           PY
