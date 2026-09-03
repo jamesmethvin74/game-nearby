@@ -13,7 +13,8 @@ function config({key,feedCode,providerSportCode,sport,gender,teamCode,expectedTa
     minEvents,
     feedUrl:`${BASE}/${feedCode}/0`,
     stateId:`dragonfly:ArkAA:2026:${feedCode}`,
-    catalogSyncId:`dragonfly-catalog:ArkAA:2026:${feedCode}`
+    catalogSyncId:`dragonfly-catalog:ArkAA:2026:${feedCode}`,
+    teamIdentityProvider:`dragonfly:ArkAA:2026:${feedCode}`
   });
 }
 
