@@ -1,4 +1,4 @@
-name: M2 sport-scoped bootstrap v3 capture
+name: M2 feed-scoped bootstrap v4 capture
 
 on:
   pull_request:
@@ -12,7 +12,7 @@ jobs:
   capture:
     runs-on: ubuntu-latest
     steps:
-      - name: Run bounded sport-scoped M2 bootstrap v3
+      - name: Run bounded feed-scoped M2 bootstrap v4
         shell: bash
         run: |
           set -euo pipefail
@@ -20,14 +20,14 @@ jobs:
           header='x-localbleachers-m2-bootstrap: approved-certified-1102-20260903'
           codes=(FB MBB WBB MSO WSO WVB)
 
-          echo "Waiting for deployment-unique v3 readiness marker..."
+          echo "Waiting for deployment-unique v4 readiness marker..."
           consecutive=0
           for attempt in $(seq 1 90); do
-            status=$(curl -sS -L --max-time 10 -o ready-v3.json -w '%{http_code}' "$base/_m2-bootstrap-v3-ready-20260903" || true)
-            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-sport-scoped-v3-20260903' ready-v3.json; then
+            status=$(curl -sS -L --max-time 10 -o ready-v4.json -w '%{http_code}' "$base/_m2-bootstrap-v4-ready-20260903" || true)
+            if [ "$status" = "200" ] && grep -q 'm2-production-bootstrap-feed-scoped-v4-20260903' ready-v4.json; then
               consecutive=$((consecutive+1))
               if [ "$consecutive" -ge 5 ]; then
-                cat ready-v3.json
+                cat ready-v4.json
                 sleep 10
                 break
               fi
@@ -35,20 +35,20 @@ jobs:
               consecutive=0
             fi
             if [ "$attempt" -eq 90 ]; then
-              echo "V3 readiness did not stabilize" >&2
+              echo "V4 readiness did not stabilize" >&2
               exit 1
             fi
             sleep 2
           done
 
-          echo "Running six read-only sport preflights. No writes occur in this phase."
+          echo "Running six feed-scoped read-only sport preflights. No writes occur in this phase."
           for code in "${codes[@]}"; do
             file="preflight-${code}.json"
             status=$(curl -sS -L --max-time 180 \
               -H "$header" \
               -o "$file" \
               -w '%{http_code}' \
-              "$base/_m2-bootstrap-v3-preflight-20260903-${code}")
+              "$base/_m2-bootstrap-v4-preflight-20260903-${code}")
             printf '%s\n' "$status" > "preflight-${code}-http-status.txt"
             cat "$file"
             CODE="$code" FILE="$file" STATUS="$status" node --input-type=module <<'NODE'
@@ -63,7 +63,7 @@ jobs:
           NODE
           done
 
-          echo "All six preflights passed. Beginning approved sport-scoped writes."
+          echo "All six v4 preflights passed. Beginning approved sport-scoped writes."
           run_failed=0
           for code in "${codes[@]}"; do
             file="run-${code}.json"
@@ -71,7 +71,7 @@ jobs:
               -H "$header" \
               -o "$file" \
               -w '%{http_code}' \
-              "$base/_m2-bootstrap-v3-run-20260903-${code}" || true)
+              "$base/_m2-bootstrap-v4-run-20260903-${code}" || true)
             printf '%s\n' "$status" > "run-${code}-http-status.txt"
             cat "$file" || true
             if ! CODE="$code" FILE="$file" STATUS="$status" node --input-type=module <<'NODE'
@@ -92,14 +92,14 @@ jobs:
             fi
           done
 
-          echo "Running one lightweight combined verification."
+          echo "Running one certified-only lightweight combined verification."
           verify_status=$(curl -sS -L --max-time 120 \
             -H "$header" \
-            -o verify-v3.json \
+            -o verify-v4.json \
             -w '%{http_code}' \
-            "$base/_m2-bootstrap-v3-verify-20260903" || true)
-          printf '%s\n' "$verify_status" > verify-v3-http-status.txt
-          cat verify-v3.json || true
+            "$base/_m2-bootstrap-v4-verify-20260903" || true)
+          printf '%s\n' "$verify_status" > verify-v4-http-status.txt
+          cat verify-v4.json || true
 
           if [ "$run_failed" -ne 0 ]; then
             exit 1
@@ -108,24 +108,24 @@ jobs:
           STATUS="$verify_status" node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const status=process.env.STATUS;
-          const payload=JSON.parse(fs.readFileSync('verify-v3.json','utf8'));
+          const payload=JSON.parse(fs.readFileSync('verify-v4.json','utf8'));
           if (status !== '200' || payload.status !== 'SUCCESS' || payload.complete !== true) {
-            console.error('M2 v3 verification incomplete', status, payload);
+            console.error('M2 v4 verification incomplete', status, payload);
             process.exit(1);
           }
           NODE
 
-      - name: Upload v3 result
+      - name: Upload v4 result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m2-production-bootstrap-v3-result
+          name: m2-production-bootstrap-v4-result
           path: |
-            ready-v3.json
+            ready-v4.json
             preflight-*.json
             preflight-*-http-status.txt
             run-*.json
             run-*-http-status.txt
-            verify-v3.json
-            verify-v3-http-status.txt
+            verify-v4.json
+            verify-v4-http-status.txt
           if-no-files-found: warn
