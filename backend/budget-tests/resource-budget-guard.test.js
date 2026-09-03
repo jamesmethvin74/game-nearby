@@ -6,6 +6,10 @@ const productionSmoke = await readFile(
   new URL("../../.github/workflows/production-statewide-smoke.yml", import.meta.url),
   "utf8"
 );
+const brandingLiveProof = await readFile(
+  new URL("../../.github/workflows/school-branding-live-proof.yml", import.meta.url),
+  "utf8"
+);
 const schoolSchedule = await readFile(
   new URL("../../school-schedule.js", import.meta.url),
   "utf8"
@@ -19,6 +23,13 @@ test("production-wide D1 verification is manual-only", () => {
   assert.match(productionSmoke, /inputs\.full_statewide_record_audit == true/);
   assert.match(productionSmoke, /Deliberately sequential/);
   assert.doesNotMatch(productionSmoke, /Promise\.all\(Array\.from\(\{length:12\}/);
+});
+
+test("production branding proof is manual-only", () => {
+  assert.match(brandingLiveProof, /workflow_dispatch:/);
+  assert.doesNotMatch(brandingLiveProof, /\n  push:/);
+  assert.doesNotMatch(brandingLiveProof, /\n  pull_request:/);
+  assert.match(brandingLiveProof, /localbleachersar-sports-api\.james-methvin74\.workers\.dev/);
 });
 
 test("manual production probes still have bounded retries", () => {

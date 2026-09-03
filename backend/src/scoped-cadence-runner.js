@@ -1,6 +1,15 @@
 const INTERNAL_REFRESH_TOKEN = "__localbleachers_scoped_cadence__";
+const ORDINARY_MAX_SOURCES_PER_RUN = 4;
 
 export function scopePolicy(plan = {}) {
+  if (plan.scope === "all") {
+    return {
+      where: "1=1",
+      maxSources: ORDINARY_MAX_SOURCES_PER_RUN,
+      gameWindow: "",
+      dueMode: "source-refresh"
+    };
+  }
   if (plan.scope === "football-game-day") {
     return {
       where: "t.sport='football'",
@@ -13,7 +22,8 @@ export function scopePolicy(plan = {}) {
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND datetime(gx.scheduled_at) BETWEEN datetime('now','-330 minutes') AND datetime('now','-120 minutes')
-      )`
+      )`,
+      dueMode: "active-result"
     };
   }
   if (plan.scope === "college-game-day") {
@@ -34,7 +44,8 @@ export function scopePolicy(plan = {}) {
             (t.sport='volleyball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-270 minutes') AND datetime('now','-75 minutes')) OR
             (t.sport NOT IN ('football','basketball','soccer','volleyball') AND datetime(gx.scheduled_at) BETWEEN datetime('now','-300 minutes') AND datetime('now','-90 minutes'))
           )
-      )`
+      )`,
+      dueMode: "active-result"
     };
   }
   return null;
@@ -58,13 +69,21 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   const policy = scopePolicy(plan);
   if (!policy) return null;
 
-  // Frequent event-night/event-day polling is intentionally result-oriented.
-  // A source is eligible only while a known-time game is still SCHEDULED and
-  // far enough past its start time that a result could reasonably exist. Once
-  // the game becomes FINAL/CANCELED/POSTPONED, it immediately drops out of the
-  // frequent-poll path. Ordinary 6 AM / 3 PM / 11 PM collection still catches
-  // schedule corrections and unknown-time events.
-  const { results = [] } = await env.DB.prepare(`
+  // Every scheduled core path is now bounded. Event-day scopes use their short
+  // result polling interval. Ordinary 6 AM / 3 PM / 11 PM passes use each
+  // source's own refresh_minutes and rotate oldest-checked sources first rather
+  // than enumerating every enabled source in one Worker invocation.
+  const dueClause = policy.dueMode === "source-refresh"
+    ? `AND (
+        src.last_checked_at IS NULL OR
+        datetime(src.last_checked_at, '+' || COALESCE(src.refresh_minutes,360) || ' minutes') <= datetime('now')
+      )`
+    : `AND (
+        src.last_checked_at IS NULL OR
+        datetime(src.last_checked_at, '+' || ? || ' minutes') <= datetime('now')
+      )`;
+
+  let query = env.DB.prepare(`
     SELECT src.id, src.team_id, src.last_checked_at
     FROM sources src
     JOIN teams t ON t.id=src.team_id AND t.active=1
@@ -72,17 +91,28 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     WHERE src.enabled=1
       AND ${policy.where}
       ${policy.gameWindow}
-      AND (
-        src.last_checked_at IS NULL OR
-        datetime(src.last_checked_at, '+' || ? || ' minutes') <= datetime('now')
-      )
+      ${dueClause}
     ORDER BY src.last_checked_at IS NOT NULL, src.last_checked_at, src.authority_rank, src.source_priority, src.id
     LIMIT ?
-  `).bind(policy.activeMinutes, policy.maxSources).all();
+  `);
+  query = policy.dueMode === "source-refresh"
+    ? query.bind(policy.maxSources)
+    : query.bind(policy.activeMinutes, policy.maxSources);
+  const selection = await query.all();
+  const results = selection.results || [];
+  console.log("d1 cadence selector", {
+    kind: plan.kind,
+    scope: plan.scope,
+    maxSources: policy.maxSources,
+    selectedSources: results.length,
+    rowsRead: Number(selection.meta?.rows_read || 0),
+    rowsWritten: Number(selection.meta?.rows_written || 0),
+    durationMs: Number(selection.meta?.duration || 0) || null
+  });
 
   if (!results.length) {
-    console.log("scoped cadence has no due result-window sources", { kind: plan.kind, scope: plan.scope });
-    return { status: "SKIPPED", plan: plan.kind, scope: plan.scope, sources: 0, outcomes: [] };
+    console.log("scoped cadence has no due sources", { kind: plan.kind, scope: plan.scope });
+    return { status: "SKIPPED", plan: plan.kind, scope: plan.scope, sources: 0, selectorRowsRead: Number(selection.meta?.rows_read || 0), outcomes: [] };
   }
 
   const scopedEnv = internalEnv(env);
@@ -119,6 +149,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     scope: plan.scope,
     selectedSources: results.length,
     attemptedSources: outcomes.length,
+    selectorRowsRead: Number(selection.meta?.rows_read || 0),
     outcomes
   };
 }
