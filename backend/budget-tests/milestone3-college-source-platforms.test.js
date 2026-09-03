@@ -4,7 +4,8 @@ import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "../src/college-team-inventory.j
 import {
   COLLEGE_SOURCE_PLATFORMS,
   collegeSourceAuditSummary,
-  parserReadyCollegeSourceCandidates
+  parserReadyCollegeSourceCandidates,
+  prestoCollegeSourceCandidates
 } from "../src/college-source-platforms.js";
 
 const inventoryIds = ARKANSAS_COLLEGE_TEAM_INVENTORY.map(row => row.schoolId).sort();
@@ -15,13 +16,15 @@ test("M3 provider audit classifies every college exactly once", () => {
   assert.equal(new Set(ids).size, 36);
 });
 
-test("M3 provider audit identifies the existing Sidearm parser as reusable for 79 targets", () => {
+test("M3 provider audit separates existing-parser, feed-ready, custom-parser and pending targets", () => {
   assert.deepEqual(collegeSourceAuditSummary(), {
     schools: 36,
     parserReadySchools: 17,
     parserReadyTeams: 79,
-    needsParserSchools: 4,
-    needsParserTeams: 15,
+    feedReadyParserNeededSchools: 3,
+    feedReadyParserNeededTeams: 10,
+    needsParserSchools: 1,
+    needsParserTeams: 5,
     pendingTeams: 38,
     totalTeams: 132
   });
@@ -43,9 +46,23 @@ test("M3 Sidearm source candidates map every parser-ready target to one official
   }
 });
 
+test("M3 PrestoSports targets use provider-supported season RSS feeds", () => {
+  const candidates = prestoCollegeSourceCandidates("2026");
+  assert.equal(candidates.length, 10);
+  assert.equal(new Set(candidates.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 10);
+  assert.deepEqual([...new Set(candidates.map(row => row.schoolId))].sort(), ["asu-newport","champion-christian","ua-cossatot"].sort());
+
+  for (const source of candidates) {
+    assert.equal(source.parserType, "prestosports-rss");
+    assert.equal(source.sourceType, "official-athletics");
+    assert.equal(source.certificationState, "feed-identified-parser-pending-live-proof");
+    assert.match(source.sourceUrl, /^https:\/\//);
+    assert.match(source.sourceUrl, /\/sports\/(?:mbkb|wbkb|msoc|wsoc|wvball)\/2026-27\/schedule\?print=rss$/);
+  }
+});
+
 test("M3 source audit remains read-only metadata and contains no production D1 mutation", () => {
-  // The source-platform checkpoint deliberately returns candidates only. Source
-  // insertion/enabling is a later bounded step after each exact URL has live proof.
-  const candidates = parserReadyCollegeSourceCandidates("2026");
+  const candidates = [...parserReadyCollegeSourceCandidates("2026"), ...prestoCollegeSourceCandidates("2026")];
+  assert.equal(candidates.length, 89);
   assert.ok(candidates.every(row => row.certificationState.includes("pending-live-proof")));
 });
