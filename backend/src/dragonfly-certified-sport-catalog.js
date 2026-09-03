@@ -98,15 +98,24 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
         WHERE t.active=1 AND t.sport=? AND t.gender=? AND t.season=?
           AND s.catalog_scope='local' AND s.level='high-school' AND s.state='AR'
       `).bind(config.sport,config.gender,config.season).all(),
-      env.DB.prepare("SELECT external_team_id,team_id FROM team_external_identities WHERE provider=?").bind(PROVIDER).all()
+      env.DB.prepare(`
+        SELECT tei.external_team_id,tei.team_id,t.school_id
+        FROM team_external_identities tei
+        JOIN teams t ON t.id=tei.team_id
+        WHERE tei.provider=?
+      `).bind(PROVIDER).all()
     ]);
 
     const schoolByExternal=new Map(identities.map(row=>[String(row.external_school_id).toUpperCase(),row.school_id]));
     const teamBySchool=new Map(teams.map(row=>[row.school_id,row.id]));
-    const existingTeamByExternal=new Map(existingExternal.map(row=>[String(row.external_team_id),row.team_id]));
+    const existingByExternal=new Map(existingExternal.map(row=>[String(row.external_team_id),{
+      teamId:row.team_id,
+      schoolId:row.school_id
+    }]));
     const statements=[];
     const mapped=[];
     const quarantined=[];
+    const sharedSameSchoolTeamIds=[];
     const sourceTeamsSeen=new Set();
 
     for (const entry of entries) {
@@ -124,27 +133,41 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
         quarantined.push({...entry,schoolId,reason:"certified_team_row_missing"});
         continue;
       }
-      const existingTeamId=existingTeamByExternal.get(entry.externalTeamId);
-      if (existingTeamId && existingTeamId!==teamId) {
-        quarantined.push({...entry,schoolId,teamId,existingTeamId,reason:"external_team_identity_collision"});
+      const existing=existingByExternal.get(entry.externalTeamId)||null;
+      if (existing && existing.teamId!==teamId && existing.schoolId!==schoolId) {
+        quarantined.push({...entry,schoolId,teamId,existingTeamId:existing.teamId,existingSchoolId:existing.schoolId,reason:"cross_school_external_team_identity_collision"});
         continue;
       }
 
       const sourceId=`${teamId}-dragonfly-statewide`;
       mapped.push({...entry,schoolId,teamId,sourceId});
-      statements.push(env.DB.prepare(`
-        INSERT INTO team_external_identities(provider,external_team_id,team_id,external_code,last_seen_at,updated_at)
-        VALUES(?,?,?,?,?,?)
-        ON CONFLICT(provider,external_team_id) DO UPDATE SET
-          team_id=excluded.team_id,external_code=excluded.external_code,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at
-      `).bind(PROVIDER,entry.externalTeamId,teamId,entry.externalTeamCode||config.providerSportCode,checkedAt,checkedAt));
+
+      // DragonFly can reuse one teamId for boys/girls teams at the same school.
+      // Preserve the first legacy provider/team identity row rather than moving it
+      // between sport rows. Statewide schedule mapping is school+sport scoped.
+      if (!existing || existing.teamId===teamId) {
+        statements.push(env.DB.prepare(`
+          INSERT INTO team_external_identities(provider,external_team_id,team_id,external_code,last_seen_at,updated_at)
+          VALUES(?,?,?,?,?,?)
+          ON CONFLICT(provider,external_team_id) DO UPDATE SET
+            team_id=excluded.team_id,external_code=excluded.external_code,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at
+        `).bind(PROVIDER,entry.externalTeamId,teamId,entry.externalTeamCode||config.providerSportCode,checkedAt,checkedAt));
+      } else {
+        sharedSameSchoolTeamIds.push({
+          externalTeamId:entry.externalTeamId,
+          externalSchoolId:entry.externalSchoolId,
+          schoolId,
+          existingTeamId:existing.teamId,
+          currentTeamId:teamId
+        });
+      }
 
       if (!sourceTeamsSeen.has(teamId)) {
         sourceTeamsSeen.add(teamId);
         statements.push(env.DB.prepare(`
           INSERT INTO sources
             (id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
-          VALUES(?,?,?,'official-conference',1,'dragonfly-public','5','America/Chicago',?,180,30,0,10,720,'statewide',?)
+          VALUES(?,?,?,'official-conference',1,'dragonfly-public','6','America/Chicago',?,180,30,0,10,720,'statewide',?)
           ON CONFLICT(id) DO UPDATE SET
             team_id=excluded.team_id,source_url=excluded.source_url,parser_version=excluded.parser_version,
             expected_min_games=excluded.expected_min_games,enabled=0,authority_rank=10,stale_after_minutes=720,collection_mode='statewide',updated_at=excluded.updated_at
@@ -169,6 +192,8 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
       expectedTargets:certifiedTargets.size,
       missingCertifiedTargets:0,
       statewideSources:sourceTeamsSeen.size,
+      sharedSameSchoolExternalTeamIdCount:sharedSameSchoolTeamIds.length,
+      sharedSameSchoolExternalTeamIds:sharedSameSchoolTeamIds.slice(0,100),
       quarantinedCount:quarantined.length,
       quarantined:quarantined.slice(0,100)
     };
@@ -183,7 +208,12 @@ export async function syncCertifiedDragonFlySportCatalog(env,sportConfig,{
         last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at
     `).bind(config.catalogSyncId,PROVIDER,config.feedUrl,checkedAt,checkedAt,mappedSchools,mapped.length,0,quarantined.length,JSON.stringify(details),checkedAt).run();
 
-    return {status:"SUCCESS",config,pagesFetched,mapped:mapped.length,mappedSchools,statewideSources:sourceTeamsSeen.size,missingCertifiedTargets:0,quarantined:quarantined.length,payload:workingPayload};
+    return {
+      status:"SUCCESS",config,pagesFetched,mapped:mapped.length,mappedSchools,
+      statewideSources:sourceTeamsSeen.size,missingCertifiedTargets:0,
+      sharedSameSchoolExternalTeamIds:sharedSameSchoolTeamIds.length,
+      quarantined:quarantined.length,payload:workingPayload
+    };
   } catch (error) {
     const message=String(error?.message||error).slice(0,1000);
     await env.DB.prepare(`
