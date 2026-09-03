@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - probe/milestone1-production-verification
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
