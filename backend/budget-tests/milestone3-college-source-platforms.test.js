@@ -16,16 +16,20 @@ test("M3 provider audit classifies every college exactly once", () => {
   assert.equal(new Set(ids).size, 36);
 });
 
-test("M3 provider audit separates existing-parser, feed-ready, custom-parser and pending targets", () => {
+test("M3 provider audit reduces truly unclassified coverage to eight targets", () => {
   assert.deepEqual(collegeSourceAuditSummary(), {
     schools: 36,
     parserReadySchools: 17,
     parserReadyTeams: 79,
     feedReadyParserNeededSchools: 3,
     feedReadyParserNeededTeams: 10,
+    bulkFeedCandidateSchools: 4,
+    bulkFeedCandidateTeams: 16,
+    sharedPlatformCandidateSchools: 6,
+    sharedPlatformCandidateTeams: 14,
     needsParserSchools: 1,
     needsParserTeams: 5,
-    pendingTeams: 38,
+    pendingTeams: 8,
     totalTeams: 132
   });
 });
@@ -61,7 +65,7 @@ test("M3 PrestoSports targets use provider-supported season RSS feeds", () => {
   }
 });
 
-test("M3 source audit remains read-only metadata and contains no production D1 mutation", () => {
+test("M3 direct-source candidates remain read-only metadata pending live proof", () => {
   const candidates = [...parserReadyCollegeSourceCandidates("2026"), ...prestoCollegeSourceCandidates("2026")];
   assert.equal(candidates.length, 89);
   assert.ok(candidates.every(row => row.certificationState.includes("pending-live-proof")));
