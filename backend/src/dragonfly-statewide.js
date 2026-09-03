@@ -30,6 +30,46 @@ function eventIsVarsityVolleyball(event){
 }
 function eventTimeKnown(event){return !Boolean(event?.timeTba || event?.timeTBD || event?.isTimeTba || event?.isTimeTBD);}
 
+function hashText(value){
+  let hash=2166136261;
+  for (let index=0;index<value.length;index++) {
+    hash^=value.charCodeAt(index);
+    hash=Math.imul(hash,16777619);
+  }
+  return (hash>>>0).toString(16).padStart(8,"0");
+}
+
+export function statewideDragonFlySignature(payload){
+  const schedule=Array.isArray(payload?.schedule)?payload.schedule:[];
+  const events=schedule.filter(eventIsVarsityVolleyball).map(event=>{
+    const participants=(Array.isArray(event?.participants)?event.participants:[]).map(participant=>({
+      teamId:clean(participant?.team?.teamId),
+      name:clean(participant?.name),
+      isHome:participant?.isHome===true?1:participant?.isHome===false?0:null,
+      score:score(participant?.result?.score),
+      opponentScore:score(participant?.result?.opponentScore),
+      result:clean(participant?.result?.code).toUpperCase()||null
+    })).sort((a,b)=>`${a.teamId}|${a.name}`.localeCompare(`${b.teamId}|${b.name}`));
+    return {
+      eventId:clean(event?.eventId || event?.id),
+      scheduledAt:clean(event?.date || event?.startDateTime || event?.scheduledAt),
+      timeKnown:eventTimeKnown(event)?1:0,
+      status:clean(event?.status?.name || event?.status || event?.gameStatus).toUpperCase(),
+      venue:clean(event?.facility?.name || event?.hostOrgName || ""),
+      location:clean(event?.locationNotes || ""),
+      conferenceGame:Number(Boolean(event?.conferenceGame || event?.isConference || event?.regionGame)),
+      contestType:clean(event?.contestType).toLowerCase(),
+      participants
+    };
+  }).sort((a,b)=>`${a.eventId}|${a.scheduledAt}`.localeCompare(`${b.eventId}|${b.scheduledAt}`));
+  return `${events.length}:${hashText(JSON.stringify(events))}`;
+}
+
+function parseDetails(value){
+  try { return value?JSON.parse(value):{}; }
+  catch { return {}; }
+}
+
 export function buildStatewideDragonFlyRows(payload,mappings,{checkedAt=new Date().toISOString(),timeZone="America/Chicago"}={}){
   const byExternalTeam=mappings instanceof Map?mappings:new Map(mappings.map(mapping=>[String(mapping.external_team_id),mapping]));
   const games=[];
@@ -186,10 +226,34 @@ export async function runDragonFlyStatewideCollection(env,{
       const fetched=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-statewide/2.0","accept":"application/json"}});
       workingPayload=fetched.payload; pagesFetched=fetched.pageCount;
     }
-    const prior=await env.DB.prepare("SELECT last_event_count FROM statewide_collection_state WHERE id=?").bind(stateId).first();
+    const prior=await env.DB.prepare("SELECT last_event_count,details_json FROM statewide_collection_state WHERE id=?").bind(stateId).first();
     const rawEventCount=Array.isArray(workingPayload?.schedule)?workingPayload.schedule.length:0;
     const safety=collectionSafety({parsedCount:rawEventCount,expectedMinGames:expectedMinEvents,priorCount:Number(prior?.last_event_count||0),minimumRetentionRatio:0.75});
     if (!safety.safe) throw new Error(safety.reason);
+
+    const signature=statewideDragonFlySignature(workingPayload);
+    const previousDetails=parseDetails(prior?.details_json);
+    if (prior && previousDetails.signature===signature) {
+      const details={...previousDetails,pagesFetched,signature,unchanged:true};
+      await env.DB.prepare(`UPDATE sources SET last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=200,
+          consecutive_failures=0,suspicious_game_count=0,updated_at=?
+        WHERE collection_mode='statewide' AND parser_type='dragonfly-public'`)
+        .bind(checkedAt,checkedAt,checkedAt).run();
+      await env.DB.prepare(`UPDATE statewide_collection_state
+        SET feed_url=?,last_checked_at=?,last_successful_fetch_at=?,last_event_count=?,consecutive_failures=0,last_error=NULL,details_json=?,updated_at=?
+        WHERE id=?`)
+        .bind(feedUrl,checkedAt,checkedAt,rawEventCount,JSON.stringify(details),checkedAt,stateId).run();
+      return {
+        status:"NOT_MODIFIED",
+        rawEventCount,
+        canonicalEvents:Number(previousDetails.canonicalEvents||0),
+        observations:Number(previousDetails.observations||0),
+        sources:Number(previousDetails.sources||0),
+        pagesFetched,
+        chunkSize,
+        signature
+      };
+    }
 
     const {results:mappings}=await env.DB.prepare(`
       SELECT tei.external_team_id,src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude
@@ -223,7 +287,7 @@ export async function runDragonFlyStatewideCollection(env,{
       WHERE id IN (SELECT id FROM input)`).bind(JSON.stringify(sourceHealth),checkedAt,checkedAt,checkedAt).run();
     await rebuildStatewideRecords(env,checkedAt);
 
-    const details={pagesFetched,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,chunkSize};
+    const details={pagesFetched,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,chunkSize,signature,unchanged:false};
     await env.DB.prepare(`INSERT INTO statewide_collection_state
       (id,provider,feed_url,last_checked_at,last_successful_fetch_at,last_event_count,last_observation_count,last_source_count,consecutive_failures,last_error,details_json,updated_at)
       VALUES(?,'dragonfly',?,?,?,?,?,?,0,NULL,?,?)
@@ -231,7 +295,7 @@ export async function runDragonFlyStatewideCollection(env,{
         last_event_count=excluded.last_event_count,last_observation_count=excluded.last_observation_count,last_source_count=excluded.last_source_count,
         consecutive_failures=0,last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at`)
       .bind(stateId,feedUrl,checkedAt,checkedAt,rawEventCount,rows.games.length,sourceHealth.length,JSON.stringify(details),checkedAt).run();
-    return {status:"SUCCESS",rawEventCount,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,pagesFetched,chunkSize};
+    return {status:"SUCCESS",rawEventCount,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,pagesFetched,chunkSize,signature};
   } catch(error) {
     const message=String(error?.message||error).slice(0,1000);
     await env.DB.prepare(`INSERT INTO statewide_collection_state(id,provider,feed_url,last_checked_at,consecutive_failures,last_error,updated_at)
