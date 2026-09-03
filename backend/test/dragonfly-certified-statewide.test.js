@@ -52,6 +52,18 @@ test("Milestone 2 uses the six verified Arkansas DragonFly varsity feeds",()=>{
   assert.equal(new Set(STATEWIDE_HIGH_SCHOOL_SPORTS.map(item=>item.feedUrl)).size,6);
 });
 
+test("DragonFly team identity namespaces are feed-scoped so raw team IDs may repeat across sports",()=>{
+  assert.equal(new Set(STATEWIDE_HIGH_SCHOOL_SPORTS.map(item=>item.teamIdentityProvider)).size,6);
+  assert.equal(statewideSportConfig("MBB").teamIdentityProvider,"dragonfly:ArkAA:2026:MBB_Varsity");
+  assert.equal(statewideSportConfig("WBB").teamIdentityProvider,"dragonfly:ArkAA:2026:WBB_Varsity");
+  assert.notEqual(statewideSportConfig("MBB").teamIdentityProvider,statewideSportConfig("WBB").teamIdentityProvider);
+
+  const catalog=fs.readFileSync(fileURLToPath(new URL("../src/dragonfly-certified-sport-catalog.js",import.meta.url)),"utf8");
+  const collector=fs.readFileSync(fileURLToPath(new URL("../src/dragonfly-certified-statewide.js",import.meta.url)),"utf8");
+  assert.match(catalog,/bind\(teamProvider,entry\.externalTeamId,teamId/);
+  assert.match(collector,/bind\(config\.teamIdentityProvider,config\.sport,config\.gender,config\.season\)/);
+});
+
 test("each provider mapping is hard-gated to the certified sport target inventory",()=>{
   assert.deepEqual(
     STATEWIDE_HIGH_SCHOOL_SPORTS.map(config=>[config.teamCode,certifiedTargetSchoolIds(config).size]),

@@ -297,8 +297,8 @@ export async function runCertifiedDragonFlyStatewideCollection(env,sportConfig,{
       JOIN teams t ON t.id=tei.team_id
       JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'
       JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide' AND src.id=t.id || '-dragonfly-statewide'
-      WHERE tei.provider='dragonfly' AND t.sport=? AND t.gender=? AND t.season=? AND t.active=1
-    `).bind(config.sport,config.gender,config.season).all();
+      WHERE tei.provider=? AND t.sport=? AND t.gender=? AND t.season=? AND t.active=1
+    `).bind(config.teamIdentityProvider,config.sport,config.gender,config.season).all();
     const mappings=mappingResult.results||[];
     if (mappings.length<minMappings) throw new Error(`Only ${mappings.length} certified ${config.feedCode} team mappings are available; minimum is ${minMappings}`);
 
