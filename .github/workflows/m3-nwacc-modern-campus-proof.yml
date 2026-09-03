@@ -1,0 +1,38 @@
+name: M3 NWACC Modern Campus proof
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-nwacc-modern-campus-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe NWACC calendar RSS/ICS feeds
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const calendar='8e5657bd-1645-445b-97e4-5a48d03d92b6';
+          const categories=['6f6a1f38-3749-4781-b799-8cd82e6102df','c48e8237-984c-4d53-85a5-92057aee11ac','5a3ee980-e1a3-4467-9565-f4af34c5ccab','9567679b-01c8-4e35-9ecb-23d81919cbcc'];
+          const base=`https://api.calendar.moderncampus.net/pubcalendar/${calendar}`;
+          const sets=[['all',categories],...categories.map((c,i)=>[`cat${i+1}`,[c]])];
+          for(const [name,cats] of sets){
+            const qs=cats.map(c=>'category='+encodeURIComponent(c)).join('&');
+            for(const fmt of ['rss','ics']){
+              const url=`${base}/${fmt}?${qs}&url=${encodeURIComponent('https://www.nwacc.edu/calendar/athletics.html')}&hash=true`;
+              const r=await fetch(url,{headers:{'user-agent':'LocalBleachersAR-M3-nwacc-proof/1.0'}}); const text=await r.text();
+              const titles=[...text.matchAll(fmt==='rss'?/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/gis:/SUMMARY:(.*)$/gmi)].map(m=>m[1].replace(/<[^>]+>/g,'').trim()).filter(Boolean).slice(0,40);
+              const dates=[...text.matchAll(fmt==='rss'?/<(?:pubDate|calendar:date|dc:date)>(.*?)<\//gis:/DTSTART[^:]*:(.*)$/gmi)].map(m=>m[1].trim()).slice(0,40);
+              console.log(JSON.stringify({name,fmt,status:r.status,type:r.headers.get('content-type'),size:text.length,titles,dates,hasMens:/Men['’]s Soccer/i.test(text),hasWomens:/Women['’]s Soccer/i.test(text),hasPratt:/Pratt Community College/i.test(text),has2026:/2026/.test(text)}));
+            }
+          }
+          NODE
