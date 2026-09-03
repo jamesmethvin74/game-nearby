@@ -20,6 +20,7 @@ jobs:
         shell: bash
         run: |
           # Artifact generation only; no Cloudflare or D1 access.
+          # This commit only retriggers the deterministic generator after the live gap was confirmed.
           node <<'NODE'
           const fs = require('node:fs');
           const inventory = JSON.parse(fs.readFileSync('backend/data/arkansas-high-school-team-inventory.json','utf8'));
