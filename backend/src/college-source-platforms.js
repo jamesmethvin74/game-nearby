@@ -3,8 +3,8 @@ import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "./college-team-inventory.js";
 const SIDEARM = "sidearm";
 const PRESTO = "prestosports";
 const NAIA_PRESTO = "naia-stats-presto";
+const NJCAA_PRESTO = "njcaa-stats-presto";
 const CUSTOM = "custom";
-const PENDING = "pending-audit";
 
 // Read-only provider audit checkpoint, 2026-09-03. Classification here is
 // intentionally stronger than a hostname guess: current public schedule/event
@@ -30,29 +30,37 @@ export const COLLEGE_SOURCE_PLATFORMS = [
   { schoolId:"john-brown", platform:SIDEARM, host:"jbuathletics.com", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/womens-volleyball/schedule/2026" },
   { schoolId:"ecclesia", platform:SIDEARM, host:"goroyals.org", parserType:"sidearm", status:"parser-ready", evidencePath:"/sports/mens-soccer/schedule" },
 
-  { schoolId:"asu-newport", platform:PRESTO, host:"arkansasstatenewport.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/composite" },
-  { schoolId:"ua-cossatot", platform:PRESTO, host:"uacossatot.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/sports/msoc/2025-26/releases/20251025rbo616" },
+  // Champion's own athletics site is PrestoSports. The provider documents
+  // standard schedule/composite RSS feeds, so one reusable RSS parser can cover
+  // all five supported Champion teams after exact-feed live proof.
   { schoolId:"champion-christian", platform:PRESTO, host:"championchristian.prestosports.com", parserType:"prestosports-rss", status:"feed-ready-parser-needed", evidencePath:"/sports/mbkb/2025-26/schedule" },
 
-  // NAIA Stats is a PrestoSports-hosted shared authority. These four Arkansas
-  // schools have current schedule/result evidence there. They remain bulk-feed
-  // candidates until exact 2026-27 sport feed URLs are live-proved.
+  // NAIA Stats is a PrestoSports-hosted shared authority. These Arkansas schools
+  // have current schedule/result evidence there. Exact 2026-27 sport feeds still
+  // require live proof before any source row is created or enabled.
   { schoolId:"cbc", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"American_Midwest", evidencePath:"/sports/mbkb/2025-26/conf/American_Midwest/schedule" },
   { schoolId:"crowleys-ridge", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"American_Midwest", evidencePath:"/sports/wbkb/2025-26" },
   { schoolId:"williams-baptist", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"American_Midwest", evidencePath:"/sports/bsb/2025-26/conf/americanmidwest/schedule" },
   { schoolId:"philander-smith", platform:NAIA_PRESTO, host:"naiastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", conferenceKey:"hbcuathleticconference", evidencePath:"/sports/bsb/2025-26/conf/hbcuathleticconference/schedule" },
 
-  { schoolId:"asu-mid-south", platform:"localist-events", host:"events.asumidsouth.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/event/asumidsouth.events.1242194" },
-  { schoolId:"asu-mountain-home", platform:PENDING, host:"asumh.edu", parserType:null, status:"no-supported-teams" },
-  { schoolId:"asu-three-rivers", platform:PENDING, host:"asutr.edu", parserType:null, status:"no-supported-teams" },
-  { schoolId:"national-park", platform:PENDING, host:"np.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"north-arkansas", platform:"institutional-table", host:"northark.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/athletics/mens-basketball/" },
-  { schoolId:"nwacc", platform:"institutional-calendar", host:"nwacc.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/calendar/athletics.html" },
-  { schoolId:"shorter", platform:"wordpress-tribe-events", host:"shortercollege.edu", parserType:null, status:"shared-platform-candidate", evidencePath:"/events/category/sports/" },
-  { schoolId:"south-arkansas", platform:"apptegy-thrillshare", host:"southarkstars.com", parserType:null, status:"shared-platform-candidate", evidencePath:"/events" },
-  { schoolId:"seark", platform:PENDING, host:"seark.edu", parserType:null, status:"pending-audit" },
-  { schoolId:"sau-tech", platform:CUSTOM, host:"sautrockets.com", parserType:null, status:"shared-platform-candidate", evidencePath:"/mens-basketball/" },
-  { schoolId:"ua-rich-mountain", platform:PENDING, host:"uarichmountain.edu", parserType:null, status:"pending-audit" }
+  // NJCAA Stats is also PrestoSports-hosted and is the preferred shared
+  // authority for the Arkansas two-year target set. This avoids independent
+  // Localist/WordPress/Apptegy/institutional scrapers for the same schedules.
+  // Division/sport feed keys are deliberately not guessed here; those are the
+  // next live-proof step before source certification.
+  { schoolId:"asu-mid-south", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"events.asumidsouth.edu" },
+  { schoolId:"asu-mountain-home", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"no-supported-teams" },
+  { schoolId:"asu-newport", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"arkansasstatenewport.prestosports.com" },
+  { schoolId:"asu-three-rivers", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"no-supported-teams" },
+  { schoolId:"national-park", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate" },
+  { schoolId:"north-arkansas", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"northark.edu" },
+  { schoolId:"nwacc", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"nwacc.edu" },
+  { schoolId:"shorter", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"shortercollege.edu" },
+  { schoolId:"south-arkansas", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"southarkstars.com" },
+  { schoolId:"seark", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"seark.edu" },
+  { schoolId:"sau-tech", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"sautrockets.com" },
+  { schoolId:"ua-rich-mountain", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"uarichmountain.edu" },
+  { schoolId:"ua-cossatot", platform:NJCAA_PRESTO, host:"njcaastats.prestosports.com", parserType:"prestosports-rss", status:"bulk-feed-candidate", fallbackHost:"uacossatot.prestosports.com" }
 ];
 
 const bySchool = new Map(COLLEGE_SOURCE_PLATFORMS.map(row => [row.schoolId, row]));
@@ -101,8 +109,8 @@ export function collegeSourceAuditSummary() {
     parserReadySchools:0, parserReadyTeams:0,
     feedReadyParserNeededSchools:0, feedReadyParserNeededTeams:0,
     bulkFeedCandidateSchools:0, bulkFeedCandidateTeams:0,
-    sharedPlatformCandidateSchools:0, sharedPlatformCandidateTeams:0,
     needsParserSchools:0, needsParserTeams:0,
+    noSupportedTeamSchools:0,
     pendingTeams:0, totalTeams:0
   };
 
@@ -116,10 +124,10 @@ export function collegeSourceAuditSummary() {
       summary.feedReadyParserNeededSchools += 1; summary.feedReadyParserNeededTeams += n;
     } else if (platform.status === "bulk-feed-candidate") {
       summary.bulkFeedCandidateSchools += 1; summary.bulkFeedCandidateTeams += n;
-    } else if (platform.status === "shared-platform-candidate") {
-      summary.sharedPlatformCandidateSchools += 1; summary.sharedPlatformCandidateTeams += n;
     } else if (platform.status === "needs-parser") {
       summary.needsParserSchools += 1; summary.needsParserTeams += n;
+    } else if (platform.status === "no-supported-teams") {
+      summary.noSupportedTeamSchools += 1;
     } else {
       summary.pendingTeams += n;
     }
@@ -170,4 +178,14 @@ export function prestoCollegeSourceCandidates(season = "2026") {
     }
   }
   return candidates;
+}
+
+export function bulkCollegeTargetSummary() {
+  const schools = ARKANSAS_COLLEGE_TEAM_INVENTORY.filter(school => bySchool.get(school.schoolId)?.status === "bulk-feed-candidate");
+  return {
+    schools: schools.length,
+    teams: schools.reduce((sum, school) => sum + school.teams.length, 0),
+    naiaSchools: schools.filter(school => bySchool.get(school.schoolId)?.platform === NAIA_PRESTO).length,
+    njcaaSchools: schools.filter(school => bySchool.get(school.schoolId)?.platform === NJCAA_PRESTO).length
+  };
 }
