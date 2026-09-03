@@ -1,0 +1,52 @@
+name: M3 fallback bulk feed discovery
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-fallback-discovery.yml
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Discover embedded schedule and calendar endpoints
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const targets = [
+            ['northark-mbb','https://www.northark.edu/athletics/mens-basketball/'],
+            ['northark-wbb','https://www.northark.edu/athletics/womens-basketball/'],
+            ['southark-events','https://www.southarkstars.com/events'],
+            ['sau-tech-mbb','https://sautrockets.com/mens-basketball/'],
+            ['sau-tech-home','https://www.sautrockets.com/'],
+            ['cossatot','https://www.cccua.edu/student-life/athletics.html'],
+            ['asu-mid-south','https://events.asumidsouth.edu/event/asumidsouth.events.1242194'],
+            ['nwacc-home','https://www.nwacc.edu/'],
+            ['nwacc-athletics-calendar','https://www.nwacc.edu/calendar/athletics.html'],
+            ['champion-home','https://www.champion.edu/'],
+            ['philander-hbcuac','https://media.hbcuac.org/schools/philander-smith/']
+          ];
+          const interesting = /(?:https?:\\/\\/[^"'<>\\s]+|\\/[^"'<>\\s]*(?:api|event|calendar|schedule|ical|json|feed)[^"'<>\\s]*)/ig;
+          for (const [name,url] of targets) {
+            const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-discovery/1.0','accept':'text/html,*/*'}});
+            const text=await r.text();
+            const urls=[...new Set((text.match(interesting)||[]).map(v=>v.replace(/&amp;/g,'&')).filter(v=>!(/(?:facebook|instagram|youtube|linkedin|fonts|analytics|doubleclick)/i.test(v))))].slice(0,120);
+            const needles=['2026-2027','2026–27','2026-27','Women\'s Soccer','Men\'s Soccer','Women\'s Basketball','Men\'s Basketball','schedule','events','calendar'];
+            const snippets=[];
+            for(const needle of needles){
+              const i=text.toLowerCase().indexOf(needle.toLowerCase());
+              if(i>=0) snippets.push({needle,text:text.slice(Math.max(0,i-220),Math.min(text.length,i+600)).replace(/\\s+/g,' ')});
+            }
+            console.log('===== '+name+' =====');
+            console.log(JSON.stringify({status:r.status,finalUrl:r.url,size:text.length,urls,snippets},null,2));
+          }
+          NODE
