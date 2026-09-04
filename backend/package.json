@@ -6,7 +6,7 @@
     "check": "node --check src/index.js && node --check src/worker.js && node --check src/standings-worker.js && node --check src/published-standings.js && node --check src/schema-bootstrap.js && node --check src/statewide-initializer.js && node --check src/schedule-response-normalizer.js && node --check src/record-rebuild.js && node --check src/school-branding.js && node --check src/school-branding-curated.js && node --check src/school-branding-curated-sync.js && node --check src/d1-usage-monitor.js && node --check src/d1-usage-public-worker.js && node --check ../live-data.js && node --check ../school-follow-logic.js && node --check ../team-detail.js && node --check ../school-schedule.js && node --check ../school-logo-ui.js && node --check ../standings.js && node --test test/*.test.js budget-tests/*.test.js",
     "dev": "wrangler dev --test-scheduled",
     "deploy": "wrangler deploy",
-    "deploy:cloudflare": "npm run check && wrangler deploy && TOKEN=$(node -e \"console.log(require('node:crypto').randomBytes(32).toString('hex'))\") && printf '%s' \"$TOKEN\" | wrangler secret put M4_BATCH2_TOKEN && STATUS=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 -X HEAD -H \"x-m4-batch2-token: $TOKEN\" https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/m4/bootstrap-approved-b2) && test \"$STATUS\" = \"204\" && M4_BATCH2_TOKEN=\"$TOKEN\" node scripts/m4-run-approved-bootstrap-batch2-v2.js",
+    "deploy:cloudflare": "npm run check && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply localbleachersar-sports --local",
     "db:migrate:remote": "wrangler d1 migrations apply localbleachersar-sports --remote"
   },
