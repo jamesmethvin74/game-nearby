@@ -30,6 +30,21 @@ export const COLLEGE_PRESTO_RSS_FALLBACKS = Object.freeze({
     sourceUrl:"https://nwacceagles.com/composite?print=rss",
     ready:Object.freeze([key("soccer","men"),key("soccer","women")]),
     pending:Object.freeze([])
+  }),
+  "ua-rich-mountain": Object.freeze({
+    sourceUrl:"https://bucksathletics.com/composite?print=rss",
+    ready:Object.freeze([key("soccer","men"),key("soccer","women")]),
+    pending:Object.freeze([])
+  }),
+  seark: Object.freeze({
+    sourceUrl:"https://searksharks.com/composite?print=rss",
+    ready:Object.freeze([key("basketball","men"),key("basketball","women")]),
+    pending:Object.freeze([])
+  }),
+  "asu-mid-south": Object.freeze({
+    sourceUrl:"https://www.asumidsouthsports.com/composite?print=rss",
+    ready:Object.freeze([]),
+    pending:Object.freeze([key("basketball","men"),key("basketball","women")])
   })
 });
 
