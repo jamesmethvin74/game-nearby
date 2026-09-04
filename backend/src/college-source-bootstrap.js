@@ -1,4 +1,4 @@
-import { parserReadyCollegeSourceCandidates } from "./college-source-platforms.js";
+import { parserReadyCollegeSourceCandidates } from "./college-source-resolution.js";
 
 const safe = value => String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 
