@@ -4,6 +4,7 @@ import { runScopedCadence } from "./scoped-cadence-runner.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
+const APPROVED_BOOTSTRAP_BATCH2_PATH = "/api/v1/m4/bootstrap-approved-b2";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
 
 function json(body, status = 200) {
@@ -29,6 +30,10 @@ function privateJson(body, status = 200) {
 
 function authorizedWrite(request, env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+}
+
+function authorizedBatch2(request, env) {
+  return Boolean(env.M4_BATCH2_TOKEN) && request.headers.get("x-m4-batch2-token") === env.M4_BATCH2_TOKEN;
 }
 
 function legacyCollegeSchoolId(pathname) {
@@ -85,8 +90,6 @@ async function collegeSchoolSchedule(request, env, schoolId) {
     WHERE id=?
   `).bind(schoolId).first();
 
-  // This compatibility route is intentionally college-only. Existing high-school
-  // volleyball requests continue through the proven M2 read path unchanged.
   if (!school || school.level !== "college" || school.catalog_scope !== "local") return null;
 
   const result = await env.DB.prepare(`
@@ -146,10 +149,6 @@ async function collegeSchoolSchedule(request, env, schoolId) {
 }
 
 async function runCollegeBootstrap(request, env, ctx) {
-  // Temporary M4 activation surface. It is intentionally not on the cron path.
-  // Each explicit invocation selects at most eight enabled/current college
-  // sources with zero game rows and routes them through the normal collector.
-  // Remove this endpoint after the initial production population is complete.
   if (!authorizedWrite(request, env)) return privateJson({ error:"not_found" }, 404);
   const result = await runScopedCadence({
     core,
@@ -165,9 +164,34 @@ async function runCollegeBootstrap(request, env, ctx) {
   return privateJson(result || { status:"SKIPPED" });
 }
 
+async function runApprovedBootstrapBatch2(request, env, ctx) {
+  if (!authorizedBatch2(request, env)) return privateJson({ error:"not_found" }, 404);
+  const result = await runScopedCadence({
+    core,
+    env,
+    ctx,
+    controller:null,
+    plan:{
+      kind:"m4-college-initial-ingestion-approved-batch2",
+      scope:"college-bootstrap",
+      season:COLLEGE_BOOTSTRAP_SEASON
+    }
+  });
+  return privateJson(result || { status:"SKIPPED" });
+}
+
+function batch2Readiness(request, env) {
+  if (!authorizedBatch2(request, env)) return privateJson({ error:"not_found" }, 404);
+  return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === APPROVED_BOOTSTRAP_BATCH2_PATH) {
+      if (request.method === "HEAD") return batch2Readiness(request, env);
+      if (request.method === "POST") return runApprovedBootstrapBatch2(request, env, ctx);
+    }
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
     }
@@ -186,10 +210,14 @@ export default {
 };
 
 export {
+  APPROVED_BOOTSTRAP_BATCH2_PATH,
   COLLEGE_BOOTSTRAP_PATH,
   COLLEGE_BOOTSTRAP_SEASON,
+  authorizedBatch2,
+  batch2Readiness,
   collegeSchoolSchedule,
   legacyCollegeSchoolId,
   resolvedGameForSchool,
+  runApprovedBootstrapBatch2,
   runCollegeBootstrap
 };
