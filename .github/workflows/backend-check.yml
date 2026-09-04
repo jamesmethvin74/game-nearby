@@ -32,6 +32,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Capture statewide completeness audit
+        run: node scripts/capture-statewide-completeness.mjs
+      - name: Upload statewide completeness audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: statewide-completeness-audit
+          path: backend/statewide-completeness-audit.json
       - run: npm run check
       - name: Apply D1 migrations in SQLite
         shell: bash
