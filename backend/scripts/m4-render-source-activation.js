@@ -21,6 +21,11 @@ for (const [key, value] of Object.entries(expected)) {
   }
 }
 
+const bindMarkers = (COLLEGE_SOURCE_ACTIVATE_SQL.match(/\?/g) || []).length;
+if (bindMarkers !== 2) {
+  throw new Error(`Unexpected M4 source activation bind marker count: ${bindMarkers}`);
+}
+
 function sqlLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
@@ -31,8 +36,6 @@ for (const payload of [plan.sourceRows, plan.teams]) {
   if (marker < 0) throw new Error("Missing SQL bind marker while rendering M4 source activation");
   sql = `${sql.slice(0, marker)}${sqlLiteral(JSON.stringify(payload))}${sql.slice(marker + 1)}`;
 }
-
-if (sql.includes("?")) throw new Error("Unexpected extra SQL bind marker in M4 source activation");
 
 const normalized = sql.replace(/\s+/g, " ").trim().toLowerCase();
 if (!normalized.includes("update sources set enabled = case")) {
