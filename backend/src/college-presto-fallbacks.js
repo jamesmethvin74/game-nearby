@@ -1,6 +1,6 @@
 const key = (sport, gender) => `${sport}|${gender}`;
 
-// Exact 2026-27 school-host Presto RSS proof from the read-only M3 probe.
+// Exact 2026-27 school-host Presto RSS proof from the read-only M3/M4 probes.
 // These feeds are official school athletics surfaces and are reachable by a
 // normal server-side client even though the centralized NAIA/NJCAA authorities
 // are Cloudflare-challenged. Only teams with at least one exact 2026-27 item are
@@ -8,8 +8,11 @@ const key = (sport, gender) => `${sport}|${gender}`;
 export const COLLEGE_PRESTO_RSS_FALLBACKS = Object.freeze({
   cbc: Object.freeze({
     sourceUrl:"https://cbcmustangs.com/composite?print=rss",
-    ready:Object.freeze([key("soccer","men"),key("soccer","women"),key("volleyball","women")]),
-    pending:Object.freeze([key("basketball","men"),key("basketball","women")])
+    sourceByTeam:Object.freeze({
+      [key("basketball","men")]:"https://cbcmustangs.com/sports/mbkb/2026-27/schedule?print=rss"
+    }),
+    ready:Object.freeze([key("basketball","men"),key("soccer","men"),key("soccer","women"),key("volleyball","women")]),
+    pending:Object.freeze([key("basketball","women")])
   }),
   "crowleys-ridge": Object.freeze({
     sourceUrl:"https://www.crcpioneers.com/composite?print=rss",
@@ -52,8 +55,9 @@ export function prestoFallbackState(schoolId, sport, gender) {
   const fallback=COLLEGE_PRESTO_RSS_FALLBACKS[schoolId];
   if (!fallback) return null;
   const teamKey=key(sport,gender);
-  if (fallback.ready.includes(teamKey)) return {state:"ready",sourceUrl:fallback.sourceUrl};
-  if (fallback.pending.includes(teamKey)) return {state:"pending",sourceUrl:fallback.sourceUrl};
+  const sourceUrl=fallback.sourceByTeam?.[teamKey] || fallback.sourceUrl;
+  if (fallback.ready.includes(teamKey)) return {state:"ready",sourceUrl};
+  if (fallback.pending.includes(teamKey)) return {state:"pending",sourceUrl};
   return null;
 }
 
