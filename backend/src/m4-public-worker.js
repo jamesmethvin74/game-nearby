@@ -5,6 +5,7 @@ import { runScopedCadence } from "./scoped-cadence-runner.js";
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
+const APPROVED_BOOTSTRAP_BATCH1_PATH = "/api/v1/m4/bootstrap-approved-FIJy3Ofb8ZW9ZezIvbcPEYS3YJfuwBKLFpJ7lQYsnFc";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -107,8 +108,6 @@ async function collegeSchoolSchedule(request, env, schoolId) {
       ce.status AS canonical_status,
       ce.home_score AS canonical_home_score,
       ce.away_score AS canonical_away_score,
-      ce.home_school_id AS canonical_home_school_id,
-      ce.away_school_id AS canonical_away_school_id,
       ce.trust_state AS data_trust,
       ce.conflict_count,
       hs.name AS canonical_home_name,
@@ -165,9 +164,27 @@ async function runCollegeBootstrap(request, env, ctx) {
   return privateJson(result || { status:"SKIPPED" });
 }
 
+async function runApprovedBootstrapBatch1(env, ctx) {
+  const result = await runScopedCadence({
+    core,
+    env,
+    ctx,
+    controller:null,
+    plan:{
+      kind:"m4-college-initial-ingestion-approved-batch1",
+      scope:"college-bootstrap",
+      season:COLLEGE_BOOTSTRAP_SEASON
+    }
+  });
+  return privateJson(result || { status:"SKIPPED" });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === APPROVED_BOOTSTRAP_BATCH1_PATH) {
+      return runApprovedBootstrapBatch1(env, ctx);
+    }
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
     }
@@ -186,10 +203,12 @@ export default {
 };
 
 export {
+  APPROVED_BOOTSTRAP_BATCH1_PATH,
   COLLEGE_BOOTSTRAP_PATH,
   COLLEGE_BOOTSTRAP_SEASON,
   collegeSchoolSchedule,
   legacyCollegeSchoolId,
   resolvedGameForSchool,
+  runApprovedBootstrapBatch1,
   runCollegeBootstrap
 };

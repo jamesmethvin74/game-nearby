@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "localbleachersar-sports-api",
-  "main": "src/m4-bootstrap-batch1-approved-worker.js",
+  "main": "src/m4-public-worker.js",
   "compatibility_date": "2026-08-24",
   "workers_dev": true,
   "vars": {
