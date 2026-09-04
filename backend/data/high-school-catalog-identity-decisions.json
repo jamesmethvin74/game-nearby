@@ -1,0 +1,100 @@
+{
+  "version": "statewide-content-completion-high-school-identity-v1",
+  "reviewed_at": "2026-09-04",
+  "base_certified_high_school_count": 295,
+  "reviewed_keep_additions": 5,
+  "reviewed_exclusions": 6,
+  "user_facing_high_school_denominator": 300,
+  "keep": [
+    {
+      "school_id": "df-ktr7yd",
+      "provider_org_id": "KTR7YD",
+      "name": "Union Christian Academy",
+      "city": "Fort Smith",
+      "decision": "keep",
+      "reason": "Manual review confirmed a legitimate varsity high-school athletics program."
+    },
+    {
+      "school_id": "df-a6slv2",
+      "provider_org_id": "A6SLV2",
+      "name": "Exalt Academy Of Southwest Little Rock",
+      "city": "Little Rock",
+      "decision": "keep",
+      "reason": "Manual review confirmed a legitimate varsity high-school athletics program."
+    },
+    {
+      "school_id": "df-vs7zsu",
+      "provider_org_id": "VS7ZSU",
+      "name": "Founders Classical Academies Of Arkansas Rogers",
+      "city": "Rogers",
+      "decision": "keep",
+      "reason": "Manual review confirmed a legitimate varsity high-school athletics program."
+    },
+    {
+      "school_id": "df-srqlt7",
+      "provider_org_id": "SRQLT7",
+      "name": "Kipp Blytheville Collegiate High School",
+      "city": "Blytheville",
+      "decision": "keep",
+      "reason": "Manual review confirmed a legitimate varsity high-school athletics program."
+    },
+    {
+      "school_id": "df-5xyspt",
+      "provider_org_id": "5XYSPT",
+      "name": "Riverside High School",
+      "city": "Lake City",
+      "decision": "keep",
+      "reason": "Manual review confirmed a legitimate varsity high-school athletics program."
+    }
+  ],
+  "exclude": [
+    {
+      "school_id": "df-2tng4g",
+      "provider_org_id": "2TNG4G",
+      "name": "Kipp Delta Elementary Literacy Academy",
+      "city": "West Helena",
+      "decision": "exclude",
+      "reason": "Elementary-school identity; outside varsity high-school scope."
+    },
+    {
+      "school_id": "df-cc7dyc",
+      "provider_org_id": "CC7DYC",
+      "name": "Lincoln Academy",
+      "city": "Forrest City",
+      "decision": "exclude",
+      "reason": "Manual review confirmed this is a sixth-grade academy; outside varsity high-school scope."
+    },
+    {
+      "school_id": "df-abs2rr",
+      "provider_org_id": "ABS2RR",
+      "name": "Midland Elementary School",
+      "city": "Floral",
+      "decision": "exclude",
+      "reason": "Elementary-school identity; outside varsity high-school scope."
+    },
+    {
+      "school_id": "df-qscp6x",
+      "provider_org_id": "QSCP6X",
+      "name": "Nettleton Junior High School",
+      "city": "Jonesboro",
+      "decision": "exclude",
+      "reason": "Junior-high identity; outside varsity high-school scope."
+    },
+    {
+      "school_id": "df-urlzfa",
+      "provider_org_id": "URLZFA",
+      "name": "Piggott Elementary School",
+      "city": "Piggott",
+      "decision": "exclude",
+      "reason": "Elementary-school identity; outside varsity high-school scope."
+    },
+    {
+      "school_id": "df-25lkrp",
+      "provider_org_id": "25LKRP",
+      "name": "Pocahontas Junior High School",
+      "city": "Pocahontas",
+      "decision": "exclude",
+      "reason": "Junior-high identity; outside varsity high-school scope."
+    }
+  ]
+}
