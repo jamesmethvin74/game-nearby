@@ -1,5 +1,6 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { CURATED_SCHOOL_BRANDING_IDENTITIES } from "./school-branding-curated.js";
+import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 
 function clean(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -41,6 +42,7 @@ export async function syncCuratedSchoolBranding(env, { now = new Date(), force =
     WHERE s.catalog_scope='local'
       AND EXISTS (SELECT 1 FROM teams t WHERE t.school_id=s.id AND t.active=1)
     ORDER BY s.name`).all();
+  const visibleSchools = schools.filter(isSchoolCatalogVisible);
 
   let matched = 0;
   let populated = 0;
@@ -48,7 +50,7 @@ export async function syncCuratedSchoolBranding(env, { now = new Date(), force =
   const failures = [];
 
   for (const identity of CURATED_SCHOOL_BRANDING_IDENTITIES) {
-    const school = findSchool(schools, identity);
+    const school = findSchool(visibleSchools, identity);
     if (!school) {
       unresolved.push({ targetSchoolId: identity.targetSchoolId || null, targetNames: identity.targetNames, targetCity: identity.targetCity || null });
       continue;

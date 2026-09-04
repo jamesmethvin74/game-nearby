@@ -44,10 +44,13 @@ test("M4 college school schedule query is tightly scoped to active college produ
   assert.doesNotMatch(source, /UPDATE\s+games|INSERT\s+INTO\s+games|DELETE\s+FROM\s+games/i);
 });
 
-test("M4 wrapper is the configured Worker entry point while preserving the existing app underneath", () => {
+test("configured Worker preserves M4 underneath the protected logo bootstrap wrapper", () => {
   const wrangler = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
+  const logoWrapper = fs.readFileSync(new URL("../src/logo-bootstrap-worker.js", import.meta.url), "utf8");
   const source = fs.readFileSync(new URL("../src/m4-public-worker.js", import.meta.url), "utf8");
-  assert.match(wrangler, /"main"\s*:\s*"src\/m4-public-worker\.js"/);
+  assert.match(wrangler, /"main"\s*:\s*"src\/logo-bootstrap-worker\.js"/);
+  assert.match(logoWrapper, /import app from "\.\/m4-public-worker\.js"/);
+  assert.match(logoWrapper, /return app\.scheduled\(controller, env, ctx\)/);
   assert.match(source, /import app from "\.\/d1-usage-public-worker\.js"/);
   assert.match(source, /return app\.scheduled\(controller, env, ctx\)/);
 });
