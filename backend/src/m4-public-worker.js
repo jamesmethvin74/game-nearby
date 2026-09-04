@@ -1,10 +1,12 @@
 import app from "./d1-usage-public-worker.js";
 import core from "./index.js";
+import { collegeProductionActivationPlan } from "./college-production-activation.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
+const M4_PREP_DIAGNOSTIC_PATH = "/api/v1/m4/prep-state-7f4c2a91";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -76,6 +78,84 @@ function resolvedGameForSchool(row, schoolId) {
     data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
     conflict_count: Number(row.conflict_count || 0)
   };
+}
+
+async function m4PreparationState(env) {
+  const plan = collegeProductionActivationPlan(COLLEGE_BOOTSTRAP_SEASON);
+  const schoolIds = plan.schools.map(row => row.id);
+  const teamIds = plan.teams.map(row => row.id);
+  const readyIds = plan.certifiedTargets.map(row => `${row.schoolId}-${row.sport}-${row.gender}-${row.season}`);
+
+  const result = await env.DB.prepare(`
+    WITH school_targets AS (
+      SELECT value AS id FROM json_each(?)
+    ), team_targets AS (
+      SELECT value AS id FROM json_each(?)
+    ), ready_targets AS (
+      SELECT value AS id FROM json_each(?)
+    ), desired AS (
+      SELECT
+        json_extract(value,'$.schoolId') AS school_id,
+        json_extract(value,'$.sport') AS sport,
+        json_extract(value,'$.gender') AS gender,
+        json_extract(value,'$.season') AS season,
+        json_extract(value,'$.sourceId') AS source_id,
+        json_extract(value,'$.sourceUrl') AS source_url,
+        json_extract(value,'$.parserType') AS parser_type
+      FROM json_each(?)
+    )
+    SELECT
+      (SELECT COUNT(*) FROM schools s JOIN school_targets x ON x.id=s.id
+        WHERE s.level='college' AND s.catalog_scope='local') AS schools,
+      (SELECT COUNT(*) FROM teams t JOIN team_targets x ON x.id=t.id) AS teams,
+      (SELECT COUNT(*) FROM teams t JOIN ready_targets x ON x.id=t.id WHERE t.active=1) AS readyActive,
+      (SELECT COUNT(*) FROM teams t JOIN team_targets x ON x.id=t.id
+        WHERE t.id NOT IN (SELECT id FROM ready_targets) AND t.active=0) AS inactive,
+      (SELECT COUNT(*)
+        FROM desired d
+        JOIN teams t
+          ON t.school_id=d.school_id
+         AND t.sport=d.sport
+         AND t.gender=d.gender
+         AND t.season=d.season
+        WHERE EXISTS (
+          SELECT 1 FROM sources s
+          WHERE s.team_id=t.id
+            AND s.source_url=d.source_url
+            AND s.parser_type=d.parser_type
+        )) AS sourceMatches,
+      (SELECT COUNT(*)
+        FROM desired d
+        JOIN sources s ON s.id=d.source_id
+        WHERE s.enabled=1) AS newSourceEnabled
+  `).bind(
+    JSON.stringify(schoolIds),
+    JSON.stringify(teamIds),
+    JSON.stringify(readyIds),
+    JSON.stringify(plan.sourceRows)
+  ).all();
+
+  const row = result.results?.[0] || {};
+  const counts = {
+    schools:Number(row.schools || 0),
+    teams:Number(row.teams || 0),
+    readyActive:Number(row.readyActive || 0),
+    inactive:Number(row.inactive || 0),
+    sourceMatches:Number(row.sourceMatches || 0),
+    newSourceEnabled:Number(row.newSourceEnabled || 0)
+  };
+  const expected = { schools:36, teams:130, readyActive:103, inactive:27, sourceMatches:103, newSourceEnabled:0 };
+  const matches = Object.entries(expected).every(([key,value]) => counts[key] === value);
+
+  return privateJson({
+    status:"READ_ONLY",
+    matches,
+    counts,
+    expected,
+    rowsRead:Number(result.meta?.rows_read || 0),
+    rowsWritten:Number(result.meta?.rows_written || 0),
+    durationMs:Number(result.meta?.duration || 0) || null
+  });
 }
 
 async function collegeSchoolSchedule(request, env, schoolId) {
@@ -171,6 +251,9 @@ export default {
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
     }
+    if (request.method === "GET" && url.pathname === M4_PREP_DIAGNOSTIC_PATH) {
+      return m4PreparationState(env);
+    }
     if (request.method === "GET") {
       const schoolId = legacyCollegeSchoolId(url.pathname);
       if (schoolId) {
@@ -188,8 +271,10 @@ export default {
 export {
   COLLEGE_BOOTSTRAP_PATH,
   COLLEGE_BOOTSTRAP_SEASON,
+  M4_PREP_DIAGNOSTIC_PATH,
   collegeSchoolSchedule,
   legacyCollegeSchoolId,
+  m4PreparationState,
   resolvedGameForSchool,
   runCollegeBootstrap
 };
