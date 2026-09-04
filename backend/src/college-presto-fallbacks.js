@@ -2,8 +2,8 @@ const key = (sport, gender) => `${sport}|${gender}`;
 
 // Exact 2026-27 school-host Presto RSS proof from the read-only M3 probe.
 // These feeds are official school athletics surfaces and are reachable by a
-// normal server-side client even though the centralized NAIA authority is
-// Cloudflare-challenged. Only teams with at least one exact 2026-27 item are
+// normal server-side client even though the centralized NAIA/NJCAA authorities
+// are Cloudflare-challenged. Only teams with at least one exact 2026-27 item are
 // classified as ready. Reachable feeds with no target-season rows stay pending.
 export const COLLEGE_PRESTO_RSS_FALLBACKS = Object.freeze({
   cbc: Object.freeze({
@@ -20,6 +20,16 @@ export const COLLEGE_PRESTO_RSS_FALLBACKS = Object.freeze({
     sourceUrl:"https://www.wbueagles.com/composite?print=rss",
     ready:Object.freeze([key("soccer","men"),key("soccer","women"),key("volleyball","women")]),
     pending:Object.freeze([key("basketball","men"),key("basketball","women")])
+  }),
+  "national-park": Object.freeze({
+    sourceUrl:"https://athletics.np.edu/composite?print=rss",
+    ready:Object.freeze([key("soccer","men"),key("soccer","women")]),
+    pending:Object.freeze([key("basketball","men"),key("basketball","women")])
+  }),
+  nwacc: Object.freeze({
+    sourceUrl:"https://nwacceagles.com/composite?print=rss",
+    ready:Object.freeze([key("soccer","men"),key("soccer","women")]),
+    pending:Object.freeze([])
   })
 });
 
