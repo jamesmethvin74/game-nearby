@@ -55,6 +55,11 @@ test("M4 source activation enables exactly the certified URL+parser authority fo
 test("M4 combined production verification is one read-only statement and matches prepared source/catalog state", () => {
   const db = buildDb();
   const plan = collegeProductionActivationPlan("2026");
+  const highSchoolBefore = Number(db.prepare(`
+    SELECT COUNT(*) n
+    FROM teams t JOIN schools s ON s.id=t.school_id
+    WHERE s.level='high-school' AND s.catalog_scope='local' AND t.active=1
+  `).get().n);
   prepareAndActivate(db, plan);
   const seasonStart = "2026-07-01T00:00:00.000Z";
   const row = db.prepare(COLLEGE_PRODUCTION_VERIFICATION_SQL).get(
@@ -76,7 +81,8 @@ test("M4 combined production verification is one read-only statement and matches
   assert.equal(Number(row.unexpected_enabled_certified_sources), 0);
   assert.equal(Number(row.stale_prior_season_observations), 0);
   assert.equal(Number(row.protection_indexes_present), PROTECTION_INDEXES.length);
-  assert.equal(Number(row.high_school_active_teams), HIGH_SCHOOL_BASELINE);
+  assert.equal(Number(row.high_school_active_teams), highSchoolBefore, "M4 must not change the high-school fixture baseline");
+  assert.equal(HIGH_SCHOOL_BASELINE, 1102, "production verification remains locked to the certified M2 baseline");
   assert.equal(Number(row.current_college_observations), 0, "schedule ingestion is intentionally a later production step");
 
   assert.doesNotMatch(COLLEGE_PRODUCTION_VERIFICATION_SQL, /\b(?:INSERT|UPDATE|DELETE)\b/i);
