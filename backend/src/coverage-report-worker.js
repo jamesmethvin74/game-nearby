@@ -1,4 +1,5 @@
 import app from "./standings-worker.js";
+import { isSchoolCatalogVisible, reviewedHighSchoolIdentitySummary } from "./high-school-catalog-identity.js";
 
 function publicJson(request, body, status = 200) {
   const origin = request.headers.get("origin");
@@ -183,10 +184,17 @@ async function coverageSnapshot(env) {
     ORDER BY sch.level,school_name,t.sport,t.gender,t.id
   `).all();
 
+  const visibleResults = results.filter(row => isSchoolCatalogVisible({
+    id: row.school_id,
+    name: row.school_name,
+    level: row.level
+  }));
+
   return {
     generated_at: new Date().toISOString(),
-    inventory_note: "Known production teams only. Expected-team discovery is tracked separately and remains incomplete until reconciled.",
-    ...summarizeCoverageRows(results)
+    inventory_note: "Known production teams only. Reviewed lower-grade identities are excluded from the user-facing high-school denominator; sport-target expansion for reviewed keep additions is tracked separately.",
+    catalog_identity: reviewedHighSchoolIdentitySummary(),
+    ...summarizeCoverageRows(visibleResults)
   };
 }
 
