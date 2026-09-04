@@ -36,12 +36,16 @@ test("M4 activation plan uses only the currently live-proved college denominator
   const cbcMen = plan.certifiedTargets.find(row => row.schoolId === "cbc" && row.sport === "basketball" && row.gender === "men");
   assert.equal(cbcMen?.sourceUrl, "https://cbcmustangs.com/sports/mbkb/2026-27/schedule?print=rss");
   assert.equal(cbcMen?.parserType, "prestosports-rss");
+  assert.ok(plan.schools.every(row => Number.isFinite(row.latitude) && Number.isFinite(row.longitude)));
+  assert.ok(plan.schools.every(row => row.latitude >= 33 && row.latitude <= 37 && row.longitude >= -95 && row.longitude <= -89));
+  assert.ok(plan.schools.every(row => row.locationSource === "us-census-gazetteer-city-centroid-2024"));
 });
 
 test("M4 prep materializes the full catalog but activates only certified college teams", () => {
   const db = buildDb();
   const plan = collegeProductionActivationPlan("2026");
   const highSchoolBefore = count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='high-school'");
+  const ucaBefore = db.prepare("SELECT latitude,longitude,location_source FROM schools WHERE id='uca'").get();
 
   db.prepare(COLLEGE_SCHOOL_INSERT_SQL).run(JSON.stringify(plan.schools));
   db.prepare(COLLEGE_TEAM_INSERT_SQL).run(JSON.stringify(plan.teams));
@@ -50,6 +54,10 @@ test("M4 prep materializes the full catalog but activates only certified college
   assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND t.season='2026' AND t.active=1"), 103);
   assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND t.season='2026' AND t.active=0"), 27);
   assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='high-school'"), highSchoolBefore);
+  assert.equal(count(db, "SELECT COUNT(*) n FROM schools WHERE level='college' AND latitude IS NOT NULL AND longitude IS NOT NULL"), 36);
+  assert.equal(db.prepare("SELECT location_source FROM schools WHERE id='cbc'").get().location_source, "us-census-gazetteer-city-centroid-2024");
+  const ucaAfter = db.prepare("SELECT latitude,longitude,location_source FROM schools WHERE id='uca'").get();
+  assert.deepEqual(ucaAfter, ucaBefore, "existing exact pilot school coordinates must not be overwritten by city fallback data");
 });
 
 test("M4 source prep is set-based, disabled, idempotent, and reuses equivalent pilot sources", () => {
@@ -67,6 +75,7 @@ test("M4 source prep is set-based, disabled, idempotent, and reuses equivalent p
   assert.ok(Number(first.changes) > 0);
   assert.ok(preparedAfterFirst < plan.counts.sourceRows, "equivalent pilot sources should not be duplicated");
   assert.equal(count(db, "SELECT COUNT(*) n FROM sources WHERE id LIKE 'college-%' AND enabled=1"), 0);
+  assert.equal(count(db, "SELECT COUNT(*) n FROM sources src JOIN teams t ON t.id=src.team_id JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND src.id LIKE 'college-%' AND src.home_latitude IS NOT NULL AND src.home_longitude IS NOT NULL"), preparedAfterFirst);
 
   const second = db.prepare(COLLEGE_SOURCE_PREPARE_SQL).run(JSON.stringify(plan.sourceRows));
   assert.equal(Number(second.changes), 0);
