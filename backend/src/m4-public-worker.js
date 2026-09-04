@@ -1,6 +1,10 @@
 import app from "./d1-usage-public-worker.js";
+import core from "./index.js";
+import { runScopedCadence } from "./scoped-cadence-runner.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
+const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
+const COLLEGE_BOOTSTRAP_SEASON = "2026";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -11,6 +15,20 @@ function json(body, status = 200) {
       "access-control-allow-origin": "*"
     }
   });
+}
+
+function privateJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store"
+    }
+  });
+}
+
+function authorizedWrite(request, env) {
+  return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
 }
 
 function legacyCollegeSchoolId(pathname) {
@@ -127,10 +145,34 @@ async function collegeSchoolSchedule(request, env, schoolId) {
   return json({ schoolId, games });
 }
 
+async function runCollegeBootstrap(request, env, ctx) {
+  // Temporary M4 activation surface. It is intentionally not on the cron path.
+  // Each explicit invocation selects at most eight enabled/current college
+  // sources with zero game rows and routes them through the normal collector.
+  // Remove this endpoint after the initial production population is complete.
+  if (!authorizedWrite(request, env)) return privateJson({ error:"not_found" }, 404);
+  const result = await runScopedCadence({
+    core,
+    env,
+    ctx,
+    controller:null,
+    plan:{
+      kind:"m4-college-initial-ingestion",
+      scope:"college-bootstrap",
+      season:COLLEGE_BOOTSTRAP_SEASON
+    }
+  });
+  return privateJson(result || { status:"SKIPPED" });
+}
+
 export default {
   async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
+      return runCollegeBootstrap(request, env, ctx);
+    }
     if (request.method === "GET") {
-      const schoolId = legacyCollegeSchoolId(new URL(request.url).pathname);
+      const schoolId = legacyCollegeSchoolId(url.pathname);
       if (schoolId) {
         const response = await collegeSchoolSchedule(request, env, schoolId);
         if (response) return response;
@@ -143,4 +185,11 @@ export default {
   }
 };
 
-export { collegeSchoolSchedule, legacyCollegeSchoolId, resolvedGameForSchool };
+export {
+  COLLEGE_BOOTSTRAP_PATH,
+  COLLEGE_BOOTSTRAP_SEASON,
+  collegeSchoolSchedule,
+  legacyCollegeSchoolId,
+  resolvedGameForSchool,
+  runCollegeBootstrap
+};
