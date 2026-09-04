@@ -15,12 +15,12 @@ test("college milestone inventory covers all 36 catalog colleges", () => {
   assert.equal(new Set(actual).size, 36);
 });
 
-test("college milestone inventory establishes 132 supported-team targets", () => {
+test("college milestone inventory establishes 130 current supported-team targets", () => {
   const summary = collegeInventorySummary();
   assert.equal(summary.schools, 36);
-  assert.equal(summary.expectedTeams, 132);
+  assert.equal(summary.expectedTeams, 130);
   assert.equal(summary.verifiedSchools, 35);
-  assert.equal(summary.verifiedTeams, 127);
+  assert.equal(summary.verifiedTeams, 125);
   assert.equal(summary.provisionalSchools, 1);
 });
 
@@ -37,11 +37,14 @@ test("college target teams use supported sports and unique school/sport/gender k
       seen.add(key);
     }
   }
-  assert.equal(seen.size, 132);
+  assert.equal(seen.size, 130);
 });
 
-test("colleges without a LocalBleachers-supported sport are represented explicitly", () => {
+test("colleges without a current LocalBleachers-supported sport are represented explicitly", () => {
   const byId = new Map(ARKANSAS_COLLEGE_TEAM_INVENTORY.map(row => [row.schoolId, row]));
   assert.equal(byId.get("asu-mountain-home").teams.length, 0);
+  assert.equal(byId.get("asu-newport").teams.length, 0);
   assert.equal(byId.get("asu-three-rivers").teams.length, 0);
+  assert.match(byId.get("asu-newport").verificationNote, /discontinued men's basketball effective July 1, 2026/i);
+  assert.equal(byId.get("north-arkansas").teams.some(team => team.sport === "soccer"), false);
 });
