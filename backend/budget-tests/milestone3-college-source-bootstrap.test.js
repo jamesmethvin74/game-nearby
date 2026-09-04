@@ -15,17 +15,17 @@ function buildDb(){
 
 function key(row){return `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`;}
 
-test("M3 source bootstrap can represent exactly the 98 currently parser-ready targets",()=>{
+test("M3 source bootstrap can represent exactly the 102 currently parser-ready targets",()=>{
   const candidates=parserReadyCollegeSourceCandidates("2026");
   const certified=new Set(candidates.map(key));
   const rows=certifiedCollegeSourceRows(certified,"2026");
-  assert.equal(rows.length,98);
-  assert.equal(new Set(rows.map(row=>row.sourceId)).size,98);
+  assert.equal(rows.length,102);
+  assert.equal(new Set(rows.map(row=>row.sourceId)).size,102);
   assert.equal(rows.filter(row=>row.parserType==="sidearm").length,75);
   assert.equal(rows.filter(row=>row.parserType==="sidearm-modern").length,4);
   assert.equal(rows.filter(row=>row.parserType==="arkansas-razorbacks").length,5);
   assert.equal(rows.filter(row=>row.parserType==="institutional-table").length,2);
-  assert.equal(rows.filter(row=>row.parserType==="prestosports-rss").length,12);
+  assert.equal(rows.filter(row=>row.parserType==="prestosports-rss").length,16);
   assert.ok(rows.every(row=>row.activeResultMinutes===30));
 });
 
@@ -47,8 +47,8 @@ test("M3 source materialization is one set-based disabled insert with no schedul
   const rows=certifiedCollegeSourceRows(new Set(candidates.map(key)),"2026");
   const before={games:Number(db.prepare("SELECT COUNT(*) n FROM games").get().n),records:Number(db.prepare("SELECT COUNT(*) n FROM team_records").get().n),standings:Number(db.prepare("SELECT COUNT(*) n FROM standings").get().n)};
   const result=db.prepare(SOURCE_INSERT_SQL).run(JSON.stringify(rows));
-  assert.equal(Number(result.changes),98);
-  assert.equal(Number(db.prepare("SELECT COUNT(*) n FROM sources WHERE id LIKE 'college-%'").get().n),98);
+  assert.equal(Number(result.changes),102);
+  assert.equal(Number(db.prepare("SELECT COUNT(*) n FROM sources WHERE id LIKE 'college-%'").get().n),102);
   assert.equal(Number(db.prepare("SELECT COUNT(*) n FROM sources WHERE id LIKE 'college-%' AND enabled=1").get().n),0);
   assert.deepEqual({games:Number(db.prepare("SELECT COUNT(*) n FROM games").get().n),records:Number(db.prepare("SELECT COUNT(*) n FROM team_records").get().n),standings:Number(db.prepare("SELECT COUNT(*) n FROM standings").get().n)},before);
 
