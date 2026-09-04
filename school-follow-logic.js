@@ -134,16 +134,24 @@ function ensureTeamSearchStyle() {
   if (document.querySelector("#teamSearchFilterStyle")) return;
   const style = document.createElement("style");
   style.id = "teamSearchFilterStyle";
-  style.textContent = `.team-choice.team-choice-filtered{display:none!important}.team-search-wrap{position:sticky;top:0;z-index:3;background:var(--pitch-surface,var(--card,#10243d));padding:0 0 10px}.team-search-input{width:100%;box-sizing:border-box;border:1px solid var(--pitch-line,var(--line,#35506b));border-radius:12px;padding:12px 14px;background:var(--pitch-surface-soft,var(--bg-soft,#0b1d31));color:var(--pitch-ink,inherit);font:inherit;outline:none}.team-search-input:focus{border-color:var(--pitch-blue,var(--blue,#4da3ff));box-shadow:0 0 0 2px color-mix(in srgb,var(--pitch-blue,var(--blue,#4da3ff)) 18%,transparent)}`;
+  style.textContent = `.team-choice.team-choice-filtered{display:none!important}.team-search-wrap{position:sticky;top:0;z-index:3;background:var(--pitch-surface,var(--card,#10243d));padding:0 0 10px}.team-filter-row{display:grid;grid-template-columns:minmax(130px,.72fr) minmax(0,1.5fr);gap:8px}.team-level-select,.team-search-input{width:100%;box-sizing:border-box;border:1px solid var(--pitch-line,var(--line,#35506b));border-radius:12px;padding:12px 14px;background:var(--pitch-surface-soft,var(--bg-soft,#0b1d31));color:var(--pitch-ink,inherit);font:inherit;outline:none}.team-level-select:focus,.team-search-input:focus{border-color:var(--pitch-blue,var(--blue,#4da3ff));box-shadow:0 0 0 2px color-mix(in srgb,var(--pitch-blue,var(--blue,#4da3ff)) 18%,transparent)}@media(max-width:520px){.team-filter-row{grid-template-columns:1fr}.team-level-select,.team-search-input{padding:11px 12px}}`;
   document.head.appendChild(style);
 }
 
-function filterTeamChoices(search, choices) {
+function filterTeamChoices(search, levelPicker, choices) {
   const needle = String(search?.value || "").trim().toLowerCase();
+  const level = String(levelPicker?.value || "high-school");
   for (const choice of choices) {
     const haystack = String(choice.dataset.teamSearch || "").toLowerCase();
-    choice.classList.toggle("team-choice-filtered", Boolean(needle) && !haystack.includes(needle));
+    const levelMatch = String(choice.dataset.teamLevel || "high-school") === level;
+    const searchMatch = !needle || haystack.includes(needle);
+    choice.classList.toggle("team-choice-filtered", !levelMatch || !searchMatch);
   }
+}
+
+function savedTeamLevel() {
+  const saved = localStorage.getItem("localBleachersAR:teamLevelFilter");
+  return saved === "college" ? "college" : "high-school";
 }
 
 renderTeamChoices = function() {
@@ -155,16 +163,25 @@ renderTeamChoices = function() {
   ensureTeamSearchStyle();
   const rows = SCHOOL_REGISTRY.map(school => {
     const searchText = `${school.name} ${school.providerName || ""} ${school.subtitle || ""} ${school.city || ""} ${school.state || ""}`.toLowerCase();
-    return `<label class="team-choice" data-team-search="${searchText.replace(/&/g,"&amp;").replace(/"/g,"&quot;")}"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${schoolChoiceDetail(school)}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
+    const level = school.level === "college" ? "college" : "high-school";
+    return `<label class="team-choice" data-team-level="${level}" data-team-search="${searchText.replace(/&/g,"&amp;").replace(/"/g,"&quot;")}"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${schoolChoiceDetail(school)}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
   }).join("");
 
-  teamChoicesEl.innerHTML = `<div class="team-search-wrap"><input id="teamSearchInput" class="team-search-input" type="search" autocomplete="off" placeholder="Search Arkansas schools" aria-label="Search Arkansas schools"></div>${rows}`;
+  const selectedLevel = savedTeamLevel();
+  teamChoicesEl.innerHTML = `<div class="team-search-wrap"><div class="team-filter-row"><select id="teamLevelFilter" class="team-level-select" aria-label="School level"><option value="high-school"${selectedLevel==="high-school"?" selected":""}>High School</option><option value="college"${selectedLevel==="college"?" selected":""}>College</option></select><input id="teamSearchInput" class="team-search-input" type="search" autocomplete="off" placeholder="Search schools" aria-label="Search Arkansas schools"></div></div>${rows}`;
 
+  const levelPicker = teamChoicesEl.querySelector("#teamLevelFilter");
   const search = teamChoicesEl.querySelector("#teamSearchInput");
   const choices = [...teamChoicesEl.querySelectorAll(".team-choice")];
-  const apply = () => filterTeamChoices(search, choices);
+  const apply = () => filterTeamChoices(search, levelPicker, choices);
+  levelPicker?.addEventListener("change", () => {
+    localStorage.setItem("localBleachersAR:teamLevelFilter", levelPicker.value);
+    search.value = "";
+    apply();
+  });
   search?.addEventListener("input", apply);
   search?.addEventListener("search", apply);
+  apply();
 };
 
 function homeEventSource() {
