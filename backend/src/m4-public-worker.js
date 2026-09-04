@@ -4,6 +4,7 @@ import { runScopedCadence } from "./scoped-cadence-runner.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
+const APPROVED_BOOTSTRAP_BATCH2_PATH = "/api/v1/m4/bootstrap-approved-b2";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
 
 function json(body, status = 200) {
@@ -29,6 +30,10 @@ function privateJson(body, status = 200) {
 
 function authorizedWrite(request, env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+}
+
+function authorizedBatch2(request, env) {
+  return Boolean(env.M4_BATCH2_TOKEN) && request.headers.get("x-m4-batch2-token") === env.M4_BATCH2_TOKEN;
 }
 
 function legacyCollegeSchoolId(pathname) {
@@ -165,9 +170,37 @@ async function runCollegeBootstrap(request, env, ctx) {
   return privateJson(result || { status:"SKIPPED" });
 }
 
+async function runApprovedBootstrapBatch2(request, env, ctx) {
+  if (!authorizedBatch2(request, env)) return privateJson({ error:"not_found" }, 404);
+  const result = await runScopedCadence({
+    core,
+    env,
+    ctx,
+    controller:null,
+    plan:{
+      kind:"m4-college-initial-ingestion-approved-batch2",
+      scope:"college-bootstrap",
+      season:COLLEGE_BOOTSTRAP_SEASON
+    }
+  });
+  return privateJson(result || { status:"SKIPPED" });
+}
+
+function batch2Readiness(request, env) {
+  if (!authorizedBatch2(request, env)) return privateJson({ error:"not_found" }, 404);
+  return new Response(null, {
+    status:204,
+    headers:{ "cache-control":"no-store" }
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === APPROVED_BOOTSTRAP_BATCH2_PATH) {
+      if (request.method === "HEAD") return batch2Readiness(request, env);
+      if (request.method === "POST") return runApprovedBootstrapBatch2(request, env, ctx);
+    }
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
     }
@@ -186,10 +219,14 @@ export default {
 };
 
 export {
+  APPROVED_BOOTSTRAP_BATCH2_PATH,
   COLLEGE_BOOTSTRAP_PATH,
   COLLEGE_BOOTSTRAP_SEASON,
+  authorizedBatch2,
+  batch2Readiness,
   collegeSchoolSchedule,
   legacyCollegeSchoolId,
   resolvedGameForSchool,
+  runApprovedBootstrapBatch2,
   runCollegeBootstrap
 };
