@@ -32,6 +32,10 @@ function authorizedWrite(request, env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
 }
 
+function authorizedBatch2(request, env) {
+  return Boolean(env.M4_BATCH2_TOKEN) && request.headers.get("x-m4-batch2-token") === env.M4_BATCH2_TOKEN;
+}
+
 function legacyCollegeSchoolId(pathname) {
   const match = pathname.match(/^\/api\/v1\/teams\/([^/]+)\/schedule$/);
   if (!match) return null;
@@ -166,7 +170,8 @@ async function runCollegeBootstrap(request, env, ctx) {
   return privateJson(result || { status:"SKIPPED" });
 }
 
-async function runApprovedBootstrapBatch2(env, ctx) {
+async function runApprovedBootstrapBatch2(request, env, ctx) {
+  if (!authorizedBatch2(request, env)) return privateJson({ error:"not_found" }, 404);
   const result = await runScopedCadence({
     core,
     env,
@@ -184,8 +189,8 @@ async function runApprovedBootstrapBatch2(env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === APPROVED_BOOTSTRAP_BATCH2_PATH) {
-      return runApprovedBootstrapBatch2(env, ctx);
+    if (request.method === "POST" && url.pathname === APPROVED_BOOTSTRAP_BATCH2_PATH) {
+      return runApprovedBootstrapBatch2(request, env, ctx);
     }
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
