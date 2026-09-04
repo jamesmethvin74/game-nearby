@@ -24,12 +24,12 @@ test("M3 source resolution separates ready, unpublished, and blocked targets", (
   assert.deepEqual(collegeSourceAuditSummary("2026"), {
     schools:36,
     parserReadySchools:26,
-    parserReadyTeams:102,
+    parserReadyTeams:103,
     blockedAuthoritySchools:6,
     blockedAuthorityTeams:19,
     noSupportedTeamSchools:3,
     pendingSchools:5,
-    pendingTeams:9,
+    pendingTeams:8,
     totalTeams:130
   });
   assert.deepEqual(blockedPrestoAuthoritySummary("2026"), {
@@ -39,13 +39,13 @@ test("M3 source resolution separates ready, unpublished, and blocked targets", (
     njcaaTeams:11,
     directPrestoTeams:5
   });
-  assert.deepEqual(pendingPrestoFallbackSummary("2026"), {schools:5,teams:9});
+  assert.deepEqual(pendingPrestoFallbackSummary("2026"), {schools:5,teams:8});
 });
 
-test("M3 parser-ready candidates include exactly sixteen live-proved Presto RSS fallbacks", () => {
+test("M3 parser-ready candidates include exactly seventeen live-proved Presto RSS fallbacks", () => {
   const candidates = parserReadyCollegeSourceCandidates("2026");
-  assert.equal(candidates.length,102);
-  assert.equal(new Set(candidates.map(row => `${key(row)}|${row.season}`)).size,102);
+  assert.equal(candidates.length,103);
+  assert.equal(new Set(candidates.map(row => `${key(row)}|${row.season}`)).size,103);
 
   const razorbacks = candidates.filter(row => row.parserType === "arkansas-razorbacks");
   const classic = candidates.filter(row => row.parserType === "sidearm");
@@ -56,9 +56,10 @@ test("M3 parser-ready candidates include exactly sixteen live-proved Presto RSS 
   assert.equal(classic.length,75);
   assert.equal(modern.length,4);
   assert.equal(institutional.length,2);
-  assert.equal(presto.length,16);
+  assert.equal(presto.length,17);
 
   assert.deepEqual(new Set(presto.map(key)), new Set([
+    "cbc|basketball|men",
     "cbc|soccer|men",
     "cbc|soccer|women",
     "cbc|volleyball|women",
@@ -77,7 +78,9 @@ test("M3 parser-ready candidates include exactly sixteen live-proved Presto RSS 
     "seark|basketball|women"
   ]));
   assert.ok(presto.every(row=>row.certificationState==="parser-ready-live-proved"));
-  assert.ok(presto.every(row=>/\/composite\?print=rss$/.test(row.sourceUrl)));
+  const cbcMen = presto.find(row => key(row) === "cbc|basketball|men");
+  assert.equal(cbcMen?.sourceUrl,"https://cbcmustangs.com/sports/mbkb/2026-27/schedule?print=rss");
+  assert.ok(presto.filter(row => key(row) !== "cbc|basketball|men").every(row=>/\/composite\?print=rss$/.test(row.sourceUrl)));
 
   for (const source of candidates) {
     assert.equal(source.sourceType,"official-athletics");
@@ -93,11 +96,10 @@ test("M3 parser-ready candidates include exactly sixteen live-proved Presto RSS 
   }
 });
 
-test("M3 leaves nine reachable but unpublished 2026-27 Presto fallbacks pending", () => {
+test("M3 leaves eight reachable but unpublished 2026-27 Presto fallbacks pending", () => {
   const pending=pendingPrestoFallbackTargets("2026");
-  assert.equal(pending.length,9);
+  assert.equal(pending.length,8);
   assert.deepEqual(new Set(pending.map(key)),new Set([
-    "cbc|basketball|men",
     "cbc|basketball|women",
     "crowleys-ridge|basketball|women",
     "williams-baptist|basketball|men",
@@ -121,6 +123,6 @@ test("M3 never exposes genuinely blocked Presto authorities as source candidates
   const pendingKeys = new Set(pendingPrestoFallbackTargets("2026").map(key));
   for (const row of blocked) {
     assert.ok(!readyKeys.has(key(row)));
-    assert.ok(!pendingKeys.has(key(row)));
+    assert.ok(!pendingKeys.has(key(row));
   }
 });
