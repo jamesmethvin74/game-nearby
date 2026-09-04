@@ -27,13 +27,15 @@ test("M4 activation plan uses only the currently live-proved college denominator
   const plan = collegeProductionActivationPlan("2026");
   assert.equal(plan.counts.schools, 36);
   assert.equal(plan.counts.teams, 130);
-  assert.equal(plan.counts.ready, 102);
-  assert.equal(plan.counts.pending, 9);
+  assert.equal(plan.counts.ready, 103);
+  assert.equal(plan.counts.pending, 8);
   assert.equal(plan.counts.blocked, 19);
-  assert.equal(plan.counts.inactive, 28);
-  assert.equal(plan.counts.sourceRows, 102);
-  assert.equal(new Set(plan.certifiedTargets.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 102);
-  assert.equal(plan.certifiedTargets.some(row => row.schoolId === "cbc" && row.sport === "basketball" && row.gender === "men"), false);
+  assert.equal(plan.counts.inactive, 27);
+  assert.equal(plan.counts.sourceRows, 103);
+  assert.equal(new Set(plan.certifiedTargets.map(row => `${row.schoolId}|${row.sport}|${row.gender}|${row.season}`)).size, 103);
+  const cbcMen = plan.certifiedTargets.find(row => row.schoolId === "cbc" && row.sport === "basketball" && row.gender === "men");
+  assert.equal(cbcMen?.sourceUrl, "https://cbcmustangs.com/sports/mbkb/2026-27/schedule?print=rss");
+  assert.equal(cbcMen?.parserType, "prestosports-rss");
 });
 
 test("M4 prep materializes the full catalog but activates only certified college teams", () => {
@@ -45,8 +47,8 @@ test("M4 prep materializes the full catalog but activates only certified college
   db.prepare(COLLEGE_TEAM_INSERT_SQL).run(JSON.stringify(plan.teams));
   db.prepare(COLLEGE_TEAM_ACTIVATION_SQL).run(JSON.stringify(plan.certifiedTargets), JSON.stringify(plan.teams));
 
-  assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND t.season='2026' AND t.active=1"), 102);
-  assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND t.season='2026' AND t.active=0"), 28);
+  assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND t.season='2026' AND t.active=1"), 103);
+  assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='college' AND t.season='2026' AND t.active=0"), 27);
   assert.equal(count(db, "SELECT COUNT(*) n FROM teams t JOIN schools s ON s.id=t.school_id WHERE s.level='high-school'"), highSchoolBefore);
 });
 
