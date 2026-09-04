@@ -3,11 +3,13 @@ import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-c
 import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { normalizeArkansasRazorbackHtml } from "./arkansas-razorbacks.js";
 import { normalizeModernSidearmHtml } from "./sidearm-modern.js";
+import { fetchCollegeSourceMaterial, parseCollegeSourceBody } from "./college-source-runtime.js";
 import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { rebuildTeamRecord } from "./record-rebuild.js";
 
 const API_PREFIX="/api/v1";
 const USER_AGENT="LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)";
+const MAX_SCOPED_REFRESH_SOURCES=16;
 
 export default {
   async fetch(request, env, ctx) {
@@ -43,7 +45,13 @@ async function route(request,env,ctx){
   if (request.method==="POST" && url.pathname===`${API_PREFIX}/refresh`) {
     if (!env.REFRESH_TOKEN || request.headers.get("x-refresh-token")!==env.REFRESH_TOKEN) return json({error:"not_found"},404,request,env);
     const body=await request.json().catch(()=>({}));
-    const result=await runDueCollections(env,{force:true,sourceId:body?.sourceId||null,reason:"manual"});
+    const sourceIds=Array.isArray(body?.sourceIds)
+      ? [...new Set(body.sourceIds.map(value=>String(value||"").trim()).filter(Boolean))]
+      : null;
+    if (sourceIds && (sourceIds.length<1 || sourceIds.length>MAX_SCOPED_REFRESH_SOURCES)) {
+      return json({error:"invalid_source_scope",maxSources:MAX_SCOPED_REFRESH_SOURCES},400,request,env);
+    }
+    const result=await runDueCollections(env,{force:true,sourceId:body?.sourceId||null,sourceIds,reason:"manual"});
     return json(result,200,request,env);
   }
   return json({error:"not_found"},404,request,env);
@@ -189,12 +197,16 @@ async function listNearbyGames(request,env,url){
   return json({games},200,request,env);
 }
 
-async function runDueCollections(env,{force=false,sourceId=null,reason="scheduled"}={}){
+async function runDueCollections(env,{force=false,sourceId=null,sourceIds=null,reason="scheduled"}={}){
+  const scopedIds=Array.isArray(sourceIds) && sourceIds.length
+    ? [...new Set(sourceIds.map(value=>String(value||"").trim()).filter(Boolean))]
+    : sourceId ? [String(sourceId)] : null;
+  if (scopedIds && scopedIds.length>MAX_SCOPED_REFRESH_SOURCES) throw new Error(`Too many scoped sources ${scopedIds.length}/${MAX_SCOPED_REFRESH_SOURCES}`);
   let query=env.DB.prepare(`
     SELECT src.*, t.season,t.sport,t.gender,t.conference_id,sch.id AS school_id,sch.name AS school_name
     FROM sources src JOIN teams t ON t.id=src.team_id JOIN schools sch ON sch.id=t.school_id
-    WHERE src.enabled=1 ${sourceId?"AND src.id=?":""} ORDER BY src.authority_rank,src.source_priority,src.id`);
-  if (sourceId) query=query.bind(sourceId);
+    WHERE src.enabled=1 ${scopedIds?"AND src.id IN (SELECT value FROM json_each(?))":""} ORDER BY src.authority_rank,src.source_priority,src.id`);
+  if (scopedIds) query=query.bind(JSON.stringify(scopedIds));
   const {results:sources}=await query.all();
   const outcomes=[];
   const sharedFetches=new Map();
@@ -229,6 +241,9 @@ async function fetchSourceMaterial(source,sharedFetches){
     }
     return pending;
   }
+
+  const collegeMaterial=await fetchCollegeSourceMaterial(source,sharedFetches,{fetchFn:fetch,userAgent:USER_AGENT});
+  if (collegeMaterial) return collegeMaterial;
 
   const headers={"user-agent":USER_AGENT,"accept":"application/json,text/html,application/xhtml+xml"};
   if (source.etag) headers["if-none-match"]=source.etag;
@@ -293,6 +308,8 @@ async function collectSource(env,source,reason,sharedFetches=new Map()){
 }
 
 async function parseSourceBody(body,source,contentType=""){
+  const collegeParsed=await parseCollegeSourceBody(body,source,{HTMLRewriterClass:globalThis.HTMLRewriter});
+  if (collegeParsed) return dedupe(collegeParsed);
   if (source.parser_type==="sidearm") return parseSidearmHtml(body,source);
   if (source.parser_type==="sidearm-modern") return dedupe(normalizeModernSidearmHtml(body,source));
   if (source.parser_type==="arkansas-razorbacks") return dedupe(normalizeArkansasRazorbackHtml(body,source));

@@ -1,6 +1,8 @@
 import { ARKANSAS_COLLEGE_TEAM_INVENTORY } from "./college-team-inventory.js";
+import { arkansasCityCentroid } from "./college-city-centroids.js";
 
 const VERIFIED_AT = "2026-09-02T00:00:00.000Z";
+const LOCATION_SOURCE = "us-census-gazetteer-city-centroid-2024";
 
 // Stable catalog metadata already used by the LocalBleachersAR Teams picker.
 // Keep provider/source wiring separate: M3 first establishes the exact local
@@ -50,6 +52,8 @@ export function collegeCatalogSeed(season = "2026") {
   const schools = ARKANSAS_COLLEGE_TEAM_INVENTORY.map(school => {
     const metadata = metadataById.get(school.schoolId);
     if (!metadata) throw new Error(`Missing college catalog metadata for ${school.schoolId}`);
+    const centroid = arkansasCityCentroid(metadata.city);
+    if (!centroid) throw new Error(`Missing Arkansas city centroid for ${school.schoolId}:${metadata.city}`);
     return {
       id: school.schoolId,
       name: school.schoolName,
@@ -57,6 +61,10 @@ export function collegeCatalogSeed(season = "2026") {
       state: "AR",
       level: "college",
       mascot: metadata.mascot,
+      latitude: centroid.latitude,
+      longitude: centroid.longitude,
+      locationSource: LOCATION_SOURCE,
+      locationUpdatedAt: VERIFIED_AT,
       catalogScope: "local",
       membershipSource: school.verificationStatus === "verified" ? "college-inventory-verified" : "college-inventory-provisional",
       membershipVerifiedAt: school.verificationStatus === "verified" ? VERIFIED_AT : null,
@@ -78,7 +86,8 @@ export function collegeCatalogSeed(season = "2026") {
 
 export const COLLEGE_SCHOOL_INSERT_SQL = `
   INSERT OR IGNORE INTO schools
-    (id,name,city,state,level,mascot,catalog_scope,membership_source,membership_verified_at)
+    (id,name,city,state,level,mascot,latitude,longitude,location_source,location_updated_at,
+     catalog_scope,membership_source,membership_verified_at)
   SELECT
     json_extract(value,'$.id'),
     json_extract(value,'$.name'),
@@ -86,6 +95,10 @@ export const COLLEGE_SCHOOL_INSERT_SQL = `
     json_extract(value,'$.state'),
     json_extract(value,'$.level'),
     json_extract(value,'$.mascot'),
+    CAST(json_extract(value,'$.latitude') AS REAL),
+    CAST(json_extract(value,'$.longitude') AS REAL),
+    json_extract(value,'$.locationSource'),
+    json_extract(value,'$.locationUpdatedAt'),
     json_extract(value,'$.catalogScope'),
     json_extract(value,'$.membershipSource'),
     json_extract(value,'$.membershipVerifiedAt')
