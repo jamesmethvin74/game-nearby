@@ -1,0 +1,64 @@
+name: M3 NJCAA institutional fallback proof
+
+on:
+  pull_request:
+    branches:
+      - feature/m3-arkansas-college-coverage
+    paths:
+      - .github/workflows/m3-njcaa-institutional-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe institutional NJCAA fallback surfaces
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const urls=[
+            ['npc-presto-all','https://athletics.np.edu/composite?print=rss'],
+            ['npc-calendar','https://cal.np.edu/'],
+            ['npc-calendar-api','https://cal.np.edu/api/2/events?start=2026-08-01&end=2027-03-31'],
+            ['nwacc-presto-all','https://nwacceagles.com/composite?print=rss'],
+            ['nwacc-home','https://www.nwacc.edu/'],
+            ['shorter-events','https://shortercollege.edu/events/category/sports/list/'],
+            ['shorter-tribe','https://shortercollege.edu/wp-json/tribe/events/v1/events?start_date=2026-08-01&end_date=2027-03-31&per_page=100'],
+            ['shorter-wp','https://shortercollege.edu/wp-json/wp/v2/search?search=basketball&per_page=100'],
+            ['southark-api','https://thrillshare-cmsv2.services.thrillshare.com/api/v4/o/23722/cms/events?page_no=1'],
+            ['sau-tech','https://www.sautrockets.com/'],
+            ['cossatot-showcase','https://www.cccua.edu/_showcase/athletics.html'],
+            ['cossatot-athletics','https://www.cccua.edu/student-life/athletics.html'],
+            ['rich-mountain','https://www.uarichmountain.edu/'],
+            ['seark','https://www.seark.edu/'],
+            ['asu-mid-calendar','https://events.asumidsouth.edu/']
+          ];
+          const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+          for(const [name,url] of urls){
+            try{
+              const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-NJCAA-proof/1.0','accept':'application/json,application/rss+xml,text/calendar,text/html,*/*'}});
+              const text=await r.text();
+              let json=null; try{json=JSON.parse(text)}catch{}
+              const hrefs=[...text.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map(m=>m[1]).filter(v=>/(api|event|calendar|schedule|soccer|basketball|volleyball|rss|ical|json|feed)/i.test(v)).slice(0,60);
+              const markers={
+                challenge:/cf-chl|challenge-platform|Just a moment/i.test(text),
+                y2627:/2026-27|2026–27|2026-2027/i.test(text),
+                msoc:/Men['’]s Soccer/i.test(text), wsoc:/Women['’]s Soccer/i.test(text),
+                mbb:/Men['’]s Basketball/i.test(text), wbb:/Women['’]s Basketball/i.test(text),
+                wvb:/Women['’]s Volleyball|Volleyball/i.test(text)
+              };
+              const snippets=[];
+              for(const needle of ['2026-27','2026-2027',"Men's Soccer","Women's Soccer","Men's Basketball","Women's Basketball","Volleyball","wp-json","api/"]){
+                const i=text.toLowerCase().indexOf(needle.toLowerCase());
+                if(i>=0) snippets.push({needle,text:clean(text.slice(Math.max(0,i-300),Math.min(text.length,i+1000)))});
+              }
+              console.log('===== '+name+' =====');
+              console.log(JSON.stringify({status:r.status,finalUrl:r.url,type:r.headers.get('content-type'),size:text.length,markers,jsonKeys:json&&Object.keys(json).slice(0,25),eventCount:json?.events?.length??json?.results?.length??null,hrefs,snippets},null,2));
+            }catch(e){console.log(JSON.stringify({name,error:String(e?.message||e)}));}
+          }
+          NODE
