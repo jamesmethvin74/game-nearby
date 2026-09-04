@@ -17,60 +17,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Probe school sport composite RSS feeds
+      - name: Probe current raw Presto RSS item structure
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          const schools = [
-            ['cbc','https://cbcmustangs.com'],
-            ['crc','https://crcpioneers.com'],
-            ['wbu','https://www.wbueagles.com'],
-            ['philander','https://philanderathletics.com'],
-            ['champion','https://championchristian.prestosports.com']
-          ];
-          const sports=['mbkb','wbkb','msoc','wsoc','wvball'];
-          const strip=s=>String(s||'').replace(/<!\[CDATA\[|\]\]>/g,'').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
-          const field=(item,name)=>{const m=item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`,'i'));return strip(m?.[1]);};
-          async function fetchText(url){
-            const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'LocalBleachersAR-M3-school-rss-proof/2.0','accept':'application/rss+xml,application/xml,text/xml,text/html,*/*'}});
-            return {r,text:await r.text()};
-          }
-          async function probe(name,url){
-            const row={name,url,status:null,type:null,size:0,challenge:false,itemCount:0,titles:[],dates:[]};
-            try{
-              const {r,text}=await fetchText(url);
-              row.status=r.status; row.type=r.headers.get('content-type'); row.size=text.length; row.finalUrl=r.url;
-              row.challenge=/cf-chl|challenge-platform|Just a moment/i.test(text);
-              row.itemCount=(text.match(/<item\b/gi)||[]).length;
-              row.titles=[...text.matchAll(/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/gi)].map(m=>strip(m[1])).filter(Boolean).slice(0,12);
-              row.dates=[...text.matchAll(/<(?:pubDate|dc:date|ps:date|date)>([\s\S]*?)<\//gi)].map(m=>strip(m[1])).slice(0,12);
-            }catch(e){row.error=String(e?.message||e)}
-            console.log(JSON.stringify(row));
-          }
+          const schools=[['cbc','https://cbcmustangs.com'],['crc','https://crcpioneers.com'],['wbu','https://www.wbueagles.com']];
+          const wanted=['Men\'s Basketball','Women\'s Basketball','Men\'s Soccer','Women\'s Soccer','Women\'s Volleyball'];
+          const field=(item,name)=>item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`,'i'))?.[1]||'';
+          const plain=s=>String(s||'').replace(/<!\[CDATA\[|\]\]>/g,'').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
           for(const [school,base] of schools){
-            await probe(`${school}-all`,`${base}/composite?print=rss`);
-            for(const sport of sports) await probe(`${school}-${sport}`,`${base}/sports/${sport}/composite?print=rss`);
-          }
-
-          // Deep proof: inspect 2026 rows in the healthy school-wide feeds so empty/404
-          // sport-specific endpoints can still be certified only when the item itself exposes
-          // a stable sport-scoped link/category.
-          for(const [school,base] of schools.filter(([s])=>['cbc','crc','wbu'].includes(s))){
-            const {r,text}=await fetchText(`${base}/composite?print=rss`);
+            const r=await fetch(`${base}/composite?print=rss`,{headers:{'user-agent':'LocalBleachersAR-M3-rss-structure/1.0','accept':'application/rss+xml,text/xml,*/*'}});
+            const text=await r.text();
             const items=[...text.matchAll(/<item\b[\s\S]*?<\/item>/gi)].map(m=>m[0]);
-            const current=items.map(item=>({
-              title:field(item,'title'),
-              link:field(item,'link'),
-              guid:field(item,'guid'),
-              category:field(item,'category'),
-              date:field(item,'pubDate')||field(item,'dc:date'),
-              description:field(item,'description').slice(0,260)
-            })).filter(x=>/2026/.test(x.date)||/\/2026|2026-/.test(`${x.link} ${x.guid} ${x.description}`));
-            console.log(`===== DEEP ${school} status=${r.status} current=${current.length} =====`);
-            console.log(JSON.stringify(current.slice(0,120)));
-            for(const sport of sports){
-              const matches=current.filter(x=>new RegExp(`/sports/${sport}/|${sport}`,'i').test(`${x.link} ${x.guid} ${x.category} ${x.description}`));
-              console.log(JSON.stringify({school,sport,currentMatches:matches.length,sample:matches.slice(0,8)}));
+            console.log(`===== ${school} status=${r.status} items=${items.length} =====`);
+            for(const category of wanted){
+              const hit=items.find(item=>plain(field(item,'category'))===category && /2026/.test(`${plain(field(item,'pubDate'))} ${plain(field(item,'link'))} ${plain(field(item,'description'))}`) && !/\/\d{4}-\d{2}jv\//i.test(plain(field(item,'link'))));
+              if(!hit) continue;
+              console.log(`--- ${school} ${category} ---`);
+              console.log(hit.slice(0,7000));
             }
           }
           NODE
