@@ -1,6 +1,8 @@
 import { normalizeMascotRows, normalizeSidearmRows } from "./parser-core.js";
 import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-core.js";
 import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
+import { normalizeArkansasRazorbackHtml } from "./arkansas-razorbacks.js";
+import { normalizeModernSidearmHtml } from "./sidearm-modern.js";
 import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { rebuildTeamRecord } from "./record-rebuild.js";
 
@@ -292,6 +294,8 @@ async function collectSource(env,source,reason,sharedFetches=new Map()){
 
 async function parseSourceBody(body,source,contentType=""){
   if (source.parser_type==="sidearm") return parseSidearmHtml(body,source);
+  if (source.parser_type==="sidearm-modern") return dedupe(normalizeModernSidearmHtml(body,source));
+  if (source.parser_type==="arkansas-razorbacks") return dedupe(normalizeArkansasRazorbackHtml(body,source));
   if (source.parser_type==="mascot-media") return parseMascotHtml(body,source);
   if (source.parser_type==="dragonfly-public") {
     if (/application\/json/i.test(contentType) || /^[\s\r\n]*[\[{]/.test(body)) {
