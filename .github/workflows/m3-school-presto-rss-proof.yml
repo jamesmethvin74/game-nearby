@@ -17,24 +17,25 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Probe current raw Presto RSS item structure
+      - name: Prove exact 2026-27 target-season rows
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           const schools=[['cbc','https://cbcmustangs.com'],['crc','https://crcpioneers.com'],['wbu','https://www.wbueagles.com']];
-          const wanted=['Men\'s Basketball','Women\'s Basketball','Men\'s Soccer','Women\'s Soccer','Women\'s Volleyball'];
+          const sports=[['mbkb',"Men's Basketball"],['wbkb',"Women's Basketball"],['msoc',"Men's Soccer"],['wsoc',"Women's Soccer"],['wvball',"Women's Volleyball"]];
           const field=(item,name)=>item.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)<\\/${name}>`,'i'))?.[1]||'';
           const plain=s=>String(s||'').replace(/<!\[CDATA\[|\]\]>/g,'').replace(/<[^>]+>/g,' ').replace(/&amp;/g,'&').replace(/&#39;/g,"'").replace(/\s+/g,' ').trim();
           for(const [school,base] of schools){
-            const r=await fetch(`${base}/composite?print=rss`,{headers:{'user-agent':'LocalBleachersAR-M3-rss-structure/1.0','accept':'application/rss+xml,text/xml,*/*'}});
+            const r=await fetch(`${base}/composite?print=rss`,{headers:{'user-agent':'LocalBleachersAR-M3-target-season-proof/1.0','accept':'application/rss+xml,text/xml,*/*'}});
             const text=await r.text();
             const items=[...text.matchAll(/<item\b[\s\S]*?<\/item>/gi)].map(m=>m[0]);
             console.log(`===== ${school} status=${r.status} items=${items.length} =====`);
-            for(const category of wanted){
-              const hit=items.find(item=>plain(field(item,'category'))===category && /2026/.test(`${plain(field(item,'pubDate'))} ${plain(field(item,'link'))} ${plain(field(item,'description'))}`) && !/\/\d{4}-\d{2}jv\//i.test(plain(field(item,'link'))));
-              if(!hit) continue;
-              console.log(`--- ${school} ${category} ---`);
-              console.log(hit.slice(0,7000));
+            for(const [code,category] of sports){
+              const matches=items.filter(item=>{
+                const link=plain(field(item,'link'));
+                return plain(field(item,'category'))===category && new RegExp(`/sports/${code}/2026-27/schedule`,'i').test(link) && !/2026-27jv/i.test(link);
+              });
+              console.log(JSON.stringify({school,code,category,targetSeasonMatches:matches.length,samples:matches.slice(0,3).map(item=>({link:plain(field(item,'link')),description:plain(field(item,'description')),score:plain(field(item,'ps:score')),opponent:plain(field(item,'ps:opponent')),date:plain(field(item,'dc:date'))}))}));
             }
           }
           NODE
