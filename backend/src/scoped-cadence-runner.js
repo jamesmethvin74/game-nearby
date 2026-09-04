@@ -1,5 +1,12 @@
 const INTERNAL_REFRESH_TOKEN = "__localbleachers_scoped_cadence__";
 const ORDINARY_MAX_SOURCES_PER_RUN = 4;
+const COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN = 8;
+
+function safeSeason(value) {
+  const season = String(value || "2026");
+  if (!/^\d{4}$/.test(season)) throw new Error("Invalid college bootstrap season");
+  return season;
+}
 
 export function scopePolicy(plan = {}) {
   if (plan.scope === "all") {
@@ -48,6 +55,24 @@ export function scopePolicy(plan = {}) {
       dueMode: "active-result"
     };
   }
+  if (plan.scope === "college-bootstrap") {
+    const season = safeSeason(plan.season);
+    return {
+      // Manual/approval-only M4 bootstrap scope. The ordinary scheduler never
+      // emits this plan. Only enabled, active local college sources for the exact
+      // target season are eligible, and any source that already owns a game row
+      // is excluded from subsequent bootstrap batches.
+      where: `sch.level='college' AND t.season='${season}'`,
+      maxSources: COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN,
+      gameWindow: `AND NOT EXISTS (
+        SELECT 1
+        FROM games gx
+        WHERE gx.source_id=src.id
+          AND gx.team_id=t.id
+      )`,
+      dueMode: "bootstrap"
+    };
+  }
   return null;
 }
 
@@ -80,19 +105,21 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   const policy = scopePolicy(plan);
   if (!policy) return null;
 
-  // Every scheduled core path is bounded. Event-day scopes use their short
-  // result polling interval. Ordinary 6 AM / 3 PM / 11 PM passes use each
-  // source's own refresh_minutes and rotate oldest-checked sources first rather
-  // than enumerating every enabled source in one Worker invocation.
-  const dueClause = policy.dueMode === "source-refresh"
-    ? `AND (
-        src.last_checked_at IS NULL OR
-        datetime(src.last_checked_at, '+' || COALESCE(src.refresh_minutes,360) || ' minutes') <= datetime('now')
-      )`
-    : `AND (
-        src.last_checked_at IS NULL OR
-        datetime(src.last_checked_at, '+' || ? || ' minutes') <= datetime('now')
-      )`;
+  // Every core path is bounded. Event-day scopes use their short result polling
+  // interval. Ordinary 6 AM / 3 PM / 11 PM passes use each source's own
+  // refresh_minutes. The explicit M4 bootstrap ignores cadence age but only for
+  // enabled college sources with zero game rows, capped at eight per invocation.
+  const dueClause = policy.dueMode === "bootstrap"
+    ? ""
+    : policy.dueMode === "source-refresh"
+      ? `AND (
+          src.last_checked_at IS NULL OR
+          datetime(src.last_checked_at, '+' || COALESCE(src.refresh_minutes,360) || ' minutes') <= datetime('now')
+        )`
+      : `AND (
+          src.last_checked_at IS NULL OR
+          datetime(src.last_checked_at, '+' || ? || ' minutes') <= datetime('now')
+        )`;
 
   let query = env.DB.prepare(`
     SELECT src.id, src.team_id, src.last_checked_at, src.source_url, src.parser_type
@@ -106,7 +133,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     ORDER BY src.last_checked_at IS NOT NULL, src.last_checked_at, src.authority_rank, src.source_priority, src.id
     LIMIT ?
   `);
-  query = policy.dueMode === "source-refresh"
+  query = policy.dueMode === "bootstrap" || policy.dueMode === "source-refresh"
     ? query.bind(policy.maxSources)
     : query.bind(policy.activeMinutes, policy.maxSources);
   const selection = await query.all();
@@ -132,7 +159,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   const outcomes = [];
   let attemptedSources = 0;
 
-  // Only shared school-wide Presto RSS rows are batched together. Everything
+  // Only identical school-wide Presto RSS rows are batched together. Everything
   // else remains one source per internal refresh call, preserving the existing
   // failure boundary while allowing one provider fetch to serve sibling teams.
   for (const group of groups) {
@@ -173,3 +200,5 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     outcomes
   };
 }
+
+export { COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN, INTERNAL_REFRESH_TOKEN, safeSeason };
