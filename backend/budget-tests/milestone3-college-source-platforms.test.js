@@ -23,29 +23,29 @@ test("M3 provider audit classifies every college exactly once", () => {
 test("M3 source resolution separates ready, unpublished, and blocked targets", () => {
   assert.deepEqual(collegeSourceAuditSummary("2026"), {
     schools:36,
-    parserReadySchools:24,
-    parserReadyTeams:98,
-    blockedAuthoritySchools:9,
-    blockedAuthorityTeams:25,
+    parserReadySchools:26,
+    parserReadyTeams:102,
+    blockedAuthoritySchools:6,
+    blockedAuthorityTeams:19,
     noSupportedTeamSchools:3,
-    pendingSchools:4,
-    pendingTeams:7,
+    pendingSchools:5,
+    pendingTeams:9,
     totalTeams:130
   });
   assert.deepEqual(blockedPrestoAuthoritySummary("2026"), {
-    schools:9,
-    teams:25,
+    schools:6,
+    teams:19,
     naiaTeams:3,
-    njcaaTeams:17,
+    njcaaTeams:11,
     directPrestoTeams:5
   });
-  assert.deepEqual(pendingPrestoFallbackSummary("2026"), {schools:4,teams:7});
+  assert.deepEqual(pendingPrestoFallbackSummary("2026"), {schools:5,teams:9});
 });
 
-test("M3 parser-ready candidates include exactly twelve live-proved Presto RSS fallbacks", () => {
+test("M3 parser-ready candidates include exactly sixteen live-proved Presto RSS fallbacks", () => {
   const candidates = parserReadyCollegeSourceCandidates("2026");
-  assert.equal(candidates.length,98);
-  assert.equal(new Set(candidates.map(row => `${key(row)}|${row.season}`)).size,98);
+  assert.equal(candidates.length,102);
+  assert.equal(new Set(candidates.map(row => `${key(row)}|${row.season}`)).size,102);
 
   const razorbacks = candidates.filter(row => row.parserType === "arkansas-razorbacks");
   const classic = candidates.filter(row => row.parserType === "sidearm");
@@ -56,7 +56,7 @@ test("M3 parser-ready candidates include exactly twelve live-proved Presto RSS f
   assert.equal(classic.length,75);
   assert.equal(modern.length,4);
   assert.equal(institutional.length,2);
-  assert.equal(presto.length,12);
+  assert.equal(presto.length,16);
 
   assert.deepEqual(new Set(presto.map(key)), new Set([
     "cbc|soccer|men",
@@ -70,7 +70,11 @@ test("M3 parser-ready candidates include exactly twelve live-proved Presto RSS f
     "national-park|soccer|men",
     "national-park|soccer|women",
     "nwacc|soccer|men",
-    "nwacc|soccer|women"
+    "nwacc|soccer|women",
+    "ua-rich-mountain|soccer|men",
+    "ua-rich-mountain|soccer|women",
+    "seark|basketball|men",
+    "seark|basketball|women"
   ]));
   assert.ok(presto.every(row=>row.certificationState==="parser-ready-live-proved"));
   assert.ok(presto.every(row=>/\/composite\?print=rss$/.test(row.sourceUrl)));
@@ -89,9 +93,9 @@ test("M3 parser-ready candidates include exactly twelve live-proved Presto RSS f
   }
 });
 
-test("M3 leaves seven reachable but unpublished 2026-27 Presto fallbacks pending", () => {
+test("M3 leaves nine reachable but unpublished 2026-27 Presto fallbacks pending", () => {
   const pending=pendingPrestoFallbackTargets("2026");
-  assert.equal(pending.length,7);
+  assert.equal(pending.length,9);
   assert.deepEqual(new Set(pending.map(key)),new Set([
     "cbc|basketball|men",
     "cbc|basketball|women",
@@ -99,7 +103,9 @@ test("M3 leaves seven reachable but unpublished 2026-27 Presto fallbacks pending
     "williams-baptist|basketball|men",
     "williams-baptist|basketball|women",
     "national-park|basketball|men",
-    "national-park|basketball|women"
+    "national-park|basketball|women",
+    "asu-mid-south|basketball|men",
+    "asu-mid-south|basketball|women"
   ]));
   assert.ok(pending.every(row=>row.serverFetchable===true));
   assert.ok(pending.every(row=>row.certificationState==="fallback-reachable-schedule-unpublished"));
@@ -107,9 +113,9 @@ test("M3 leaves seven reachable but unpublished 2026-27 Presto fallbacks pending
 
 test("M3 never exposes genuinely blocked Presto authorities as source candidates", () => {
   const blocked = blockedPrestoAuthorityTargets("2026");
-  assert.equal(blocked.length,25);
+  assert.equal(blocked.length,19);
   assert.ok(blocked.every(row => row.serverFetchable === false));
-  assert.equal(new Set(blocked.map(row => row.schoolId)).size,9);
+  assert.equal(new Set(blocked.map(row => row.schoolId)).size,6);
 
   const readyKeys = new Set(parserReadyCollegeSourceCandidates("2026").map(key));
   const pendingKeys = new Set(pendingPrestoFallbackTargets("2026").map(key));
