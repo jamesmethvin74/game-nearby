@@ -123,6 +123,6 @@ test("M3 never exposes genuinely blocked Presto authorities as source candidates
   const pendingKeys = new Set(pendingPrestoFallbackTargets("2026").map(key));
   for (const row of blocked) {
     assert.ok(!readyKeys.has(key(row)));
-    assert.ok(!pendingKeys.has(key(row));
+    assert.ok(!pendingKeys.has(key(row)));
   }
 });
