@@ -95,6 +95,53 @@ WHERE NOT EXISTS (
     AND existing.parser_type=m.parser_type
 )`;
 
+// This is the production approval boundary. It affects only source rows attached
+// to the 130 M4 target team identities. For those teams, the exact certified
+// URL+parser pair is enabled and every other source is disabled. High-school and
+// unrelated college teams are outside the WHERE clause.
+export const COLLEGE_SOURCE_ACTIVATE_SQL = `
+WITH desired AS (
+  SELECT
+    json_extract(value,'$.schoolId') AS school_id,
+    json_extract(value,'$.sport') AS sport,
+    json_extract(value,'$.gender') AS gender,
+    json_extract(value,'$.season') AS season,
+    json_extract(value,'$.sourceUrl') AS source_url,
+    json_extract(value,'$.parserType') AS parser_type
+  FROM json_each(?)
+), targets AS (
+  SELECT
+    json_extract(value,'$.schoolId') AS school_id,
+    json_extract(value,'$.sport') AS sport,
+    json_extract(value,'$.gender') AS gender,
+    json_extract(value,'$.season') AS season
+  FROM json_each(?)
+)
+UPDATE sources
+SET enabled = CASE WHEN EXISTS (
+      SELECT 1
+      FROM desired d
+      JOIN teams dt
+        ON dt.school_id=d.school_id
+       AND dt.sport=d.sport
+       AND dt.gender=d.gender
+       AND dt.season=d.season
+      WHERE dt.id=sources.team_id
+        AND d.source_url=sources.source_url
+        AND d.parser_type=sources.parser_type
+    ) THEN 1 ELSE 0 END,
+    updated_at=CURRENT_TIMESTAMP
+WHERE EXISTS (
+  SELECT 1
+  FROM targets x
+  JOIN teams tt
+    ON tt.school_id=x.school_id
+   AND tt.sport=x.sport
+   AND tt.gender=x.gender
+   AND tt.season=x.season
+  WHERE tt.id=sources.team_id
+)`;
+
 export function collegeProductionActivationPlan(season = "2026") {
   const catalog = collegeCatalogSeed(season);
   const ready = parserReadyCollegeSourceCandidates(season);
@@ -147,5 +194,22 @@ export async function prepareCollegeProductionActivation(env, { season = "2026" 
     rowsRead: meta.reduce((sum,row) => sum + Number(row.rows_read || 0), 0),
     rowsWritten: meta.reduce((sum,row) => sum + Number(row.rows_written || 0), 0),
     durationMs: meta.reduce((sum,row) => sum + Number(row.duration || 0), 0) || null
+  };
+}
+
+export async function activateCollegeProductionSources(env, { season = "2026" } = {}) {
+  if (!env?.DB) throw new Error("D1 binding DB is required");
+  const plan = collegeProductionActivationPlan(season);
+  const result = await env.DB.prepare(COLLEGE_SOURCE_ACTIVATE_SQL)
+    .bind(JSON.stringify(plan.sourceRows), JSON.stringify(plan.teams))
+    .run();
+  return {
+    status:"ACTIVATED",
+    season,
+    ready:plan.counts.ready,
+    inactive:plan.counts.inactive,
+    rowsRead:Number(result.meta?.rows_read || 0),
+    rowsWritten:Number(result.meta?.rows_written || 0),
+    durationMs:Number(result.meta?.duration || 0) || null
   };
 }
