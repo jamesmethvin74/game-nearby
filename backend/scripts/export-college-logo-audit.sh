@@ -19,16 +19,9 @@ console.log(`${Number(p?.counts?.appFallback||0)}-${ids}`);
 NODE
 )"
 
-DETAIL="$(node - "$OUT" <<'NODE'
-const fs=require('fs');
-const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-console.log(JSON.stringify({counts:p.counts,failures:p.failures,d1Meta:p.d1Meta}));
-NODE
-)"
-
 echo "COLLEGE_LOGO_AUDIT_EXPORTED $COMPACT"
 
-# The Worker name consumes 28 DNS-label characters, so keep this alias short.
+# The Worker name is 27 characters, so keep the alias at or below 32.
 SAFE_ALIAS="ca-${COMPACT}"
 SAFE_ALIAS="${SAFE_ALIAS:0:32}"
 node --input-type=module - "$OUT" <<'NODE'
@@ -38,5 +31,4 @@ fs.writeFileSync('src/college-logo-audit-export-worker.js', `const BODY=${JSON.s
 NODE
 wrangler versions upload src/college-logo-audit-export-worker.js \
   --preview-alias "$SAFE_ALIAS" \
-  --message "$DETAIL" \
   --keep-vars
