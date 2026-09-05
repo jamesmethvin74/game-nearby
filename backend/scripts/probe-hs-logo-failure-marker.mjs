@@ -8,9 +8,9 @@ const payload=await response.json();
 const lines=payload?.result?.lines;
 if(!response.ok||payload?.success!==true||!Array.isArray(lines)) process.exit(2);
 const text=JSON.stringify(lines);
-if(text.includes("LOGO_BOOTSTRAP_READY attempt=")){
-  console.log("SIBLING_LOGO_READY=YES");
+if(text.includes("Logo bootstrap readiness attempt")){
+  console.log("SIBLING_READINESS_LOOP=YES");
   process.exit(0);
 }
-console.error("SIBLING_LOGO_READY=NO");
+console.error("SIBLING_READINESS_LOOP=NO");
 process.exit(1);
