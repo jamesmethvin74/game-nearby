@@ -66,11 +66,23 @@ NODE
 }
 
 npm run check
-wrangler deploy
 
 TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
-printf '%s' "$TOKEN" | wrangler secret put LOGO_BOOTSTRAP_TOKEN
-SECRET_INSTALLED=1
+SECRET_OK=0
+for ATTEMPT in 1 2 3; do
+  if printf '%s' "$TOKEN" | wrangler secret put LOGO_BOOTSTRAP_TOKEN; then
+    SECRET_INSTALLED=1
+    SECRET_OK=1
+    echo "HS_LOGO_SECRET_INSTALLED attempt=$ATTEMPT"
+    break
+  fi
+  echo "HS logo secret install attempt $ATTEMPT failed" >&2
+  sleep 3
+done
+if [ "$SECRET_OK" != "1" ]; then
+  echo "HS logo secret installation failed after bounded retries" >&2
+  exit 1
+fi
 
 READY_STATUS=""
 for ATTEMPT in $(seq 1 20); do
