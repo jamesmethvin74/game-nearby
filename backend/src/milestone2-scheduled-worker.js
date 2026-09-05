@@ -8,6 +8,7 @@ import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { syncCertifiedDragonFlySportCatalog } from "./dragonfly-certified-sport-catalog.js";
 import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
+import { runHootensStatewideResults } from "./hootens-statewide-results.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -18,6 +19,10 @@ export function m2StatewideKeysForPlan(plan){
 
 export function shouldRunOfficialFinalResults(plan){
   return plan?.kind==="friday-football-results" || plan?.kind==="morning-results" || plan?.kind==="evening-results";
+}
+
+export function shouldRunHootensStatewideResults(plan){
+  return plan?.kind==="friday-football-results" || plan?.kind==="morning-results";
 }
 
 async function runCatalogMaintenance(env){
@@ -96,13 +101,13 @@ async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
   const activeResultMinutes=plan?.kind==="friday-football-results"?30:120;
   return runScopedCadence({
     core,env,ctx,controller,
-    plan:{
-      kind:`${plan.kind}-official-finals`,
-      runCore:true,
-      scope:"high-school-final-results",
-      activeResultMinutes
-    }
+    plan:{kind:`${plan.kind}-official-finals`,runCore:true,scope:"high-school-final-results",activeResultMinutes}
   });
+}
+
+async function runHootensFinalResultsPass({env,plan}){
+  if (!shouldRunHootensStatewideResults(plan)) return null;
+  return runHootensStatewideResults(env);
 }
 
 async function runScheduledPlan(controller,env,ctx){
@@ -125,23 +130,23 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
+  // Hooten is a single statewide result surface. Run it before the per-school
+  // fallback so successfully resolved finals disappear from that fallback's
+  // finished-but-still-SCHEDULED selector.
+  const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys,officialFinalResults};
+    if (scoped) return {...scoped,statewideSports:statewideKeys,hootensFinalResults,officialFinalResults};
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,officialFinalResults,coreResult:result??null};
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,hootensFinalResults,officialFinalResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,officialFinalResults};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,hootensFinalResults,officialFinalResults};
 }
 
 export default {
-  async fetch(request,env,ctx){
-    return app.fetch(request,env,ctx);
-  },
-  async scheduled(controller,env,ctx){
-    return runScheduledPlan(controller,env,ctx);
-  }
+  async fetch(request,env,ctx){return app.fetch(request,env,ctx);},
+  async scheduled(controller,env,ctx){return runScheduledPlan(controller,env,ctx);}
 };
