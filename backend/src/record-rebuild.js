@@ -1,4 +1,5 @@
 import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
+import { rebuildStandingsForTeams } from "./calculated-standings.js";
 
 function teamKey(team) {
   return `${team.sport}|${team.gender}|${team.season}`;
@@ -176,18 +177,24 @@ export async function rebuildTeamRecord(env, teamId, calculatedAt = new Date().t
   const built = buildRecordsFromInputs(inputs);
   if (!built.length) return null;
   await persistRecords(env, built, calculatedAt);
+  // The legacy per-source collector already rebuilds complete/calculated conferences
+  // immediately after this call. For every other conference method/state, materialize
+  // the touched cohort here so a fresh FINAL cannot leave standings behind the record.
+  await rebuildStandingsForTeams(env, [teamId], calculatedAt, { skipCompleteCalculated: true });
   return built[0].record;
 }
 
 export async function rebuildTeamRecords(env, teamIds, calculatedAt = new Date().toISOString()) {
   const scopedTeamIds=[...new Set((teamIds||[]).filter(Boolean))];
-  if (!scopedTeamIds.length) return {teams:0,scoredFinals:0};
+  if (!scopedTeamIds.length) return {teams:0,scoredFinals:0,standings:{cohorts:0,standingsRows:0}};
   const inputs = await loadRecordInputs(env, { teamIds: scopedTeamIds });
   const built = buildRecordsFromInputs(inputs);
   await persistRecords(env, built, calculatedAt);
+  const standings = await rebuildStandingsForTeams(env, built.map(item => item.team.id), calculatedAt);
   return {
     teams: built.length,
-    scoredFinals: built.reduce((sum, item) => sum + Number(item.record.scored_finals || 0), 0)
+    scoredFinals: built.reduce((sum, item) => sum + Number(item.record.scored_finals || 0), 0),
+    standings
   };
 }
 
@@ -195,8 +202,10 @@ export async function rebuildStatewideRecords(env, calculatedAt = new Date().toI
   const inputs = await loadRecordInputs(env);
   const built = buildRecordsFromInputs(inputs);
   await persistRecords(env, built, calculatedAt);
+  const standings = await rebuildStandingsForTeams(env, built.map(item => item.team.id), calculatedAt);
   return {
     teams: built.length,
-    scoredFinals: built.reduce((sum, item) => sum + Number(item.record.scored_finals || 0), 0)
+    scoredFinals: built.reduce((sum, item) => sum + Number(item.record.scored_finals || 0), 0),
+    standings
   };
 }
