@@ -42,13 +42,17 @@ export function collectionPlanAt(value = new Date()) {
     });
   }
 
-  // Friday high-school/football result window: 8:30 PM through midnight Central.
+  // Friday high-school/football result window: 8:30 PM Friday through 1:00 AM
+  // Saturday Central. The late buffer catches finals that post after midnight.
   const fridayEvening = weekday === "Fri" && (
     (hour === 20 && minute === 30) ||
     (hour >= 21 && hour <= 23 && (minute === 0 || minute === 30))
   );
-  const fridayMidnight = weekday === "Sat" && hour === 0 && minute === 0;
-  if (fridayEvening || fridayMidnight) {
+  const fridayLate = weekday === "Sat" && (
+    (hour === 0 && (minute === 0 || minute === 30)) ||
+    (hour === 1 && minute === 0)
+  );
+  if (fridayEvening || fridayLate) {
     return plan("friday-football-results", {
       runCore: true,
       scope: "football-game-day",
