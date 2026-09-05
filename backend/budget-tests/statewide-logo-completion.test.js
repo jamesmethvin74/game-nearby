@@ -40,7 +40,7 @@ test("reviewed lower-grade identities cannot re-enter logo completion", () => {
   }];
   const rows = buildHighSchoolLogoCandidates({ schools, basketballEntries, volleyballEntries:[], aliases:[] });
   const ids = new Set(rows.map(row => row.schoolId));
-  assert.ok(ids.has("df-a6slv2"), "reviewed varsity keep must remain eligible");
+  assert.ok(ids.has("df-a6slv2", "reviewed varsity keep must remain eligible"));
   assert.ok(ids.has("school-demo"), "ordinary varsity school must remain eligible");
   assert.ok(!ids.has("df-2tng4g"), "reviewed elementary identity must remain excluded");
   assert.equal(rows.find(row => row.schoolId === "df-a6slv2")?.status, "curated");
@@ -88,7 +88,7 @@ test("approved production script stays bounded, uses ephemeral Worker auth, rest
   assert.match(source, /randomBytes\(32\)/, "execution token must be freshly generated at runtime");
   assert.match(source, /_logo-execution-worker\.mjs/, "execution auth must be isolated to a temporary Worker wrapper");
   assert.match(source, /LOGO_BOOTSTRAP_TOKEN/, "temporary wrapper must inject the dedicated logo execution token");
-  assert.match(source, /wrangler deploy --config/, "temporary wrapper must deploy through native Wrangler");
+  assert.match(source, /wrangler deploy "\$WRAPPER"/, "temporary wrapper must deploy through native Wrangler positional entrypoint");
   assert.ok((source.match(/wrangler deploy/g) || []).length >= 2, "clean Worker must be redeployed after the temporary execution wrapper");
   assert.match(source, /LOGO_BOOTSTRAP_READY/, "execution must prove readiness before logo writes");
   assert.doesNotMatch(source, /wrangler secret put LOGO_BOOTSTRAP_TOKEN|wrangler secret delete LOGO_BOOTSTRAP_TOKEN/, "execution must not depend on the unavailable Worker-secret mutation path");
