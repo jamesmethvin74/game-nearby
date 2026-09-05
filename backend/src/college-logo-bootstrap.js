@@ -7,10 +7,9 @@ const PLATFORM_BY_SCHOOL = new Map(COLLEGE_SOURCE_PLATFORMS.map(row => [row.scho
 const SOURCE_OVERRIDES = new Map([
   ["williams-baptist", ["https://williamsbu.edu/athletics/", "https://williamsbu.edu/"]],
   ["philander-smith", ["https://www.philander.edu/athletics", "https://www.philander.edu/"]],
-  ["asu-mid-south", ["https://www.asumidsouth.edu/athletics/", "https://www.asumidsouth.edu/"]],
-  ["asu-mountain-home", ["https://asumhathletics.com/", "https://asumh.edu/"]],
-  ["asu-newport", ["https://www.asun.edu/", "https://asun.edu/"]],
-  ["asu-three-rivers", ["https://www.asutr.edu/", "https://asutr.edu/"]],
+  ["asu-mid-south", ["https://www.asumidsouthsports.com/landing/index", "https://www.asumidsouth.edu/athletics/", "https://www.asumidsouth.edu/"]],
+  ["asu-mountain-home", ["https://asumhathletics.com/landing/index", "https://asumhathletics.com/", "https://asumh.edu/institution/logos-branding/", "https://asumh.edu/"]],
+  ["asu-newport", ["https://asunaviators.com/landing/index", "https://asunaviators.com/", "https://www.asun.edu/", "https://asun.edu/"]],
   ["national-park", ["https://np.edu/"]],
   ["north-arkansas", ["https://www.northark.edu/athletics/", "https://www.northark.edu/"]],
   ["nwacc", ["https://www.nwacc.edu/"]],
@@ -60,6 +59,13 @@ function jsonLdLogoCandidates(html, baseUrl) {
   return candidates;
 }
 
+function socialImageLogoScore(url) {
+  const signal = clean(url).toLowerCase();
+  return /(?:^|[\/_\-.])(logo|brand|mascot|athletic|athletics|sports|school[-_ ]?mark)(?:[\/_\-.]|$)/.test(signal)
+    ? 84
+    : 40;
+}
+
 export function parseOfficialCollegeLogo(html, baseUrl) {
   const text = String(html || "");
   const candidates = jsonLdLogoCandidates(text, baseUrl);
@@ -82,7 +88,7 @@ export function parseOfficialCollegeLogo(html, baseUrl) {
     const key = (attr(attrs,"property") || attr(attrs,"name")).toLowerCase();
     if (key !== "og:image" && key !== "twitter:image") continue;
     const url = absoluteHttpUrl(attr(attrs,"content"), baseUrl);
-    if (url) candidates.push({ url, score:key === "og:image" ? 65 : 60, method:key });
+    if (url) candidates.push({ url, score:socialImageLogoScore(url), method:key });
   }
 
   for (const match of text.matchAll(/<link\b([^>]*)>/gi)) {
@@ -114,6 +120,37 @@ export function collegeBrandingSourceUrls(schoolId) {
   return [...new Set([...override, ...inferred])];
 }
 
+export function isAppRenderableLogoUrl(value) {
+  try {
+    return new URL(clean(value)).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function fetchLogoProbe(url, fetchFn, useRange) {
+  const headers = {
+    accept:"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+  };
+  if (useRange) headers.range = "bytes=0-4095";
+  return fetchFn(url, { method:"GET", headers, redirect:"follow" });
+}
+
+export async function probeCollegeLogoUrl(value, fetchFn = fetch) {
+  const url = clean(value);
+  if (!isAppRenderableLogoUrl(url)) throw new Error("logo URL is not HTTPS");
+  let response = await fetchLogoProbe(url, fetchFn, true);
+  if (response.status === 403 || response.status === 405 || response.status === 416) {
+    response = await fetchLogoProbe(url, fetchFn, false);
+  }
+  if (!response.ok) throw new Error(`logo HTTP ${response.status}`);
+  const contentType = clean(response.headers?.get?.("content-type")).toLowerCase();
+  if (!contentType.startsWith("image/")) throw new Error(`logo content-type ${contentType || "missing"}`);
+  const finalUrl = clean(response.url) || url;
+  if (!isAppRenderableLogoUrl(finalUrl)) throw new Error("logo redirected away from HTTPS");
+  return { url:finalUrl, contentType, status:response.status };
+}
+
 async function discoverCollegeLogo(school, fetchFn) {
   const sourceUrls = collegeBrandingSourceUrls(school.id);
   const failures = [];
@@ -127,14 +164,15 @@ async function discoverCollegeLogo(school, fetchFn) {
       const finalUrl = response.url || sourceUrl;
       const candidate = parseOfficialCollegeLogo(await response.text(), finalUrl);
       if (!candidate) throw new Error("no logo candidate");
+      const probe = await probeCollegeLogoUrl(candidate.url, fetchFn);
       return {
         schoolId:school.id,
         mascot:school.mascot || null,
-        logoUrl:candidate.url,
+        logoUrl:probe.url,
         provider:"official-college",
         providerName:school.name,
         sourceUrl:finalUrl,
-        matchMethod:candidate.method,
+        matchMethod:`${candidate.method}+render-probe`,
         matchConfidence:Math.min(1, Math.max(0.6, candidate.score / 100)),
         status:"curated"
       };
@@ -145,6 +183,14 @@ async function discoverCollegeLogo(school, fetchFn) {
   return { schoolId:school.id, failure: failures.length ? failures : [{ sourceUrl:null, error:"no branding source configured" }] };
 }
 
+function needsLogoRepair(row) {
+  const schoolLogo = clean(row.school_logo_url);
+  const brandLogo = clean(row.brand_logo_url);
+  return !isAppRenderableLogoUrl(schoolLogo)
+    || !isAppRenderableLogoUrl(brandLogo)
+    || schoolLogo !== brandLogo;
+}
+
 export async function runCollegeLogoCompletion(env, {
   fetchFn = fetch,
   now = new Date(),
@@ -153,19 +199,21 @@ export async function runCollegeLogoCompletion(env, {
 } = {}) {
   const checkedAt = now.toISOString();
   const safeLimit = Math.max(1, Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(limit) || COLLEGE_LOGO_BATCH_LIMIT));
-  const { results: missing } = await env.DB.prepare(`
-    SELECT s.id,s.name,s.city,s.state,s.level,s.mascot
+  const { results: colleges } = await env.DB.prepare(`
+    SELECT s.id,s.name,s.city,s.state,s.level,s.mascot,
+      s.logo_url AS school_logo_url,b.logo_url AS brand_logo_url,b.status AS brand_status
     FROM schools s
     LEFT JOIN school_brand_assets b ON b.school_id=s.id
     WHERE s.catalog_scope='local' AND s.level='college'
-      AND COALESCE(NULLIF(b.logo_url,''),NULLIF(s.logo_url,'')) IS NULL
+      AND s.id <> 'asu-three-rivers'
     ORDER BY s.id
   `).all();
 
+  const missing = colleges.filter(needsLogoRepair);
   let targets = missing;
   if (Array.isArray(schoolIds) && schoolIds.length) {
     const wanted = new Set(schoolIds.map(String));
-    targets = targets.filter(row => wanted.has(row.id));
+    targets = colleges.filter(row => wanted.has(row.id));
   }
   targets = targets.slice(0, safeLimit);
   if (!targets.length) return { status:"COMPLETE", missingBefore:missing.length, attempted:0, written:0, failures:[] };
