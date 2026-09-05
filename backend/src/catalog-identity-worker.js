@@ -17,6 +17,21 @@ const PERSISTENT_LOGO_RELAY_SCHOOL_IDS = new Set([
   "uark",
   "ua-cossatot"
 ]);
+const PERSISTENT_LOGO_FETCH_OVERRIDES = new Map([
+  ["df-6blldr", "https://content.energage.com/company-images/74999/logo.png"],
+  ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
+  ["asu-mid-south", "https://pbs.twimg.com/profile_images/1935045051224080384/8pfQBpjq.jpg"],
+  ["asu-mountain-home", "https://static.visionamp.co/rubix/20190724/two-color-trailblazer-mascot-67253.png"],
+  ["asu-newport", "https://cdn.myportfolio.com/65823678412a233843d41599a6a3284e/1e06e1e2-20cb-449b-95c5-fb30fa90c545_rw_1200.png?h=589f1b4f20dec9c3741e832e5e8521f4"],
+  ["cbc", "https://static.wixstatic.com/media/c13f88_4bfbbeb6499d408e86dfae8d386843fd~mv2.png/v1/fill/w_1844%2Ch_1391%2Cal_c/CBC%20MustangHeadRGB.png"],
+  ["champion-christian", "https://www.mascotdb.com/sites/default/files/logos/champion_0.png"],
+  ["philander-smith", "https://media.hbcuac.org/wp-content/uploads/2024/06/Philander-Smith-Panthers-version-1.png"],
+  ["shorter", "https://static.hudl.com/users/prod/20931878_73506e113f79441383faba859b82bf3a.jpg"],
+  ["south-arkansas", "https://cmsv2-assets.apptegy.net/uploads/23722/file/3435779/76f7a4f1-df62-40f1-a758-343783110b51.png"],
+  ["sau-tech", "https://lirp.cdn-website.com/98cd28ae/dms3rep/multi/opt/rocket-logo-1a-1920w.png"],
+  ["uark", "https://content.sportslogos.net/logos/30/606/full/arkansas_razorbacks_logo_primary_20147998.png"],
+  ["ua-cossatot", "https://s3-us-west-2.amazonaws.com/scorestream-team-profile-pictures/311510/20230327203154_510_mascot720Near.png"]
+]);
 const LOGO_RELAY_PREFIX = "/api/v1/logo-relay/";
 const LOGO_RELAY_MAX_BYTES = 5 * 1024 * 1024;
 const LOGO_IMAGE_CACHE_ORIGIN = "https://images.weserv.nl/";
@@ -181,6 +196,43 @@ function relayImageResponse(buffer, contentType) {
   });
 }
 
+function uniqueLogoFetchCandidates(schoolId, originalSource) {
+  const override = validHttpsUrl(PERSISTENT_LOGO_FETCH_OVERRIDES.get(schoolId))?.toString() || null;
+  const candidates = [override, originalSource];
+  for (const source of [override, originalSource]) {
+    const proxy = source ? resilientLogoSourceUrl(source) : null;
+    if (proxy) candidates.push(proxy);
+  }
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+async function fetchRelayImage(fetchFn, candidate) {
+  const source = validHttpsUrl(candidate);
+  if (!source) return null;
+  try {
+    const upstream = await fetchFn(source.toString(), {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        referer: `${source.origin}/`,
+        "user-agent": "Mozilla/5.0 (compatible; LocalBleachersAR/1.0; +https://github.com/jamesmethvin74/game-nearby)"
+      }
+    });
+    if (!upstream.ok) return null;
+    const finalUrl = validHttpsUrl(upstream.url || source.toString());
+    if (!finalUrl) return null;
+    const declaredLength = Number(upstream.headers.get("content-length") || 0);
+    if (declaredLength > LOGO_RELAY_MAX_BYTES) return null;
+    const buffer = await upstream.arrayBuffer();
+    if (!buffer.byteLength || buffer.byteLength > LOGO_RELAY_MAX_BYTES) return null;
+    const contentType = sniffImageContentType(buffer, finalUrl.toString(), upstream.headers.get("content-type"));
+    return contentType ? { buffer, contentType } : null;
+  } catch {
+    return null;
+  }
+}
+
 async function handleLogoRelay(request, env, ctx, fetchFn = fetch) {
   if (request.method !== "GET" && request.method !== "HEAD") return null;
   const url = new URL(request.url);
@@ -207,33 +259,13 @@ async function handleLogoRelay(request, env, ctx, fetchFn = fetch) {
     }
   }
 
-  const fetchSource = resilientLogoSourceUrl(normalizedSource) || normalizedSource;
-  const fetchSourceUrl = validHttpsUrl(fetchSource);
-  let upstream;
-  try {
-    upstream = await fetchFn(fetchSource, {
-      method: "GET",
-      redirect: "follow",
-      headers: {
-        accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        referer: `${fetchSourceUrl?.origin || source.origin}/`,
-        "user-agent": "Mozilla/5.0 (compatible; LocalBleachersAR/1.0; +https://github.com/jamesmethvin74/game-nearby)"
-      }
-    });
-  } catch (error) {
-    console.warn("logo relay upstream fetch failed", schoolId, error);
-    return new Response("Logo unavailable", { status: 502 });
+  let image = null;
+  for (const candidate of uniqueLogoFetchCandidates(schoolId, normalizedSource)) {
+    image = await fetchRelayImage(fetchFn, candidate);
+    if (image) break;
   }
-  if (!upstream.ok) return new Response("Logo unavailable", { status: 502 });
-  const finalUrl = validHttpsUrl(upstream.url || fetchSource);
-  if (!finalUrl) return new Response("Logo unavailable", { status: 502 });
-  const declaredLength = Number(upstream.headers.get("content-length") || 0);
-  if (declaredLength > LOGO_RELAY_MAX_BYTES) return new Response("Logo too large", { status: 502 });
-  const buffer = await upstream.arrayBuffer();
-  if (!buffer.byteLength || buffer.byteLength > LOGO_RELAY_MAX_BYTES) return new Response("Logo unavailable", { status: 502 });
-  const contentType = sniffImageContentType(buffer, finalUrl.toString(), upstream.headers.get("content-type"));
-  if (!contentType) return new Response("Logo unavailable", { status: 502 });
-  const response = relayImageResponse(buffer, contentType);
+  if (!image) return new Response("Logo unavailable", { status: 502 });
+  const response = relayImageResponse(image.buffer, image.contentType);
   if (cache) {
     const write = cache.put(cacheKey, response.clone()).catch(error => console.warn("logo relay cache write failed", error));
     if (typeof ctx?.waitUntil === "function") ctx.waitUntil(write);
@@ -301,6 +333,7 @@ export {
   EXCLUDED_COLLEGE_SCHOOL_IDS,
   LOGO_IMAGE_CACHE_ORIGIN,
   LOGO_RELAY_PREFIX,
+  PERSISTENT_LOGO_FETCH_OVERRIDES,
   PERSISTENT_LOGO_RELAY_SCHOOL_IDS,
   applyCatalogIdentityPolicy,
   applyLogoRelays,
