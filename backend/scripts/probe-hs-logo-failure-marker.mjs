@@ -46,5 +46,5 @@ const { count, encoded } = encodeMissingMask(JSON.stringify([...covered]));
 if (count !== covered.size) throw new Error(`Mask count mismatch ${count} != ${covered.size}`);
 console.log(`LOGO_SOURCE_COVERAGE_TOTAL missing=68 covered=${covered.size} unresolved=${68-covered.size} failures=${failures.length}`);
 console.log(`LOGO_SOURCE_COVERAGE_UNRESOLVED ${missingIds.filter(id => !covered.has(id)).join(",")}`);
-const alias = `c-${covered.size}-f${failures.length}-${encoded}`;
+const alias = `c-${encoded}`;
 execFileSync("wrangler", ["versions", "upload", "src/logo-bootstrap-worker.js", "--preview-alias", alias, "--keep-vars"], { stdio:"inherit" });
