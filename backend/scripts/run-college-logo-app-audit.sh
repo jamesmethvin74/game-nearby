@@ -21,17 +21,19 @@ D1_SQL="SELECT
 FROM schools s
 LEFT JOIN school_brand_assets b ON b.school_id=s.id
 WHERE s.catalog_scope='local' AND s.level='college'
+  AND s.id <> 'asu-three-rivers'
 ORDER BY s.name"
 
 D1_OUT="$TMPDIR/college-d1.json"
 API_OUT="$TMPDIR/college-api.json"
 REPORT_OUT="$TMPDIR/college-logo-app-audit.json"
 
-# Exactly one bounded read of the 36 production college rows. No writes.
+# Exactly one bounded read of the 35 supported production college rows. No writes.
 wrangler d1 execute localbleachersar-sports --remote --command="$D1_SQL" --json > "$D1_OUT"
 
 curl -fsS --max-time 45 \
   -H 'accept: application/json' \
+  -H 'cache-control: no-store' \
   'https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools' \
   -o "$API_OUT"
 
@@ -46,7 +48,8 @@ const d1Rows = envelopes.flatMap(x => Array.isArray(x?.results) ? x.results : []
 const apiSchools = Array.isArray(apiPayload?.schools) ? apiPayload.schools : [];
 const apiById = new Map(apiSchools.map(row => [String(row.id), row]));
 
-if (d1Rows.length !== 36) throw new Error(`Expected 36 production colleges, got ${d1Rows.length}`);
+if (d1Rows.length !== 35) throw new Error(`Expected 35 supported production colleges, got ${d1Rows.length}`);
+if (apiById.has('asu-three-rivers')) throw new Error('ASU Three Rivers is still exposed by the production schools API');
 
 function clean(value) { return String(value ?? '').trim(); }
 function isHttps(value) {
@@ -56,7 +59,7 @@ function sourceClass(row) {
   const provider = clean(row.brand_provider).toLowerCase();
   const source = clean(row.brand_source_url).toLowerCase();
   const logo = clean(row.brand_logo_url || row.school_logo_url).toLowerCase();
-  if (provider.includes('official') || /\.edu\//.test(source) || /athletics/.test(source)) return 'official-or-school-owned';
+  if (provider.includes('official') || /\.edu\//.test(source) || /athletics|sports/.test(source)) return 'official-or-school-owned';
   if (/maxpreps|scorestream|sidearm|prestosports/.test(`${provider} ${source} ${logo}`)) return 'established-sports-platform';
   return 'unknown';
 }
@@ -74,7 +77,7 @@ async function probeImage(url) {
   let last = null;
   for (const attempt of attempts) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch(raw, { method:'GET', redirect:'follow', signal:controller.signal, ...attempt });
       const contentType = clean(response.headers.get('content-type')).toLowerCase();
@@ -86,7 +89,7 @@ async function probeImage(url) {
         reason: response.ok ? (contentType.startsWith('image/') ? null : `non-image-content-type:${contentType || 'missing'}`) : `http-${response.status}`
       };
       if (last.reachable) return last;
-      if (response.status !== 416 && response.status !== 403) return last;
+      if (![403,405,416].includes(response.status)) return last;
     } catch (error) {
       last = { reachable:false, status:null, contentType:null, finalUrl:raw, reason:`fetch-error:${String(error?.name || error?.message || error)}` };
     } finally {
@@ -165,11 +168,11 @@ ALIAS="$(node - "$REPORT_OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 const codes={
-'uark':'ua','arkansas-state':'as','uapb':'up','uca':'uc','little-rock':'lr','arkansas-tech':'at','uafs':'uf','uam':'um','harding':'ha','henderson-state':'hs','ouachita-baptist':'ob','southern-arkansas':'sa','hendrix':'he','lyon':'ly','ozarks':'oz','arkansas-baptist':'ab','cbc':'cb','crowleys-ridge':'cr','john-brown':'jb','philander-smith':'ps','williams-baptist':'wb','asu-mid-south':'ms','asu-mountain-home':'mh','asu-newport':'np','asu-three-rivers':'tr','national-park':'pk','north-arkansas':'na','nwacc':'nw','shorter':'sh','south-arkansas':'so','seark':'se','sau-tech':'st','ua-rich-mountain':'rm','ua-cossatot':'co','champion-christian':'cc','ecclesia':'ec'
+'uark':'ua','arkansas-state':'as','uapb':'up','uca':'uc','little-rock':'lr','arkansas-tech':'at','uafs':'uf','uam':'um','harding':'ha','henderson-state':'hs','ouachita-baptist':'ob','southern-arkansas':'sa','hendrix':'he','lyon':'ly','ozarks':'oz','arkansas-baptist':'ab','cbc':'cb','crowleys-ridge':'cr','john-brown':'jb','philander-smith':'ps','williams-baptist':'wb','asu-mid-south':'ms','asu-mountain-home':'mh','asu-newport':'np','national-park':'pk','north-arkansas':'na','nwacc':'nw','shorter':'sh','south-arkansas':'so','seark':'se','sau-tech':'st','ua-rich-mountain':'rm','ua-cossatot':'co','champion-christian':'cc','ecclesia':'ec'
 };
 const failures=Array.isArray(p.failures)?p.failures:[];
 const ids=failures.map(x=>codes[String(x.schoolId)]||'xx').join('-') || 'none';
-console.log(`ca-${Number(p?.counts?.appFallback||0)}-${ids}`.slice(0,32));
+console.log(`ca35-${Number(p?.counts?.appFallback||0)}-${ids}`.slice(0,32));
 NODE
 )"
 
