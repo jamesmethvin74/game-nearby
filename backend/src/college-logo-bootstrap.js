@@ -8,9 +8,9 @@ const SOURCE_OVERRIDES = new Map([
   ["williams-baptist", ["https://williamsbu.edu/athletics/", "https://williamsbu.edu/"]],
   ["philander-smith", ["https://www.philander.edu/athletics", "https://www.philander.edu/"]],
   ["asu-mid-south", ["https://www.asumidsouth.edu/athletics/", "https://www.asumidsouth.edu/"]],
-  ["asu-mountain-home", ["https://asumhathletics.com/", "https://asumh.edu/"]],
+  ["asu-mountain-home", ["https://asumhathletics.com/", "https://asumh.edu/institution/logos-branding/", "https://asumh.edu/"]],
   ["asu-newport", ["https://www.asun.edu/", "https://asun.edu/"]],
-  ["asu-three-rivers", ["https://www.asutr.edu/", "https://asutr.edu/"]],
+  ["asu-three-rivers", ["https://scctc.asutr.edu/o/athletics/athletics", "https://www.asutr.edu/", "https://asutr.edu/"]],
   ["national-park", ["https://np.edu/"]],
   ["north-arkansas", ["https://www.northark.edu/athletics/", "https://www.northark.edu/"]],
   ["nwacc", ["https://www.nwacc.edu/"]],
@@ -60,6 +60,13 @@ function jsonLdLogoCandidates(html, baseUrl) {
   return candidates;
 }
 
+function socialImageLogoScore(url) {
+  const signal = clean(url).toLowerCase();
+  return /(?:^|[\/_\-.])(logo|brand|mascot|athletic|athletics|sports|school[-_ ]?mark)(?:[\/_\-.]|$)/.test(signal)
+    ? 84
+    : 40;
+}
+
 export function parseOfficialCollegeLogo(html, baseUrl) {
   const text = String(html || "");
   const candidates = jsonLdLogoCandidates(text, baseUrl);
@@ -82,7 +89,7 @@ export function parseOfficialCollegeLogo(html, baseUrl) {
     const key = (attr(attrs,"property") || attr(attrs,"name")).toLowerCase();
     if (key !== "og:image" && key !== "twitter:image") continue;
     const url = absoluteHttpUrl(attr(attrs,"content"), baseUrl);
-    if (url) candidates.push({ url, score:key === "og:image" ? 65 : 60, method:key });
+    if (url) candidates.push({ url, score:socialImageLogoScore(url), method:key });
   }
 
   for (const match of text.matchAll(/<link\b([^>]*)>/gi)) {
@@ -122,17 +129,23 @@ export function isAppRenderableLogoUrl(value) {
   }
 }
 
+async function fetchLogoProbe(url, fetchFn, useRange) {
+  const headers = {
+    accept:"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
+  };
+  if (useRange) headers.range = "bytes=0-4095";
+  return fetchFn(url, { method:"GET", headers, redirect:"follow" });
+}
+
 export async function probeCollegeLogoUrl(value, fetchFn = fetch) {
   const url = clean(value);
   if (!isAppRenderableLogoUrl(url)) throw new Error("logo URL is not HTTPS");
-  const response = await fetchFn(url, {
-    method:"GET",
-    headers:{
-      accept:"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      range:"bytes=0-4095"
-    },
-    redirect:"follow"
-  });
+  let response = await fetchLogoProbe(url, fetchFn, true);
+  // A few otherwise browser-renderable CDNs reject byte ranges. Retry those
+  // specific transport responses with the same full GET a browser would use.
+  if (response.status === 405 || response.status === 416) {
+    response = await fetchLogoProbe(url, fetchFn, false);
+  }
   if (!response.ok) throw new Error(`logo HTTP ${response.status}`);
   const contentType = clean(response.headers?.get?.("content-type")).toLowerCase();
   if (!contentType.startsWith("image/")) throw new Error(`logo content-type ${contentType || "missing"}`);
