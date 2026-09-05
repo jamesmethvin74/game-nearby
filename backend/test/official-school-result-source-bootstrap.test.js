@@ -24,7 +24,8 @@ test("official result source bootstrap uses certified identities and only Mascot
     assert.match(migration,new RegExp(aaaId));
   }
   assert.match(migration,/identity\.provider='dragonfly'/);
-  assert.match(migration,/parser_type='mascot-media'/);
+  assert.match(migration,/'official-school'/);
+  assert.match(migration,/'mascot-media'/);
   assert.match(migration,/\/sport\/football\/boys\/\?tab=schedule/);
   assert.match(migration,/\/sport\/volleyball\/girls\/\?tab=schedule/);
   assert.match(migration,/\/sport\/basketball\/boys\/\?tab=schedule/);
