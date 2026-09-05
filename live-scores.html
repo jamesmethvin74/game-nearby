@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#071426" />
+  <meta name="description" content="Live Arkansas high school scores for LocalBleachersAR." />
+  <title>Live Scores · LocalBleachersAR</title>
+  <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
+  <link rel="stylesheet" href="styles.css?v=54" />
+  <link rel="stylesheet" href="polish.css?v=54" />
+  <link rel="stylesheet" href="brand-exact.css?v=54" />
+  <link rel="stylesheet" href="reference-layout.css?v=54" />
+  <link rel="stylesheet" href="live-scores.css?v=1" />
+</head>
+<body>
+  <header class="app-header branded-header">
+    <a class="header-btn" href="index.html" aria-label="Back to home">‹</a>
+    <div class="brand-lockup" aria-label="LocalBleachersAR"><span class="brand-name"><span class="brand-local">Local</span><span class="brand-core">Bleachers</span><span class="brand-ar">AR</span></span></div>
+    <div class="header-actions"><button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch theme">☾</button></div>
+  </header>
+
+  <main class="live-scores-main">
+    <section class="live-score-hero" aria-labelledby="liveScoresTitle">
+      <div>
+        <p class="eyebrow">FRIDAY NIGHT</p>
+        <h1 id="liveScoresTitle">Arkansas Live Scores</h1>
+        <p>Fast community-reported high-school scores while LocalBleachersAR keeps our own schedules, teams, locations and game discovery.</p>
+      </div>
+      <span class="live-pill"><span class="live-dot" aria-hidden="true"></span>Live</span>
+    </section>
+
+    <section class="scorestream-shell" aria-label="Arkansas live scoreboard">
+      <div class="scorestream-heading">
+        <div><strong>High School Football</strong><span id="scorestreamStatus">Official ScoreStream published interface</span></div>
+        <span class="live-pill"><span class="live-dot" aria-hidden="true"></span>Updates automatically</span>
+      </div>
+      <div id="scorestreamError" class="scorestream-error" hidden></div>
+      <div id="scorestreamHost" class="scorestream-host" aria-live="polite"></div>
+    </section>
+
+    <p class="source-note"><strong>Source:</strong> ScoreStream's published scoreboard/widget interface. LocalBleachersAR does not scrape or copy ScoreStream score data into D1 in this experiment; the score display remains ScoreStream-hosted.</p>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Primary navigation">
+    <a class="nav-item" href="index.html">⌂<span>Home</span></a>
+    <a class="nav-item" href="teams.html">☆<span>Teams</span></a>
+    <a class="nav-item active" href="live-scores.html">●<span>Scores</span></a>
+    <a class="nav-item" href="standings.html">▤<span>Standings</span></a>
+    <a class="nav-item" href="index.html#alerts">♧<span>Alerts</span></a>
+  </nav>
+
+  <script src="app.js?v=54"></script>
+  <script src="live-scores.js?v=1"></script>
+</body>
+</html>
