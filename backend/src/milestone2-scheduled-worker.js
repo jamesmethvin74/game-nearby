@@ -8,7 +8,7 @@ import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { syncCertifiedDragonFlySportCatalog } from "./dragonfly-certified-sport-catalog.js";
 import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
-import { runHootensPerTeamComplete } from "./hootens-team-side-results.js";
+import { runResilientHootensStatewideResults } from "./hootens-resilient-results.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -107,7 +107,7 @@ async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
 
 async function runHootensFinalResultsPass({env,plan}){
   if (!shouldRunHootensStatewideResults(plan)) return null;
-  return runHootensPerTeamComplete(env);
+  return runResilientHootensStatewideResults(env);
 }
 
 async function runScheduledPlan(controller,env,ctx){
@@ -130,9 +130,9 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
-  // Hooten runs before the per-school fallback. The collector resolves each
-  // statewide FINAL, then the bounded team-side pass makes sure a local-local
-  // matchup is visible from both Arkansas teams' schedules and records.
+  // Hooten is a single statewide result surface. Run it before the per-school
+  // fallback so resolved finals disappear from that fallback's selector. The
+  // resilient finalizer is idempotent and repairs only genuinely missing finals.
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
 
