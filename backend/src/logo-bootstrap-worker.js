@@ -4,6 +4,7 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
+export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -12,8 +13,19 @@ function privateJson(body, status = 200) {
   });
 }
 
-function authorized(request, env) {
-  return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+export function authorizedLogoBootstrap(request, env) {
+  const refreshAuthorized = Boolean(env.REFRESH_TOKEN)
+    && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
+    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  return refreshAuthorized || executionAuthorized;
+}
+
+export function logoBootstrapReadiness(request, env) {
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
+    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  if (!executionAuthorized) return privateJson({ error:"not_found" }, 404);
+  return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
 }
 
 async function options(request) {
@@ -28,9 +40,13 @@ async function options(request) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
+      return logoBootstrapReadiness(request, env);
+    }
+
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
     if (request.method === "POST" && logoPath) {
-      if (!authorized(request, env)) return privateJson({ error:"not_found" }, 404);
+      if (!authorizedLogoBootstrap(request, env)) return privateJson({ error:"not_found" }, 404);
       const input = await options(request);
       try {
         if (path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH) {
