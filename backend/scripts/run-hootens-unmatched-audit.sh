@@ -8,7 +8,7 @@ REPORT="$TMPDIR/report.json"
 AUDIT_ALIAS="hootens-unmatched-audit"
 AUDIT_URL="https://${AUDIT_ALIAS}-localbleachersar-sports-api.james-methvin74.workers.dev/api/hootens-unmatched-report"
 
-npm run check
+node --check src/hootens-statewide-results.js
 node --check src/hootens-unmatched-audit.js
 
 cat > "$WRAPPER" <<'EOF'
