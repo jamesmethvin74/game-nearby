@@ -15,6 +15,7 @@ MARKER="$(node - "$OUT" "$RC" <<'NODE'
 const fs=require('fs');
 const out=fs.readFileSync(process.argv[2],'utf8');
 const rc=Number(process.argv[3]||0);
+const slug=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,23);
 let marker=`gp-r${rc}`;
 let m;
 if((m=out.match(/HOOTENS_FINAL_PROOF\s+(\S+)/))) marker=m[1];
@@ -23,6 +24,10 @@ else if((m=out.match(/expected exactly one Guy-Perkins school; found\s+(\d+)/i))
 else if((m=out.match(/target verification expected one Guy-Perkins 28-12 Blevins row; found\s+(\d+)/i))) marker=`gp-after${m[1]}`;
 else if((m=out.match(/Targeted Guy-Perkins repair failed HTTP\s+(\d+)/i))) marker=`gp-http${m[1]}`;
 else if((m=out.match(/verify failed\s+(\{.*?\})\s+writes=(\d+)/i))){try{const r=JSON.parse(m[1]);marker=`gp-v-f${Number(r.finals||0)}m${Number(r.matched||0)}u${Number(r.unmatched||0)}-r${Number(r.recovered_found||0)}k${Number(r.present_mask||0)}w${Number(m[2]||0)}`;}catch{marker='gp-verifyfail';}}
+else if((m=out.match(/SyntaxError:\s*([^\n\r]+)/i))) marker=`gp-syn-${slug(m[1])}`;
+else if((m=out.match(/Error \[ERR_MODULE[^\]]*\]:\s*([^\n\r]+)/i))) marker=`gp-mod-${slug(m[1])}`;
+else if((m=out.match(/ERR_ASSERTION[^\n\r]*[\n\r]+\s*([^\n\r]+)/i))) marker=`gp-assert-${slug(m[1])}`;
+else if((m=out.match(/npm ERR!\s*([^\n\r]+)/i))) marker=`gp-npm-${slug(m[1])}`;
 else if(/Could not resolve Wrangler Preview Alias URL/i.test(out)) marker='gp-nourl';
 else if(/preview never became ready/i.test(out)) marker='gp-notready';
 else if(/missing Hooten scoreboard URL/i.test(out)) marker='gp-nofeed';
