@@ -1,29 +1,6 @@
 (() => {
-  const WIDGET_STORAGE_KEY = "localBleachersAR:scorestreamWidgetId";
+  const LOCALBLEACHERS_SCORESTREAM_WIDGET_ID = "70169";
   const PUBLIC_ARKANSAS_FOOTBALL_URL = "https://scorestream.com/explore/r/arkansas/high-school/football/scores";
-  // Proof-only default: High School Football America's current 2026 Arkansas page
-  // publicly embeds this ScoreStream widget. Replace with a LocalBleachers-owned
-  // free widget ID before production merge.
-  const PUBLIC_ARKANSAS_PROOF_WIDGET_ID = "2081";
-
-  function validWidgetId(value) {
-    const id = String(value || "").trim();
-    return /^\d{2,10}$/.test(id) ? id : "";
-  }
-
-  function resolvedWidgetId() {
-    const params = new URLSearchParams(window.location.search);
-    const fromQuery = validWidgetId(params.get("widget"));
-    if (fromQuery) {
-      try { localStorage.setItem(WIDGET_STORAGE_KEY, fromQuery); } catch {}
-      return fromQuery;
-    }
-    try {
-      return validWidgetId(localStorage.getItem(WIDGET_STORAGE_KEY)) || PUBLIC_ARKANSAS_PROOF_WIDGET_ID;
-    } catch {
-      return PUBLIC_ARKANSAS_PROOF_WIDGET_ID;
-    }
-  }
 
   function showFallback() {
     const host = document.getElementById("scorestreamHost");
@@ -40,7 +17,7 @@
       </div>`;
   }
 
-  function loadWidget(widgetId) {
+  function loadWidget() {
     const host = document.getElementById("scorestreamHost");
     const status = document.getElementById("scorestreamStatus");
     const error = document.getElementById("scorestreamError");
@@ -50,18 +27,14 @@
     const container = document.createElement("div");
     container.className = "scorestream-widget-container";
     container.dataset.ss_widget_type = "vertScoreboard";
-    container.dataset.userWidgetId = widgetId;
+    container.dataset.userWidgetId = LOCALBLEACHERS_SCORESTREAM_WIDGET_ID;
     host.appendChild(container);
 
     const script = document.createElement("script");
     script.async = true;
     script.src = "https://scorestream.com/apiJsCdn/widgets/embed.js";
     script.onload = () => {
-      if (status) {
-        status.textContent = widgetId === PUBLIC_ARKANSAS_PROOF_WIDGET_ID
-          ? "ScoreStream Arkansas proof widget — replace before production"
-          : `Official ScoreStream widget #${widgetId}`;
-      }
+      if (status) status.textContent = "Official LocalBleachersAR ScoreStream widget";
     };
     script.onerror = () => {
       if (error) {
@@ -73,5 +46,5 @@
     document.body.appendChild(script);
   }
 
-  loadWidget(resolvedWidgetId());
+  loadWidget();
 })();
