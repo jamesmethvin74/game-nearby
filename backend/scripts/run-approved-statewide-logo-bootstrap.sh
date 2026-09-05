@@ -6,14 +6,17 @@ READY_PATH="/api/v1/content/logo-bootstrap/ready"
 HS_PATH="/api/v1/content/logo-bootstrap/high-school"
 COLLEGE_PATH="/api/v1/content/logo-bootstrap/college"
 TMPDIR="$(mktemp -d)"
+WRAPPER="src/_logo-execution-worker.mjs"
+EXEC_CONFIG=".wrangler-logo-execution.json"
 TOKEN=""
-SECRET_INSTALLED=0
+EPHEMERAL_DEPLOYED=0
 
 cleanup() {
-  rm -rf "$TMPDIR"
-  if [ "$SECRET_INSTALLED" = "1" ]; then
-    wrangler secret delete LOGO_BOOTSTRAP_TOKEN --yes >/dev/null 2>&1 || true
+  if [ "$EPHEMERAL_DEPLOYED" = "1" ]; then
+    wrangler deploy >/dev/null 2>&1 || true
   fi
+  rm -f "$WRAPPER" "$EXEC_CONFIG"
+  rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
 
@@ -30,22 +33,33 @@ post_logo() {
     --data "$body" \
     "$API$path")"
   if [ "$code" != "200" ]; then
-    echo "Logo bootstrap POST $path failed: HTTP $code" >&2
+    echo "LOGO_BOOTSTRAP_HTTP_FAILURE path=$path code=$code" >&2
     cat "$outfile" >&2 || true
-    exit 1
+    return 1
   fi
 }
 
-# Code verification and one native Cloudflare deploy. No migrations or collectors.
-npm run check
-wrangler deploy
-
+# Generate the execution credential only inside the authenticated Cloudflare
+# build workspace. It is never committed or persisted as a Worker secret.
 TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
-printf '%s' "$TOKEN" | wrangler secret put LOGO_BOOTSTRAP_TOKEN
-SECRET_INSTALLED=1
+node - "$TOKEN" > "$WRAPPER" <<'NODE'
+const token = process.argv[2];
+process.stdout.write(`import app from "./logo-bootstrap-worker.js";\nconst EXECUTION_TOKEN=${JSON.stringify(token)};\nfunction executionEnv(env){const wrapped=Object.create(env);Object.defineProperty(wrapped,"LOGO_BOOTSTRAP_TOKEN",{value:EXECUTION_TOKEN,enumerable:true});return wrapped;}\nexport default {\n  fetch(request,env,ctx){return app.fetch(request,executionEnv(env),ctx);},\n  scheduled(controller,env,ctx){return app.scheduled(controller,executionEnv(env),ctx);}\n};\n`);
+NODE
+
+node <<'NODE'
+const fs=require('fs');
+const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
+config.main='src/_logo-execution-worker.mjs';
+fs.writeFileSync('.wrangler-logo-execution.json',JSON.stringify(config,null,2));
+NODE
+
+# Deploy only the temporary execution wrapper around the existing production Worker.
+wrangler deploy --config "$EXEC_CONFIG"
+EPHEMERAL_DEPLOYED=1
 
 READY_STATUS=""
-for ATTEMPT in 1 2 3 4 5 6 7 8; do
+for ATTEMPT in $(seq 1 20); do
   READY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head \
     -H "x-logo-bootstrap-token: $TOKEN" \
     -H 'cache-control: no-store' \
@@ -62,25 +76,49 @@ if [ "$READY_STATUS" != "204" ]; then
   exit 1
 fi
 
-# High schools: at most 25 writes per invocation; stop on COMPLETE or no progress.
 HS_TOTAL_WRITTEN=0
+HS_COMPLETE=0
 for BATCH in 1 2 3 4 5 6 7 8; do
   OUT="$TMPDIR/high-school-$BATCH.json"
   post_logo "$HS_PATH" '{"limit":25}' "$OUT"
-  read -r STATUS WRITTEN MISSING CANDIDATES <<<"$(node - "$OUT" <<'NODE'
+  METRICS="$(node - "$OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-console.log([p.status||'',Number(p.written||0),Number(p.missingBefore||0),Number(p.candidates||0)].join(' '));
+const status=String(p.status||'');
+const written=Number(p.written||0);
+if(!['COMPLETE','PARTIAL'].includes(status)) throw new Error(`Unexpected HS status ${status}`);
+if(!Number.isFinite(written)||written<0||written>25) throw new Error(`HS cap violation ${written}`);
+console.log([
+  status,written,Number(p.missingBefore||0),Number(p.candidates||0),
+  Array.isArray(p.sourceFailures)?p.sourceFailures.length:0,
+  Array.isArray(p.unresolved)?p.unresolved.length:0,
+  Number(p.rowsRead||0),Number(p.rowsWritten||0)
+].join('|'));
 NODE
 )"
+  STATUS="${METRICS%%|*}"; REST="${METRICS#*|}"
+  WRITTEN="${REST%%|*}"; REST="${REST#*|}"
+  MISSING="${REST%%|*}"; REST="${REST#*|}"
+  CANDIDATES="${REST%%|*}"; REST="${REST#*|}"
+  SOURCE_FAILURES="${REST%%|*}"; REST="${REST#*|}"
+  UNRESOLVED="${REST%%|*}"; REST="${REST#*|}"
+  ROWS_READ="${REST%%|*}"; ROWS_WRITTEN="${REST#*|}"
   HS_TOTAL_WRITTEN=$((HS_TOTAL_WRITTEN + WRITTEN))
-  echo "HS_LOGO_BATCH batch=$BATCH status=$STATUS missingBefore=$MISSING candidates=$CANDIDATES written=$WRITTEN"
-  if [ "$STATUS" = "COMPLETE" ]; then break; fi
-  if [ "$WRITTEN" -eq 0 ]; then break; fi
+  echo "HS_LOGO_BATCH batch=$BATCH status=$STATUS missingBefore=$MISSING candidates=$CANDIDATES written=$WRITTEN sourceFailures=$SOURCE_FAILURES unresolved=$UNRESOLVED rowsRead=$ROWS_READ rowsWritten=$ROWS_WRITTEN totalWritten=$HS_TOTAL_WRITTEN"
+  if [ "$STATUS" = "COMPLETE" ]; then
+    HS_COMPLETE=1
+    break
+  fi
+  if [ "$WRITTEN" -eq 0 ]; then
+    echo "HS_LOGO_SOURCE_LIMITED"
+    cat "$OUT"
+    break
+  fi
 done
+if [ "$HS_COMPLETE" != "1" ]; then
+  echo "HS logo execution completed bounded attempts without endpoint COMPLETE; continuing to colleges for source-limited final verification" >&2
+fi
 
-# Colleges: explicit 36-school inventory, chunked to the hard 8-school cap so
-# one failed official site cannot starve later schools from being attempted.
 COLLEGES=(
   uark arkansas-state uapb uca little-rock arkansas-tech uafs uam
   harding henderson-state ouachita-baptist southern-arkansas hendrix lyon ozarks arkansas-baptist
@@ -95,19 +133,31 @@ for ((OFFSET=0; OFFSET<${#COLLEGES[@]}; OFFSET+=8)); do
   BODY="$(printf '%s\n' "${CHUNK[@]}" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify({limit:8,schoolIds:s.trim().split(/\s+/).filter(Boolean)})))')"
   OUT="$TMPDIR/college-$OFFSET.json"
   post_logo "$COLLEGE_PATH" "$BODY" "$OUT"
-  read -r STATUS ATTEMPTED WRITTEN FAILURES <<<"$(node - "$OUT" <<'NODE'
+  METRICS="$(node - "$OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-console.log([p.status||'',Number(p.attempted||0),Number(p.written||0),Array.isArray(p.failures)?p.failures.length:0].join(' '));
+const attempted=Number(p.attempted||0);
+const written=Number(p.written||0);
+if(!Number.isFinite(attempted)||attempted<0||attempted>8) throw new Error(`College attempt cap violation ${attempted}`);
+if(!Number.isFinite(written)||written<0||written>8) throw new Error(`College write cap violation ${written}`);
+console.log([String(p.status||''),attempted,written,Array.isArray(p.failures)?p.failures.length:0,Number(p.rowsRead||0),Number(p.rowsWritten||0)].join('|'));
 NODE
 )"
+  STATUS="${METRICS%%|*}"; REST="${METRICS#*|}"
+  ATTEMPTED="${REST%%|*}"; REST="${REST#*|}"
+  WRITTEN="${REST%%|*}"; REST="${REST#*|}"
+  FAILURES="${REST%%|*}"; REST="${REST#*|}"
+  ROWS_READ="${REST%%|*}"; ROWS_WRITTEN="${REST#*|}"
   COLLEGE_TOTAL_WRITTEN=$((COLLEGE_TOTAL_WRITTEN + WRITTEN))
   COLLEGE_FAILURES=$((COLLEGE_FAILURES + FAILURES))
-  echo "COLLEGE_LOGO_BATCH offset=$OFFSET status=$STATUS attempted=$ATTEMPTED written=$WRITTEN failures=$FAILURES"
+  echo "COLLEGE_LOGO_BATCH offset=$OFFSET status=$STATUS attempted=$ATTEMPTED written=$WRITTEN failures=$FAILURES rowsRead=$ROWS_READ rowsWritten=$ROWS_WRITTEN totalWritten=$COLLEGE_TOTAL_WRITTEN"
+  if [ "$FAILURES" -gt 0 ]; then
+    echo "COLLEGE_LOGO_FAILURE_DETAIL offset=$OFFSET"
+    cat "$OUT"
+  fi
 done
 
-# Exactly one final production D1 verification. It returns counts and any
-# remaining missing identities in the same set-based query; no per-school reads.
+# Exactly one final production D1 verification after all bounded logo writes.
 VERIFY_SQL="WITH visible AS (
   SELECT s.id,s.name,s.level,COALESCE(NULLIF(b.logo_url,''),NULLIF(s.logo_url,'')) AS logo_url
   FROM schools s
@@ -134,6 +184,13 @@ SELECT
 VERIFY_OUT="$TMPDIR/final-verification.json"
 wrangler d1 execute localbleachersar-sports --remote --command="$VERIFY_SQL" --json > "$VERIFY_OUT"
 
+# Restore the clean production Worker before judging the verification result.
+if ! wrangler deploy; then
+  echo "CLEAN_WORKER_RESTORE_FAILED" >&2
+  exit 1
+fi
+EPHEMERAL_DEPLOYED=0
+
 node - "$VERIFY_OUT" "$HS_TOTAL_WRITTEN" "$COLLEGE_TOTAL_WRITTEN" "$COLLEGE_FAILURES" <<'NODE'
 const fs=require('fs');
 const [path,hsWritten,collegeWritten,collegeFailures]=process.argv.slice(2);
@@ -141,6 +198,9 @@ const parsed=JSON.parse(fs.readFileSync(path,'utf8'));
 const envelopes=Array.isArray(parsed)?parsed:[parsed];
 const row=envelopes.flatMap(item=>item?.results||[]).find(Boolean);
 if(!row) throw new Error('Final production verification returned no row');
+const meta=envelopes.map(item=>item?.meta||{});
+const rowsRead=meta.reduce((n,m)=>n+Number(m.rows_read||m.rowsRead||0),0);
+const rowsWritten=meta.reduce((n,m)=>n+Number(m.rows_written||m.rowsWritten||0),0);
 const result={
   totalSchools:Number(row.total_schools||0),
   highSchools:Number(row.high_schools||0),
@@ -150,7 +210,9 @@ const result={
   missing:typeof row.missing==='string'?JSON.parse(row.missing):row.missing,
   hsWritten:Number(hsWritten),
   collegeWritten:Number(collegeWritten),
-  collegeDiscoveryFailures:Number(collegeFailures)
+  collegeDiscoveryFailures:Number(collegeFailures),
+  verificationRowsRead:rowsRead,
+  verificationRowsWritten:rowsWritten
 };
 console.log(JSON.stringify({status:'STATEWIDE_LOGO_BOOTSTRAP_VERIFIED',...result}));
 if(result.totalSchools!==336) throw new Error(`Expected 336 user-facing schools, got ${result.totalSchools}`);

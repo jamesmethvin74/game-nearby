@@ -81,13 +81,17 @@ test("approved execution uses a fresh ephemeral logo token with readiness proof"
   assert.equal(logoBootstrapReadiness(bad, env).status, 404);
 });
 
-test("approved production script stays bounded and performs one combined D1 verification", () => {
+test("approved production script stays bounded, uses ephemeral Worker auth, restores clean code, and performs one combined D1 verification", () => {
   const source = fs.readFileSync(new URL("../scripts/run-approved-statewide-logo-bootstrap.sh", import.meta.url), "utf8");
   assert.match(source, /\{\"limit\":25\}/);
   assert.match(source, /limit:8/);
-  assert.match(source, /wrangler deploy/);
-  assert.match(source, /wrangler secret put LOGO_BOOTSTRAP_TOKEN/);
-  assert.match(source, /wrangler secret delete LOGO_BOOTSTRAP_TOKEN/);
+  assert.match(source, /randomBytes\(32\)/, "execution token must be freshly generated at runtime");
+  assert.match(source, /_logo-execution-worker\.mjs/, "execution auth must be isolated to a temporary Worker wrapper");
+  assert.match(source, /LOGO_BOOTSTRAP_TOKEN/, "temporary wrapper must inject the dedicated logo execution token");
+  assert.match(source, /wrangler deploy --config/, "temporary wrapper must deploy through native Wrangler");
+  assert.ok((source.match(/wrangler deploy/g) || []).length >= 2, "clean Worker must be redeployed after the temporary execution wrapper");
+  assert.match(source, /LOGO_BOOTSTRAP_READY/, "execution must prove readiness before logo writes");
+  assert.doesNotMatch(source, /wrangler secret put LOGO_BOOTSTRAP_TOKEN|wrangler secret delete LOGO_BOOTSTRAP_TOKEN/, "execution must not depend on the unavailable Worker-secret mutation path");
   assert.equal((source.match(/wrangler d1 execute/g) || []).length, 1, "must perform exactly one remote D1 verification");
   assert.doesNotMatch(source, /migrations apply|db:migrate|reconcile|collection|refresh-all/i);
   for (const id of ["df-2tng4g","df-cc7dyc","df-abs2rr","df-qscp6x","df-urlzfa","df-25lkrp"]) {
