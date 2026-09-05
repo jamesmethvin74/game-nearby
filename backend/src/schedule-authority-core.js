@@ -230,7 +230,7 @@ export function resolveCanonicalEvent(observations,{timeZone="America/Chicago",n
     homeSchoolId:relation?.homeSchoolId || null,awaySchoolId:relation?.awaySchoolId || null,
     scheduledAt,scheduledTimeKnown:Boolean(timeSelected?.scheduled_time_known),
     venue:cleanAuthorityText(venueSelected?.venue || venueSelected?.location_text),
-    status:String(selected.status||"SCHEDULED").toUpperCase(),
+    status:scoreSelected?"FINAL":String(selected.status||"SCHEDULED").toUpperCase(),
     homeScore:score.homeScore,awayScore:score.awayScore,
     selectedSourceId:selected.source_id || null,
     trustState,conflicts,resolvedAt:now,
