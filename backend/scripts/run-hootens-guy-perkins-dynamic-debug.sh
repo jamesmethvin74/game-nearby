@@ -11,9 +11,9 @@ python3 - scripts/run-approved-hootens-guy-perkins-finish.sh "$PATCHED" <<'PY'
 from pathlib import Path
 import sys
 src = Path(sys.argv[1]).read_text()
-old = '''wrangler versions upload "$WRAPPER" --preview-alias "$ALIAS" --keep-vars >/dev/null
+old_upload = '''wrangler versions upload "$WRAPPER" --preview-alias "$ALIAS" --keep-vars >/dev/null
 TOKEN_ACTIVE=1'''
-new = '''UPLOAD_OUT="$TMPDIR/preview-upload.txt"
+new_upload = '''UPLOAD_OUT="$TMPDIR/preview-upload.txt"
 wrangler versions upload "$WRAPPER" --preview-alias "$ALIAS" --keep-vars 2>&1 | tee "$UPLOAD_OUT"
 API="$(grep -Eo 'https://[^[:space:]]+\\.workers\\.dev' "$UPLOAD_OUT" | tail -n 1 | tr -d '\\r')"
 if [ -z "$API" ]; then
@@ -22,9 +22,22 @@ if [ -z "$API" ]; then
 fi
 echo "Using Wrangler preview URL: $API"
 TOKEN_ACTIVE=1'''
-if old not in src:
-    raise SystemExit('preview upload block not found')
-Path(sys.argv[2]).write_text(src.replace(old, new, 1))
+old_ready = '''READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head -H "x-hootens-target-token: $TOKEN" -H 'cache-control: no-store' "$API/ready" || true)"'''
+new_ready = '''READY="$(curl -sS -o "$TMPDIR/ready-body.txt" -w '%{http_code}' --max-time 20 --head -H "x-hootens-target-token: $TOKEN" -H 'cache-control: no-store' "$API/ready" || true)"'''
+old_fail = '''echo "Targeted Guy-Perkins repair preview never became ready" >&2
+  exit 1'''
+new_fail = '''echo "Targeted Guy-Perkins repair preview never became ready last=$READY" >&2
+  if [ -s "$TMPDIR/ready-body.txt" ]; then
+    printf 'READY_BODY ' >&2
+    head -c 500 "$TMPDIR/ready-body.txt" | tr '\\n' ' ' >&2
+    printf '\\n' >&2
+  fi
+  exit 1'''
+for old,new,label in ((old_upload,new_upload,'upload'),(old_ready,new_ready,'ready'),(old_fail,new_fail,'fail')):
+    if old not in src:
+        raise SystemExit(f'{label} block not found')
+    src = src.replace(old,new,1)
+Path(sys.argv[2]).write_text(src)
 PY
 chmod +x "$PATCHED"
 
@@ -45,8 +58,8 @@ else if((m=out.match(/expected exactly one Guy-Perkins school; found\s+(\d+)/i))
 else if((m=out.match(/target verification expected one Guy-Perkins 28-12 Blevins row; found\s+(\d+)/i))) marker=`gp-after${m[1]}`;
 else if((m=out.match(/verify failed\s+(\{.*?\})\s+writes=(\d+)/i))){try{const r=JSON.parse(m[1]);marker=`gp-v-f${Number(r.finals||0)}m${Number(r.matched||0)}u${Number(r.unmatched||0)}-r${Number(r.recovered_found||0)}k${Number(r.present_mask||0)}`;}catch{marker='gp-verifyfail';}}
 else if((m=out.match(/Targeted Guy-Perkins repair failed HTTP\s+(\d+)/i))) marker=`gp-http${m[1]}`;
+else if((m=out.match(/preview never became ready last=(\d{3})/i))) marker=`gp-ready${m[1]}`;
 else if(/Could not resolve Wrangler Preview Alias URL/i.test(out)) marker='gp-nourl';
-else if(/preview never became ready/i.test(out)) marker='gp-notready';
 else if(/SyntaxError|ERR_MODULE|ERR_ASSERTION|npm ERR!/i.test(out)) marker='gp-codeerr';
 marker=String(marker).toLowerCase().replace(/[^a-z0-9-]/g,'-').replace(/-+/g,'-').replace(/^-|-$/g,'').slice(0,32)||'gp-unknown';
 console.log(marker);
