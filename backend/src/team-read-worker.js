@@ -1,5 +1,6 @@
-import app from "./worker.js";
+import app from "./catalog-identity-worker.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
+import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -102,7 +103,9 @@ async function readTeamSchedule(env, teamId) {
     LEFT JOIN conferences c ON c.id=t.conference_id
     WHERE t.id=? AND t.active=1 AND s.catalog_scope='local'
   `).bind(teamId).first();
-  if (!team) return json({ error: "team_not_found" }, 404);
+  if (!team || !isSchoolCatalogVisible({ id: team.school_id, name: team.school_name, level: team.level })) {
+    return json({ error: "team_not_found" }, 404);
+  }
 
   const record = await env.DB.prepare("SELECT * FROM team_records WHERE team_id=?").bind(teamId).first();
   const { results } = await env.DB.prepare(`
@@ -152,7 +155,8 @@ async function readTeamSchedule(env, teamId) {
 
 async function readTeamRecord(env, teamId) {
   const row = await env.DB.prepare(`
-    SELECT t.id AS team_id, t.conference_id, c.name AS conference_name,
+    SELECT t.id AS team_id, t.school_id, t.conference_id, c.name AS conference_name,
+      s.name AS school_name, s.level,
       r.wins, r.losses, r.ties,
       r.conference_wins, r.conference_losses, r.conference_ties,
       r.calculated_at
@@ -162,7 +166,9 @@ async function readTeamRecord(env, teamId) {
     LEFT JOIN conferences c ON c.id=t.conference_id
     WHERE t.id=? AND t.active=1 AND s.catalog_scope='local'
   `).bind(teamId).first();
-  if (!row) return json({ error: "team_not_found" }, 404);
+  if (!row || !isSchoolCatalogVisible({ id: row.school_id, name: row.school_name, level: row.level })) {
+    return json({ error: "team_not_found" }, 404);
+  }
   return json({ record: { ...emptyRecord(teamId), ...row } });
 }
 
