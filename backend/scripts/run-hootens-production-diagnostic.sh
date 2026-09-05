@@ -2,7 +2,6 @@
 set -euo pipefail
 
 DB="localbleachersar-sports"
-ALIAS="hootens-diagnostic"
 WRAPPER="src/_hootens-diagnostic.mjs"
 TMPDIR="$(mktemp -d)"
 trap 'rm -f "$WRAPPER"; rm -rf "$TMPDIR"' EXIT
@@ -50,6 +49,26 @@ SELECT
 
 OUT="$TMPDIR/diagnostic.json"
 wrangler d1 execute "$DB" --remote --command="$SQL" --json > "$OUT"
+
+ALIAS="$(node - "$OUT" <<'NODE'
+const fs=require('fs');
+const payload=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+const row=(Array.isArray(payload)?payload:[payload]).flatMap(x=>x?.results||[]).find(Boolean)||{};
+let details={};
+try { details=typeof row.h_details==='string'?JSON.parse(row.h_details):(row.h_details||{}); } catch {}
+let canonical=[];
+try { canonical=typeof row.conway_canonical==='string'?JSON.parse(row.conway_canonical):(row.conway_canonical||[]); } catch {}
+const conway=canonical.find(x=>(/conway/i.test(String(x.home_name||'')) && /bentonville/i.test(String(x.away_name||''))) || (/bentonville/i.test(String(x.home_name||'')) && /conway/i.test(String(x.away_name||'')))) || canonical[0] || null;
+let c='x';
+if (conway) {
+  const nums=[Number(conway.home_score),Number(conway.away_score)].filter(Number.isFinite).sort((a,b)=>a-b);
+  c=(String(conway.status)==='FINAL'?'f':'n')+(nums.length===2?`${nums[0]}x${nums[1]}`:'x');
+}
+const n=v=>Number(v||0);
+const alias=`hd-e${n(row.h_event_count)}m${n(details.matched)}u${n(details.unmatched)}q${n(row.h_failures)}s${n(row.hoot_source_count)}g${n(row.hoot_game_count)}f${n(row.hoot_game_finals)}r${n(row.recent_canonical_finals)}c${c}`;
+console.log(alias.slice(0,34));
+NODE
+)"
 
 node - "$OUT" > "$WRAPPER" <<'NODE'
 const fs=require('fs');
