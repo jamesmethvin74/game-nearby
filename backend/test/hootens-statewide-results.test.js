@@ -15,6 +15,18 @@ test("Hooten scoreboard rows keep only explicit finals",()=>{
   }]);
 });
 
+test("Hooten scoreboard accepts score and status values supplied by form controls",()=>{
+  const rows=[{
+    cells:["Conway",""," Watch ","","Bentonville"],
+    controls:[[],["14"],["final"],["20"],[]],
+    teamLinks:[{text:"Conway",href:"/teams/conway/"},{text:"Bentonville",href:"/teams/bentonville/"}]
+  }];
+  assert.deepEqual(normalizeHootensRows(rows),[{
+    homeName:"Conway",awayName:"Bentonville",homeScore:14,awayScore:20,status:"FINAL",
+    homeHref:"/teams/conway/",awayHref:"/teams/bentonville/",sourceEventKey:"hootens:conway:bentonville"
+  }]);
+});
+
 test("Hooten Arkansas abbreviations normalize to local school naming",()=>{
   assert.equal(expandedAlias("LR Central"),"little rock central");
   assert.equal(expandedAlias("FS Northside"),"fort smith northside");
