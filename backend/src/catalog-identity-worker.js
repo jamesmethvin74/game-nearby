@@ -19,6 +19,7 @@ const PERSISTENT_LOGO_RELAY_SCHOOL_IDS = new Set([
 ]);
 const LOGO_RELAY_PREFIX = "/api/v1/logo-relay/";
 const LOGO_RELAY_MAX_BYTES = 5 * 1024 * 1024;
+const LOGO_IMAGE_CACHE_ORIGIN = "https://images.weserv.nl/";
 const encoder = new TextEncoder();
 
 function rewrittenJson(response, body) {
@@ -59,6 +60,21 @@ function validHttpsUrl(value) {
   } catch {
     return null;
   }
+}
+
+function resilientLogoSourceUrl(sourceUrl) {
+  const source = validHttpsUrl(sourceUrl);
+  if (!source) return null;
+  if (source.origin === new URL(LOGO_IMAGE_CACHE_ORIGIN).origin) return source.toString();
+  const proxy = new URL(LOGO_IMAGE_CACHE_ORIGIN);
+  proxy.searchParams.set("url", source.toString());
+  proxy.searchParams.set("w", "512");
+  proxy.searchParams.set("h", "512");
+  proxy.searchParams.set("fit", "contain");
+  proxy.searchParams.set("we", "1");
+  proxy.searchParams.set("output", "png");
+  proxy.searchParams.set("n", "-1");
+  return proxy.toString();
 }
 
 function bytesToHex(bytes) {
@@ -109,8 +125,9 @@ async function logoRelayUrl(request, env, schoolId, sourceUrl) {
 
 async function applyLogoRelays(request, env, schools = []) {
   return Promise.all(schools.map(async school => {
-    const sourceUrl = clean(school.logo_url);
-    if (!sourceUrl || !PERSISTENT_LOGO_RELAY_SCHOOL_IDS.has(clean(school.id))) return school;
+    const originalSourceUrl = clean(school.logo_url);
+    if (!originalSourceUrl || !PERSISTENT_LOGO_RELAY_SCHOOL_IDS.has(clean(school.id))) return school;
+    const sourceUrl = resilientLogoSourceUrl(originalSourceUrl) || originalSourceUrl;
     const relayUrl = await logoRelayUrl(request, env, school.id, sourceUrl);
     return relayUrl ? { ...school, logo_url: relayUrl } : school;
   }));
@@ -157,7 +174,7 @@ function relayImageResponse(buffer, contentType) {
     status: 200,
     headers: {
       "content-type": contentType,
-      "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
+      "cache-control": "public, max-age=2592000, stale-while-revalidate=2592000",
       "access-control-allow-origin": "*",
       "x-content-type-options": "nosniff",
       "x-localbleachers-logo-relay": "1"
@@ -281,6 +298,7 @@ export default {
 
 export {
   EXCLUDED_COLLEGE_SCHOOL_IDS,
+  LOGO_IMAGE_CACHE_ORIGIN,
   LOGO_RELAY_PREFIX,
   PERSISTENT_LOGO_RELAY_SCHOOL_IDS,
   applyCatalogIdentityPolicy,
@@ -290,6 +308,7 @@ export {
   handleLogoRelay,
   isPublicCatalogSchool,
   logoRelayUrl,
+  resilientLogoSourceUrl,
   signLogoRelay,
   sniffImageContentType,
   visibleSchoolFromGame
