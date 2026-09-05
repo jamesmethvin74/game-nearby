@@ -1,0 +1,103 @@
+import fs from "node:fs";
+import { execFileSync } from "node:child_process";
+import { matchMaxPrepsBranding } from "../src/school-branding.js";
+import { parseMaxPrepsSchoolLinks } from "../src/maxpreps-school-page-logo.js";
+import { parseMaxPrepsOfficialWebsite, parseOfficialSchoolLogo } from "../src/official-school-logo.js";
+import { AUDIT_MISSING_IDS, encodeMissingMask } from "./statewide-logo-audit-mask.mjs";
+
+const DIRS = [
+  "https://www.maxpreps.com/ar/schools/",
+  "https://www.maxpreps.com/ar/football/schools/",
+  "https://www.maxpreps.com/ar/basketball/schools/",
+  "https://www.maxpreps.com/ar/volleyball/schools/",
+  "https://www.maxpreps.com/ar/cross-country/schools/",
+  "https://www.maxpreps.com/ar/soccer/girls/schools/"
+];
+const missing68 = Buffer.from("00000000f09db6e82293ed4de71fedc9ebeb02", "hex");
+const recoveredMasks = [
+  "aaaaaaaarqicqauamaeaefibjaaiaaa",
+  "aaaaaaaqaasaaaaaaaaiaabaafbacaa"
+];
+function decodeBase32(value) {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  let bits = 0, acc = 0;
+  const out = [];
+  for (const ch of value) {
+    const n = alphabet.indexOf(ch);
+    if (n < 0) throw new Error(`bad base32 ${ch}`);
+    acc = (acc << 5) | n;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((acc >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+const recovered = recoveredMasks.map(decodeBase32);
+const isSet = (bytes, i) => (((bytes[Math.floor(i / 8)] || 0) >> (i % 8)) & 1) === 1;
+const remainingIds = AUDIT_MISSING_IDS.filter((id, i) => isSet(missing68, i) && !recovered.some(mask => isSet(mask, i)));
+if (remainingIds.length !== 40 || remainingIds.some(id => !id.startsWith("aaa-"))) throw new Error(`Expected exact 40 AAA IDs, got ${remainingIds.length}`);
+
+const reconciliation = JSON.parse(fs.readFileSync("data/arkansas-high-school-production-reconciliation.json", "utf8"));
+const seed = reconciliation.aaa_certified_schools_not_in_production || [];
+const byId = new Map(seed.map(row => [`aaa-${String(row.aaa_id).toLowerCase()}`, row]));
+const schools = remainingIds.map(id => {
+  const row = byId.get(id);
+  if (!row) throw new Error(`Missing reconciliation row ${id}`);
+  return { id, name:row.school_name, location_matched_name:null, city:"", state:"AR", level:"high-school" };
+});
+
+const directoryResults = await Promise.all(DIRS.map(async sourceUrl => {
+  try {
+    const response = await fetch(sourceUrl, { headers:{"user-agent":"LocalBleachersAR-official-logo-probe/1.0",accept:"text/html"}, redirect:"follow" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return { sourceUrl, links:parseMaxPrepsSchoolLinks(await response.text()), error:null };
+  } catch (error) {
+    return { sourceUrl, links:[], error:String(error?.message || error) };
+  }
+}));
+
+const allLinks = [];
+const seen = new Set();
+for (const row of directoryResults) {
+  console.log(`OFFICIAL_LOGO_DIR source=${row.sourceUrl} links=${row.links.length} error=${row.error || "none"}`);
+  for (const link of row.links) {
+    const key = `${link.name}|${link.city}|${link.sourceUrl}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    allLinks.push(link);
+  }
+}
+const linkMatches = matchMaxPrepsBranding(allLinks, schools, []).matches;
+const linkBySchool = new Map();
+for (const match of linkMatches) if (!linkBySchool.has(match.schoolId)) linkBySchool.set(match.schoolId, match.entry);
+console.log(`OFFICIAL_LOGO_PAGE_MATCHES ${linkBySchool.size}/40`);
+
+const results = await Promise.all(remainingIds.map(async id => {
+  const school = schools.find(row => row.id === id);
+  const entry = linkBySchool.get(id);
+  if (!entry) return { id, ok:false, reason:"no-maxpreps-page" };
+  try {
+    const pageResponse = await fetch(entry.sourceUrl, { headers:{"user-agent":"LocalBleachersAR-official-logo-probe/1.0",accept:"text/html"}, redirect:"follow" });
+    if (!pageResponse.ok) return { id, ok:false, reason:`maxpreps-${pageResponse.status}` };
+    const pageHtml = await pageResponse.text();
+    const officialUrl = parseMaxPrepsOfficialWebsite(pageHtml, entry.sourceUrl);
+    if (!officialUrl) return { id, ok:false, reason:"no-official-website" };
+    const officialResponse = await fetch(officialUrl, { headers:{"user-agent":"LocalBleachersAR-official-logo-probe/1.0",accept:"text/html,application/xhtml+xml"}, redirect:"follow" });
+    if (!officialResponse.ok) return { id, ok:false, reason:`official-${officialResponse.status}`, officialUrl };
+    const finalUrl = officialResponse.url || officialUrl;
+    const logo = parseOfficialSchoolLogo(await officialResponse.text(), finalUrl, { name:school.name, sourceName:entry.name });
+    if (!logo?.logoUrl) return { id, ok:false, reason:"no-confident-official-logo", officialUrl:finalUrl };
+    return { id, ok:true, sourceUrl:finalUrl, ...logo };
+  } catch (error) {
+    return { id, ok:false, reason:String(error?.message || error) };
+  }
+}));
+
+const covered = results.filter(row => row.ok).map(row => row.id);
+for (const row of results) console.log(`OFFICIAL_LOGO_RESULT id=${row.id} ok=${row.ok} reason=${row.reason || row.method || "ok"}`);
+const { count, encoded } = encodeMissingMask(JSON.stringify(covered));
+if (count !== covered.length) throw new Error(`coverage mask mismatch ${count} != ${covered.length}`);
+console.log(`OFFICIAL_LOGO_TOTAL covered=${covered.length} unresolved=${40 - covered.length}`);
+execFileSync("wrangler", ["versions","upload","src/logo-bootstrap-worker.js","--preview-alias",`o-${encoded}`,"--keep-vars"], { stdio:"inherit" });
