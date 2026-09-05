@@ -1,6 +1,7 @@
 const INTERNAL_REFRESH_TOKEN = "__localbleachers_scoped_cadence__";
 const ORDINARY_MAX_SOURCES_PER_RUN = 4;
 const COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN = 8;
+const OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 16;
 
 function safeSeason(value) {
   const season = String(value || "2026");
@@ -29,6 +30,33 @@ export function scopePolicy(plan = {}) {
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND datetime(gx.scheduled_at) BETWEEN datetime('now','-330 minutes') AND datetime('now','-120 minutes')
+      )`,
+      dueMode: "active-result"
+    };
+  }
+  if (plan.scope === "high-school-final-results") {
+    return {
+      // Final-only high-school pass. It is intentionally limited to official
+      // school-operated result pages and to teams with a game old enough to be
+      // over but still represented locally as SCHEDULED. One page fetch can
+      // reconcile several recent finals for that team.
+      where: `sch.level='high-school'
+        AND src.source_type='official-school'
+        AND src.parser_type IN ('mascot-media','rankone-public')
+        AND t.sport IN ('football','volleyball','basketball')`,
+      activeMinutes: Number(plan.activeResultMinutes || 120),
+      maxSources: OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
+      gameWindow: `AND EXISTS (
+        SELECT 1
+        FROM games gx
+        WHERE gx.team_id=t.id
+          AND gx.status='SCHEDULED'
+          AND gx.scheduled_time_known=1
+          AND (
+            (t.sport='football' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-150 minutes')) OR
+            (t.sport='volleyball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-90 minutes')) OR
+            (t.sport='basketball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-120 minutes'))
+          )
       )`,
       dueMode: "active-result"
     };
@@ -201,4 +229,4 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   };
 }
 
-export { COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN, INTERNAL_REFRESH_TOKEN, safeSeason };
+export { COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN, OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN, INTERNAL_REFRESH_TOKEN, safeSeason };

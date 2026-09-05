@@ -1,6 +1,6 @@
 export const MONTHS = {
   jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,may:5,jun:6,june:6,
-  jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,october:10,nov:11,november:11,dec:12,december:12
+  jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,october:10,nov:11,dec:12,december:12
 };
 
 export function cleanText(value) {
@@ -108,12 +108,21 @@ export function normalizeSidearmRows(rows, source) {
   return stableKeys(events);
 }
 
+function mascotCalendarYear(text, source) {
+  const season=Number(source.season);
+  if (!Number.isInteger(season)) return source.season;
+  if (String(source.sport||"").toLowerCase()!=="basketball") return String(season);
+  const parsed=parseMonthDay(text,String(season));
+  if (!parsed) return String(season);
+  return String(parsed.month<=7?season+1:season);
+}
+
 export function normalizeMascotRows(rows, source) {
   const events=[];
   for (const raw of rows) {
     const cells=(raw.cells||[]).map(cleanText);
     const full=cleanText(cells.filter(Boolean).join(" | ") || raw.full);
-    const schedule=buildScheduledAt(full,source.season,source.timezone);
+    const schedule=buildScheduledAt(full,mascotCalendarYear(full,source),source.timezone);
     if (!schedule) continue;
 
     const relation=full.match(/\b(VS|AT)\s+(.+)/i);

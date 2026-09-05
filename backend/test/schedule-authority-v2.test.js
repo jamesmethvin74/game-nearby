@@ -40,11 +40,11 @@ test("reconciles Greenbrier at Vilonia and Vilonia vs Greenbrier as one canonica
   assert.equal(event.id,"ce:volleyball:girls:2026:greenbrier:vilonia:20260825:t1630");
 });
 
-test("reciprocal perspectives do not create a false home-away conflict",()=>{
+test("reciprocal perspectives do not create false home-away or lifecycle status conflicts",()=>{
   const conflicts=detectEventConflicts([gb,vil]);
   assert.equal(conflicts.some(c=>c.type==="HOME_AWAY"),false);
   assert.equal(conflicts.some(c=>c.type==="TIME"),true);
-  assert.equal(conflicts.some(c=>c.type==="STATUS"),true);
+  assert.equal(conflicts.some(c=>c.type==="STATUS"),false);
 });
 
 test("detects a real reversed-home conflict",()=>{
