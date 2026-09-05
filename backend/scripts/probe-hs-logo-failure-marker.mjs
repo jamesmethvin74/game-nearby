@@ -13,14 +13,14 @@ const missingMask = Buffer.from("00000000f09db6e82293ed4de71fedc9ebeb02", "hex")
 const missingIds = AUDIT_MISSING_IDS.filter((_, index) => ((missingMask[Math.floor(index / 8)] || 0) >> (index % 8)) & 1);
 if (missingIds.length !== 68 || missingIds.some(id => !id.startsWith("aaa-"))) throw new Error("Expected exact 68-school high-school saved-result set");
 
-const sql = fs.readFileSync("migrations/0011_milestone1_aaa_catalog_completion.sql", "utf8");
-const seedMatch = sql.match(/FROM json_each\('(\[\{[\s\S]*?\}\])'\);/);
-if (!seedMatch) throw new Error("AAA catalog seed JSON not found");
-const seed = JSON.parse(seedMatch[1]);
+const reconciliation = JSON.parse(fs.readFileSync("data/arkansas-high-school-production-reconciliation.json", "utf8"));
+const seed = Array.isArray(reconciliation?.aaa_certified_schools_not_in_production)
+  ? reconciliation.aaa_certified_schools_not_in_production
+  : [];
 const byId = new Map(seed.map(row => [`aaa-${String(row.aaa_id).toLowerCase()}`, row]));
 const schools = missingIds.map(id => {
   const row = byId.get(id);
-  if (!row) throw new Error(`AAA seed row missing for ${id}`);
+  if (!row) throw new Error(`AAA reconciliation row missing for ${id}`);
   return { id, name:row.school_name, location_matched_name:null, city:"", state:"AR", level:"high-school" };
 });
 
