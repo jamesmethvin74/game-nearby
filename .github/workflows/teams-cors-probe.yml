@@ -1,0 +1,90 @@
+name: Teams CORS probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/teams-cors-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for repaired production nearby route
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          URL="$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-08-28T00%3A00%3A00.000Z&until=2026-12-31T23%3A59%3A59.000Z"
+          for attempt in $(seq 1 28); do
+            code=$(curl -sS --max-time 30 -o games.json -w '%{http_code}' -H 'x-localbleachers-diagnostic: read-v1' "$URL" || true)
+            echo "deployment attempt=$attempt HTTP=$code"
+            if [ "$code" = "200" ]; then
+              node - <<'NODE'
+          const p=require('./games.json');
+          const games=Array.isArray(p.games)?p.games:[];
+          console.log(`current games=${games.length}`);
+          const c=games.find(g=>String(g.school_name||'').toLowerCase().includes('conway') && String(g.sport||'').toLowerCase()==='football');
+          if(c) console.log(`Conway=${c.wins}-${c.losses} conf=${c.conference_wins}-${c.conference_losses} opponent=${c.opponent}`);
+          NODE
+              exit 0
+            fi
+            cat games.json 2>/dev/null || true
+            sleep 10
+          done
+          exit 1
+
+      - name: Verify Teams catalog and followed school resolution
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          code=$(curl -sS --max-time 30 -D schools.headers -o schools.json -w '%{http_code}' "$API/api/v1/schools" || true)
+          test "$code" = "200"
+          node - <<'NODE'
+          const p=require('./schools.json');
+          const schools=Array.isArray(p.schools)?p.schools:[];
+          if(schools.length < 190) throw new Error(`Expected statewide catalog, got ${schools.length}`);
+          const followed=schools.find(s=>s.id==='df-jxkf8l');
+          console.log(`schools=${schools.length}`);
+          console.log(`df-jxkf8l=${followed ? JSON.stringify({id:followed.id,name:followed.location_matched_name||followed.name,city:followed.city,team_count:followed.team_count}) : 'NOT_IN_CATALOG'}`);
+          NODE
+
+      - name: Hammer current Home reads and require Conway record
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          URL="$API/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-08-28T00%3A00%3A00.000Z&until=2026-12-31T23%3A59%3A59.000Z"
+          failures=0
+          record_cycles=0
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS --max-time 30 -D games.headers -o games.json -w '%{http_code}' "$URL" || true)
+            stale=$(tr -d '\r' < games.headers | awk -F': ' 'tolower($1)=="x-localbleachers-api-stale" {print $2}' | tail -1)
+            summary=$(node - <<'NODE'
+          try {
+            const p=require('./games.json');
+            const games=Array.isArray(p.games)?p.games:[];
+            const c=games.find(g=>String(g.school_name||'').toLowerCase().includes('conway') && String(g.sport||'').toLowerCase()==='football');
+            if(!c){console.log(`${games.length}|none`);process.exit(0)}
+            console.log(`${games.length}|${Number(c.wins||0)}-${Number(c.losses||0)}|${Number(c.conference_wins||0)}-${Number(c.conference_losses||0)}|${c.opponent||''}`);
+          } catch { console.log('-1|parse-error') }
+          NODE
+            )
+            echo "attempt=$attempt HTTP=$code stale=${stale:-0} games/record=$summary"
+            record=$(echo "$summary" | cut -d'|' -f2)
+            if [ "$code" != "200" ] || [ "$record" = "none" ] || [ "$record" = "parse-error" ]; then
+              failures=$((failures+1))
+            else
+              wins=$(echo "$record" | cut -d'-' -f1)
+              losses=$(echo "$record" | cut -d'-' -f2)
+              if [ $((wins+losses)) -gt 0 ]; then record_cycles=$((record_cycles+1)); fi
+            fi
+            sleep 3
+          done
+          echo "failures=$failures record_cycles=$record_cycles"
+          test "$failures" -eq 0
+          test "$record_cycles" -eq 12
