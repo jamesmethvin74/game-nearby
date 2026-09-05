@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { applyVerifiedBrandAssets } from "../src/catalog-identity-worker.js";
 import { cacheDescriptor, SCHOOL_CATALOG_CACHE_VERSION } from "../src/public-cors-worker.js";
-import { isAppRenderableLogoUrl, probeCollegeLogoUrl } from "../src/college-logo-bootstrap.js";
+import { isAppRenderableLogoUrl, parseOfficialCollegeLogo, probeCollegeLogoUrl } from "../src/college-logo-bootstrap.js";
 
 test("public school catalog overlays one set-based verified branding lookup", async () => {
   let calls = 0;
@@ -53,6 +53,19 @@ test("school catalog edge cache is versioned and no longer six hours fresh", () 
   assert.match(descriptor.freshKey.url, /schools\/logo-render-v1/);
 });
 
+test("college logo parser rejects generic social hero images", () => {
+  assert.equal(
+    parseOfficialCollegeLogo('<meta property="og:image" content="https://example.edu/uploads/campus-hero.jpg">', "https://example.edu/"),
+    null
+  );
+  const logo = parseOfficialCollegeLogo(
+    '<meta property="og:image" content="https://example.edu/assets/athletics-logo.png">',
+    "https://example.edu/"
+  );
+  assert.equal(logo?.url, "https://example.edu/assets/athletics-logo.png");
+  assert.equal(logo?.method, "og:image");
+});
+
 test("college logo completion accepts only an HTTPS URL that actually returns an image", async () => {
   assert.equal(isAppRenderableLogoUrl("http://example.edu/logo.png"), false);
   assert.equal(isAppRenderableLogoUrl("https://example.edu/logo.png"), true);
@@ -71,6 +84,17 @@ test("college logo completion accepts only an HTTPS URL that actually returns an
     /logo content-type text\/html/
   );
   await assert.rejects(() => probeCollegeLogoUrl("http://example.edu/logo.png", async () => new Response()), /not HTTPS/);
+});
+
+test("college logo probe retries CDNs that reject byte ranges", async () => {
+  const calls = [];
+  const result = await probeCollegeLogoUrl("https://example.edu/logo.png", async (_url, options) => {
+    calls.push(options.headers.range || "full");
+    if (calls.length === 1) return new Response("range rejected", { status:416 });
+    return new Response("image", { status:200, headers:{ "content-type":"image/png" } });
+  });
+  assert.deepEqual(calls, ["bytes=0-4095", "full"]);
+  assert.equal(result.contentType, "image/png");
 });
 
 test("explicit college audit IDs are not restricted to SQL-null logo rows", () => {
