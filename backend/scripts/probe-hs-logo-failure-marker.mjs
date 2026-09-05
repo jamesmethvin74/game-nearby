@@ -8,9 +8,9 @@ const payload=await response.json();
 const lines=payload?.result?.lines;
 if(!response.ok||payload?.success!==true||!Array.isArray(lines)) process.exit(2);
 const text=JSON.stringify(lines);
-if(text.includes("LOGO_BOOTSTRAP_READY attempt=")){
-  console.log("STATEWIDE_EPHEMERAL_READY=YES");
+if(text.includes("Logo bootstrap readiness attempt")){
+  console.log("STATEWIDE_READINESS_LOOP_ENTERED=YES");
   process.exit(0);
 }
-console.error("STATEWIDE_EPHEMERAL_READY=NO");
+console.error("STATEWIDE_READINESS_LOOP_ENTERED=NO");
 process.exit(1);
