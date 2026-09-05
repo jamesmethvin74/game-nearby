@@ -32,7 +32,7 @@
       <div class="scorestream-empty">
         <div class="scorestream-empty-inner">
           <h2>ScoreStream is temporarily unavailable</h2>
-          <p>The Live Scores experiment only uses ScoreStream's published interface. No scraping and no production D1 writes are involved.</p>
+          <p>The Live Scores page uses ScoreStream's published interface only. LocalBleachersAR does not scrape or ingest this display into D1.</p>
           <div class="scorestream-actions">
             <a class="scorestream-btn primary" href="${PUBLIC_ARKANSAS_FOOTBALL_URL}" target="_blank" rel="noopener noreferrer">Open Arkansas live scores</a>
           </div>
@@ -59,14 +59,14 @@
     script.onload = () => {
       if (status) {
         status.textContent = widgetId === PUBLIC_ARKANSAS_PROOF_WIDGET_ID
-          ? "ScoreStream Arkansas proof widget"
+          ? "ScoreStream Arkansas proof widget — replace before production"
           : `Official ScoreStream widget #${widgetId}`;
       }
     };
     script.onerror = () => {
       if (error) {
         error.hidden = false;
-        error.textContent = "ScoreStream did not load. Use the Arkansas scoreboard link below and try again later.";
+        error.textContent = "ScoreStream did not load. Open the Arkansas scoreboard directly and try again later.";
       }
       showFallback();
     };
