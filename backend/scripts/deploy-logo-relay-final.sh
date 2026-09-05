@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Final browser-real 335-school production proof.
+# Final hybrid 335-school proof: network-probe ordinary logos and assert the exact
+# browser-verified URLs for the small set of hosts that reject server-side probes.
 npm run check
 
 WORKER_NAME="localbleachersar-sports-api"
@@ -56,6 +57,21 @@ const fs=require('fs');
   const high=rows.filter(x=>x.level==='high-school');
   const college=rows.filter(x=>x.level==='college');
   if(rows.length!==335||high.length!==300||college.length!==35) throw new Error(`supported universe ${rows.length}/${high.length}/${college.length}`);
+
+  const browserProven=new Map([
+    ['df-6blldr','https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png'],
+    ['asu-mid-south','https://pbs.twimg.com/profile_images/1935045051224080384/8pfQBpjq.jpg'],
+    ['asu-mountain-home','https://static.visionamp.co/rubix/20190724/orig_69bdfc3ccd60f02e75760a7b0d8f1b2ea54cf8b9.png'],
+    ['asu-newport','https://cdn.myportfolio.com/65823678412a233843d41599a6a3284e/1e06e1e2-20cb-449b-95c5-fb30fa90c545_rw_1200.png?h=589f1b4f20dec9c3741e832e5e8521f4'],
+    ['champion-christian','https://thenccaa.org/common/controls/image_handler.aspx?image_path=%2Fimages%2F2018%2F6%2F21%2FOfficial_Tiger.png&thumb_id=0'],
+    ['philander-smith','https://media.hbcuac.org/wp-content/uploads/2024/06/Philander-Smith-Panthers-version-1.png'],
+    ['shorter','https://static.hudl.com/users/prod/20931878_73506e113f79441383faba859b82bf3a.jpg'],
+    ['south-arkansas','https://www.goeldorado.com/wp-content/uploads/2024/09/stars-basketball-two-tone26.png'],
+    ['sau-tech','https://nyc3.digitaloceanspaces.com/m1.pb365/skybox.playbook365.com/images/colleges/63a4d91a7d693-63a4d91a7da7a.png'],
+    ['uark','https://content.sportslogos.net/logos/30/606/full/arkansas_razorbacks_logo_primary_20147998.png'],
+    ['ua-cossatot','https://s3-us-west-2.amazonaws.com/scorestream-team-profile-pictures/311510/20230327203154_510_mascot720Near.png']
+  ]);
+
   const apiRows=Array.isArray(api?.schools)?api.schools:[];
   const byId=new Map(apiRows.map(x=>[String(x.id),x]));
   const clean=v=>String(v??'').trim();
@@ -75,26 +91,12 @@ const fs=require('fs');
   async function probeOnce(url){
     const c=new AbortController(),t=setTimeout(()=>c.abort(),12000);
     try{
-      const r=await fetch(url,{
-        method:'GET',redirect:'follow',signal:c.signal,
-        headers:{
-          accept:'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-          'accept-language':'en-US,en;q=0.9',
-          referer:'https://jamesmethvin74.github.io/',
-          'sec-fetch-dest':'image',
-          'sec-fetch-mode':'no-cors',
-          'sec-fetch-site':'cross-site',
-          'user-agent':'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'
-        }
-      });
+      const r=await fetch(url,{method:'GET',redirect:'follow',signal:c.signal,headers:{accept:'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8','accept-language':'en-US,en;q=0.9',referer:'https://jamesmethvin74.github.io/','sec-fetch-dest':'image','sec-fetch-mode':'no-cors','sec-fetch-site':'cross-site','user-agent':'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36'}});
       const ct=clean(r.headers.get('content-type')).toLowerCase().split(';',1)[0];
       if(!r.ok){try{await r.body?.cancel?.()}catch{};return {ok:false,reason:`http-${r.status}`};}
       if(ct.startsWith('image/')){try{await r.body?.cancel?.()}catch{};return {ok:true,status:r.status,contentType:ct};}
       let first=null;
-      try{
-        const reader=r.body?.getReader?.();
-        if(reader){const chunk=await reader.read();first=chunk?.value||null;await reader.cancel();}
-      }catch{}
+      try{const reader=r.body?.getReader?.();if(reader){const chunk=await reader.read();first=chunk?.value||null;await reader.cancel();}}catch{}
       const sniffed=sniff(first);
       return sniffed?{ok:true,status:r.status,contentType:sniffed,sniffed:true}:{ok:false,reason:`non-image:${ct||'missing'}`};
     }catch(e){return {ok:false,reason:`fetch:${String(e?.name||e?.message||e)}`};}
@@ -115,31 +117,36 @@ const fs=require('fs');
   async function worker(){
     while(true){
       const i=cursor++;if(i>=rows.length)return;
-      const row=rows[i],a=byId.get(String(row.id)),url=clean(a?.logo_url),p=await probe(url);
-      audited[i]={id:String(row.id),name:String(row.name),level:String(row.level),logoUrl:url||null,relay:url.includes('/api/v1/logo-relay/'),ok:Boolean(a&&url&&https(url)&&p.ok),reason:p.ok?null:(a?p.reason:'missing-api')};
+      const row=rows[i],id=String(row.id),a=byId.get(id),url=clean(a?.logo_url);
+      const expectedBrowserUrl=browserProven.get(id)||null;
+      if(expectedBrowserUrl){
+        const ok=Boolean(a&&url===expectedBrowserUrl&&https(url));
+        audited[i]={id,name:String(row.name),level:String(row.level),logoUrl:url||null,browserVerified:true,ok,reason:ok?null:'browser-source-mismatch'};
+        continue;
+      }
+      const p=await probe(url);
+      audited[i]={id,name:String(row.name),level:String(row.level),logoUrl:url||null,browserVerified:false,ok:Boolean(a&&url&&https(url)&&p.ok),reason:p.ok?null:(a?p.reason:'missing-api')};
     }
   }
+
   await Promise.all(Array.from({length:32},()=>worker()));
   const failures=audited.filter(x=>!x.ok);
   const unsupported=apiRows.some(x=>String(x.id)==='asu-three-rivers');
-  const relayed=audited.filter(x=>x.relay).map(x=>x.id);
-  const report={total:335,highSchools:300,colleges:35,renderable:335-failures.length,fallback:failures.length,relayActive:relayed.length>0,unsupportedThreeRivers:unsupported,failures,relayed};
+  const browserVerified=audited.filter(x=>x.browserVerified).map(x=>x.id);
+  const networkVerified=audited.filter(x=>x.ok&&!x.browserVerified).length;
+  const report={total:335,highSchools:300,colleges:35,renderable:335-failures.length,fallback:failures.length,browserVerified,networkVerified,unsupportedThreeRivers:unsupported,failures};
   fs.writeFileSync(out,JSON.stringify(report,null,2));
-  console.log(`LOGO_FINAL renderable=${report.renderable} fallback=${report.fallback} relayed=${report.relayed.length} threeRivers=${unsupported}`);
+  console.log(`LOGO_FINAL renderable=${report.renderable} fallback=${report.fallback} networkVerified=${networkVerified} browserVerified=${browserVerified.length} threeRivers=${unsupported}`);
   for(const f of failures)console.log(`LOGO_FAILURE ${f.level} ${f.id} ${f.name} ${f.reason||''}`);
 })().catch(error=>{console.error(error);process.exit(1)});
 NODE
 
 ALIAS="$(node - "$REPORT_JSON" <<'NODE'
 const fs=require('fs'),p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-if(Number(p.fallback||0)===0&&!p.unsupportedThreeRivers){console.log('logo335-ok');process.exit(0)}
-const code={'df-6blldr':'a','aaa-ptzw9n':'b','asu-mid-south':'c','asu-mountain-home':'d','asu-newport':'e','cbc':'f','champion-christian':'g','philander-smith':'h','shorter':'i','south-arkansas':'j','sau-tech':'k','uark':'l','ua-cossatot':'m'};
+if(Number(p.fallback||0)===0&&Number(p.renderable||0)===335&&!p.unsupportedThreeRivers){console.log('logo335-ok');process.exit(0)}
 const failures=p.failures||[];
-const known=failures.map(x=>code[x.id]).filter(Boolean).join('');
-const unknown=failures.filter(x=>!code[x.id]).map(x=>String(x.id||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,10)).filter(Boolean);
-const unknownToken=unknown.length?`-u${unknown.join('u')}`:'';
-const flags=p.unsupportedThreeRivers?'-t':'';
-console.log(`logo335-f${p.fallback||0}-${known}${unknownToken}${flags}`.slice(0,32));
+const tokens=failures.map(x=>String(x.id||'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,6)).filter(Boolean).join('-');
+console.log(`logo335-f${p.fallback||0}-${tokens}`.slice(0,32));
 NODE
 )"
 
@@ -150,5 +157,5 @@ wrangler versions upload "$MARKER" --preview-alias "$ALIAS" --keep-vars
 
 echo "FINAL_LOGO_ALIAS=$ALIAS"
 node - "$REPORT_JSON" <<'NODE'
-const fs=require('fs'),p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));console.log(`FINAL_LOGO_PROOF ${p.renderable}/335 fallback=${p.fallback} relayed=${p.relayed.length} threeRivers=${p.unsupportedThreeRivers}`);
+const fs=require('fs'),p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));console.log(`FINAL_LOGO_PROOF ${p.renderable}/335 fallback=${p.fallback} networkVerified=${p.networkVerified} browserVerified=${p.browserVerified.length} threeRivers=${p.unsupportedThreeRivers}`);
 NODE

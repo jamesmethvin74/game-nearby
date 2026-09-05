@@ -2,20 +2,20 @@ import app from "./coverage-report-worker.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
-const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v6-browser-proof";
+const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v7-browser-pinned";
 const DIRECT_LOGO_OVERRIDES = new Map([
-  ["df-6blldr", "https://friendshipaspire.org/images/logos/friendship-aspire-academy.svg"],
+  ["df-6blldr", "https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png"],
   ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
   ["asu-mid-south", "https://pbs.twimg.com/profile_images/1935045051224080384/8pfQBpjq.jpg"],
-  ["asu-mountain-home", "https://static.visionamp.co/rubix/20190724/two-color-trailblazer-mascot-67253.png"],
+  ["asu-mountain-home", "https://static.visionamp.co/rubix/20190724/orig_69bdfc3ccd60f02e75760a7b0d8f1b2ea54cf8b9.png"],
   ["asu-newport", "https://cdn.myportfolio.com/65823678412a233843d41599a6a3284e/1e06e1e2-20cb-449b-95c5-fb30fa90c545_rw_1200.png?h=589f1b4f20dec9c3741e832e5e8521f4"],
   ["cbc", "https://static.wixstatic.com/media/c13f88_4bfbbeb6499d408e86dfae8d386843fd~mv2.png/v1/fill/w_1844%2Ch_1391%2Cal_c/CBC%20MustangHeadRGB.png"],
-  ["champion-christian", "https://www.mascotdb.com/sites/default/files/logos/champion_0.png"],
+  ["champion-christian", "https://thenccaa.org/common/controls/image_handler.aspx?image_path=%2Fimages%2F2018%2F6%2F21%2FOfficial_Tiger.png&thumb_id=0"],
   ["philander-smith", "https://media.hbcuac.org/wp-content/uploads/2024/06/Philander-Smith-Panthers-version-1.png"],
   ["shorter", "https://static.hudl.com/users/prod/20931878_73506e113f79441383faba859b82bf3a.jpg"],
   ["south-arkansas", "https://www.goeldorado.com/wp-content/uploads/2024/09/stars-basketball-two-tone26.png"],
-  ["sau-tech", "https://lirp.cdn-website.com/98cd28ae/dms3rep/multi/opt/rocket-logo-1a-1920w.png"],
-  ["uark", "https://content.sportslogos.net/logos/30/606/full/arkansas_razorbacks_logo_primary_19677366.png"],
+  ["sau-tech", "https://nyc3.digitaloceanspaces.com/m1.pb365/skybox.playbook365.com/images/colleges/63a4d91a7d693-63a4d91a7da7a.png"],
+  ["uark", "https://content.sportslogos.net/logos/30/606/full/arkansas_razorbacks_logo_primary_20147998.png"],
   ["ua-cossatot", "https://s3-us-west-2.amazonaws.com/scorestream-team-profile-pictures/311510/20230327203154_510_mascot720Near.png"]
 ]);
 
@@ -46,7 +46,7 @@ async function rewriteSchoolCatalogLogos(request, response) {
   if (!changed) return response;
   const headers = new Headers(response.headers);
   headers.set("content-type", "application/json; charset=utf-8");
-  headers.set("x-localbleachers-logo-delivery", "direct-v2-browser-proof");
+  headers.set("x-localbleachers-logo-delivery", "direct-v3-browser-pinned");
   return new Response(JSON.stringify(body), { status: response.status, statusText: response.statusText, headers });
 }
 
