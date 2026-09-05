@@ -1,6 +1,8 @@
 import app from "./worker.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 
+const EXCLUDED_COLLEGE_SCHOOL_IDS = new Set(["asu-three-rivers"]);
+
 function rewrittenJson(response, body) {
   const headers = new Headers(response.headers);
   headers.set("content-type", "application/json; charset=utf-8");
@@ -15,8 +17,13 @@ function clean(value) {
   return String(value ?? "").trim();
 }
 
+function isPublicCatalogSchool(school = {}) {
+  if (EXCLUDED_COLLEGE_SCHOOL_IDS.has(clean(school.id))) return false;
+  return isSchoolCatalogVisible(school);
+}
+
 function visibleSchoolFromGame(game = {}) {
-  return isSchoolCatalogVisible({
+  return isPublicCatalogSchool({
     id: game.school_id,
     name: game.school_name,
     level: game.level
@@ -55,7 +62,7 @@ async function applyCatalogIdentityPolicy(request, response, env) {
 
   const body = await response.json();
   if (path === "/api/v1/schools" && Array.isArray(body.schools)) {
-    const visible = body.schools.filter(isSchoolCatalogVisible);
+    const visible = body.schools.filter(isPublicCatalogSchool);
     body.schools = await applyVerifiedBrandAssets(env, visible);
     return rewrittenJson(response, body);
   }
@@ -75,4 +82,4 @@ export default {
   }
 };
 
-export { applyCatalogIdentityPolicy, applyVerifiedBrandAssets, visibleSchoolFromGame };
+export { EXCLUDED_COLLEGE_SCHOOL_IDS, applyCatalogIdentityPolicy, applyVerifiedBrandAssets, isPublicCatalogSchool, visibleSchoolFromGame };
