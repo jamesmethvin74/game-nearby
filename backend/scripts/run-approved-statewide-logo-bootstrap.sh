@@ -44,7 +44,7 @@ post_logo() {
 TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
 node - "$TOKEN" > "$WRAPPER" <<'NODE'
 const token = process.argv[2];
-process.stdout.write(`import app from "./logo-bootstrap-worker.js";\nconst EXECUTION_TOKEN=${JSON.stringify(token)};\nfunction executionEnv(env){const wrapped=Object.create(env);Object.defineProperty(wrapped,"LOGO_BOOTSTRAP_TOKEN",{value:EXECUTION_TOKEN,enumerable:true});return wrapped;}\nexport default {\n  fetch(request,env,ctx){return app.fetch(request,executionEnv(env),ctx);},\n  scheduled(controller,env,ctx){return app.scheduled(controller,env,ctx);}\n};\n`);
+process.stdout.write(`import app from "./logo-bootstrap-worker.js";\nconst EXECUTION_TOKEN=${JSON.stringify(token)};\nfunction executionEnv(env){const wrapped=Object.create(env);Object.defineProperty(wrapped,"LOGO_BOOTSTRAP_TOKEN",{value:EXECUTION_TOKEN,enumerable:true});return wrapped;}\nexport default {\n  fetch(request,env,ctx){return app.fetch(request,executionEnv(env),ctx);},\n  scheduled(controller,env,ctx){return app.scheduled(controller,executionEnv(env),ctx);}\n};\n`);
 NODE
 
 node <<'NODE'
@@ -54,8 +54,7 @@ config.main='src/_logo-execution-worker.mjs';
 fs.writeFileSync('.wrangler-logo-execution.json',JSON.stringify(config,null,2));
 NODE
 
-# Native Wrangler deploy of the same production Worker, with only the ephemeral
-# execution wrapper changed. No migration, collection, reconciliation, or refresh.
+# Deploy only the temporary execution wrapper around the existing production Worker.
 wrangler deploy --config "$EXEC_CONFIG"
 EPHEMERAL_DEPLOYED=1
 
@@ -185,8 +184,7 @@ SELECT
 VERIFY_OUT="$TMPDIR/final-verification.json"
 wrangler d1 execute localbleachersar-sports --remote --command="$VERIFY_SQL" --json > "$VERIFY_OUT"
 
-# Remove the temporary execution wrapper from production before judging the final
-# verification result. The EXIT trap retries this restore if it fails here.
+# Restore the clean production Worker before judging the verification result.
 if ! wrangler deploy; then
   echo "CLEAN_WORKER_RESTORE_FAILED" >&2
   exit 1
