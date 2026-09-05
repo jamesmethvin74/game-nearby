@@ -11,21 +11,10 @@ const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ac
 const payload = await response.json();
 const lines = payload?.result?.lines;
 if (!response.ok || payload?.success !== true || !Array.isArray(lines)) process.exit(2);
-
 const text = JSON.stringify(lines);
-const markers = [
-  ["NO_PROGRESS", "HS logo completion made no progress"],
-  ["HTTP_FAILURE", "HS_LOGO_HTTP_FAILURE"],
-  ["UNEXPECTED_STATUS", "Unexpected HS logo status"],
-  ["LOOP_EXHAUSTED", "did not reach COMPLETE within eight bounded batches"],
-  ["CAP_EXCEEDED", "HS logo batch exceeded cap"]
-];
-
-for (const [name, marker] of markers) {
-  if (text.includes(marker)) {
-    console.log(`HS_LOGO_FAILURE_CLASS=${name}`);
-    process.exit(name === "NO_PROGRESS" ? 0 : 1);
-  }
+if (text.includes("HS_LOGO_HTTP_FAILURE")) {
+  console.log("HS_LOGO_FAILURE_CLASS=HTTP_FAILURE");
+  process.exit(0);
 }
-console.error("HS_LOGO_FAILURE_CLASS=UNKNOWN");
+console.error("HS_LOGO_FAILURE_CLASS=NOT_HTTP_FAILURE");
 process.exit(1);
