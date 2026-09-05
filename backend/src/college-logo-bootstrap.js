@@ -158,7 +158,6 @@ export async function runCollegeLogoCompletion(env, {
     FROM schools s
     LEFT JOIN school_brand_assets b ON b.school_id=s.id
     WHERE s.catalog_scope='local' AND s.level='college'
-      AND EXISTS(SELECT 1 FROM teams t WHERE t.school_id=s.id AND t.active=1)
       AND COALESCE(NULLIF(b.logo_url,''),NULLIF(s.logo_url,'')) IS NULL
     ORDER BY s.id
   `).all();
