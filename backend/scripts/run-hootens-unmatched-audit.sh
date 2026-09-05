@@ -2,7 +2,11 @@
 set -euo pipefail
 
 WRAPPER="src/_hootens-unmatched-audit.mjs"
-trap 'rm -f "$WRAPPER"' EXIT
+TMPDIR="$(mktemp -d)"
+trap 'rm -f "$WRAPPER"; rm -rf "$TMPDIR"' EXIT
+REPORT="$TMPDIR/report.json"
+AUDIT_ALIAS="hootens-unmatched-audit"
+AUDIT_URL="https://${AUDIT_ALIAS}-localbleachersar-sports-api.james-methvin74.workers.dev/api/hootens-unmatched-report"
 
 npm run check
 node --check src/hootens-unmatched-audit.js
@@ -31,4 +35,40 @@ export default {
 };
 EOF
 
-wrangler versions upload "$WRAPPER" --preview-alias "hootens-unmatched-audit" --keep-vars
+wrangler versions upload "$WRAPPER" --preview-alias "$AUDIT_ALIAS" --keep-vars >/dev/null
+
+CODE=""
+for ATTEMPT in $(seq 1 20); do
+  CODE="$(curl -sS --max-time 45 -o "$REPORT" -w '%{http_code}' "$AUDIT_URL" || true)"
+  if [ "$CODE" = "200" ] && node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));process.exit(p?.status==="SUCCESS"?0:1)' "$REPORT"; then
+    break
+  fi
+  sleep 2
+done
+if [ "$CODE" != "200" ]; then
+  echo "Hooten unmatched audit endpoint failed: HTTP $CODE" >&2
+  cat "$REPORT" >&2 || true
+  exit 1
+fi
+
+MARKER="$(node - "$REPORT" <<'NODE'
+const fs=require('fs');
+const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+const games=Array.isArray(p.unmatchedGames)?p.unmatchedGames:[];
+if(Number(p.finals)<25) throw new Error(`suspicious Hooten final count ${p.finals}`);
+if(games.length!==Number(p.unmatched)) throw new Error('unmatched count mismatch');
+if(games.length>10) throw new Error(`expected at most 10 unmatched, got ${games.length}`);
+const indexes=games.map(g=>Number(g.index).toString(36).padStart(2,'0')).join('');
+let anchorMask=0;
+games.forEach((g,i)=>{if(g.reason==='no_recent_game_anchor') anchorMask|=(1<<i);});
+const marker=`hu-${indexes||'none'}-r${anchorMask.toString(16).padStart(3,'0')}`;
+if(marker.length>32) throw new Error(`marker too long ${marker}`);
+console.log(marker);
+NODE
+)"
+
+echo "HOOTENS_UNMATCHED_MARKER $MARKER"
+cat > "$WRAPPER" <<EOF
+export default {async fetch(){return new Response(${MARKER@Q},{headers:{"content-type":"text/plain","cache-control":"no-store"}})}};
+EOF
+wrangler versions upload "$WRAPPER" --preview-alias "$MARKER" --keep-vars

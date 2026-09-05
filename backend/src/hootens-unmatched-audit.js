@@ -78,12 +78,12 @@ export async function auditHootensUnmatched(env,{fetchFn=fetch,HTMLRewriterClass
   const gamesBySchool=new Map();
   for(const game of games){if(!gamesBySchool.has(game.school_id))gamesBySchool.set(game.school_id,[]);gamesBySchool.get(game.school_id).push(game);}
   const unmatched=[];let matched=0;
-  for(const final of fetched.finals){
+  for(const [index,final] of fetched.finals.entries()){
     const left=aliasIndex.get(expandedAlias(final.homeName))||null;
     const right=aliasIndex.get(expandedAlias(final.awayName))||null;
     const reporting=left||right;
     if(!reporting){
-      unmatched.push({home:final.homeName,away:final.awayName,homeScore:final.homeScore,awayScore:final.awayScore,reason:"no_local_school_match",homeAlias:expandedAlias(final.homeName),awayAlias:expandedAlias(final.awayName)});
+      unmatched.push({index,home:final.homeName,away:final.awayName,homeScore:final.homeScore,awayScore:final.awayScore,reason:"no_local_school_match",homeAlias:expandedAlias(final.homeName),awayAlias:expandedAlias(final.awayName)});
       continue;
     }
     const reportingIsLeft=Boolean(left);
@@ -92,7 +92,7 @@ export async function auditHootensUnmatched(env,{fetchFn=fetch,HTMLRewriterClass
     const candidates=gamesBySchool.get(reporting.school_id)||[];
     const anchor=chooseAnchor(candidates,opponentName,opponentLocal?.school_id||null);
     if(!anchor){
-      unmatched.push({home:final.homeName,away:final.awayName,homeScore:final.homeScore,awayScore:final.awayScore,reason:"no_recent_game_anchor",schoolId:reporting.school_id,schoolName:reporting.school_name,opponentAlias:expandedAlias(opponentName),candidateCount:candidates.length});
+      unmatched.push({index,home:final.homeName,away:final.awayName,homeScore:final.homeScore,awayScore:final.awayScore,reason:"no_recent_game_anchor",schoolId:reporting.school_id,schoolName:reporting.school_name,opponentAlias:expandedAlias(opponentName),candidateCount:candidates.length});
       continue;
     }
     matched++;
