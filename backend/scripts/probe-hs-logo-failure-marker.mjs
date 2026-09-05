@@ -13,7 +13,7 @@ const listPayload = await listResponse.json();
 const versions = Array.isArray(listPayload?.result?.items) ? listPayload.result.items : [];
 if (!listResponse.ok || !listPayload?.success || versions.length === 0) process.exit(2);
 
-let source = "";
+let result = null;
 for (const version of versions) {
   const id = String(version?.id || "");
   if (!id) continue;
@@ -25,17 +25,29 @@ for (const version of versions) {
     try { return Buffer.from(String(module?.content_base64 || ""), "base64").toString("utf8"); }
     catch { return ""; }
   }).join("\n");
-  if (decoded.includes("logo-bootstrap-result") && decoded.includes("missingLogos") && decoded.includes("missingCount")) {
-    source = decoded;
-    break;
-  }
+  if (!decoded.includes("logo-bootstrap-result") || !decoded.includes("const RESULT=")) continue;
+  const start = decoded.indexOf("const RESULT=") + "const RESULT=".length;
+  const end = decoded.indexOf(";\nexport default", start);
+  if (end < start) continue;
+  try {
+    const parsed = JSON.parse(decoded.slice(start, end));
+    if (Number(parsed?.totalSchools) === 336 && Number(parsed?.missingCount) === 68 && Array.isArray(parsed?.missingLogos)) {
+      result = parsed;
+      break;
+    }
+  } catch {}
 }
-if (!source) process.exit(1);
+if (!result) {
+  console.error("FINAL_LOGO_RESULT_JSON_NOT_FOUND");
+  process.exit(1);
+}
 
-const start = source.indexOf("missingLogos");
-const end = source.indexOf("missingCount", start);
-if (start < 0 || end < 0) process.exit(1);
-const { count, encoded } = encodeMissingMask(source.slice(start, end));
+const missingIds = result.missingLogos.map(row => String(row?.id || "")).filter(Boolean);
+if (missingIds.length !== 68) {
+  console.error(`MISSING_LOGO_RESULT_LENGTH_${missingIds.length}`);
+  process.exit(1);
+}
+const { count, encoded } = encodeMissingMask(JSON.stringify(missingIds));
 if (count !== 68) {
   console.error(`MISSING_LOGO_MASK_COUNT_${count}`);
   process.exit(1);
