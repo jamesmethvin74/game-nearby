@@ -25,21 +25,26 @@ const schools = missingIds.map(id => {
 });
 
 const sourceResults = await Promise.all(SOURCES.map(async sourceUrl => {
-  const response = await fetch(sourceUrl, {
-    headers:{ "user-agent":"LocalBleachersAR-logo-coverage/1.0", accept:"text/html" },
-    redirect:"follow"
-  });
-  if (!response.ok) throw new Error(`${sourceUrl} HTTP ${response.status}`);
-  const entries = parseMaxPrepsSchoolDirectory(await response.text());
-  const matched = matchMaxPrepsBranding(entries, schools, []).matches.map(row => row.schoolId);
-  return { sourceUrl, entries:entries.length, matched };
+  try {
+    const response = await fetch(sourceUrl, {
+      headers:{ "user-agent":"LocalBleachersAR-logo-coverage/1.0", accept:"text/html" },
+      redirect:"follow"
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const entries = parseMaxPrepsSchoolDirectory(await response.text());
+    const matched = matchMaxPrepsBranding(entries, schools, []).matches.map(row => row.schoolId);
+    return { sourceUrl, entries:entries.length, matched, error:null };
+  } catch (error) {
+    return { sourceUrl, entries:0, matched:[], error:String(error?.message || error) };
+  }
 }));
 
 const covered = new Set(sourceResults.flatMap(row => row.matched));
-for (const row of sourceResults) console.log(`LOGO_SOURCE_COVERAGE source=${row.sourceUrl} entries=${row.entries} matched=${row.matched.length}`);
+const failures = sourceResults.filter(row => row.error);
+for (const row of sourceResults) console.log(`LOGO_SOURCE_COVERAGE source=${row.sourceUrl} entries=${row.entries} matched=${row.matched.length} error=${row.error || "none"}`);
 const { count, encoded } = encodeMissingMask(JSON.stringify([...covered]));
 if (count !== covered.size) throw new Error(`Mask count mismatch ${count} != ${covered.size}`);
-console.log(`LOGO_SOURCE_COVERAGE_TOTAL missing=68 covered=${covered.size} unresolved=${68-covered.size}`);
+console.log(`LOGO_SOURCE_COVERAGE_TOTAL missing=68 covered=${covered.size} unresolved=${68-covered.size} failures=${failures.length}`);
 console.log(`LOGO_SOURCE_COVERAGE_UNRESOLVED ${missingIds.filter(id => !covered.has(id)).join(",")}`);
-const alias = `c-${covered.size}-${encoded}`;
+const alias = `c-${covered.size}-f${failures.length}-${encoded}`;
 execFileSync("wrangler", ["versions", "upload", "src/logo-bootstrap-worker.js", "--preview-alias", alias, "--keep-vars"], { stdio:"inherit" });
