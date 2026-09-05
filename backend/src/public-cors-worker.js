@@ -2,7 +2,7 @@ import app from "./coverage-report-worker.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
-const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v1";
+const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v2";
 
 function applyPublicReadCors(request, response) {
   const requestedMethod = String(request.headers.get("access-control-request-method") || "").toUpperCase();
