@@ -8,9 +8,9 @@ const payload=await response.json();
 const lines=payload?.result?.lines;
 if(!response.ok||payload?.success!==true||!Array.isArray(lines)) process.exit(2);
 const text=JSON.stringify(lines);
-if(text.includes("HS_LOGO_BATCH batch=1")){
-  console.log("HS_LOGO_BATCH1_PRESENT");
+if(text.includes("curl: (")){
+  console.log("HS_LOGO_FAILURE_CLASS=CURL_TRANSPORT");
   process.exit(0);
 }
-console.error("HS_LOGO_BATCH1_ABSENT");
+console.error("HS_LOGO_FAILURE_CLASS=NOT_CURL_TRANSPORT");
 process.exit(1);
