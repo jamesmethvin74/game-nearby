@@ -114,6 +114,33 @@ export function collegeBrandingSourceUrls(schoolId) {
   return [...new Set([...override, ...inferred])];
 }
 
+export function isAppRenderableLogoUrl(value) {
+  try {
+    return new URL(clean(value)).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export async function probeCollegeLogoUrl(value, fetchFn = fetch) {
+  const url = clean(value);
+  if (!isAppRenderableLogoUrl(url)) throw new Error("logo URL is not HTTPS");
+  const response = await fetchFn(url, {
+    method:"GET",
+    headers:{
+      accept:"image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      range:"bytes=0-4095"
+    },
+    redirect:"follow"
+  });
+  if (!response.ok) throw new Error(`logo HTTP ${response.status}`);
+  const contentType = clean(response.headers?.get?.("content-type")).toLowerCase();
+  if (!contentType.startsWith("image/")) throw new Error(`logo content-type ${contentType || "missing"}`);
+  const finalUrl = clean(response.url) || url;
+  if (!isAppRenderableLogoUrl(finalUrl)) throw new Error("logo redirected away from HTTPS");
+  return { url:finalUrl, contentType, status:response.status };
+}
+
 async function discoverCollegeLogo(school, fetchFn) {
   const sourceUrls = collegeBrandingSourceUrls(school.id);
   const failures = [];
@@ -127,14 +154,15 @@ async function discoverCollegeLogo(school, fetchFn) {
       const finalUrl = response.url || sourceUrl;
       const candidate = parseOfficialCollegeLogo(await response.text(), finalUrl);
       if (!candidate) throw new Error("no logo candidate");
+      const probe = await probeCollegeLogoUrl(candidate.url, fetchFn);
       return {
         schoolId:school.id,
         mascot:school.mascot || null,
-        logoUrl:candidate.url,
+        logoUrl:probe.url,
         provider:"official-college",
         providerName:school.name,
         sourceUrl:finalUrl,
-        matchMethod:candidate.method,
+        matchMethod:`${candidate.method}+render-probe`,
         matchConfidence:Math.min(1, Math.max(0.6, candidate.score / 100)),
         status:"curated"
       };
@@ -145,6 +173,14 @@ async function discoverCollegeLogo(school, fetchFn) {
   return { schoolId:school.id, failure: failures.length ? failures : [{ sourceUrl:null, error:"no branding source configured" }] };
 }
 
+function needsLogoRepair(row) {
+  const schoolLogo = clean(row.school_logo_url);
+  const brandLogo = clean(row.brand_logo_url);
+  return !isAppRenderableLogoUrl(schoolLogo)
+    || !isAppRenderableLogoUrl(brandLogo)
+    || schoolLogo !== brandLogo;
+}
+
 export async function runCollegeLogoCompletion(env, {
   fetchFn = fetch,
   now = new Date(),
@@ -153,19 +189,22 @@ export async function runCollegeLogoCompletion(env, {
 } = {}) {
   const checkedAt = now.toISOString();
   const safeLimit = Math.max(1, Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(limit) || COLLEGE_LOGO_BATCH_LIMIT));
-  const { results: missing } = await env.DB.prepare(`
-    SELECT s.id,s.name,s.city,s.state,s.level,s.mascot
+  const { results: colleges } = await env.DB.prepare(`
+    SELECT s.id,s.name,s.city,s.state,s.level,s.mascot,
+      s.logo_url AS school_logo_url,b.logo_url AS brand_logo_url,b.status AS brand_status
     FROM schools s
     LEFT JOIN school_brand_assets b ON b.school_id=s.id
     WHERE s.catalog_scope='local' AND s.level='college'
-      AND COALESCE(NULLIF(b.logo_url,''),NULLIF(s.logo_url,'')) IS NULL
     ORDER BY s.id
   `).all();
 
+  const missing = colleges.filter(needsLogoRepair);
   let targets = missing;
   if (Array.isArray(schoolIds) && schoolIds.length) {
     const wanted = new Set(schoolIds.map(String));
-    targets = targets.filter(row => wanted.has(row.id));
+    // Explicit IDs are an audit/repair request, not just a missing-value filter.
+    // This lets us re-probe already-populated URLs at application-render level.
+    targets = colleges.filter(row => wanted.has(row.id));
   }
   targets = targets.slice(0, safeLimit);
   if (!targets.length) return { status:"COMPLETE", missingBefore:missing.length, attempted:0, written:0, failures:[] };
