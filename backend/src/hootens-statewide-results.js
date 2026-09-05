@@ -109,7 +109,7 @@ async function ensureHootenSource(env,school,scoreboardUrl,checkedAt){
   const sourceId=`${school.team_id}-hootens-statewide`;
   await env.DB.prepare(`
     INSERT INTO sources(id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
-    VALUES(?,?,?,'media-scoreboard',90,'hootens-statewide','1','America/Chicago',1,30,5,0,90,180,'statewide-result',?)
+    VALUES(?,?,?,'media-scoreboard',90,'hootens-statewide','1','America/Chicago',1,30,5,0,90,180,'statewide',?)
     ON CONFLICT(id) DO UPDATE SET source_url=excluded.source_url,updated_at=excluded.updated_at
   `).bind(sourceId,school.team_id,scoreboardUrl,checkedAt).run();
   return {...school,id:sourceId,source_url:scoreboardUrl,source_type:"media-scoreboard",source_priority:90,parser_type:"hootens-statewide",parser_version:"1",timezone:"America/Chicago",authority_rank:90};
