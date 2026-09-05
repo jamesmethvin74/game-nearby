@@ -233,6 +233,16 @@ function exactFinalGame(games, opponentName, opponentSchoolId, teamScore, oppone
   }) || null;
 }
 
+export function missingLocalFinalSides(sides = [], gamesBySchool = new Map()) {
+  return sides.filter(side => !exactFinalGame(
+    gamesBySchool.get(side.school.school_id),
+    side.opponentName,
+    side.opponentSchool?.school_id || null,
+    side.teamScore,
+    side.opponentScore
+  ));
+}
+
 function exactAnchor(games, opponentName, opponentSchoolId) {
   return (games || []).find(game => {
     if (opponentSchoolId && game.opponent_school_id === opponentSchoolId) return true;
@@ -315,7 +325,7 @@ async function saveState(env, stateRow, { checkedAt, scoreboardUrl, finals, matc
     matched,
     unmatched,
     unmatchedSample: unresolved.slice(0, 20),
-    resilientRecovery: { version: 1, repaired, rowsRead, checkedAt }
+    resilientRecovery: { version: 2, repaired, rowsRead, checkedAt }
   };
   await env.DB.prepare(`
     UPDATE statewide_collection_state SET last_checked_at=?,last_event_count=?,details_json=?,updated_at=? WHERE id=?
@@ -352,8 +362,8 @@ export async function finalizeHootensResults(env, {
       left && { school: left, opponentSchool: right, opponentName: final.awayName, teamScore: final.homeScore, opponentScore: final.awayScore },
       right && { school: right, opponentSchool: left, opponentName: final.homeName, teamScore: final.awayScore, opponentScore: final.homeScore }
     ].filter(Boolean);
-    const alreadyPresent = sides.some(side => exactFinalGame(gamesBySchool.get(side.school.school_id), side.opponentName, side.opponentSchool?.school_id || null, side.teamScore, side.opponentScore));
-    if (!alreadyPresent) missing.push({ final, sides });
+    const missingSides = missingLocalFinalSides(sides, gamesBySchool);
+    if (missingSides.length) missing.push({ final, sides: missingSides });
   }
 
   if (missing.length > MAX_REPAIR_FINALS) {
@@ -382,8 +392,15 @@ export async function finalizeHootensResults(env, {
         failures.push(`${side.school.school_name}:${String(error?.message || error).slice(0, 180)}`);
       }
     }
-    if (successes > 0) repaired += 1;
-    else unresolved.push({ home: item.final.homeName, away: item.final.awayName, reason: "repair_failed", details: failures });
+    if (successes === item.sides.length) repaired += 1;
+    else unresolved.push({
+      home: item.final.homeName,
+      away: item.final.awayName,
+      reason: "repair_failed",
+      repairedSides: successes,
+      requiredSides: item.sides.length,
+      details: failures
+    });
   }
 
   if (touchedTeams.size) await rebuildTeamRecords(env, [...touchedTeams], checkedAt);
