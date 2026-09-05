@@ -24,12 +24,18 @@ old_ready_break = 'if [ "$READY" = "204" ]; then break; fi'
 new_ready_break = 'if [ "$READY" = "200" ] || [ "$READY" = "204" ]; then break; fi'
 old_ready_fail = 'if [ "$READY" != "204" ]; then'
 new_ready_fail = 'if [ "$READY" != "200" ] && [ "$READY" != "204" ]; then'
-for old in (old_upload, old_ready_break, old_ready_fail):
+old_run_handler = 'if(request.method==="POST"&&path==="/run"){try{return json(await repair(env));}'
+new_run_handler = 'if(request.method==="GET"&&path==="/run"){try{return json(await repair(env));}'
+old_run_method = '-X POST -H "x-hootens-target-token: $TOKEN"'
+new_run_method = '-X GET -H "x-hootens-target-token: $TOKEN"'
+for old in (old_upload, old_ready_break, old_ready_fail, old_run_handler, old_run_method):
     if old not in src:
         raise SystemExit(f'expected activation block not found: {old}')
 src = src.replace(old_upload, new_upload, 1)
 src = src.replace(old_ready_break, new_ready_break, 1)
 src = src.replace(old_ready_fail, new_ready_fail, 1)
+src = src.replace(old_run_handler, new_run_handler, 1)
+src = src.replace(old_run_method, new_run_method, 1)
 Path(sys.argv[2]).write_text(src)
 PY
 
