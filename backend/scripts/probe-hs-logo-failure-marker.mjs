@@ -8,9 +8,9 @@ const payload=await response.json();
 const lines=payload?.result?.lines;
 if(!response.ok||payload?.success!==true||!Array.isArray(lines)) process.exit(2);
 const text=JSON.stringify(lines);
-if(text.includes("curl: (")){
-  console.log("HS_LOGO_FAILURE_CLASS=CURL_TRANSPORT");
+if(text.includes("SyntaxError") || text.includes("Unexpected end of JSON input") || text.includes("Unexpected token")){
+  console.log("HS_LOGO_FAILURE_CLASS=JSON_PARSE");
   process.exit(0);
 }
-console.error("HS_LOGO_FAILURE_CLASS=NOT_CURL_TRANSPORT");
+console.error("HS_LOGO_FAILURE_CLASS=NOT_JSON_PARSE");
 process.exit(1);
