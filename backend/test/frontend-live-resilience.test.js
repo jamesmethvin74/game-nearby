@@ -5,9 +5,9 @@ import { readFile } from "node:fs/promises";
 const resilience = await readFile(new URL("../../live-resilience.js", import.meta.url), "utf8");
 const teamsCatalog = await readFile(new URL("../../teams-catalog-bootstrap.js", import.meta.url), "utf8");
 
-test("Home persists the statewide catalog into the Teams cache key", () => {
-  assert.match(resilience, /localBleachersAR:schoolCatalog:v1/);
-  assert.match(teamsCatalog, /localBleachersAR:schoolCatalog:v1/);
+test("Home persists the statewide catalog into the same v2 Teams cache key", () => {
+  assert.match(resilience, /localBleachersAR:schoolCatalog:v2/);
+  assert.match(teamsCatalog, /localBleachersAR:schoolCatalog:v2/);
   assert.match(resilience, /SCHOOL_REGISTRY\.length < MIN_STATEWIDE_CATALOG/);
 });
 
