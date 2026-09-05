@@ -61,11 +61,13 @@ async function touchedCohorts(env, teamIds) {
   const ids = [...new Set((teamIds || []).filter(Boolean))];
   if (!ids.length) return [];
   const result = await env.DB.prepare(`
-    SELECT DISTINCT conference_id,sport,gender,season
-    FROM teams
-    WHERE id IN (SELECT value FROM json_each(?))
-      AND active=1
-      AND conference_id IS NOT NULL
+    SELECT DISTINCT t.conference_id,t.sport,t.gender,t.season,
+      c.standings_method,c.coverage_complete
+    FROM teams t
+    JOIN conferences c ON c.id=t.conference_id
+    WHERE t.id IN (SELECT value FROM json_each(?))
+      AND t.active=1
+      AND t.conference_id IS NOT NULL
   `).bind(JSON.stringify(ids)).all();
   return result.results || [];
 }
@@ -122,16 +124,28 @@ async function persistCalculatedStandings(env, cohort, standings, calculatedAt) 
   }
 }
 
-export async function rebuildStandingsForTeams(env, teamIds, calculatedAt = new Date().toISOString()) {
+export async function rebuildStandingsForTeams(
+  env,
+  teamIds,
+  calculatedAt = new Date().toISOString(),
+  { skipCompleteCalculated = false } = {}
+) {
   const cohorts = await touchedCohorts(env, teamIds);
+  let rebuiltCohorts = 0;
   let standingsRows = 0;
   for (const cohort of cohorts) {
+    if (skipCompleteCalculated
+      && cohort.standings_method === "calculated"
+      && Number(cohort.coverage_complete || 0) === 1) {
+      continue;
+    }
     const rows = await cohortRows(env, cohort);
     const standings = buildCalculatedStandings(rows);
     await persistCalculatedStandings(env, cohort, standings, calculatedAt);
+    rebuiltCohorts += 1;
     standingsRows += standings.length;
   }
-  return { cohorts: cohorts.length, standingsRows };
+  return { cohorts: rebuiltCohorts, standingsRows };
 }
 
 export async function loadMaterializedCalculatedStandings(env, {
