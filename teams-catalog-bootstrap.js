@@ -1,7 +1,8 @@
 (() => {
   const DEFAULT_API_BASE = "https://localbleachersar-sports-api.james-methvin74.workers.dev";
-  const CACHE_KEY = "localBleachersAR:schoolCatalog:v1";
+  const CACHE_KEY = "localBleachersAR:schoolCatalog:v2";
   const CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+  const UNSUPPORTED_COLLEGE_IDS = new Set(["asu-three-rivers"]);
 
   // Arkansas colleges and universities that sponsor intercollegiate athletics
   // across NCAA, NAIA, NJCAA, and NCCAA. The live statewide endpoint is
@@ -41,7 +42,6 @@
     { id:"asu-mid-south", name:"Arkansas State University Mid-South", mascot:"Greyhounds", city:"West Memphis", state:"AR", level:"college", teamCount:1 },
     { id:"asu-mountain-home", name:"Arkansas State University-Mountain Home", mascot:"Trailblazers", city:"Mountain Home", state:"AR", level:"college", teamCount:1 },
     { id:"asu-newport", name:"Arkansas State University-Newport", mascot:"Aviators", city:"Newport", state:"AR", level:"college", teamCount:1 },
-    { id:"asu-three-rivers", name:"Arkansas State University Three Rivers", mascot:"Eagles", city:"Malvern", state:"AR", level:"college", teamCount:1 },
     { id:"national-park", name:"National Park College", mascot:"Nighthawks", city:"Hot Springs", state:"AR", level:"college", teamCount:1 },
     { id:"north-arkansas", name:"North Arkansas College", mascot:"Pioneers", city:"Harrison", state:"AR", level:"college", teamCount:1 },
     { id:"nwacc", name:"NorthWest Arkansas Community College", mascot:"Eagles", city:"Bentonville", state:"AR", level:"college", teamCount:1 },
@@ -125,12 +125,14 @@
     const byId = new Map();
     for (const school of schools || []) {
       const normalized = normalizeSchool(school);
+      if (UNSUPPORTED_COLLEGE_IDS.has(normalized.id)) continue;
       if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
     }
     // Preserve the exact reviewed college identity fields, but never throw away
     // a valid live API logo merely because the static fallback catalog has none.
     for (const school of COLLEGE_SCHOOLS) {
       const normalized = normalizeSchool(school);
+      if (UNSUPPORTED_COLLEGE_IDS.has(normalized.id)) continue;
       if (!normalized.id || !normalized.name) continue;
       const live = byId.get(normalized.id);
       byId.set(normalized.id, {
@@ -248,7 +250,7 @@
     getState: () => ({ ...state }),
     getColleges: () => {
       if (typeof SCHOOL_REGISTRY !== "undefined") {
-        const colleges = SCHOOL_REGISTRY.filter(school => clean(school.level) === "college");
+        const colleges = SCHOOL_REGISTRY.filter(school => clean(school.level) === "college" && !UNSUPPORTED_COLLEGE_IDS.has(clean(school.id)));
         if (colleges.length) return colleges.map(normalizeSchool);
       }
       return COLLEGE_SCHOOLS.map(normalizeSchool);
