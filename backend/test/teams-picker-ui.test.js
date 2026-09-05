@@ -28,13 +28,15 @@ test("Teams picker opens a modal sheet with its own visible search box", () => {
   assert.match(css, /touch-action:pan-y/);
 });
 
-test("college picker preserves live API logos while retaining the explicit 36-school identity catalog", () => {
+test("college picker preserves live API logos while retaining the explicit 35-school supported catalog", () => {
   assert.match(catalog, /const COLLEGE_SCHOOLS = \[/);
   assert.match(catalog, /University of Central Arkansas/);
   assert.match(catalog, /Hendrix College/);
   assert.match(catalog, /Central Baptist College/);
   assert.match(catalog, /logoUrl: live\?\.logoUrl \|\| normalized\.logoUrl \|\| ""/);
-  assert.match(catalog, /SCHOOL_REGISTRY\.filter\(school => clean\(school\.level\) === "college"\)/);
+  assert.match(catalog, /UNSUPPORTED_COLLEGE_IDS = new Set\(\["asu-three-rivers"\]\)/);
+  assert.match(catalog, /SCHOOL_REGISTRY\.filter\(school => clean\(school\.level\) === "college" && !UNSUPPORTED_COLLEGE_IDS\.has\(clean\(school\.id\)\)\)/);
+  assert.doesNotMatch(catalog, /\{ id:"asu-three-rivers"/);
   assert.match(ui, /const FALLBACK_COLLEGES = \[/);
   assert.match(ui, /function supportedColleges\(\)/);
   assert.match(ui, /getColleges/);
