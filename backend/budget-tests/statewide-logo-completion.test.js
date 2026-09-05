@@ -40,7 +40,7 @@ test("reviewed lower-grade identities cannot re-enter logo completion", () => {
   }];
   const rows = buildHighSchoolLogoCandidates({ schools, basketballEntries, volleyballEntries:[], aliases:[] });
   const ids = new Set(rows.map(row => row.schoolId));
-  assert.ok(ids.has("df-a6slv2", "reviewed varsity keep must remain eligible"));
+  assert.ok(ids.has("df-a6slv2"), "reviewed varsity keep must remain eligible");
   assert.ok(ids.has("school-demo"), "ordinary varsity school must remain eligible");
   assert.ok(!ids.has("df-2tng4g"), "reviewed elementary identity must remain excluded");
   assert.equal(rows.find(row => row.schoolId === "df-a6slv2")?.status, "curated");
@@ -81,23 +81,28 @@ test("approved execution uses a fresh ephemeral logo token with readiness proof"
   assert.equal(logoBootstrapReadiness(bad, env).status, 404);
 });
 
-test("approved production script stays bounded, uses ephemeral Worker auth, restores clean code, and performs one combined D1 verification", () => {
+test("approved production script isolates execution in a sibling Worker and performs one combined D1 verification", () => {
   const source = fs.readFileSync(new URL("../scripts/run-approved-statewide-logo-bootstrap.sh", import.meta.url), "utf8");
   assert.match(source, /\{\"limit\":25\}/);
   assert.match(source, /limit:8/);
   assert.match(source, /randomBytes\(32\)/, "execution token must be freshly generated at runtime");
-  assert.match(source, /_logo-execution-worker\.mjs/, "execution auth must be isolated to a temporary Worker wrapper");
+  assert.match(source, /localbleachersar-logo-bootstrap-exec/, "execution must use the dedicated temporary sibling Worker");
+  assert.match(source, /_logo-bootstrap-exec\.mjs/, "temporary Worker must use a generated execution wrapper");
   assert.match(source, /LOGO_BOOTSTRAP_TOKEN/, "temporary wrapper must inject the dedicated logo execution token");
-  assert.match(source, /wrangler deploy "\$WRAPPER"/, "temporary wrapper must deploy through native Wrangler positional entrypoint");
-  assert.ok((source.match(/wrangler deploy/g) || []).length >= 2, "clean Worker must be redeployed after the temporary execution wrapper");
+  assert.match(source, /wrangler deploy --config "\$TEMP_CONFIG"/, "temporary Worker must deploy through native Wrangler");
+  assert.match(source, /wrangler delete --config "\$TEMP_CONFIG"/, "failure cleanup must delete the temporary Worker");
+  assert.match(source, /logo-bootstrap-result/, "final result must be published without a second D1 read");
   assert.match(source, /LOGO_BOOTSTRAP_READY/, "execution must prove readiness before logo writes");
-  assert.doesNotMatch(source, /wrangler secret put LOGO_BOOTSTRAP_TOKEN|wrangler secret delete LOGO_BOOTSTRAP_TOKEN/, "execution must not depend on the unavailable Worker-secret mutation path");
+  assert.doesNotMatch(source, /wrangler secret put LOGO_BOOTSTRAP_TOKEN|wrangler secret delete LOGO_BOOTSTRAP_TOKEN/);
   assert.equal((source.match(/wrangler d1 execute/g) || []).length, 1, "must perform exactly one remote D1 verification");
   assert.doesNotMatch(source, /migrations apply|db:migrate|reconcile|collection|refresh-all/i);
   for (const id of ["df-2tng4g","df-cc7dyc","df-abs2rr","df-qscp6x","df-urlzfa","df-25lkrp"]) {
     assert.match(source, new RegExp(id));
   }
-  assert.match(source, /Expected 336 user-facing schools/);
-  assert.match(source, /Expected 300 high schools/);
-  assert.match(source, /Expected 36 colleges/);
+  for (const id of ["uark","arkansas-state","uapb","uca","little-rock","ecclesia"]) {
+    assert.match(source, new RegExp(`\\b${id}\\b`));
+  }
+  assert.match(source, /total===336/);
+  assert.match(source, /high===300/);
+  assert.match(source, /college===36/);
 });
