@@ -19,6 +19,7 @@ const PERSISTENT_LOGO_RELAY_SCHOOL_IDS = new Set([
 ]);
 const LOGO_RELAY_PREFIX = "/api/v1/logo-relay/";
 const LOGO_RELAY_MAX_BYTES = 5 * 1024 * 1024;
+const LOGO_IMAGE_CACHE_ORIGIN = "https://images.weserv.nl/";
 const encoder = new TextEncoder();
 
 function rewrittenJson(response, body) {
@@ -59,6 +60,21 @@ function validHttpsUrl(value) {
   } catch {
     return null;
   }
+}
+
+function resilientLogoSourceUrl(sourceUrl) {
+  const source = validHttpsUrl(sourceUrl);
+  if (!source) return null;
+  if (source.origin === new URL(LOGO_IMAGE_CACHE_ORIGIN).origin) return source.toString();
+  const proxy = new URL(LOGO_IMAGE_CACHE_ORIGIN);
+  proxy.searchParams.set("url", source.toString());
+  proxy.searchParams.set("w", "512");
+  proxy.searchParams.set("h", "512");
+  proxy.searchParams.set("fit", "contain");
+  proxy.searchParams.set("we", "1");
+  proxy.searchParams.set("output", "png");
+  proxy.searchParams.set("n", "-1");
+  return proxy.toString();
 }
 
 function bytesToHex(bytes) {
@@ -191,14 +207,16 @@ async function handleLogoRelay(request, env, ctx, fetchFn = fetch) {
     }
   }
 
+  const fetchSource = resilientLogoSourceUrl(normalizedSource) || normalizedSource;
+  const fetchSourceUrl = validHttpsUrl(fetchSource);
   let upstream;
   try {
-    upstream = await fetchFn(normalizedSource, {
+    upstream = await fetchFn(fetchSource, {
       method: "GET",
       redirect: "follow",
       headers: {
         accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        referer: `${source.origin}/`,
+        referer: `${fetchSourceUrl?.origin || source.origin}/`,
         "user-agent": "Mozilla/5.0 (compatible; LocalBleachersAR/1.0; +https://github.com/jamesmethvin74/game-nearby)"
       }
     });
@@ -207,7 +225,7 @@ async function handleLogoRelay(request, env, ctx, fetchFn = fetch) {
     return new Response("Logo unavailable", { status: 502 });
   }
   if (!upstream.ok) return new Response("Logo unavailable", { status: 502 });
-  const finalUrl = validHttpsUrl(upstream.url || normalizedSource);
+  const finalUrl = validHttpsUrl(upstream.url || fetchSource);
   if (!finalUrl) return new Response("Logo unavailable", { status: 502 });
   const declaredLength = Number(upstream.headers.get("content-length") || 0);
   if (declaredLength > LOGO_RELAY_MAX_BYTES) return new Response("Logo too large", { status: 502 });
@@ -281,6 +299,7 @@ export default {
 
 export {
   EXCLUDED_COLLEGE_SCHOOL_IDS,
+  LOGO_IMAGE_CACHE_ORIGIN,
   LOGO_RELAY_PREFIX,
   PERSISTENT_LOGO_RELAY_SCHOOL_IDS,
   applyCatalogIdentityPolicy,
@@ -290,6 +309,7 @@ export {
   handleLogoRelay,
   isPublicCatalogSchool,
   logoRelayUrl,
+  resilientLogoSourceUrl,
   signLogoRelay,
   sniffImageContentType,
   visibleSchoolFromGame
