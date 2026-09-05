@@ -1,5 +1,5 @@
 (() => {
-  const CATALOG_CACHE_KEY = "localBleachersAR:schoolCatalog:v1";
+  const CATALOG_CACHE_KEY = "localBleachersAR:schoolCatalog:v2";
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
   const NEARBY_MAX_AGE_MS = 18 * 60 * 60 * 1000;
   const MIN_STATEWIDE_CATALOG = 100;
