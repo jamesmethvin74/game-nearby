@@ -66,13 +66,13 @@ export default {async fetch(){
 }};
 EOF
 
-wrangler versions upload "$PROBE_WRAPPER" --preview-alias "$PROBE_ALIAS" --keep-vars | tee "$PROBE_UPLOAD" >/dev/null
+wrangler versions upload "$PROBE_WRAPPER" --preview-alias "$PROBE_ALIAS" --keep-vars 2>&1 | tee "$PROBE_UPLOAD" >/dev/null
 PROBE_API="$(grep -Eo 'https://[A-Za-z0-9.-]+workers\.dev' "$PROBE_UPLOAD" | head -n1 || true)"
 if [ -z "$PROBE_API" ]; then
   PROBE_API="https://${PROBE_ALIAS}-localbleachersar-sports-api.james-methvin74.workers.dev"
 fi
 CODE=""
-for ATTEMPT in $(seq 1 20); do
+for ATTEMPT in $(seq 1 8); do
   CODE="$(curl -sS --max-time 30 -o "$PROBE_OUT" -w '%{http_code}' "$PROBE_API" || true)"
   [ "$CODE" = "200" ] && break
   sleep 2
@@ -81,23 +81,23 @@ if [ "$CODE" != "200" ] && [ ! -s "$PROBE_OUT" ]; then
   printf '{"status":"ERROR","error":"probe-http-%s"}' "$CODE" > "$PROBE_OUT"
 fi
 
-ALIAS="$(node - "$OUT" "$PROBE_OUT" <<'NODE'
+ALIAS="$(node - "$OUT" "$PROBE_OUT" "$CODE" <<'NODE'
 const fs=require('fs');
 const payload=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 const row=(Array.isArray(payload)?payload:[payload]).flatMap(x=>x?.results||[]).find(Boolean)||{};
-let details={};
-try { details=typeof row.h_details==='string'?JSON.parse(row.h_details):(row.h_details||{}); } catch {}
-let probe={};
-try { probe=JSON.parse(fs.readFileSync(process.argv[3],'utf8')); } catch {}
+let raw='';let probe={};
+try { raw=fs.readFileSync(process.argv[3],'utf8'); probe=JSON.parse(raw); }
+catch { probe={status:'ERROR',error:`nonjson-${raw.slice(0,80)}`}; }
 let pc='x';
 if(probe?.conway){
   const nums=[Number(probe.conway.homeScore),Number(probe.conway.awayScore)].filter(Number.isFinite).sort((a,b)=>a-b);
   pc=nums.length===2?`f${nums[0]}x${nums[1]}`:'x';
 }
 const n=v=>Number(v||0);
+const code=String(process.argv[4]||'x').replace(/[^0-9]/g,'').slice(0,3)||'x';
 const errorSlug=String(probe?.error||'unknown').toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,12)||'unknown';
 const p=probe?.status==='OK'?String(n(probe.finals)):`e${errorSlug}`;
-const alias=`hd-p${p}c${pc}-e${n(row.h_event_count)}m${n(details.matched)}u${n(details.unmatched)}s${n(row.hoot_source_count)}g${n(row.hoot_game_count)}f${n(row.hoot_game_finals)}r${n(row.recent_canonical_finals)}`;
+const alias=`hd-h${code}-p${p}-c${pc}-r${n(row.recent_canonical_finals)}`;
 console.log(alias.slice(0,34));
 NODE
 )"
@@ -109,8 +109,9 @@ const row=(Array.isArray(payload)?payload:[payload]).flatMap(x=>x?.results||[]).
 for (const key of ['conway_canonical','conway_raw']) {
   if (typeof row[key]==='string') { try { row[key]=JSON.parse(row[key]); } catch {} }
 }
-let probe={};
-try { probe=JSON.parse(fs.readFileSync(process.argv[3],'utf8')); } catch(error) { probe={status:'ERROR',error:String(error)}; }
+let raw='';let probe={};
+try { raw=fs.readFileSync(process.argv[3],'utf8'); probe=JSON.parse(raw); }
+catch { probe={status:'ERROR',error:`nonjson-${raw.slice(0,200)}`}; }
 const body=JSON.stringify({status:'HOOTENS_PRODUCTION_DIAGNOSTIC',probe,...row});
 process.stdout.write(`export default {async fetch(){return new Response(${JSON.stringify(body)},{headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}})}};\n`);
 NODE
