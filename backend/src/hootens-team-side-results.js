@@ -23,6 +23,11 @@ export function reverseHomeAway(value) {
   return value === "neutral" ? "neutral" : "unknown";
 }
 
+function reciprocalOpponentMatches(candidate, row) {
+  if (candidate.opponent_school_id && candidate.opponent_school_id === row.reporting_school_id) return true;
+  return safe(candidate.opponent) === safe(row.reporting_school_name);
+}
+
 export function findMissingReciprocalSides(sourceRows = [], finalRows = []) {
   const seen = new Set();
   const missing = [];
@@ -30,7 +35,7 @@ export function findMissingReciprocalSides(sourceRows = [], finalRows = []) {
     if (!row?.reporting_school_id || !row?.opponent_school_id) continue;
     const reciprocal = finalRows.some(candidate =>
       candidate.school_id === row.opponent_school_id &&
-      candidate.opponent_school_id === row.reporting_school_id &&
+      reciprocalOpponentMatches(candidate, row) &&
       Number(candidate.team_score) === Number(row.opponent_score) &&
       Number(candidate.opponent_score) === Number(row.team_score)
     );
@@ -64,7 +69,7 @@ async function loadRecentContext(env) {
         AND (src.parser_type='hootens-statewide' OR lower(COALESCE(g.notes,'')) LIKE '%hooten%statewide%scoreboard%')
     `).all(),
     env.DB.prepare(`
-      SELECT g.id,g.team_id,t.school_id,g.opponent_school_id,g.team_score,g.opponent_score,g.scheduled_at
+      SELECT g.id,g.team_id,t.school_id,g.opponent_school_id,g.opponent,g.team_score,g.opponent_score,g.scheduled_at
       FROM games g JOIN teams t ON t.id=g.team_id JOIN schools s ON s.id=t.school_id
       WHERE g.status='FINAL'
         AND g.team_score IS NOT NULL AND g.opponent_score IS NOT NULL
