@@ -102,7 +102,10 @@ function cacheDescriptor(request) {
     const freshTtl = kind === "record" ? 5 * 60 : kind === "schedule" ? 15 * 60 : 60 * 60;
     return descriptor(origin, path, freshTtl, 24 * 60 * 60);
   }
-  if (path === "/api/v1/standings" || path === "/api/v1/standings/options") {
+  // The standings data route is intentionally not edge-cached. A canonical FINAL
+  // can change records and ranking during the same Friday-night collection cycle.
+  // Conference/sport options are static enough to keep their existing cache.
+  if (path === "/api/v1/standings/options") {
     const sport = encodeURIComponent(String(url.searchParams.get("sport") || ""));
     const conference = encodeURIComponent(String(url.searchParams.get("conference") || ""));
     return descriptor(origin, `${path}?sport=${sport}&conference=${conference}`, 15 * 60, 12 * 60 * 60);
