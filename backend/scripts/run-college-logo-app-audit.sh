@@ -161,6 +161,18 @@ console.log(`COLLEGE_LOGO_APP_AUDIT counts=${JSON.stringify(report.counts)} d1=$
 for (const row of failures) console.log(`COLLEGE_LOGO_FAILURE ${row.schoolId} ${JSON.stringify(row.failureReasons)} api=${row.apiLogoUrl || 'NULL'}`);
 NODE
 
+ALIAS="$(node - "$REPORT_OUT" <<'NODE'
+const fs=require('fs');
+const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+const codes={
+'uark':'ua','arkansas-state':'as','uapb':'up','uca':'uc','little-rock':'lr','arkansas-tech':'at','uafs':'uf','uam':'um','harding':'ha','henderson-state':'hs','ouachita-baptist':'ob','southern-arkansas':'sa','hendrix':'he','lyon':'ly','ozarks':'oz','arkansas-baptist':'ab','cbc':'cb','crowleys-ridge':'cr','john-brown':'jb','philander-smith':'ps','williams-baptist':'wb','asu-mid-south':'ms','asu-mountain-home':'mh','asu-newport':'np','asu-three-rivers':'tr','national-park':'pk','north-arkansas':'na','nwacc':'nw','shorter':'sh','south-arkansas':'so','seark':'se','sau-tech':'st','ua-rich-mountain':'rm','ua-cossatot':'co','champion-christian':'cc','ecclesia':'ec'
+};
+const failures=Array.isArray(p.failures)?p.failures:[];
+const ids=failures.map(x=>codes[String(x.schoolId)]||'xx').join('-') || 'none';
+console.log(`ca-${Number(p?.counts?.appFallback||0)}-${ids}`.slice(0,32));
+NODE
+)"
+
 node --input-type=module - "$REPORT_OUT" <<'NODE'
 import fs from 'node:fs';
 const report = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
@@ -170,5 +182,5 @@ fs.writeFileSync('src/college-logo-audit-result-worker.js', source);
 NODE
 
 wrangler versions upload src/college-logo-audit-result-worker.js \
-  --preview-alias 'college-logo-app-audit' \
+  --preview-alias "$ALIAS" \
   --keep-vars
