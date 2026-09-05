@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Final browser-real 335-school production proof.
 npm run check
 
 WORKER_NAME="localbleachersar-sports-api"
