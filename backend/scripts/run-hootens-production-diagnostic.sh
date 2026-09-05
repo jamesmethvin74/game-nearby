@@ -58,7 +58,7 @@ let details={};
 try { details=typeof row.h_details==='string'?JSON.parse(row.h_details):(row.h_details||{}); } catch {}
 let canonical=[];
 try { canonical=typeof row.conway_canonical==='string'?JSON.parse(row.conway_canonical):(row.conway_canonical||[]); } catch {}
-const conway=canonical.find(x=>/conway/i.test(String(x.home_name||''))+ /bentonville/i.test(String(x.away_name||'')) || /bentonville/i.test(String(x.home_name||''))+ /conway/i.test(String(x.away_name||''))) || canonical[0] || null;
+const conway=canonical.find(x=>(/conway/i.test(String(x.home_name||'')) && /bentonville/i.test(String(x.away_name||''))) || (/bentonville/i.test(String(x.home_name||'')) && /conway/i.test(String(x.away_name||'')))) || canonical[0] || null;
 let c='x';
 if (conway) {
   const nums=[Number(conway.home_score),Number(conway.away_score)].filter(Number.isFinite).sort((a,b)=>a-b);
