@@ -77,8 +77,8 @@ VERIFY_SQL="WITH h AS (
     AND datetime(ce.scheduled_at)>=datetime('now','-48 hours')
 ), conway AS (
   SELECT * FROM recent
-  WHERE (lower(home_name)='conway' AND lower(away_name)='bentonville')
-     OR (lower(home_name)='bentonville' AND lower(away_name)='conway')
+  WHERE (lower(home_name) LIKE 'conway%' AND lower(away_name) LIKE 'bentonville%')
+     OR (lower(home_name) LIKE 'bentonville%' AND lower(away_name) LIKE 'conway%')
   ORDER BY datetime(scheduled_at) DESC LIMIT 1
 )
 SELECT
