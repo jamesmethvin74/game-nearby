@@ -15,20 +15,24 @@ wrangler deploy
 
 API_JSON="$TMPDIR/api.json"
 DELIVERY_READY=0
-for ATTEMPT in $(seq 1 15); do
+for ATTEMPT in $(seq 1 30); do
   if curl -fsS --max-time 30 -H 'accept: application/json' -H 'cache-control: no-store' -H 'x-localbleachers-diagnostic: 1' "$PROD_API/api/v1/schools" -o "$API_JSON"; then
     if node - "$API_JSON" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 const rows=Array.isArray(p?.schools)?p.schools:[];
-const u=rows.find(x=>x.id==='uark');
-let good=false;
-try{good=new URL(String(u?.logo_url||'')).protocol==='https:';}catch{}
-process.exit(good&&!rows.some(x=>x.id==='asu-three-rivers')?0:1);
+const byId=new Map(rows.map(x=>[String(x.id),String(x.logo_url||'')]));
+const expected=new Map([
+  ['df-6blldr','https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png'],
+  ['uark','https://content.sportslogos.net/logos/30/606/full/arkansas_razorbacks_logo_primary_20147998.png'],
+  ['asu-mid-south','https://pbs.twimg.com/profile_images/1935045051224080384/8pfQBpjq.jpg']
+]);
+const exact=[...expected].every(([id,url])=>byId.get(id)===url);
+process.exit(exact&&!rows.some(x=>x.id==='asu-three-rivers')?0:1);
 NODE
     then
       DELIVERY_READY=1
-      echo "LOGO_DELIVERY_PRODUCTION_READY attempt=$ATTEMPT"
+      echo "LOGO_DELIVERY_PRODUCTION_READY attempt=$ATTEMPT exact_generation=1"
       break
     fi
   fi
@@ -36,7 +40,7 @@ NODE
 done
 
 if [ "$DELIVERY_READY" -ne 1 ]; then
-  echo "Production school catalog did not converge to the supported logo-delivery generation" >&2
+  echo "Production school catalog did not converge to the exact pinned logo generation" >&2
   exit 1
 fi
 
@@ -132,7 +136,7 @@ const fs=require('fs');
   await Promise.all(Array.from({length:32},()=>worker()));
   const failures=audited.filter(x=>!x.ok);
   const unsupported=apiRows.some(x=>String(x.id)==='asu-three-rivers');
-  const browserVerified=audited.filter(x=>x.browserVerified).map(x=>x.id);
+  const browserVerified=audited.filter(x=>x.browserVerified&&x.ok).map(x=>x.id);
   const networkVerified=audited.filter(x=>x.ok&&!x.browserVerified).length;
   const report={total:335,highSchools:300,colleges:35,renderable:335-failures.length,fallback:failures.length,browserVerified,networkVerified,unsupportedThreeRivers:unsupported,failures};
   fs.writeFileSync(out,JSON.stringify(report,null,2));
