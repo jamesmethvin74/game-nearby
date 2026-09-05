@@ -120,7 +120,8 @@ async function fetchCurrentHootensFinals(fetchFn=fetch,HTMLRewriterClass=globalT
 
 export async function probeHootensScoreboard({fetchFn=fetch,HTMLRewriterClass=globalThis.HTMLRewriter}={}){
   const {scoreboardUrl,finals}=await fetchCurrentHootensFinals(fetchFn,HTMLRewriterClass);
-  return {scoreboardUrl,finals:finals.length,sample:finals.slice(0,5)};
+  const conway=finals.find(final=>expandedAlias(final.homeName)==="conway"||expandedAlias(final.awayName)==="conway")||null;
+  return {scoreboardUrl,finals:finals.length,conway,sample:finals.slice(0,5)};
 }
 
 function indexSchoolAliases(schools,aliases){
