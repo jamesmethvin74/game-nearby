@@ -3,6 +3,8 @@ import { parseMaxPrepsSchoolDirectory, matchMaxPrepsBranding } from "./school-br
 import { CURATED_SCHOOL_BRANDING_IDENTITIES } from "./school-branding-curated.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 
+export const MAXPREPS_ARKANSAS_ALL_SCHOOLS = "https://www.maxpreps.com/ar/schools/";
+export const MAXPREPS_ARKANSAS_FOOTBALL_SCHOOLS = "https://www.maxpreps.com/ar/football/schools/";
 export const MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS = "https://www.maxpreps.com/ar/basketball/schools/";
 export const MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS = "https://www.maxpreps.com/ar/volleyball/schools/";
 export const HIGH_SCHOOL_LOGO_BATCH_LIMIT = 25;
@@ -36,11 +38,18 @@ async function fetchDirectory(sourceUrl, fetchFn) {
   return parseMaxPrepsSchoolDirectory(await response.text());
 }
 
-export function buildHighSchoolLogoCandidates({ schools, aliases = [], basketballEntries = [], volleyballEntries = [] }) {
+export function buildHighSchoolLogoCandidates({
+  schools,
+  aliases = [],
+  allSchoolEntries = [],
+  footballEntries = [],
+  basketballEntries = [],
+  volleyballEntries = []
+}) {
   const visible = schools.filter(isSchoolCatalogVisible);
   const bySchool = new Map();
 
-  for (const entries of [basketballEntries, volleyballEntries]) {
+  for (const entries of [allSchoolEntries, footballEntries, basketballEntries, volleyballEntries]) {
     if (!entries.length) continue;
     const result = matchMaxPrepsBranding(entries, visible, aliases);
     for (const match of result.matches) {
@@ -100,15 +109,21 @@ export async function runStatewideHighSchoolLogoCompletion(env, {
   const missingSchools = rawSchools.filter(isSchoolCatalogVisible);
   if (!missingSchools.length) return { status:"COMPLETE", missingBefore:0, candidates:0, written:0, unresolved:[] };
 
-  const directoryResults = await Promise.allSettled([
-    fetchDirectory(MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS, fetchFn),
-    fetchDirectory(MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS, fetchFn)
-  ]);
-  const basketballEntries = directoryResults[0].status === "fulfilled" ? directoryResults[0].value : [];
-  const volleyballEntries = directoryResults[1].status === "fulfilled" ? directoryResults[1].value : [];
+  const sourceUrls = [
+    MAXPREPS_ARKANSAS_ALL_SCHOOLS,
+    MAXPREPS_ARKANSAS_FOOTBALL_SCHOOLS,
+    MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS,
+    MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS
+  ];
+  const directoryResults = await Promise.allSettled(sourceUrls.map(sourceUrl => fetchDirectory(sourceUrl, fetchFn)));
+  const entriesAt = index => directoryResults[index].status === "fulfilled" ? directoryResults[index].value : [];
+  const allSchoolEntries = entriesAt(0);
+  const footballEntries = entriesAt(1);
+  const basketballEntries = entriesAt(2);
+  const volleyballEntries = entriesAt(3);
   const sourceFailures = directoryResults
     .map((result, index) => result.status === "rejected" ? {
-      sourceUrl: index === 0 ? MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS : MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS,
+      sourceUrl: sourceUrls[index],
       error: String(result.reason?.message || result.reason)
     } : null)
     .filter(Boolean);
@@ -116,6 +131,8 @@ export async function runStatewideHighSchoolLogoCompletion(env, {
   const candidates = buildHighSchoolLogoCandidates({
     schools: missingSchools,
     aliases,
+    allSchoolEntries,
+    footballEntries,
     basketballEntries,
     volleyballEntries
   });
@@ -169,7 +186,12 @@ export async function runStatewideHighSchoolLogoCompletion(env, {
     candidates: candidates.length,
     written: batch.length,
     remainingKnownCandidates: Math.max(0, candidates.length - batch.length),
-    sourceEntries: { basketball:basketballEntries.length, volleyball:volleyballEntries.length },
+    sourceEntries: {
+      allSchools:allSchoolEntries.length,
+      football:footballEntries.length,
+      basketball:basketballEntries.length,
+      volleyball:volleyballEntries.length
+    },
     sourceFailures,
     unresolved,
     rowsRead: meta.reduce((sum, row) => sum + Number(row.rows_read || 0), 0),
