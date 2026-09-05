@@ -8,7 +8,7 @@ import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { syncCertifiedDragonFlySportCatalog } from "./dragonfly-certified-sport-catalog.js";
 import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
-import { runHootensStatewideResults } from "./hootens-statewide-results.js";
+import { runCompleteHootensStatewideResults } from "./hootens-complete-results.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -107,7 +107,7 @@ async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
 
 async function runHootensFinalResultsPass({env,plan}){
   if (!shouldRunHootensStatewideResults(plan)) return null;
-  return runHootensStatewideResults(env);
+  return runCompleteHootensStatewideResults(env);
 }
 
 async function runScheduledPlan(controller,env,ctx){
@@ -132,7 +132,8 @@ async function runScheduledPlan(controller,env,ctx){
 
   // Hooten is a single statewide result surface. Run it before the per-school
   // fallback so successfully resolved finals disappear from that fallback's
-  // finished-but-still-SCHEDULED selector.
+  // finished-but-still-SCHEDULED selector. The completion wrapper also repairs
+  // legitimate Hooten finals when a local schedule anchor is missing.
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
 
