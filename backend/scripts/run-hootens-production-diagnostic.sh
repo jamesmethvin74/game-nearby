@@ -5,7 +5,6 @@ DB="localbleachersar-sports"
 WRAPPER="src/_hootens-diagnostic.mjs"
 PROBE_WRAPPER="src/_hootens-parser-probe.mjs"
 PROBE_ALIAS="hootens-parser-probe"
-PROBE_API="https://${PROBE_ALIAS}-localbleachersar-sports-api.james-methvin74.workers.dev"
 TMPDIR="$(mktemp -d)"
 trap 'rm -f "$WRAPPER" "$PROBE_WRAPPER"; rm -rf "$TMPDIR"' EXIT
 
@@ -52,6 +51,7 @@ SELECT
 
 OUT="$TMPDIR/diagnostic.json"
 PROBE_OUT="$TMPDIR/probe.json"
+PROBE_UPLOAD="$TMPDIR/probe-upload.txt"
 wrangler d1 execute "$DB" --remote --command="$SQL" --json > "$OUT"
 
 cat > "$PROBE_WRAPPER" <<'EOF'
@@ -66,7 +66,11 @@ export default {async fetch(){
 }};
 EOF
 
-wrangler versions upload "$PROBE_WRAPPER" --preview-alias "$PROBE_ALIAS" --keep-vars >/dev/null
+wrangler versions upload "$PROBE_WRAPPER" --preview-alias "$PROBE_ALIAS" --keep-vars | tee "$PROBE_UPLOAD" >/dev/null
+PROBE_API="$(grep -Eo 'https://[A-Za-z0-9.-]+workers\.dev' "$PROBE_UPLOAD" | head -n1 || true)"
+if [ -z "$PROBE_API" ]; then
+  PROBE_API="https://${PROBE_ALIAS}-localbleachersar-sports-api.james-methvin74.workers.dev"
+fi
 CODE=""
 for ATTEMPT in $(seq 1 20); do
   CODE="$(curl -sS --max-time 30 -o "$PROBE_OUT" -w '%{http_code}' "$PROBE_API" || true)"
