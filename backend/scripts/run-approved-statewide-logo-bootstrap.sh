@@ -7,7 +7,6 @@ HS_PATH="/api/v1/content/logo-bootstrap/high-school"
 COLLEGE_PATH="/api/v1/content/logo-bootstrap/college"
 TMPDIR="$(mktemp -d)"
 WRAPPER="src/_logo-execution-worker.mjs"
-EXEC_CONFIG=".wrangler-logo-execution.json"
 TOKEN=""
 EPHEMERAL_DEPLOYED=0
 
@@ -15,7 +14,7 @@ cleanup() {
   if [ "$EPHEMERAL_DEPLOYED" = "1" ]; then
     wrangler deploy >/dev/null 2>&1 || true
   fi
-  rm -f "$WRAPPER" "$EXEC_CONFIG"
+  rm -f "$WRAPPER"
   rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
@@ -44,18 +43,11 @@ post_logo() {
 TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
 node - "$TOKEN" > "$WRAPPER" <<'NODE'
 const token = process.argv[2];
-process.stdout.write(`import app from "./logo-bootstrap-worker.js";\nconst EXECUTION_TOKEN=${JSON.stringify(token)};\nfunction executionEnv(env){const wrapped=Object.create(env);Object.defineProperty(wrapped,"LOGO_BOOTSTRAP_TOKEN",{value:EXECUTION_TOKEN,enumerable:true});return wrapped;}\nexport default {\n  fetch(request,env,ctx){return app.fetch(request,executionEnv(env),ctx);},\n  scheduled(controller,env,ctx){return app.scheduled(controller,executionEnv(env),ctx);}\n};\n`);
+process.stdout.write(`import app from "./logo-bootstrap-worker.js";\nconst EXECUTION_TOKEN=${JSON.stringify(token)};\nfunction executionEnv(env){const wrapped=Object.create(env);Object.defineProperty(wrapped,"LOGO_BOOTSTRAP_TOKEN",{value:EXECUTION_TOKEN,enumerable:true});return wrapped;}\nexport default {\n  fetch(request,env,ctx){return app.fetch(request,executionEnv(env),ctx);},\n  scheduled(controller,env,ctx){return app.scheduled(controller,env,ctx);}\n};\n`);
 NODE
 
-node <<'NODE'
-const fs=require('fs');
-const config=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
-config.main='src/_logo-execution-worker.mjs';
-fs.writeFileSync('.wrangler-logo-execution.json',JSON.stringify(config,null,2));
-NODE
-
-# Deploy only the temporary execution wrapper around the existing production Worker.
-wrangler deploy --config "$EXEC_CONFIG"
+# Use Wrangler's positional entrypoint while retaining the normal project config.
+wrangler deploy "$WRAPPER"
 EPHEMERAL_DEPLOYED=1
 
 READY_STATUS=""
