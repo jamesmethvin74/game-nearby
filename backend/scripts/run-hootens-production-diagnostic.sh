@@ -73,7 +73,7 @@ for ATTEMPT in $(seq 1 20); do
   [ "$CODE" = "200" ] && break
   sleep 2
 done
-if [ "$CODE" != "200" ]; then
+if [ "$CODE" != "200" ] && [ ! -s "$PROBE_OUT" ]; then
   printf '{"status":"ERROR","error":"probe-http-%s"}' "$CODE" > "$PROBE_OUT"
 fi
 
@@ -91,7 +91,8 @@ if(probe?.conway){
   pc=nums.length===2?`f${nums[0]}x${nums[1]}`:'x';
 }
 const n=v=>Number(v||0);
-const p=probe?.status==='OK'?n(probe.finals):'e';
+const errorSlug=String(probe?.error||'unknown').toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,12)||'unknown';
+const p=probe?.status==='OK'?String(n(probe.finals)):`e${errorSlug}`;
 const alias=`hd-p${p}c${pc}-e${n(row.h_event_count)}m${n(details.matched)}u${n(details.unmatched)}s${n(row.hoot_source_count)}g${n(row.hoot_game_count)}f${n(row.hoot_game_finals)}r${n(row.recent_canonical_finals)}`;
 console.log(alias.slice(0,34));
 NODE
