@@ -14,7 +14,7 @@ const source={
 test("Mascot Media schedule rows normalize final football and volleyball results",()=>{
   const football=normalizeMascotRows([{
     cells:["Aug 28 / 7:00 PM","Capital High School (MO)","John McConnell Stadium Conway, AR","W 45 - 7"]
-  }],source)[0];
+  }],{...source,sport:"football"})[0];
   assert.equal(football.opponent,"Capital High School (MO)");
   assert.equal(football.status,"FINAL");
   assert.equal(football.teamScore,45);
@@ -23,12 +23,22 @@ test("Mascot Media schedule rows normalize final football and volleyball results
 
   const volleyball=normalizeMascotRows([{
     cells:["Aug 25 | 4:30 PM @ Vilonia","Vilonia","W 3 - 0"]
-  }],{...source,home_venue:"Greenbrier High School"})[0];
+  }],{...source,sport:"volleyball",home_venue:"Greenbrier High School"})[0];
   assert.equal(volleyball.opponent,"Vilonia");
   assert.equal(volleyball.status,"FINAL");
   assert.equal(volleyball.teamScore,3);
   assert.equal(volleyball.opponentScore,0);
   assert.equal(volleyball.homeAway,"away");
+});
+
+test("Mascot basketball January results roll into the second calendar year of the season",()=>{
+  const basketball=normalizeMascotRows([{
+    cells:["Jan 12 | 7:00 PM","Cabot","W 62 - 58"]
+  }],{...source,sport:"basketball",home_venue:"Buzz Bolding Arena"})[0];
+  assert.equal(basketball.status,"FINAL");
+  assert.equal(basketball.teamScore,62);
+  assert.equal(basketball.opponentScore,58);
+  assert.match(basketball.scheduledAt,/^2027-01-13T01:00:00\.000Z$/);
 });
 
 test("official school final result promotes canonical status while DragonFly keeps schedule authority",()=>{
