@@ -15,6 +15,7 @@ curl -fsS --max-time 30 -H 'accept: application/json' -H 'cache-control: no-stor
 
 ALIAS="$(node - "$TMPDIR/d1.json" "$TMPDIR/api.json" <<'NODE'
 const fs=require('fs');
+(async()=>{
 const d1=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 const api=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
 const envs=Array.isArray(d1)?d1:[d1];
@@ -37,6 +38,7 @@ if(alias.length>32){hsToken=hs.map(x=>high.indexOf(x).toString(36).padStart(2,'0
 console.error(`LOGO_FAILURE_COUNT=${bad.length}`);
 for(const x of bad)console.error(`LOGO_FAILURE ${x.level} ${x.id} ${x.name}`);
 console.log(alias.slice(0,32));
+})().catch(error=>{console.error(error);process.exit(1)});
 NODE
 )"
 
