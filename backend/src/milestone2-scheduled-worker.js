@@ -17,7 +17,7 @@ export function m2StatewideKeysForPlan(plan){
 }
 
 export function shouldRunOfficialFinalResults(plan){
-  return plan?.kind==="morning-results" || plan?.kind==="evening-results";
+  return plan?.kind==="friday-football-results" || plan?.kind==="morning-results" || plan?.kind==="evening-results";
 }
 
 async function runCatalogMaintenance(env){
@@ -93,13 +93,14 @@ async function runStatewideSports(env,{keys,payloads=new Map(),reason="scheduled
 
 async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
   if (!shouldRunOfficialFinalResults(plan)) return null;
+  const activeResultMinutes=plan?.kind==="friday-football-results"?30:120;
   return runScopedCadence({
     core,env,ctx,controller,
     plan:{
       kind:`${plan.kind}-official-finals`,
       runCore:true,
       scope:"high-school-final-results",
-      activeResultMinutes:120
+      activeResultMinutes
     }
   });
 }
