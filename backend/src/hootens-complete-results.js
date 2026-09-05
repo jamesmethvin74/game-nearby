@@ -531,7 +531,7 @@ export async function recoverHootensUnmatched(env, {
     if (right) involvedSchools.push(right);
   }
   const beforeMissing = new Set(involvedSchools.filter(school => !school.team_id).map(school => school.school_id));
-  await ensureMissingFootballTeams(env, context.schools, checkedAt);
+  await ensureMissingFootballTeams(env, involvedSchools, checkedAt);
   indexes = schoolIndexes(context.schools, context.aliases);
   const aliasesWritten = await persistHootenAliases(env, indexes, checkedAt);
 
