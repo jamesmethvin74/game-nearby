@@ -1,6 +1,7 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { parseMaxPrepsSchoolDirectory, matchMaxPrepsBranding } from "./school-branding.js";
 import { CURATED_SCHOOL_BRANDING_IDENTITIES } from "./school-branding-curated.js";
+import { FINAL_49_SCHOOL_BRANDING_IDENTITIES } from "./school-branding-final49.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 
 export const MAXPREPS_ARKANSAS_ALL_SCHOOLS = "https://www.maxpreps.com/ar/schools/";
@@ -8,6 +9,11 @@ export const MAXPREPS_ARKANSAS_FOOTBALL_SCHOOLS = "https://www.maxpreps.com/ar/f
 export const MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS = "https://www.maxpreps.com/ar/basketball/schools/";
 export const MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS = "https://www.maxpreps.com/ar/volleyball/schools/";
 export const HIGH_SCHOOL_LOGO_BATCH_LIMIT = 25;
+
+const ALL_CURATED_SCHOOL_BRANDING_IDENTITIES = [
+  ...CURATED_SCHOOL_BRANDING_IDENTITIES,
+  ...FINAL_49_SCHOOL_BRANDING_IDENTITIES
+];
 
 function clean(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -18,7 +24,7 @@ function cityKey(value) {
 }
 
 function curatedIdentityForSchool(school) {
-  for (const identity of CURATED_SCHOOL_BRANDING_IDENTITIES) {
+  for (const identity of ALL_CURATED_SCHOOL_BRANDING_IDENTITIES) {
     if (identity.targetSchoolId && identity.targetSchoolId === school.id) return identity;
     const keys = new Set(identity.targetNames.map(normalizeSchoolAlias).filter(Boolean));
     const schoolKeys = [school.name, school.location_matched_name].map(normalizeSchoolAlias).filter(Boolean);
