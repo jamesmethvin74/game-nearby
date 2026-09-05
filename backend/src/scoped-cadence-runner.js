@@ -1,7 +1,7 @@
 const INTERNAL_REFRESH_TOKEN = "__localbleachers_scoped_cadence__";
 const ORDINARY_MAX_SOURCES_PER_RUN = 4;
 const COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN = 8;
-const OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 16;
+const OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 256;
 
 function safeSeason(value) {
   const season = String(value || "2026");
@@ -36,10 +36,11 @@ export function scopePolicy(plan = {}) {
   }
   if (plan.scope === "high-school-final-results") {
     return {
-      // Final-only high-school pass. It is intentionally limited to official
-      // school-operated result pages and to teams with a game old enough to be
-      // over but still represented locally as SCHEDULED. One page fetch can
-      // reconcile several recent finals for that team.
+      // Statewide final-only high-school sweep. It remains limited to official
+      // school-operated result pages and to teams with games old enough to be
+      // over but still represented locally as SCHEDULED. The 256-source ceiling
+      // is large enough for a full Arkansas football slate while retaining a
+      // hard production guardrail and the existing quota/server failure fuse.
       where: `sch.level='high-school'
         AND src.source_type='official-school'
         AND src.parser_type IN ('mascot-media','rankone-public')
