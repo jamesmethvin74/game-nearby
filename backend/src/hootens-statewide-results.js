@@ -21,11 +21,18 @@ export function expandedAlias(value){
   return text;
 }
 
+function mergedRowCells(row){
+  const cells=Array.isArray(row?.cells)?row.cells:[];
+  const controls=Array.isArray(row?.controls)?row.controls:[];
+  const size=Math.max(cells.length,controls.length,5);
+  return Array.from({length:size},(_,index)=>clean([cells[index]||"",...(controls[index]||[])].join(" ")));
+}
+
 export function normalizeHootensRows(rows=[]){
   const out=[];
   for(const row of rows){
     const links=Array.isArray(row?.teamLinks)?row.teamLinks:[];
-    const cells=Array.isArray(row?.cells)?row.cells:[];
+    const cells=mergedRowCells(row);
     if(links.length<2 || cells.length<4) continue;
     const status=clean(cells[2]).toLowerCase();
     if(!/\bfinal\b/.test(status)) continue;
@@ -42,12 +49,45 @@ export function normalizeHootensRows(rows=[]){
   return out;
 }
 
+function appendControlValue(row,cellIndex,value){
+  const text=clean(value);
+  if(!row||cellIndex<0||!text)return;
+  if(!Array.isArray(row.controls[cellIndex]))row.controls[cellIndex]=[];
+  row.controls[cellIndex].push(text);
+}
+
 async function extractScoreboardRows(html,HTMLRewriterClass=globalThis.HTMLRewriter){
   if(!HTMLRewriterClass) throw new Error("HTMLRewriter unavailable for Hooten scoreboard parse");
   const state={current:null,rows:[]};
   const response=new HTMLRewriterClass()
-    .on("tr",{element(el){state.current={cells:["","","","",""],cellIndex:-1,teamLinks:[],activeLink:null};state.rows.push(state.current);el.onEndTag(()=>{state.current=null;});}})
-    .on("tr td",{element(){if(state.current)state.current.cellIndex+=1;},text(chunk){if(state.current&&state.current.cellIndex>=0&&state.current.cellIndex<state.current.cells.length)state.current.cells[state.current.cellIndex]+=chunk.text+" ";}})
+    .on("tr",{element(el){state.current={cells:["","","","",""],controls:[[],[],[],[],[],[]],cellIndex:-1,teamLinks:[],activeLink:null,activeSelectedOption:null};state.rows.push(state.current);el.onEndTag(()=>{state.current=null;});}})
+    .on("tr td",{
+      element(el){
+        if(!state.current)return;
+        state.current.cellIndex+=1;
+        const index=state.current.cellIndex;
+        appendControlValue(state.current,index,el.getAttribute("data-value"));
+        appendControlValue(state.current,index,el.getAttribute("data-score"));
+        appendControlValue(state.current,index,el.getAttribute("data-status"));
+      },
+      text(chunk){if(state.current&&state.current.cellIndex>=0&&state.current.cellIndex<state.current.cells.length)state.current.cells[state.current.cellIndex]+=chunk.text+" ";}
+    })
+    .on("tr td input",{element(el){if(!state.current)return;appendControlValue(state.current,state.current.cellIndex,el.getAttribute("value"));}})
+    .on("tr td select",{element(el){if(!state.current)return;appendControlValue(state.current,state.current.cellIndex,el.getAttribute("value"));}})
+    .on("tr td option[selected]",{
+      element(el){
+        if(!state.current)return;
+        const selected={cellIndex:state.current.cellIndex,text:""};
+        state.current.activeSelectedOption=selected;
+        appendControlValue(state.current,selected.cellIndex,el.getAttribute("value"));
+        el.onEndTag(()=>{
+          if(!state.current||state.current.activeSelectedOption!==selected)return;
+          appendControlValue(state.current,selected.cellIndex,selected.text);
+          state.current.activeSelectedOption=null;
+        });
+      },
+      text(chunk){if(state.current?.activeSelectedOption)state.current.activeSelectedOption.text+=chunk.text+" ";}
+    })
     .on("tr a[href*='/teams/']",{element(el){if(!state.current)return;const link={href:el.getAttribute("href")||"",text:""};state.current.teamLinks.push(link);state.current.activeLink=link;el.onEndTag(()=>{if(state.current)state.current.activeLink=null;});},text(chunk){if(state.current?.activeLink)state.current.activeLink.text+=chunk.text+" ";}})
     .transform(new Response(html));
   await response.text();
@@ -68,6 +108,19 @@ async function discoverCurrentScoreboardUrl(fetchFn=fetch,HTMLRewriterClass=glob
   const found=anchors.find(item=>/scoreboard\s+week\s+\d+/i.test(clean(item.text))&&/\/matchup\//i.test(item.href));
   if(!found) throw new Error("Hooten current scoreboard link not found");
   return new URL(found.href,ARCHIVE_URL).toString();
+}
+
+async function fetchCurrentHootensFinals(fetchFn=fetch,HTMLRewriterClass=globalThis.HTMLRewriter){
+  const scoreboardUrl=await discoverCurrentScoreboardUrl(fetchFn,HTMLRewriterClass);
+  const response=await fetchFn(scoreboardUrl,{headers:{"user-agent":USER_AGENT,"accept":"text/html,application/xhtml+xml"},redirect:"follow"});
+  if(!response.ok)throw new Error(`Hooten scoreboard HTTP ${response.status}`);
+  const rows=await extractScoreboardRows(await response.text(),HTMLRewriterClass);
+  return {scoreboardUrl,finals:normalizeHootensRows(rows)};
+}
+
+export async function probeHootensScoreboard({fetchFn=fetch,HTMLRewriterClass=globalThis.HTMLRewriter}={}){
+  const {scoreboardUrl,finals}=await fetchCurrentHootensFinals(fetchFn,HTMLRewriterClass);
+  return {scoreboardUrl,finals:finals.length,sample:finals.slice(0,5)};
 }
 
 function indexSchoolAliases(schools,aliases){
@@ -109,10 +162,10 @@ async function ensureHootenSource(env,school,scoreboardUrl,checkedAt){
   const sourceId=`${school.team_id}-hootens-statewide`;
   await env.DB.prepare(`
     INSERT INTO sources(id,team_id,source_url,source_type,source_priority,parser_type,parser_version,timezone,expected_min_games,refresh_minutes,active_result_minutes,enabled,authority_rank,stale_after_minutes,collection_mode,updated_at)
-    VALUES(?,?,?,'secondary',90,'hootens-statewide','1','America/Chicago',1,30,5,0,90,180,'statewide',?)
-    ON CONFLICT(id) DO UPDATE SET source_url=excluded.source_url,updated_at=excluded.updated_at
+    VALUES(?,?,?,'secondary',90,'hootens-statewide','2','America/Chicago',1,30,5,0,90,180,'statewide',?)
+    ON CONFLICT(id) DO UPDATE SET source_url=excluded.source_url,source_type=excluded.source_type,parser_version=excluded.parser_version,collection_mode=excluded.collection_mode,updated_at=excluded.updated_at
   `).bind(sourceId,school.team_id,scoreboardUrl,checkedAt).run();
-  return {...school,id:sourceId,source_url:scoreboardUrl,source_type:"secondary",source_priority:90,parser_type:"hootens-statewide",parser_version:"1",timezone:"America/Chicago",authority_rank:90};
+  return {...school,id:sourceId,source_url:scoreboardUrl,source_type:"secondary",source_priority:90,parser_type:"hootens-statewide",parser_version:"2",timezone:"America/Chicago",authority_rank:90};
 }
 
 async function upsertHootenObservation(env,source,anchor,final,teamScore,opponentScore,checkedAt){
@@ -195,11 +248,10 @@ async function saveState(env,{scoreboardUrl,signature,checkedAt,finals,matched,u
 export async function runHootensStatewideResults(env,{fetchFn=fetch,HTMLRewriterClass=globalThis.HTMLRewriter,now=new Date(),force=false}={}){
   const checkedAt=now.toISOString();let scoreboardUrl="";
   try{
-    scoreboardUrl=await discoverCurrentScoreboardUrl(fetchFn,HTMLRewriterClass);
-    const response=await fetchFn(scoreboardUrl,{headers:{"user-agent":USER_AGENT,"accept":"text/html,application/xhtml+xml"},redirect:"follow"});
-    if(!response.ok)throw new Error(`Hooten scoreboard HTTP ${response.status}`);
-    const rows=await extractScoreboardRows(await response.text(),HTMLRewriterClass);
-    const finals=normalizeHootensRows(rows);
+    const fetched=await fetchCurrentHootensFinals(fetchFn,HTMLRewriterClass);
+    scoreboardUrl=fetched.scoreboardUrl;
+    const finals=fetched.finals;
+    if(!finals.length)throw new Error("Hooten scoreboard parsed zero finals");
     const signature=`${finals.length}:${hashText(JSON.stringify(finals.map(f=>[f.homeName,f.homeScore,f.awayName,f.awayScore]).sort()))}`;
     const prior=await env.DB.prepare("SELECT details_json FROM statewide_collection_state WHERE id=?").bind(STATE_ID).first();
     if(!force&&prior?.details_json){
