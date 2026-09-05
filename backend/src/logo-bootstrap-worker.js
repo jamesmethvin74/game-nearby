@@ -1,10 +1,12 @@
 import app from "./m4-public-worker.js";
 import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } from "./statewide-logo-completion.js";
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
+import { auditHootensUnmatched } from "./hootens-unmatched-audit.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
+export const HOOTENS_UNMATCHED_REPORT_PATH = "/api/v1/diagnostics/hootens-unmatched";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -40,6 +42,13 @@ async function options(request) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+    if (request.method === "GET" && path === HOOTENS_UNMATCHED_REPORT_PATH) {
+      try {
+        return privateJson(await auditHootensUnmatched(env));
+      } catch (error) {
+        return privateJson({ status:"FAILURE", error:String(error?.message || error) }, 500);
+      }
+    }
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
     }
