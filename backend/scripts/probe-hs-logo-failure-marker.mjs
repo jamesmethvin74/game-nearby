@@ -12,7 +12,7 @@ const listResponse = await fetch(
   { headers }
 );
 const listPayload = await listResponse.json();
-const versions = Array.isArray(listPayload?.result) ? listPayload.result : [];
+const versions = Array.isArray(listPayload?.result?.items) ? listPayload.result.items : [];
 if (!listResponse.ok || !listPayload?.success || versions.length === 0) process.exit(2);
 
 let source = "";
