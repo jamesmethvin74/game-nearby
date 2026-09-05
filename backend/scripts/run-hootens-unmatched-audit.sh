@@ -5,9 +5,10 @@ WRAPPER="src/_hootens-unmatched-audit.mjs"
 trap 'rm -f "$WRAPPER"' EXIT
 
 npm run check
+node --check src/hootens-unmatched-audit.js
 
 cat > "$WRAPPER" <<'EOF'
-import { auditHootensUnmatched } from "./hootens-statewide-results.js";
+import { auditHootensUnmatched } from "./hootens-unmatched-audit.js";
 
 function json(body,status=200){
   return new Response(JSON.stringify(body),{
