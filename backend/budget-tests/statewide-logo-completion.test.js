@@ -46,17 +46,21 @@ test("reviewed lower-grade identities cannot re-enter logo completion", () => {
   assert.equal(rows.find(row => row.schoolId === "df-a6slv2")?.status, "curated");
 });
 
-test("college logo bootstrap is bounded and every college has an official branding source", () => {
+test("college logo bootstrap is bounded and every supported college has an official branding source", () => {
   assert.equal(COLLEGE_LOGO_BATCH_LIMIT, 8);
   assert.equal(COLLEGE_SOURCE_PLATFORMS.length, 36);
-  for (const row of COLLEGE_SOURCE_PLATFORMS) {
+  const supported = COLLEGE_SOURCE_PLATFORMS.filter(row => row.schoolId !== "asu-three-rivers");
+  assert.equal(supported.length, 35);
+  for (const row of supported) {
     assert.ok(collegeBrandingSourceUrls(row.schoolId).length > 0, `missing college branding source for ${row.schoolId}`);
   }
+  assert.equal(collegeBrandingSourceUrls("asu-three-rivers").length, 0, "unsupported ASU Three Rivers must stay out of logo repair");
 });
 
-test("college logo completion includes zero-supported-team colleges", () => {
+test("college logo completion retains selected zero-supported-team colleges while excluding ASU Three Rivers", () => {
   const source = fs.readFileSync(new URL("../src/college-logo-bootstrap.js", import.meta.url), "utf8");
   assert.match(source, /s\.catalog_scope='local' AND s\.level='college'/);
+  assert.match(source, /s\.id <> 'asu-three-rivers'/);
   assert.doesNotMatch(source, /EXISTS\(SELECT 1 FROM teams t WHERE t\.school_id=s\.id AND t\.active=1\)/);
 });
 
