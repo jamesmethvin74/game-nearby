@@ -125,9 +125,8 @@ async function logoRelayUrl(request, env, schoolId, sourceUrl) {
 
 async function applyLogoRelays(request, env, schools = []) {
   return Promise.all(schools.map(async school => {
-    const originalSourceUrl = clean(school.logo_url);
-    if (!originalSourceUrl || !PERSISTENT_LOGO_RELAY_SCHOOL_IDS.has(clean(school.id))) return school;
-    const sourceUrl = resilientLogoSourceUrl(originalSourceUrl) || originalSourceUrl;
+    const sourceUrl = clean(school.logo_url);
+    if (!sourceUrl || !PERSISTENT_LOGO_RELAY_SCHOOL_IDS.has(clean(school.id))) return school;
     const relayUrl = await logoRelayUrl(request, env, school.id, sourceUrl);
     return relayUrl ? { ...school, logo_url: relayUrl } : school;
   }));
@@ -174,7 +173,7 @@ function relayImageResponse(buffer, contentType) {
     status: 200,
     headers: {
       "content-type": contentType,
-      "cache-control": "public, max-age=2592000, stale-while-revalidate=2592000",
+      "cache-control": "public, max-age=86400, stale-while-revalidate=604800",
       "access-control-allow-origin": "*",
       "x-content-type-options": "nosniff",
       "x-localbleachers-logo-relay": "1"
@@ -208,14 +207,16 @@ async function handleLogoRelay(request, env, ctx, fetchFn = fetch) {
     }
   }
 
+  const fetchSource = resilientLogoSourceUrl(normalizedSource) || normalizedSource;
+  const fetchSourceUrl = validHttpsUrl(fetchSource);
   let upstream;
   try {
-    upstream = await fetchFn(normalizedSource, {
+    upstream = await fetchFn(fetchSource, {
       method: "GET",
       redirect: "follow",
       headers: {
         accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        referer: `${source.origin}/`,
+        referer: `${fetchSourceUrl?.origin || source.origin}/`,
         "user-agent": "Mozilla/5.0 (compatible; LocalBleachersAR/1.0; +https://github.com/jamesmethvin74/game-nearby)"
       }
     });
@@ -224,7 +225,7 @@ async function handleLogoRelay(request, env, ctx, fetchFn = fetch) {
     return new Response("Logo unavailable", { status: 502 });
   }
   if (!upstream.ok) return new Response("Logo unavailable", { status: 502 });
-  const finalUrl = validHttpsUrl(upstream.url || normalizedSource);
+  const finalUrl = validHttpsUrl(upstream.url || fetchSource);
   if (!finalUrl) return new Response("Logo unavailable", { status: 502 });
   const declaredLength = Number(upstream.headers.get("content-length") || 0);
   if (declaredLength > LOGO_RELAY_MAX_BYTES) return new Response("Logo too large", { status: 502 });
