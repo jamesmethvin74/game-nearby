@@ -4,14 +4,18 @@ set -euo pipefail
 API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
 READY_PATH="/api/v1/content/logo-bootstrap/ready"
 HS_PATH="/api/v1/content/logo-bootstrap/high-school"
+ACCOUNT_ID="588568148fa47810445f37081e49562c"
+SCRIPT_NAME="localbleachersar-sports-api"
 TMPDIR="$(mktemp -d)"
 TOKEN=""
 SECRET_INSTALLED=0
 
 cleanup() {
   rm -rf "$TMPDIR"
-  if [ "$SECRET_INSTALLED" = "1" ]; then
-    wrangler secret delete LOGO_BOOTSTRAP_TOKEN --yes >/dev/null 2>&1 || true
+  if [ "$SECRET_INSTALLED" = "1" ] && [ -n "${CLOUDFLARE_API_TOKEN:-}" ]; then
+    curl -sS --max-time 30 -o /dev/null -X DELETE \
+      -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+      "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/workers/scripts/$SCRIPT_NAME/secrets/LOGO_BOOTSTRAP_TOKEN" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -67,20 +71,38 @@ NODE
 
 npm run check
 
+if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+  echo "Missing authenticated Cloudflare build token" >&2
+  exit 1
+fi
+
 TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+SECRET_BODY="$(node -e 'console.log(JSON.stringify({name:"LOGO_BOOTSTRAP_TOKEN",text:process.argv[1],type:"secret_text"}))' "$TOKEN")"
 SECRET_OK=0
 for ATTEMPT in 1 2 3; do
-  if printf '%s' "$TOKEN" | wrangler secret put LOGO_BOOTSTRAP_TOKEN; then
+  SECRET_OUT="$TMPDIR/secret-put-$ATTEMPT.json"
+  SECRET_CODE="$(curl -sS --max-time 30 -o "$SECRET_OUT" -w '%{http_code}' -X PUT \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+    --data "$SECRET_BODY" \
+    "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/workers/scripts/$SCRIPT_NAME/secrets" || true)"
+  if [ "$SECRET_CODE" = "200" ] && node - "$SECRET_OUT" <<'NODE'
+const fs=require('fs');
+const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+process.exit(p?.success===true ? 0 : 1);
+NODE
+  then
     SECRET_INSTALLED=1
     SECRET_OK=1
-    echo "HS_LOGO_SECRET_INSTALLED attempt=$ATTEMPT"
+    echo "HS_LOGO_SECRET_INSTALLED_NATIVE attempt=$ATTEMPT"
     break
   fi
-  echo "HS logo secret install attempt $ATTEMPT failed" >&2
+  echo "HS native secret install attempt $ATTEMPT failed code=${SECRET_CODE:-curl_error}" >&2
+  cat "$SECRET_OUT" >&2 || true
   sleep 3
 done
 if [ "$SECRET_OK" != "1" ]; then
-  echo "HS logo secret installation failed after bounded retries" >&2
+  echo "HS native secret installation failed after bounded retries" >&2
   exit 1
 fi
 
@@ -108,7 +130,6 @@ for BATCH in 1 2 3 4 5 6 7 8; do
   if ! post_hs "$OUT"; then
     exit 1
   fi
-
   if ! METRICS="$(parse_hs_response "$OUT")"; then
     echo "HS_LOGO_RESPONSE_FAILURE batch=$BATCH" >&2
     cat "$OUT" >&2 || true
