@@ -81,18 +81,19 @@ test("approved execution uses a fresh ephemeral logo token with readiness proof"
   assert.equal(logoBootstrapReadiness(bad, env).status, 404);
 });
 
-test("approved production script isolates execution in a sibling Worker and performs one combined D1 verification", () => {
+test("approved production script isolates execution in a Worker preview version and performs one combined D1 verification", () => {
   const source = fs.readFileSync(new URL("../scripts/run-approved-statewide-logo-bootstrap.sh", import.meta.url), "utf8");
   assert.match(source, /\{\"limit\":25\}/);
   assert.match(source, /limit:8/);
   assert.match(source, /randomBytes\(32\)/, "execution token must be freshly generated at runtime");
-  assert.match(source, /localbleachersar-logo-bootstrap-exec/, "execution must use the dedicated temporary sibling Worker");
-  assert.match(source, /_logo-bootstrap-exec\.mjs/, "temporary Worker must use a generated execution wrapper");
-  assert.match(source, /LOGO_BOOTSTRAP_TOKEN/, "temporary wrapper must inject the dedicated logo execution token");
-  assert.match(source, /wrangler deploy --config "\$TEMP_CONFIG"/, "temporary Worker must deploy through native Wrangler");
-  assert.match(source, /wrangler delete --config "\$TEMP_CONFIG"/, "failure cleanup must delete the temporary Worker");
-  assert.match(source, /logo-bootstrap-result/, "final result must be published without a second D1 read");
+  assert.match(source, /PREVIEW_ALIAS="logo-bootstrap-exec"/, "execution must use a dedicated preview alias");
+  assert.match(source, /_logo-bootstrap-exec\.mjs/, "preview version must use a generated execution wrapper");
+  assert.match(source, /LOGO_BOOTSTRAP_TOKEN/, "preview wrapper must inject the dedicated logo execution token");
+  assert.match(source, /wrangler versions upload "\$EXEC_WRAPPER" --preview-alias "\$PREVIEW_ALIAS" --keep-vars/, "execution must upload an isolated Worker version rather than deploy production traffic");
+  assert.match(source, /wrangler versions upload "\$RESULT_WRAPPER" --preview-alias "\$PREVIEW_ALIAS" --keep-vars/, "final result must replace only the preview alias without a second D1 read");
+  assert.match(source, /logo-bootstrap-result/, "final result must be readable without another D1 query");
   assert.match(source, /LOGO_BOOTSTRAP_READY/, "execution must prove readiness before logo writes");
+  assert.doesNotMatch(source, /wrangler deploy|wrangler delete/, "preview execution must not deploy or delete the production Worker");
   assert.doesNotMatch(source, /wrangler secret put LOGO_BOOTSTRAP_TOKEN|wrangler secret delete LOGO_BOOTSTRAP_TOKEN/);
   assert.equal((source.match(/wrangler d1 execute/g) || []).length, 1, "must perform exactly one remote D1 verification");
   assert.doesNotMatch(source, /migrations apply|db:migrate|reconcile|collection|refresh-all/i);

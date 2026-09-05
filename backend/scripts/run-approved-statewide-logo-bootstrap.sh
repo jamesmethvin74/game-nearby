@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TEMP_WORKER="localbleachersar-logo-bootstrap-exec"
-TEMP_CONFIG=".wrangler-logo-bootstrap-exec.json"
-EXEC_WRAPPER="src/_logo-bootstrap-exec.mjs"
-RESULT_WRAPPER="src/_logo-bootstrap-result.mjs"
-API="https://${TEMP_WORKER}.james-methvin74.workers.dev"
-RESULT_PATH="/logo-bootstrap-result"
+WORKER_NAME="localbleachersar-sports-api"
+PREVIEW_ALIAS="logo-bootstrap-exec"
+API="https://${PREVIEW_ALIAS}-${WORKER_NAME}.james-methvin74.workers.dev"
 READY_PATH="/api/v1/content/logo-bootstrap/ready"
 HS_PATH="/api/v1/content/logo-bootstrap/high-school"
 COLLEGE_PATH="/api/v1/content/logo-bootstrap/college"
+RESULT_PATH="/logo-bootstrap-result"
+EXEC_WRAPPER="src/_logo-bootstrap-exec.mjs"
+RESULT_WRAPPER="src/_logo-bootstrap-result.mjs"
 TMPDIR="$(mktemp -d)"
 TOKEN=""
-TEMP_DEPLOYED=0
 KEEP_RESULT=0
 
 cleanup() {
-  if [ "$TEMP_DEPLOYED" = "1" ] && [ "$KEEP_RESULT" != "1" ]; then
-    printf 'y\n' | wrangler delete --config "$TEMP_CONFIG" >/dev/null 2>&1 || true
+  if [ "$KEEP_RESULT" != "1" ]; then
+    wrangler versions upload src/logo-bootstrap-worker.js --preview-alias "$PREVIEW_ALIAS" --keep-vars >/dev/null 2>&1 || true
   fi
-  rm -f "$EXEC_WRAPPER" "$RESULT_WRAPPER" "$TEMP_CONFIG"
+  rm -f "$EXEC_WRAPPER" "$RESULT_WRAPPER"
   rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
@@ -45,24 +44,9 @@ const token=process.argv[2];
 process.stdout.write(`import app from "./logo-bootstrap-worker.js";\nconst TOKEN=${JSON.stringify(token)};\nfunction withToken(env){const wrapped=Object.create(env);Object.defineProperty(wrapped,"LOGO_BOOTSTRAP_TOKEN",{value:TOKEN,enumerable:true});return wrapped;}\nexport default {fetch(request,env,ctx){return app.fetch(request,withToken(env),ctx);}};\n`);
 NODE
 
-node > "$TEMP_CONFIG" <<'NODE'
-console.log(JSON.stringify({
-  name:"localbleachersar-logo-bootstrap-exec",
-  main:"src/_logo-bootstrap-exec.mjs",
-  compatibility_date:"2026-08-24",
-  workers_dev:true,
-  vars:{ENVIRONMENT:"production",LAZY_STATEWIDE_BOOTSTRAP:"1"},
-  d1_databases:[{
-    binding:"DB",
-    database_name:"localbleachersar-sports",
-    database_id:"50806cc9-7710-4f21-8ab3-159623f6a0a9"
-  }]
-},null,2));
-NODE
-
-# Deploy a temporary sibling Worker. Production Worker code/assets/routes are untouched.
-wrangler deploy --config "$TEMP_CONFIG"
-TEMP_DEPLOYED=1
+# Upload an isolated version of the existing Worker and assign a preview alias.
+# This does not move production traffic.
+wrangler versions upload "$EXEC_WRAPPER" --preview-alias "$PREVIEW_ALIAS" --keep-vars
 
 READY_STATUS=""
 for ATTEMPT in $(seq 1 20); do
@@ -76,7 +60,7 @@ for ATTEMPT in $(seq 1 20); do
   sleep 3
 done
 if [ "$READY_STATUS" != "204" ]; then
-  echo "Logo bootstrap readiness never reached 204" >&2
+  echo "Logo bootstrap preview readiness never reached 204" >&2
   exit 1
 fi
 
@@ -183,13 +167,7 @@ for(const name of fs.readdirSync(tmpdir).filter(n=>/^(high-school|college)-.*\.j
 const total=Number(row.total_schools||0),high=Number(row.high_schools||0),college=Number(row.colleges||0),withLogo=Number(row.schools_with_logo||0),missingCount=Number(row.missing_logos||0);
 const missing=typeof row.missing==='string'?JSON.parse(row.missing):row.missing;
 const universeOk=total===336&&high===300&&college===36;
-const result={
-  status:universeOk?(missingCount===0?'COMPLETE':'SOURCE_LIMITED'):'UNIVERSE_MISMATCH',
-  totalSchools:total,highSchools:high,colleges:college,schoolsWithLogo:withLogo,missingLogos:missingCount,missing,
-  hsWritten:Number(hsWritten),collegeWritten:Number(collegeWritten),endpointFailures,
-  verificationRowsRead:meta.reduce((n,m)=>n+Number(m.rows_read||m.rowsRead||0),0),
-  verificationRowsWritten:meta.reduce((n,m)=>n+Number(m.rows_written||m.rowsWritten||0),0)
-};
+const result={status:universeOk?(missingCount===0?'COMPLETE':'SOURCE_LIMITED'):'UNIVERSE_MISMATCH',totalSchools:total,highSchools:high,colleges:college,schoolsWithLogo:withLogo,missingLogos:missing,missingCount,hsWritten:Number(hsWritten),collegeWritten:Number(collegeWritten),endpointFailures,verificationRowsRead:meta.reduce((n,m)=>n+Number(m.rows_read||m.rowsRead||0),0),verificationRowsWritten:meta.reduce((n,m)=>n+Number(m.rows_written||m.rowsWritten||0),0)};
 process.stdout.write(JSON.stringify(result));
 NODE
 
@@ -197,12 +175,9 @@ node - "$RESULT_JSON" > "$RESULT_WRAPPER" <<'NODE'
 const fs=require('fs'),result=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 process.stdout.write(`const RESULT=${JSON.stringify(result)};\nexport default {fetch(request){const u=new URL(request.url);if(u.pathname==="/logo-bootstrap-result")return Response.json(RESULT,{headers:{"cache-control":"no-store"}});return new Response("Not found",{status:404});}};\n`);
 NODE
-node - "$TEMP_CONFIG" <<'NODE'
-const fs=require('fs'),p=process.argv[2],c=JSON.parse(fs.readFileSync(p,'utf8'));c.main='src/_logo-bootstrap-result.mjs';fs.writeFileSync(p,JSON.stringify(c,null,2));
-NODE
 
-# Replace the executable temp Worker with a read-only static result endpoint.
-wrangler deploy --config "$TEMP_CONFIG"
+# Re-point only the preview alias to a read-only result version.
+wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$PREVIEW_ALIAS" --keep-vars
 KEEP_RESULT=1
 
 echo "STATEWIDE_LOGO_RESULT_READY url=$API$RESULT_PATH"
