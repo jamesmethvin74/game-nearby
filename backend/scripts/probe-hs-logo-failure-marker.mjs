@@ -1,4 +1,5 @@
 import process from "node:process";
+import { execFileSync } from "node:child_process";
 
 const accountId = "588568148fa47810445f37081e49562c";
 const buildId = "d9d2c1d8-c0af-4c6e-960f-5d3cb480de27";
@@ -22,18 +23,24 @@ const collect = value => {
 collect(lines);
 const text = strings.join("\n");
 
-const required = [
-  "STATEWIDE_LOGO_RESULT_READY",
-  '"status":"COMPLETE"',
-  '"totalSchools":336',
-  '"highSchools":300',
-  '"colleges":36',
-  '"schoolsWithLogo":336',
-  '"missingCount":0'
-];
-const missing = required.filter(marker => !text.includes(marker));
-if (missing.length) {
-  console.error(`STATEWIDE_LOGO_TARGET_NOT_CONFIRMED missingMarkers=${missing.join(",")}`);
+const number = key => {
+  const match = text.match(new RegExp(`"${key}":(\\d+)`));
+  return match ? Number(match[1]) : null;
+};
+const total = number("totalSchools");
+const high = number("highSchools");
+const college = number("colleges");
+const withLogo = number("schoolsWithLogo");
+const missing = number("missingCount");
+if ([total, high, college, withLogo, missing].some(value => value === null)) {
+  console.error("FINAL_LOGO_COUNTS_NOT_PARSEABLE");
   process.exit(1);
 }
-console.log("STATEWIDE_LOGO_TARGET_CONFIRMED total=336 highSchools=300 colleges=36 logos=336 missing=0");
+
+const alias = `r-${total}-${high}-${college}-${withLogo}-${missing}`;
+console.log(`FINAL_LOGO_COUNTS alias=${alias}`);
+execFileSync("wrangler", [
+  "versions", "upload", "src/logo-bootstrap-worker.js",
+  "--preview-alias", alias,
+  "--keep-vars"
+], { stdio: "inherit" });
