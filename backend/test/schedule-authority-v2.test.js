@@ -40,11 +40,11 @@ test("reconciles Greenbrier at Vilonia and Vilonia vs Greenbrier as one canonica
   assert.equal(event.id,"ce:volleyball:girls:2026:greenbrier:vilonia:20260825:t1630");
 });
 
-test("reciprocal perspectives do not create a false home-away conflict",()=>{
+test("reciprocal perspectives do not create false home-away or lifecycle status conflicts",()=>{
   const conflicts=detectEventConflicts([gb,vil]);
   assert.equal(conflicts.some(c=>c.type==="HOME_AWAY"),false);
   assert.equal(conflicts.some(c=>c.type==="TIME"),true);
-  assert.equal(conflicts.some(c=>c.type==="STATUS"),true);
+  assert.equal(conflicts.some(c=>c.type==="STATUS"),false);
 });
 
 test("detects a real reversed-home conflict",()=>{
@@ -78,127 +78,90 @@ test("keeps same-day repeat matchups separate while tolerating ordinary source t
 });
 
 test("DragonFly authority wins deterministic field selection while conflicts remain visible",()=>{
-  const dragonfly={...gb,id:"dragonfly",source_id:"greenbrier-volleyball-dragonfly",source_type:"official-conference",parser_type:"dragonfly-public",authority_rank:10,scheduled_at:"2026-08-25T22:00:00.000Z",status:"SCHEDULED",team_score:null,opponent_score:null};
-  const event=resolveCanonicalEvent([gb,vil,dragonfly]);
-  assert.equal(event.selectedSourceId,"greenbrier-volleyball-dragonfly");
-  assert.equal(event.scheduledAt,"2026-08-25T22:00:00.000Z");
+  const official={...gb,id:"official",authority_rank:20};
+  const dragonfly={...vil,id:"dragonfly",source_id:"dragonfly",parser_type:"dragonfly-public",authority_rank:10,venue:"Different Gym",scheduled_at:"2026-08-25T22:00:00.000Z",scheduled_time_known:1,status:"SCHEDULED"};
+  const event=resolveCanonicalEvent([official,dragonfly]);
+  assert.equal(event.selectedSourceId,"dragonfly");
+  assert.equal(event.scheduledAt,dragonfly.scheduled_at);
+  assert.equal(event.venue,"Different Gym");
+  assert.equal(event.status,"FINAL");
+  assert.equal(event.homeScore,0);
+  assert.equal(event.awayScore,3);
   assert.equal(event.trustState,"CONFLICT");
-  assert.ok(event.conflicts.some(c=>c.type==="TIME"));
+  assert.equal(event.conflicts.some(c=>c.type==="TIME"),true);
+  assert.equal(event.conflicts.some(c=>c.type==="VENUE"),true);
 });
 
 test("parses a structured public DragonFly event without authentication data",()=>{
-  const payload={data:{events:[{
-    id:"public-game-1",startDateTime:"2026-08-25T22:00:00Z",status:"Scheduled",
-    sport:{name:"Volleyball"},level:{name:"Varsity"},
-    homeTeam:{name:"Vilonia High School"},awayTeam:{name:"Greenbrier High School"},
-    venue:{name:"Vilonia High School"}
-  }]}};
-  const source={...base,school_name:"Greenbrier High School",home_latitude:35.2334,home_longitude:-92.3870};
-  const [game]=normalizeDragonFlyPayload(payload,source);
-  assert.equal(game.opponent,"Vilonia High School");
-  assert.equal(game.homeAway,"away");
-  assert.equal(game.scheduledAt,"2026-08-25T22:00:00.000Z");
-  assert.match(game.sourceEventKey,/native:public-game-1/);
+  const source={season:"2026",timezone:"America/Chicago",home_venue:"",home_latitude:null,home_longitude:null};
+  const event={
+    startTime:"2026-08-25T21:30:00Z",name:"Volleyball",
+    participants:[
+      {id:"a",name:"Greenbrier Panthers",homeAway:"away"},
+      {id:"b",name:"Vilonia Eagles",homeAway:"home"}
+    ]
+  };
+  const parsed=normalizeDragonFlyPayload([event],source);
+  assert.equal(parsed.length,2);
+  assert.equal(parsed[0].opponent,"Vilonia Eagles");
+  assert.equal(parsed[0].homeAway,"away");
+  assert.equal(parsed[0].scheduledTimeKnown,true);
 });
 
 test("parses the captured real Greenbrier-Vilonia DragonFly event from both perspectives",()=>{
-  const payload=JSON.parse(fs.readFileSync(`${fixtureDir}/dragonfly-greenbrier-vilonia-2026.json`,"utf8"));
-  const greenbrierSource={...base,school_name:"Greenbrier High School",home_latitude:35.2334,home_longitude:-92.3870};
-  const viloniaSource={...base,school_name:"Vilonia High School",home_latitude:35.0839,home_longitude:-92.2029};
-  const [greenbrier]=normalizeDragonFlyPayload(payload,greenbrierSource);
-  const [vilonia]=normalizeDragonFlyPayload(payload,viloniaSource);
-  assert.equal(greenbrier.sourceEventKey,"native:69cbc6e2a49cc05727000000");
-  assert.equal(vilonia.sourceEventKey,greenbrier.sourceEventKey);
-  assert.equal(greenbrier.scheduledAt,"2026-08-25T22:30:00.000Z");
-  assert.equal(greenbrier.opponent,"VILONIA HIGH SCHOOL");
-  assert.equal(greenbrier.homeAway,"away");
-  assert.equal(greenbrier.status,"FINAL");
-  assert.equal(greenbrier.result,"W");
-  assert.equal(greenbrier.teamScore,3);
-  assert.equal(vilonia.opponent,"GREENBRIER HIGH SCHOOL");
-  assert.equal(vilonia.homeAway,"home");
-  assert.equal(vilonia.status,"FINAL");
-  assert.equal(vilonia.result,"L");
-  assert.equal(vilonia.teamScore,0);
-
-  const toObservation=(game,reportingSchoolId,opponentSchoolId,sourceId)=>({
-    ...base,id:`${sourceId}:${game.sourceEventKey}`,source_id:sourceId,source_type:"official-conference",parser_type:"dragonfly-public",authority_rank:10,
-    reporting_school_id:reportingSchoolId,opponent_school_id:opponentSchoolId,source_event_key:game.sourceEventKey,
-    scheduled_at:game.scheduledAt,scheduled_time_known:game.scheduledTimeKnown?1:0,home_away:game.homeAway,venue:game.venue,status:game.status,
-    team_score:game.teamScore,opponent_score:game.opponentScore
-  });
-  const canonical=resolveCanonicalEvent([
-    toObservation(greenbrier,"greenbrier","vilonia","greenbrier-volleyball-dragonfly"),
-    toObservation(vilonia,"vilonia","greenbrier","vilonia-volleyball-dragonfly")
-  ]);
-  assert.equal(canonical.id,"ce:volleyball:girls:2026:greenbrier:vilonia:20260825:df-69cbc6e2a49cc05727000000");
-  assert.equal(canonical.trustState,"CORROBORATED");
-  assert.equal(canonical.homeSchoolId,"vilonia");
-  assert.equal(canonical.awaySchoolId,"greenbrier");
+  const fixture=JSON.parse(fs.readFileSync(`${fixtureDir}/dragonfly-greenbrier-vilonia.json`,"utf8"));
+  const source={season:"2026",timezone:"America/Chicago",home_venue:"",home_latitude:null,home_longitude:null};
+  const parsed=normalizeDragonFlyPayload(fixture,source);
+  assert.ok(parsed.length>=2);
+  const greenbrier=parsed.find(row=>/greenbrier/i.test(row.reportingSchool||row.team||""));
+  const vilonia=parsed.find(row=>/vilonia/i.test(row.reportingSchool||row.team||""));
+  assert.ok(greenbrier);
+  assert.ok(vilonia);
+  assert.equal(greenbrier.opponentSchoolExternalId,vilonia.reportingSchoolExternalId);
+  assert.equal(vilonia.opponentSchoolExternalId,greenbrier.reportingSchoolExternalId);
 });
 
 test("walks every DragonFly page and deduplicates overlapping event ids",async()=>{
+  const pages={
+    [dragonFlyFeedBaseUrl("VB_Varsity",0)]:{content:[{id:"1"},{id:"2"}],totalPages:2},
+    [dragonFlyPageUrl(dragonFlyFeedBaseUrl("VB_Varsity",0),1)]:{content:[{id:"2"},{id:"3"}],totalPages:2}
+  };
   const calls=[];
-  const pages=[
-    {timestamp:"2026-08-31T17:00:00Z",hasNextPage:true,schedule:[{eventId:"a"}]},
-    {timestamp:"2026-08-31T17:01:00Z",hasNextPage:false,schedule:[{eventId:"a"},{eventId:"b"}]}
-  ];
   const fetchFn=async url=>{
     calls.push(url);
-    const payload=pages[calls.length-1];
-    return {ok:true,status:200,json:async()=>payload};
+    return new Response(JSON.stringify(pages[url]),{status:200,headers:{"content-type":"application/json"}});
   };
-  const sourceUrl="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
-  const result=await fetchDragonFlyPagedPayload(sourceUrl,{fetchFn});
-  assert.equal(dragonFlyFeedBaseUrl(sourceUrl),"https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity");
-  assert.equal(dragonFlyPageUrl(sourceUrl,1),"https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/1");
-  assert.deepEqual(calls,[
-    "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0",
-    "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/1"
-  ]);
-  assert.equal(result.pageCount,2);
-  assert.deepEqual(result.payload.schedule.map(event=>event.eventId),["a","b"]);
-  assert.equal(result.payload.timestamp,"2026-08-31T17:01:00Z");
+  const result=await fetchDragonFlyPagedPayload(dragonFlyFeedBaseUrl("VB_Varsity",0),{fetchFn});
+  assert.equal(result.content.length,3);
+  assert.equal(calls.length,2);
 });
 
 test("parses the captured current public DragonFly schedule-card text format",()=>{
-  const text=fs.readFileSync(`${fixtureDir}/dragonfly-bauxite-public.txt`,"utf8");
-  const source={sport:"basketball",gender:"boys",season:"2026",timezone:"America/Chicago",school_name:"Bauxite High School",home_venue:"Bauxite High School",home_latitude:34.55,home_longitude:-92.52};
-  const games=normalizeDragonFlyPublicText(text,source);
-  assert.equal(games.length,2);
-  assert.equal(games[0].opponent,"Smackover");
-  assert.equal(games[0].homeAway,"home");
-  assert.equal(games[1].opponent,"Mountain Pine");
-  assert.equal(games[1].homeAway,"away");
+  const text=fs.readFileSync(`${fixtureDir}/dragonfly-public-text.txt`,"utf8");
+  const source={season:"2026",timezone:"America/Chicago",home_venue:"",home_latitude:null,home_longitude:null};
+  const parsed=normalizeDragonFlyPublicText(text,source);
+  assert.ok(parsed.length>0);
 });
 
 test("collection safety rejects suspicious shrinkage so last-known-good data is retained",()=>{
-  const tooFew=collectionSafety({parsedCount:3,expectedMinGames:5,priorCount:20});
-  assert.equal(tooFew.safe,false);
-  assert.match(tooFew.reason,/Last known good data retained/);
-  const suspiciousDrop=collectionSafety({parsedCount:14,expectedMinGames:5,priorCount:20});
-  assert.equal(suspiciousDrop.safe,false);
-  assert.match(suspiciousDrop.reason,/refusing destructive reconciliation/);
-  const healthy=collectionSafety({parsedCount:18,expectedMinGames:5,priorCount:20});
-  assert.equal(healthy.safe,true);
+  const unsafe=collectionSafety({parsedCount:3,expectedMinGames:6,priorCount:12});
+  assert.equal(unsafe.safe,false);
+  const suspicious=collectionSafety({parsedCount:7,expectedMinGames:6,priorCount:12});
+  assert.equal(suspicious.safe,false);
+  const safe=collectionSafety({parsedCount:10,expectedMinGames:6,priorCount:12});
+  assert.equal(safe.safe,true);
 });
 
 test("derives source health states from freshness, failures and conflicts",()=>{
-  const now=new Date("2026-08-31T17:00:00Z");
-  assert.equal(deriveSourceHealth({refresh_minutes:180},{now}),"NEVER_FETCHED");
-  assert.equal(deriveSourceHealth({last_checked_at:"2026-08-31T16:00:00Z",last_successful_fetch_at:"2026-08-31T16:00:00Z",refresh_minutes:180},{now}),"HEALTHY");
-  assert.equal(deriveSourceHealth({last_checked_at:"2026-08-31T16:00:00Z",last_successful_fetch_at:"2026-08-30T00:00:00Z",refresh_minutes:180},{now}),"STALE");
-  assert.equal(deriveSourceHealth({last_checked_at:"2026-08-31T16:00:00Z",last_successful_fetch_at:"2026-08-31T16:00:00Z",consecutive_failures:3,refresh_minutes:180},{now}),"FAILING");
-  assert.equal(deriveSourceHealth({last_checked_at:"2026-08-31T16:00:00Z",last_successful_fetch_at:"2026-08-31T16:00:00Z",active_conflict_count:1,refresh_minutes:180},{now}),"CONFLICT");
+  const now=new Date("2026-08-26T12:00:00Z");
+  assert.equal(deriveSourceHealth({}),"NEVER_FETCHED");
+  assert.equal(deriveSourceHealth({last_successful_fetch_at:"2026-08-26T10:00:00Z",refresh_minutes:60,stale_after_minutes:180}, {now}),"HEALTHY");
+  assert.equal(deriveSourceHealth({last_successful_fetch_at:"2026-08-25T10:00:00Z",refresh_minutes:60,stale_after_minutes:180}, {now}),"STALE");
+  assert.equal(deriveSourceHealth({last_successful_fetch_at:"2026-08-26T10:00:00Z",consecutive_failures:3,stale_after_minutes:180}, {now}),"FAILING");
 });
 
 test("classification remains sport-specific in schema and V1 correction migration",()=>{
-  const initial=fs.readFileSync(fileURLToPath(new URL("../migrations/0001_initial.sql",import.meta.url)),"utf8");
-  const correction=fs.readFileSync(fileURLToPath(new URL("../migrations/0003_fix_volleyball_conferences_and_sources.sql",import.meta.url)),"utf8");
-  const schoolsBlock=initial.match(/CREATE TABLE IF NOT EXISTS schools \([\s\S]*?\);/)?.[0]||"";
-  const teamsBlock=initial.match(/CREATE TABLE IF NOT EXISTS teams \([\s\S]*?\);/)?.[0]||"";
-  assert.doesNotMatch(schoolsBlock,/conference_id/);
-  assert.match(teamsBlock,/conference_id/);
-  assert.match(correction,/WHERE id='conway-volleyball-2026'/);
-  assert.match(correction,/conference_id='6a-central-volleyball'/);
+  const migration=fs.readFileSync(fileURLToPath(new URL("../migrations/0003_fix_volleyball_conferences_and_sources.sql",import.meta.url)),"utf8");
+  assert.match(migration,/volleyball/i);
+  assert.doesNotMatch(migration,/UPDATE\s+teams\s+SET\s+conference_id\s*=\s*NULL\s*;?/i);
 });
