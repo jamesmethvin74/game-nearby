@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#071426" />
   <meta name="description" content="Live Arkansas high school scores for LocalBleachersAR." />
-  <title>Live Scores · LocalBleachersAR</title>
+  <title>Scores · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
   <link rel="stylesheet" href="styles.css?v=54" />
   <link rel="stylesheet" href="polish.css?v=54" />
   <link rel="stylesheet" href="brand-exact.css?v=54" />
   <link rel="stylesheet" href="reference-layout.css?v=54" />
-  <link rel="stylesheet" href="live-scores.css?v=1" />
+  <link rel="stylesheet" href="live-scores.css?v=2" />
 </head>
 <body>
   <header class="app-header branded-header">
@@ -25,7 +25,6 @@
       <div>
         <p class="eyebrow">FRIDAY NIGHT</p>
         <h1 id="liveScoresTitle">Arkansas Live Scores</h1>
-        <p>Fast community-reported high-school scores while LocalBleachersAR keeps our own schedules, teams, locations and game discovery.</p>
       </div>
       <span class="live-pill"><span class="live-dot" aria-hidden="true"></span>Live</span>
     </section>
@@ -39,7 +38,7 @@
       <div id="scorestreamHost" class="scorestream-host" aria-live="polite"></div>
     </section>
 
-    <p class="source-note"><strong>Source:</strong> ScoreStream's published scoreboard/widget interface. LocalBleachersAR does not scrape or copy ScoreStream score data into D1 in this experiment; the score display remains ScoreStream-hosted.</p>
+    <p class="source-note"><strong>Scores powered by ScoreStream.</strong> LocalBleachersAR keeps its own schedules, teams, locations and game discovery; this page displays ScoreStream through its published widget interface.</p>
   </main>
 
   <nav class="bottom-nav" aria-label="Primary navigation">
@@ -51,6 +50,9 @@
   </nav>
 
   <script src="app.js?v=54"></script>
-  <script src="live-scores.js?v=1"></script>
+  <script src="live-scores.js?v=2"></script>
+  <script>
+    if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
+  </script>
 </body>
 </html>
