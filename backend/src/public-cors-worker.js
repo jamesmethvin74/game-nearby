@@ -2,6 +2,7 @@ import app from "./coverage-report-worker.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
+const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v1";
 
 function applyPublicReadCors(request, response) {
   const requestedMethod = String(request.headers.get("access-control-request-method") || "").toUpperCase();
@@ -58,7 +59,11 @@ function cacheDescriptor(request) {
   const origin = url.origin;
 
   if (path === "/api/v1/schools") {
-    return descriptor(origin, "/schools", 6 * 60 * 60, 48 * 60 * 60);
+    // School branding is user-visible catalog data. Keep it fresh enough that a
+    // corrected logo cannot remain hidden behind a six-hour edge snapshot, and
+    // version the key so this release immediately abandons older logo catalogs.
+    const key = `/schools/${SCHOOL_CATALOG_CACHE_VERSION}`;
+    return descriptor(origin, key, 5 * 60, 6 * 60 * 60, key);
   }
 
   if (path === "/api/v1/coverage-report") {
@@ -179,3 +184,5 @@ export default {
     return app.scheduled(controller, env, ctx);
   }
 };
+
+export { SCHOOL_CATALOG_CACHE_VERSION, cacheDescriptor };

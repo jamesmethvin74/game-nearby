@@ -127,11 +127,18 @@
       const normalized = normalizeSchool(school);
       if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
     }
-    // Explicit college definitions win over anything accidentally classified by
-    // the high-school feed or restored from an older cache.
+    // Preserve the exact reviewed college identity fields, but never throw away
+    // a valid live API logo merely because the static fallback catalog has none.
     for (const school of COLLEGE_SCHOOLS) {
       const normalized = normalizeSchool(school);
-      if (normalized.id && normalized.name) byId.set(normalized.id, normalized);
+      if (!normalized.id || !normalized.name) continue;
+      const live = byId.get(normalized.id);
+      byId.set(normalized.id, {
+        ...(live || {}),
+        ...normalized,
+        logoUrl: live?.logoUrl || normalized.logoUrl || "",
+        teamCount: Math.max(Number(live?.teamCount || 0), Number(normalized.teamCount || 0))
+      });
     }
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -239,7 +246,13 @@
   window.LocalBleachersTeamsCatalog = {
     refresh,
     getState: () => ({ ...state }),
-    getColleges: () => COLLEGE_SCHOOLS.map(normalizeSchool),
+    getColleges: () => {
+      if (typeof SCHOOL_REGISTRY !== "undefined") {
+        const colleges = SCHOOL_REGISTRY.filter(school => clean(school.level) === "college");
+        if (colleges.length) return colleges.map(normalizeSchool);
+      }
+      return COLLEGE_SCHOOLS.map(normalizeSchool);
+    },
     apiBase: DEFAULT_API_BASE
   };
 
