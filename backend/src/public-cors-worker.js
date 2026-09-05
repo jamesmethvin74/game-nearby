@@ -1,6 +1,6 @@
 import app from "./coverage-report-worker.js";
 
-const RELEASE = "public-read-resilient-v4";
+const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
 const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v4-direct";
 const DIRECT_LOGO_OVERRIDES = new Map([
