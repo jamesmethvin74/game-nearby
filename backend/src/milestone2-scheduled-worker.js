@@ -16,6 +16,10 @@ export function m2StatewideKeysForPlan(plan){
   return [];
 }
 
+export function shouldRunOfficialFinalResults(plan){
+  return plan?.kind==="morning-results" || plan?.kind==="evening-results";
+}
+
 async function runCatalogMaintenance(env){
   await ensureStatewideSchema(env);
   const payloads=new Map();
@@ -87,6 +91,19 @@ async function runStatewideSports(env,{keys,payloads=new Map(),reason="scheduled
   return outcomes;
 }
 
+async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
+  if (!shouldRunOfficialFinalResults(plan)) return null;
+  return runScopedCadence({
+    core,env,ctx,controller,
+    plan:{
+      kind:`${plan.kind}-official-finals`,
+      runCore:true,
+      scope:"high-school-final-results",
+      activeResultMinutes:120
+    }
+  });
+}
+
 async function runScheduledPlan(controller,env,ctx){
   const scheduledTime=Number(controller?.scheduledTime);
   const when=Number.isFinite(scheduledTime)?new Date(scheduledTime):new Date();
@@ -107,13 +124,16 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
+  const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
+
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys};
-    return core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
+    if (scoped) return {...scoped,statewideSports:statewideKeys,officialFinalResults};
+    const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,officialFinalResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,officialFinalResults};
 }
 
 export default {

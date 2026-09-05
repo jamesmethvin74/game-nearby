@@ -167,6 +167,11 @@ export function observationsLikelySameEvent(a,b,{timeZone="America/Chicago",maxD
   return true;
 }
 
+function compatibleLifecycleStatuses(values) {
+  const statuses=new Set(values.map(value=>String(value||"").toUpperCase()));
+  return statuses.size===2 && statuses.has("SCHEDULED") && statuses.has("FINAL");
+}
+
 export function detectEventConflicts(observations,{timeZone="America/Chicago"}={}) {
   const conflicts=[];
   if (!Array.isArray(observations) || observations.length < 2) return conflicts;
@@ -183,7 +188,12 @@ export function detectEventConflicts(observations,{timeZone="America/Chicago"}={
     const score=canonicalScore(o);
     if (score.homeScore != null && score.awayScore != null) values.SCORE.set(`${score.homeScore}-${score.awayScore}`,true);
   }
-  for (const [type,map] of Object.entries(values)) if (map.size > 1) conflicts.push({type,values:[...map.keys()]});
+  for (const [type,map] of Object.entries(values)) {
+    if (map.size<=1) continue;
+    const conflictValues=[...map.keys()];
+    if (type==="STATUS" && compatibleLifecycleStatuses(conflictValues)) continue;
+    conflicts.push({type,values:conflictValues});
+  }
   return conflicts;
 }
 
@@ -230,7 +240,7 @@ export function resolveCanonicalEvent(observations,{timeZone="America/Chicago",n
     homeSchoolId:relation?.homeSchoolId || null,awaySchoolId:relation?.awaySchoolId || null,
     scheduledAt,scheduledTimeKnown:Boolean(timeSelected?.scheduled_time_known),
     venue:cleanAuthorityText(venueSelected?.venue || venueSelected?.location_text),
-    status:String(selected.status||"SCHEDULED").toUpperCase(),
+    status:scoreSelected?"FINAL":String(selected.status||"SCHEDULED").toUpperCase(),
     homeScore:score.homeScore,awayScore:score.awayScore,
     selectedSourceId:selected.source_id || null,
     trustState,conflicts,resolvedAt:now,
