@@ -11,14 +11,14 @@
   <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
   <title>Standings · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
-  <link rel="manifest" href="manifest.json?v=54" />
+  <link rel="manifest" href="manifest.json?v=60" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
   <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
-  <link rel="stylesheet" href="styles.css?v=54" />
-  <link rel="stylesheet" href="polish.css?v=54" />
-  <link rel="stylesheet" href="brand-exact.css?v=54" />
-  <link rel="stylesheet" href="pitched-layout.css?v=54" />
-  <link rel="stylesheet" href="standings.css?v=54" />
+  <link rel="stylesheet" href="styles.css?v=60" />
+  <link rel="stylesheet" href="polish.css?v=60" />
+  <link rel="stylesheet" href="brand-exact.css?v=60" />
+  <link rel="stylesheet" href="pitched-layout.css?v=60" />
+  <link rel="stylesheet" href="standings.css?v=60" />
 </head>
 <body class="standings-page">
   <header class="app-header branded-header">
@@ -30,14 +30,14 @@
   <main class="standings-main">
     <section class="standings-hero">
       <div><p class="eyebrow">ARKANSAS SPORTS</p><h1>Standings</h1></div>
-      <p>Latest published conference standings.</p>
+      <p>Your current conference standings. Your last view and favorites stay with you.</p>
     </section>
 
     <section class="standings-controls" aria-label="Standings filters">
       <div class="standings-field">
         <span class="standings-field-label">Sport</span>
-        <button id="standingsSportTrigger" class="standings-picker-trigger" type="button" data-value="volleyball" aria-haspopup="dialog" aria-controls="standingsPickerDialog">
-          <span id="standingsSportValue">Volleyball</span><span class="standings-chevron" aria-hidden="true">⌄</span>
+        <button id="standingsSportTrigger" class="standings-picker-trigger" type="button" data-value="football" aria-haspopup="dialog" aria-controls="standingsPickerDialog">
+          <span id="standingsSportValue">Football</span><span class="standings-chevron" aria-hidden="true">⌄</span>
         </button>
       </div>
       <div class="standings-field">
@@ -50,8 +50,11 @@
 
     <section class="standings-card" aria-live="polite" aria-busy="true" id="standingsCard">
       <div class="standings-heading">
-        <div><p class="eyebrow" id="standingsSportLabel">VOLLEYBALL</p><h2 id="standingsTitle">Conference standings</h2></div>
-        <span id="standingsUpdated" class="standings-updated"></span>
+        <div><p class="eyebrow" id="standingsSportLabel">FOOTBALL</p><h2 id="standingsTitle">Conference standings</h2></div>
+        <div class="standings-heading-actions">
+          <span id="standingsUpdated" class="standings-updated"></span>
+          <button id="standingsFavoriteToggle" class="standings-favorite-toggle" type="button" disabled>☆ Favorite</button>
+        </div>
       </div>
       <div id="standingsStatus" class="standings-status">Loading current standings…</div>
       <div class="standings-table-wrap" id="standingsTableWrap" hidden>
@@ -60,7 +63,16 @@
           <tbody id="standingsBody"></tbody>
         </table>
       </div>
-      <div class="standings-source" id="standingsSource" hidden>Standings: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a> · football 0-0 records are cross-checked with <a href="https://fearlessfriday.com/" target="_blank" rel="noopener">Fearless Friday</a>.</div>
+      <div class="standings-source" id="standingsSource" hidden>Standings: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a> · football records are cross-checked with <a href="https://fearlessfriday.com/" target="_blank" rel="noopener">Fearless Friday</a>.</div>
+    </section>
+
+    <section class="favorite-standings-section" aria-labelledby="favoriteStandingsTitle">
+      <div class="favorite-standings-heading">
+        <div><p class="eyebrow">FAVORITES</p><h2 id="favoriteStandingsTitle">My Standings</h2></div>
+        <span id="favoriteStandingsCount" class="standings-count-pill">0 saved</span>
+      </div>
+      <p id="favoriteStandingsEmpty" class="favorite-standings-empty">Tap <strong>☆ Favorite</strong> above to keep a sport and conference here for one-tap access.</p>
+      <div id="favoriteStandingsGrid" class="favorite-standings-grid" hidden></div>
     </section>
   </main>
 
@@ -82,7 +94,7 @@
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="standings.js?v=54"></script>
+  <script src="standings.js?v=60"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
