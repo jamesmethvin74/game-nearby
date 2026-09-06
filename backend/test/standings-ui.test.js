@@ -47,6 +47,6 @@ test("Home navigation and PWA shell include reconciled Standings", () => {
 
 test("Standings page identifies both published standings and football cross-check source", () => {
   assert.match(html, />MaxPreps<\/a>/);
-  assert.match(html, /football 0-0 records are cross-checked with/);
+  assert.match(html, /football records are cross-checked with/);
   assert.match(html, />Fearless Friday<\/a>/);
 });
