@@ -23,6 +23,7 @@ function plan(kind, options = {}) {
   return {
     kind,
     runStatewide: Boolean(options.runStatewide),
+    runVolleyballLive: Boolean(options.runVolleyballLive),
     runCore: Boolean(options.runCore),
     runCatalogMaintenance: Boolean(options.runCatalogMaintenance),
     scope: options.scope || "all",
@@ -43,7 +44,8 @@ export function collectionPlanAt(value = new Date()) {
   }
 
   // Friday high-school/football result window: 8:30 PM Friday through 1:00 AM
-  // Saturday Central. The late buffer catches finals that post after midnight.
+  // Saturday Central. The same cron tick also performs the cheap volleyball
+  // semantic probe so Friday tournament/match finals do not wait until 11 PM.
   const fridayEvening = weekday === "Fri" && (
     (hour === 20 && minute === 30) ||
     (hour >= 21 && hour <= 23 && (minute === 0 || minute === 30))
@@ -54,16 +56,31 @@ export function collectionPlanAt(value = new Date()) {
   );
   if (fridayEvening || fridayLate) {
     return plan("friday-football-results", {
+      runVolleyballLive: true,
       runCore: true,
       scope: "football-game-day",
       activeResultMinutes: 30
     });
   }
 
-  // Saturday is the college-heavy live-update day. Poll only college teams that
-  // have a game in the active game-day window; do not run catalog, GIS, or
-  // branding maintenance. Start before the earliest common kickoffs and keep a
-  // final buffer through 1:00 AM Sunday for late road games and final scores.
+  // Volleyball is in-season across the work week. Probe the one statewide
+  // DragonFly varsity feed every 30 minutes from 4:30 PM through 10:30 PM.
+  // The probe itself performs no D1 writes unless the semantic feed changes.
+  const volleyballWeekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday);
+  const volleyballEvening = volleyballWeekday && (
+    (hour === 16 && minute === 30) ||
+    (hour >= 17 && hour <= 22 && (minute === 0 || minute === 30))
+  );
+  if (volleyballEvening) {
+    return plan("volleyball-live-results", {
+      runVolleyballLive: true,
+      scope: "volleyball-statewide"
+    });
+  }
+
+  // Saturday is the college-heavy live-update day. Keep the existing 30-minute
+  // college source polling, while checking the statewide volleyball feed hourly
+  // for tournament finals. No catalog/GIS/branding maintenance runs here.
   const saturdayCollege = weekday === "Sat" && (
     (hour === 10 && minute === 30) ||
     (hour >= 11 && hour <= 23 && (minute === 0 || minute === 30))
@@ -74,6 +91,7 @@ export function collectionPlanAt(value = new Date()) {
   );
   if (saturdayCollege || saturdayLate) {
     return plan("saturday-college-results", {
+      runVolleyballLive: minute === 0,
       runCore: true,
       scope: "college-game-day",
       activeResultMinutes: 30
