@@ -109,7 +109,10 @@ export async function reconcileFootballOverallRecords(result, { sport, fetchFn =
   if (String(sport || "").toLowerCase() !== "football") return result;
   if (!result?.conference || !Array.isArray(result?.standings)) return result;
 
-  const candidates = result.standings.filter(row => recordGames(row?.overall_record) === 0);
+  // Published tables can be stale even when they are non-zero (for example 0-1
+  // after a team's second game is already final). Check the small conference
+  // cohort and only replace a record when the secondary source has MORE games.
+  const candidates = result.standings;
   if (!candidates.length) return result;
 
   const checks = await Promise.all(candidates.map(async row => ({
