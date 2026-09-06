@@ -5,7 +5,10 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { statewideDragonFlySignature } from "../src/dragonfly-statewide.js";
 import { runVolleyballLiveResultProbe, volleyballResultSnapshotChanged } from "../src/volleyball-live-results.js";
-import { buildVolleyballLiveCalculatedStandings } from "../src/volleyball-standings-overlay.js";
+import {
+  buildVolleyballLiveCalculatedStandings,
+  conferenceRecordsFromRosterFinals
+} from "../src/volleyball-standings-overlay.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/dragonfly-greenbrier-vilonia-2026.json", import.meta.url));
 
@@ -64,6 +67,16 @@ test("unchanged live volleyball probe performs no D1 writes", async () => {
   assert.equal(result.d1Writes, 0);
   assert.equal(reads, 1);
   assert.equal(runs, 0);
+});
+
+test("conference records are derived from canonical finals between roster members", () => {
+  const records = conferenceRecordsFromRosterFinals([
+    { home_school_id:"greenbrier", away_school_id:"vilonia", home_score:3, away_score:1 },
+    { home_school_id:"maumelle", away_school_id:"greenbrier", home_score:0, away_score:3 }
+  ]);
+  assert.deepEqual(records.get("greenbrier"), { wins:2, losses:0, ties:0 });
+  assert.deepEqual(records.get("vilonia"), { wins:0, losses:1, ties:0 });
+  assert.deepEqual(records.get("maumelle"), { wins:0, losses:1, ties:0 });
 });
 
 test("live volleyball records only advance published records and preserve the full roster", () => {
