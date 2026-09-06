@@ -45,8 +45,9 @@ test("Home navigation and PWA shell include reconciled Standings", () => {
   assert.match(serviceWorker, /\.\/standings\.css/);
 });
 
-test("Standings page identifies both published standings and football cross-check source", () => {
-  assert.match(html, />MaxPreps<\/a>/);
-  assert.match(html, /football records are cross-checked with/);
-  assert.match(html, />Fearless Friday<\/a>/);
+test("Standings card does not expose third-party attribution", () => {
+  assert.doesNotMatch(html, /Standings:\s*<a[^>]*>MaxPreps<\/a>/);
+  assert.doesNotMatch(html, /Fearless Friday/);
+  assert.match(html, /id="standingsSource"[^>]*display:none/);
+  assert.match(html, /id="standingsSourceLink"/);
 });
