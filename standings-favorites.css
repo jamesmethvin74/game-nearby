@@ -1,0 +1,175 @@
+.standings-heading-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.standings-favorite-toggle {
+  min-height: 34px;
+  border: 1px solid rgba(148, 163, 184, .3);
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .08);
+  color: inherit;
+  padding: 0 10px;
+  font-size: .72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.standings-favorite-toggle:disabled {
+  opacity: .45;
+}
+
+.standings-favorite-toggle.is-favorite {
+  border-color: rgba(245, 158, 11, .45);
+  background: rgba(245, 158, 11, .12);
+}
+
+.favorite-standings-section {
+  margin-top: 18px;
+}
+
+.favorite-standings-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 9px;
+}
+
+.favorite-standings-heading h2 {
+  margin: 1px 0 0;
+  font-size: 1.25rem;
+}
+
+.standings-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border: 1px solid rgba(148, 163, 184, .25);
+  border-radius: 999px;
+  padding: 0 9px;
+  color: var(--muted, #64748b);
+  font-size: .68rem;
+  font-weight: 850;
+}
+
+.favorite-standings-empty {
+  margin: 0;
+  border: 1px dashed rgba(148, 163, 184, .3);
+  border-radius: 16px;
+  padding: 16px;
+  color: var(--muted, #64748b);
+  font-size: .82rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.favorite-standings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.favorite-standings-card {
+  position: relative;
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, .24);
+  border-radius: 17px;
+  background: #fff;
+  color: #0f172a;
+  overflow: hidden;
+}
+
+.favorite-standings-card.active {
+  border-color: rgba(96, 165, 250, .52);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .2);
+}
+
+.favorite-standings-open {
+  width: 100%;
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 13px 42px 12px 13px;
+  text-align: left;
+}
+
+.favorite-standings-open strong {
+  margin-top: 3px;
+  font-size: 1rem;
+  line-height: 1.12;
+}
+
+.favorite-standings-sport {
+  color: #3b82f6;
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.favorite-standings-view {
+  margin-top: auto;
+  padding-top: 8px;
+  color: var(--muted, #64748b);
+  font-size: .7rem;
+  font-weight: 800;
+}
+
+.favorite-standings-remove {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, .12);
+  color: #b7791f;
+  font-size: 1rem;
+}
+
+@media (max-width: 430px) {
+  .standings-heading {
+    align-items: flex-start;
+  }
+
+  .standings-heading-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+
+  .standings-updated {
+    max-width: none;
+  }
+
+  .favorite-standings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .favorite-standings-open {
+    min-height: 88px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .favorite-standings-card {
+    background: #0b1d33;
+    color: #eef6ff;
+  }
+}
+
+html[data-theme="dark"] .favorite-standings-card {
+  background: #0b1d33;
+  color: #eef6ff;
+}
