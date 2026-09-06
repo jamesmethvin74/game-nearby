@@ -1,7 +1,7 @@
 import app from "./team-read-worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
-import { loadMaterializedCalculatedStandings } from "./calculated-standings.js";
+import { loadMaterializedCalculatedStandings, overlayCalculatedStandings } from "./calculated-standings.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
 
 function publicJson(request, body, status = 200, cacheControl = "public, max-age=120, stale-while-revalidate=300") {
@@ -61,11 +61,13 @@ async function handleStandingsRequest(request, env) {
     const conferenceId = String(url.searchParams.get("conference") || "").toLowerCase();
     if (!conferenceId) return publicJson(request, { error: "conference_required" }, 400, "no-store");
 
-    // Once LocalBleachersAR has materialized a calculated conference from canonical
-    // results, that is the live read authority. This makes a just-accepted FINAL
-    // visible immediately instead of waiting for a third-party published table.
+    // Canonical LocalBleachersAR results remain the record authority, but an
+    // incomplete local conference catalog must not collapse the visible table to
+    // only the locally materialized teams. Full-coverage local cohorts can be
+    // served directly. Incomplete cohorts are overlaid onto the published roster.
+    let calculated = null;
     try {
-      let calculated = await loadMaterializedCalculatedStandings(env, {
+      calculated = await loadMaterializedCalculatedStandings(env, {
         sport,
         conferenceId,
         season: "2026"
@@ -77,7 +79,7 @@ async function handleStandingsRequest(request, env) {
           season: "2026"
         });
       }
-      if (calculated) {
+      if (calculated?.conference?.coverage_complete) {
         return publicJson(request, {
           ...calculated,
           retrieved_at: new Date().toISOString()
@@ -89,13 +91,24 @@ async function handleStandingsRequest(request, env) {
         conferenceId,
         error: String(error?.message || error)
       });
+      calculated = null;
     }
 
     try {
       let result = await fetchPublishedStandings({ sport, conferenceId });
       result = await reconcileFootballOverallRecords(result, { sport });
+      if (calculated) result = overlayCalculatedStandings(result, calculated);
       return publicJson(request, { ...result, retrieved_at: new Date().toISOString() }, 200, "no-store");
     } catch (error) {
+      // If the published roster is temporarily unavailable, a partial canonical
+      // table is still better than a 502. This does not mark local coverage complete.
+      if (calculated) {
+        return publicJson(request, {
+          ...calculated,
+          retrieved_at: new Date().toISOString(),
+          partial_roster: true
+        }, 200, "no-store");
+      }
       return publicJson(request, { error: "standings_unavailable", message: String(error?.message || error) }, 502, "no-store");
     }
   }
