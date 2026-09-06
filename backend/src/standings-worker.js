@@ -2,6 +2,7 @@ import app from "./team-read-worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
 import { loadMaterializedCalculatedStandings } from "./calculated-standings.js";
+import { rebuildTeamRecords } from "./record-rebuild.js";
 
 function publicJson(request, body, status = 200, cacheControl = "public, max-age=120, stale-while-revalidate=300") {
   const origin = request.headers.get("origin");
@@ -17,6 +18,29 @@ function publicJson(request, body, status = 200, cacheControl = "public, max-age
       "vary": "Origin"
     }
   });
+}
+
+async function rebuildMissingCalculatedConference(env, { sport, conferenceId, season = "2026" } = {}) {
+  const result = await env.DB.prepare(`
+    SELECT t.id
+    FROM teams t
+    JOIN schools s ON s.id=t.school_id
+    WHERE t.active=1
+      AND t.conference_id=?
+      AND t.sport=?
+      AND t.season=?
+      AND s.catalog_scope='local'
+    ORDER BY t.id
+  `).bind(conferenceId, sport, season).all();
+  const teamIds = (result.results || []).map(row => row.id).filter(Boolean);
+  if (!teamIds.length) return null;
+
+  // This is a bounded, one-conference recovery path. Normal result collection
+  // already rebuilds records + standings in the same cycle. We only invoke this
+  // when no calculated standings exist yet (for example, finals collected before
+  // the standings materialization code was deployed).
+  await rebuildTeamRecords(env, teamIds);
+  return loadMaterializedCalculatedStandings(env, { sport, conferenceId, season });
 }
 
 async function handleStandingsRequest(request, env) {
@@ -41,11 +65,18 @@ async function handleStandingsRequest(request, env) {
     // results, that is the live read authority. This makes a just-accepted FINAL
     // visible immediately instead of waiting for a third-party published table.
     try {
-      const calculated = await loadMaterializedCalculatedStandings(env, {
+      let calculated = await loadMaterializedCalculatedStandings(env, {
         sport,
         conferenceId,
         season: "2026"
       });
+      if (!calculated) {
+        calculated = await rebuildMissingCalculatedConference(env, {
+          sport,
+          conferenceId,
+          season: "2026"
+        });
+      }
       if (calculated) {
         return publicJson(request, {
           ...calculated,
@@ -53,7 +84,7 @@ async function handleStandingsRequest(request, env) {
         }, 200, "no-store");
       }
     } catch (error) {
-      console.warn("calculated standings read failed; using published fallback", {
+      console.warn("calculated standings read/recovery failed; using published fallback", {
         sport,
         conferenceId,
         error: String(error?.message || error)
