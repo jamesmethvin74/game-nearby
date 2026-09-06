@@ -11,6 +11,24 @@ const conwayHtml = `
     <div>MO-Capital City</div><div>Conway</div><div>7</div><div>45</div><div>Final</div>
   </main>`;
 
+const conwayTwoGameHtml = `
+  <main>
+    <h3>2026</h3>
+    <div>Record: 1 - 1 - 0</div>
+    <div>Conf Record: 0 - 0 - 0</div>
+    <div>Friday, August 28, 2026</div>
+    <div>MO-Capital City</div><div>Conway</div><div>7</div><div>45</div><div>Final</div>
+    <div>Friday, September 4, 2026</div>
+    <div>Conway</div><div>Bentonville</div><div>14</div><div>20</div><div>Final</div>
+  </main>`;
+
+const bryantOneGameHtml = `
+  <main>
+    <h3>2026</h3>
+    <div>Record: 0 - 1 - 0</div>
+    <div>Conf Record: 0 - 0 - 0</div>
+  </main>`;
+
 test("parses the current Fearless Friday season record", () => {
   assert.deepEqual(parseFearlessFridaySeasonRecord(conwayHtml, 2026), {
     wins: 1,
@@ -21,7 +39,7 @@ test("parses the current Fearless Friday season record", () => {
   });
 });
 
-test("reconciles a stale 0-0 football overall record without changing conference record", async () => {
+test("reconciles a stale nonzero football overall record when the secondary source has more games", async () => {
   const result = {
     conference: {
       id: "7a-central",
@@ -35,7 +53,7 @@ test("reconciles a stale 0-0 football overall record without changing conference
         rank: 1,
         school_name: "Conway",
         conference_record: "0-0",
-        overall_record: "0-0",
+        overall_record: "0-1",
         overall_pct: ".000",
         method: "published"
       },
@@ -53,21 +71,36 @@ test("reconciles a stale 0-0 football overall record without changing conference
   const calls = [];
   const fetchFn = async url => {
     calls.push(url);
-    return new Response(conwayHtml, { status: 200, headers: { "content-type": "text/html" } });
+    if (String(url).includes("/schools/conway/")) return new Response(conwayTwoGameHtml, { status: 200 });
+    if (String(url).includes("/schools/bryant/")) return new Response(bryantOneGameHtml, { status: 200 });
+    return new Response("", { status: 404 });
   };
 
   const reconciled = await reconcileFootballOverallRecords(result, { sport: "football", fetchFn, season: 2026 });
   const conway = reconciled.standings.find(row => row.school_name === "Conway");
   const bryant = reconciled.standings.find(row => row.school_name === "Bryant");
 
-  assert.equal(calls.length, 1, "only stale zero-game rows should be cross-checked");
-  assert.match(calls[0], /fearlessfriday\.com\/schools\/conway\//);
-  assert.equal(conway.overall_record, "1-0");
+  assert.equal(calls.length, 2, "the small conference cohort should be checked for record completeness");
+  assert.equal(conway.overall_record, "1-1");
   assert.equal(conway.conference_record, "0-0");
   assert.equal(conway.method, "published+reconciled");
   assert.equal(conway.overall_record_source, "Fearless Friday");
-  assert.equal(bryant.overall_record, "0-1");
+  assert.equal(bryant.overall_record, "0-1", "an equally complete published record should not be replaced");
   assert.equal(reconciled.conference.secondary_source_name, "Fearless Friday");
+});
+
+test("reconciles a stale 0-0 football overall record without changing conference record", async () => {
+  const result = {
+    conference: { id: "7a-central", name: "7A Central", sport: "football", standings_method: "published" },
+    standings: [{ school_name: "Conway", conference_record: "0-0", overall_record: "0-0", overall_pct: ".000", method: "published" }]
+  };
+  const reconciled = await reconcileFootballOverallRecords(result, {
+    sport: "football",
+    fetchFn: async () => new Response(conwayHtml, { status: 200 }),
+    season: 2026
+  });
+  assert.equal(reconciled.standings[0].overall_record, "1-0");
+  assert.equal(reconciled.standings[0].conference_record, "0-0");
 });
 
 test("reconciles stale Home card football records without changing conference record", async () => {
