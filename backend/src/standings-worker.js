@@ -2,7 +2,7 @@ import app from "./team-read-worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
 import { loadMaterializedCalculatedStandings, overlayCalculatedStandings } from "./calculated-standings.js";
-import { rebuildTeamRecords } from "./record-rebuild.js";
+import { overlayVolleyballLiveRecords } from "./volleyball-standings-overlay.js";
 
 function publicJson(request, body, status = 200, cacheControl = "public, max-age=120, stale-while-revalidate=300") {
   const origin = request.headers.get("origin");
@@ -18,29 +18,6 @@ function publicJson(request, body, status = 200, cacheControl = "public, max-age
       "vary": "Origin"
     }
   });
-}
-
-async function rebuildMissingCalculatedConference(env, { sport, conferenceId, season = "2026" } = {}) {
-  const result = await env.DB.prepare(`
-    SELECT t.id
-    FROM teams t
-    JOIN schools s ON s.id=t.school_id
-    WHERE t.active=1
-      AND t.conference_id=?
-      AND t.sport=?
-      AND t.season=?
-      AND s.catalog_scope='local'
-    ORDER BY t.id
-  `).bind(conferenceId, sport, season).all();
-  const teamIds = (result.results || []).map(row => row.id).filter(Boolean);
-  if (!teamIds.length) return null;
-
-  // This is a bounded, one-conference recovery path. Normal result collection
-  // already rebuilds records + standings in the same cycle. We only invoke this
-  // when no calculated standings exist yet (for example, finals collected before
-  // the standings materialization code was deployed).
-  await rebuildTeamRecords(env, teamIds);
-  return loadMaterializedCalculatedStandings(env, { sport, conferenceId, season });
 }
 
 async function handleStandingsRequest(request, env) {
@@ -72,13 +49,6 @@ async function handleStandingsRequest(request, env) {
         conferenceId,
         season: "2026"
       });
-      if (!calculated) {
-        calculated = await rebuildMissingCalculatedConference(env, {
-          sport,
-          conferenceId,
-          season: "2026"
-        });
-      }
       if (calculated?.conference?.coverage_complete) {
         return publicJson(request, {
           ...calculated,
@@ -86,7 +56,7 @@ async function handleStandingsRequest(request, env) {
         }, 200, "no-store");
       }
     } catch (error) {
-      console.warn("calculated standings read/recovery failed; using published fallback", {
+      console.warn("calculated standings read failed; using published fallback", {
         sport,
         conferenceId,
         error: String(error?.message || error)
@@ -97,6 +67,19 @@ async function handleStandingsRequest(request, env) {
     try {
       let result = await fetchPublishedStandings({ sport, conferenceId });
       result = await reconcileFootballOverallRecords(result, { sport });
+
+      // Most statewide volleyball teams intentionally do not carry a persistent
+      // conference_id yet. The published table is therefore the membership roster;
+      // overlay our DragonFly-derived team_records by normalized school identity.
+      try {
+        result = await overlayVolleyballLiveRecords(env, result, { sport, season: "2026" });
+      } catch (error) {
+        console.warn("live volleyball standings overlay failed; preserving published table", {
+          conferenceId,
+          error: String(error?.message || error)
+        });
+      }
+
       if (calculated) result = overlayCalculatedStandings(result, calculated);
       return publicJson(request, { ...result, retrieved_at: new Date().toISOString() }, 200, "no-store");
     } catch (error) {

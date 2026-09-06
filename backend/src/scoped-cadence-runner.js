@@ -2,6 +2,7 @@ const INTERNAL_REFRESH_TOKEN = "__localbleachers_scoped_cadence__";
 const ORDINARY_MAX_SOURCES_PER_RUN = 4;
 const COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN = 8;
 const OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 256;
+const OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 64;
 
 function safeSeason(value) {
   const season = String(value || "2026");
@@ -30,6 +31,29 @@ export function scopePolicy(plan = {}) {
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND datetime(gx.scheduled_at) BETWEEN datetime('now','-330 minutes') AND datetime('now','-120 minutes')
+      )`,
+      dueMode: "active-result"
+    };
+  }
+  if (plan.scope === "high-school-volleyball-final-results") {
+    return {
+      // Live volleyball fallback is deliberately narrower than the statewide
+      // multi-sport reconciliation pass. Only school-operated result pages for
+      // girls volleyball with a result-ready scheduled match are eligible.
+      where: `sch.level='high-school'
+        AND src.source_type='official-school'
+        AND src.parser_type IN ('mascot-media','rankone-public')
+        AND t.sport='volleyball'
+        AND t.gender='girls'`,
+      activeMinutes: Number(plan.activeResultMinutes || 30),
+      maxSources: OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
+      gameWindow: `AND EXISTS (
+        SELECT 1
+        FROM games gx
+        WHERE gx.team_id=t.id
+          AND gx.status='SCHEDULED'
+          AND gx.scheduled_time_known=1
+          AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-90 minutes')
       )`,
       dueMode: "active-result"
     };
@@ -230,4 +254,10 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
   };
 }
 
-export { COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN, OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN, INTERNAL_REFRESH_TOKEN, safeSeason };
+export {
+  COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN,
+  OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
+  OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
+  INTERNAL_REFRESH_TOKEN,
+  safeSeason
+};
