@@ -11,6 +11,35 @@ function numeric(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+export function conferenceRecordsFromRosterFinals(finals = []) {
+  const records = new Map();
+  const ensure = schoolId => {
+    if (!records.has(schoolId)) records.set(schoolId, { wins:0, losses:0, ties:0 });
+    return records.get(schoolId);
+  };
+
+  for (const game of finals) {
+    const homeId = String(game.home_school_id || "");
+    const awayId = String(game.away_school_id || "");
+    const homeScore = Number(game.home_score);
+    const awayScore = Number(game.away_score);
+    if (!homeId || !awayId || !Number.isFinite(homeScore) || !Number.isFinite(awayScore)) continue;
+    const home = ensure(homeId);
+    const away = ensure(awayId);
+    if (homeScore === awayScore) {
+      home.ties += 1;
+      away.ties += 1;
+    } else if (homeScore > awayScore) {
+      home.wins += 1;
+      away.losses += 1;
+    } else {
+      away.wins += 1;
+      home.losses += 1;
+    }
+  }
+  return records;
+}
+
 export function buildVolleyballLiveCalculatedStandings(published, recordRows = []) {
   const publishedRows = Array.isArray(published?.standings) ? published.standings : [];
   if (!publishedRows.length || !recordRows.length) return null;
@@ -79,13 +108,12 @@ export async function overlayVolleyballLiveRecords(env, published, {
     .filter(Boolean))];
   if (!aliases.length) return published;
 
-  // The published conference page supplies membership. This one set-based lookup
-  // finds only those schools in LocalBleachersAR, so statewide teams do not need
-  // conference_id populated before their canonical records can improve standings.
+  // The published conference page supplies membership. This first set-based lookup
+  // resolves only those roster schools to LocalBleachersAR teams and overall records,
+  // so statewide teams do not need conference_id populated before they can contribute.
   const result = await env.DB.prepare(`
-    SELECT a.normalized_alias,t.id AS team_id,
-      r.wins,r.losses,r.ties,
-      r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at
+    SELECT a.normalized_alias,s.id AS school_id,t.id AS team_id,
+      r.wins,r.losses,r.ties,r.calculated_at
     FROM school_aliases a
     JOIN schools s ON s.id=a.school_id
     JOIN teams t ON t.school_id=s.id
@@ -99,6 +127,47 @@ export async function overlayVolleyballLiveRecords(env, published, {
       AND s.catalog_scope='local'
   `).bind(JSON.stringify(aliases), sport, season).all();
 
-  const calculated = buildVolleyballLiveCalculatedStandings(published, result.results || []);
+  const recordRows = result.results || [];
+  const teamIds = [...new Set(recordRows.map(row => row.team_id).filter(Boolean))];
+  const schoolIds = [...new Set(recordRows.map(row => row.school_id).filter(Boolean))];
+
+  if (teamIds.length >= 2 && schoolIds.length >= 2) {
+    // DragonFly does not consistently expose an explicit conference-game flag.
+    // The published roster is already our conference-membership authority, so a
+    // scored canonical final between two roster members is a conference-result
+    // candidate. Restrict through reporting_team_id so the existing D1 index keeps
+    // this read bounded to the teams on the displayed conference page.
+    const finals = await env.DB.prepare(`
+      SELECT DISTINCT ce.id,ce.home_school_id,ce.away_school_id,ce.home_score,ce.away_score
+      FROM canonical_event_members cem
+      JOIN games mg ON mg.id=cem.game_id AND mg.counts_for_record=1
+      JOIN canonical_events ce ON ce.id=cem.canonical_event_id
+      WHERE cem.reporting_team_id IN (SELECT value FROM json_each(?))
+        AND ce.sport=?
+        AND ce.gender='girls'
+        AND ce.season=?
+        AND ce.status='FINAL'
+        AND ce.home_score IS NOT NULL
+        AND ce.away_score IS NOT NULL
+        AND ce.home_school_id IN (SELECT value FROM json_each(?))
+        AND ce.away_school_id IN (SELECT value FROM json_each(?))
+    `).bind(
+      JSON.stringify(teamIds),
+      sport,
+      season,
+      JSON.stringify(schoolIds),
+      JSON.stringify(schoolIds)
+    ).all();
+
+    const conferenceBySchool = conferenceRecordsFromRosterFinals(finals.results || []);
+    for (const row of recordRows) {
+      const record = conferenceBySchool.get(row.school_id) || { wins:0, losses:0, ties:0 };
+      row.conference_wins = record.wins;
+      row.conference_losses = record.losses;
+      row.conference_ties = record.ties;
+    }
+  }
+
+  const calculated = buildVolleyballLiveCalculatedStandings(published, recordRows);
   return calculated ? overlayCalculatedStandings(published, calculated) : published;
 }
