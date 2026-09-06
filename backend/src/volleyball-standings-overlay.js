@@ -67,7 +67,11 @@ export function buildVolleyballLiveCalculatedStandings(published, recordRows = [
     const publishedConferenceGames = recordGames(publishedRow.conference_record);
 
     const useOverall = localOverallGames > 0 && localOverallGames >= publishedOverallGames;
-    const useConference = localConferenceGames > 0 && localConferenceGames >= publishedConferenceGames;
+    // Same-conference opponents can also meet in tournaments. Without a reliable
+    // provider conference-game flag, only advance the published conference record
+    // when LocalBleachersAR is exactly one final ahead. Larger gaps are ambiguous
+    // and safely remain published until that authority catches up.
+    const useConference = localConferenceGames === publishedConferenceGames + 1;
     if (!useOverall && !useConference) continue;
 
     standings.push({
