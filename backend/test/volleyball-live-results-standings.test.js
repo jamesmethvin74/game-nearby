@@ -110,6 +110,25 @@ test("live volleyball records only advance published records and preserve the fu
   assert.equal(published.standings.length, 3, "published roster is the conference membership authority");
 });
 
+test("ambiguous multi-game conference inference does not overwrite the published conference record", () => {
+  const published = publishedVolleyball();
+  const calculated = buildVolleyballLiveCalculatedStandings(published, [{
+    normalized_alias:"greenbrier",
+    team_id:"greenbrier-volleyball-2026",
+    wins:6,losses:2,ties:0,
+    conference_wins:4,conference_losses:1,conference_ties:0,
+    calculated_at:"2026-09-02T23:00:00.000Z"
+  }]);
+
+  assert.ok(calculated, "overall record can still advance");
+  assert.equal(calculated.standings[0].overall_record, "6-2");
+  assert.equal(
+    calculated.standings[0].conference_record,
+    "1-1",
+    "more than one inferred game ahead is ambiguous and must preserve published conference record"
+  );
+});
+
 test("standings GET path is read-only and uses the volleyball live overlay", async () => {
   const source = await readFile(new URL("../src/standings-worker.js", import.meta.url), "utf8");
   assert.match(source, /overlayVolleyballLiveRecords/);
