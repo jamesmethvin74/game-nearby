@@ -1,5 +1,9 @@
 (() => {
   const DEFAULT_API_BASE = "https://localbleachersar-sports-api.james-methvin74.workers.dev";
+  const DEFAULT_SPORT = "football";
+  const LAST_SPORT_KEY = "localBleachersAR:standings:lastSport";
+  const LAST_CONFERENCES_KEY = "localBleachersAR:standings:lastConferenceBySport";
+  const FAVORITES_KEY = "localBleachersAR:standings:favorites";
   const API_BASE = String(
     window.LOCALBLEACHERS_API_BASE
       || localStorage.getItem("localBleachersAR:apiBase")
@@ -23,20 +27,101 @@
   const updated = document.getElementById("standingsUpdated");
   const source = document.getElementById("standingsSource");
   const sourceLink = document.getElementById("standingsSourceLink");
+  const favoriteToggle = document.getElementById("standingsFavoriteToggle");
+  const favoritesGrid = document.getElementById("favoriteStandingsGrid");
+  const favoritesEmpty = document.getElementById("favoriteStandingsEmpty");
+  const favoritesCount = document.getElementById("favoriteStandingsCount");
   const themeToggle = document.getElementById("themeToggle");
 
   let requestSerial = 0;
-  let sports = [{ id: "volleyball", label: "Volleyball" }];
+  let sports = [
+    { id: "football", label: "Football" },
+    { id: "volleyball", label: "Volleyball" }
+  ];
   let conferences = [];
-  let selectedSport = "volleyball";
-  let selectedConference = "";
+  let selectedSport = readStoredString(LAST_SPORT_KEY) || DEFAULT_SPORT;
+  let lastConferenceBySport = readStoredObject(LAST_CONFERENCES_KEY);
+  let selectedConference = String(lastConferenceBySport[selectedSport] || "");
+  let favorites = readFavorites();
   let activePicker = null;
   let activeTrigger = null;
+
+  function readStoredString(key) {
+    try { return String(localStorage.getItem(key) || "").trim(); }
+    catch { return ""; }
+  }
+
+  function readStoredObject(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || "{}");
+      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function readFavorites() {
+    try {
+      const value = JSON.parse(localStorage.getItem(FAVORITES_KEY) || "[]");
+      if (!Array.isArray(value)) return [];
+      const seen = new Set();
+      return value.filter(item => {
+        const sport = String(item?.sport || "").trim();
+        const conferenceId = String(item?.conferenceId || "").trim();
+        const key = `${sport}::${conferenceId}`;
+        if (!sport || !conferenceId || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map(item => ({
+        sport: String(item.sport),
+        conferenceId: String(item.conferenceId),
+        conferenceName: String(item.conferenceName || "")
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  function saveSelection() {
+    try {
+      localStorage.setItem(LAST_SPORT_KEY, selectedSport);
+      if (selectedConference) {
+        lastConferenceBySport = { ...lastConferenceBySport, [selectedSport]: selectedConference };
+        localStorage.setItem(LAST_CONFERENCES_KEY, JSON.stringify(lastConferenceBySport));
+      }
+    } catch {}
+  }
+
+  function saveFavorites() {
+    try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites)); }
+    catch {}
+  }
+
+  function favoriteKey(sport, conferenceId) {
+    return `${sport}::${conferenceId}`;
+  }
+
+  function currentFavoriteKey() {
+    return selectedConference ? favoriteKey(selectedSport, selectedConference) : "";
+  }
+
+  function isCurrentFavorite() {
+    const key = currentFavoriteKey();
+    return Boolean(key && favorites.some(item => favoriteKey(item.sport, item.conferenceId) === key));
+  }
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
     })[char]);
+  }
+
+  function titleFromSlug(value = "") {
+    return String(value)
+      .split("-")
+      .filter(Boolean)
+      .map(part => /^\d+a$/i.test(part) ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
   }
 
   async function fetchJson(path) {
@@ -71,24 +156,73 @@
       || fallback;
   }
 
+  function updateFavoriteToggle() {
+    if (!favoriteToggle) return;
+    const favorited = isCurrentFavorite();
+    favoriteToggle.disabled = !selectedConference;
+    favoriteToggle.classList.toggle("is-favorite", favorited);
+    favoriteToggle.textContent = favorited ? "★ Favorited" : "☆ Favorite";
+    const conferenceName = itemLabel(conferences, selectedConference, titleFromSlug(selectedConference));
+    favoriteToggle.setAttribute("aria-label", favorited
+      ? `Remove ${conferenceName} ${itemLabel(sports, selectedSport, selectedSport)} from favorites`
+      : `Favorite ${conferenceName} ${itemLabel(sports, selectedSport, selectedSport)} standings`);
+  }
+
+  function renderFavorites() {
+    favorites = readFavorites();
+    if (!favoritesGrid || !favoritesEmpty || !favoritesCount) return;
+    favoritesCount.textContent = `${favorites.length} saved`;
+    favoritesEmpty.hidden = favorites.length > 0;
+    favoritesGrid.hidden = favorites.length === 0;
+    favoritesGrid.innerHTML = favorites.map(item => {
+      const key = favoriteKey(item.sport, item.conferenceId);
+      const sportName = itemLabel(sports, item.sport, titleFromSlug(item.sport));
+      const conferenceName = item.conferenceName || titleFromSlug(item.conferenceId);
+      const active = key === currentFavoriteKey();
+      return `
+        <article class="favorite-standings-card${active ? " active" : ""}">
+          <button type="button" class="favorite-standings-open" data-favorite-open="${escapeHtml(key)}">
+            <span class="favorite-standings-sport">${escapeHtml(sportName)}</span>
+            <strong>${escapeHtml(conferenceName)}</strong>
+            <span class="favorite-standings-view">View standings →</span>
+          </button>
+          <button type="button" class="favorite-standings-remove" data-favorite-remove="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(conferenceName)} ${escapeHtml(sportName)} from favorites">★</button>
+        </article>`;
+    }).join("");
+    updateFavoriteToggle();
+  }
+
   function refreshTriggers() {
     sportTrigger.dataset.value = selectedSport;
     sportValue.textContent = itemLabel(sports, selectedSport, "Sport");
     conferenceTrigger.dataset.value = selectedConference;
-    conferenceValue.textContent = selectedConference ? itemLabel(conferences, selectedConference, "Conference") : "Choose";
+    conferenceValue.textContent = selectedConference ? itemLabel(conferences, selectedConference, titleFromSlug(selectedConference)) : "Choose";
     conferenceTrigger.disabled = !conferences.length;
+    updateFavoriteToggle();
   }
 
   function populateSports(nextSports) {
     if (Array.isArray(nextSports) && nextSports.length) sports = nextSports;
-    if (!sports.some(item => item.id === selectedSport)) selectedSport = sports[0]?.id || "volleyball";
+    if (!sports.some(item => item.id === selectedSport)) {
+      selectedSport = sports.some(item => item.id === DEFAULT_SPORT) ? DEFAULT_SPORT : (sports[0]?.id || DEFAULT_SPORT);
+      selectedConference = String(lastConferenceBySport[selectedSport] || "");
+    }
+    saveSelection();
     refreshTriggers();
+    renderFavorites();
   }
 
   function populateConferences(nextConferences) {
     conferences = Array.isArray(nextConferences) ? nextConferences : [];
-    if (!conferences.some(item => item.id === selectedConference)) selectedConference = conferences[0]?.id || "";
+    const remembered = String(lastConferenceBySport[selectedSport] || "");
+    if (!conferences.some(item => item.id === selectedConference)) {
+      selectedConference = conferences.some(item => item.id === remembered)
+        ? remembered
+        : (conferences[0]?.id || "");
+    }
+    saveSelection();
     refreshTriggers();
+    renderFavorites();
   }
 
   function closePicker() {
@@ -140,6 +274,7 @@
     } else {
       source.hidden = true;
     }
+    renderFavorites();
   }
 
   async function loadStandings() {
@@ -147,6 +282,7 @@
       setError("No conference is available for this sport yet.");
       return;
     }
+    saveSelection();
     const serial = ++requestSerial;
     setLoading();
     try {
@@ -177,6 +313,39 @@
     }
   }
 
+  function toggleCurrentFavorite() {
+    if (!selectedConference) return;
+    const key = currentFavoriteKey();
+    if (favorites.some(item => favoriteKey(item.sport, item.conferenceId) === key)) {
+      favorites = favorites.filter(item => favoriteKey(item.sport, item.conferenceId) !== key);
+    } else {
+      favorites.push({
+        sport: selectedSport,
+        conferenceId: selectedConference,
+        conferenceName: itemLabel(conferences, selectedConference, titleFromSlug(selectedConference))
+      });
+    }
+    saveFavorites();
+    renderFavorites();
+  }
+
+  async function openFavorite(key) {
+    const favorite = favorites.find(item => favoriteKey(item.sport, item.conferenceId) === key);
+    if (!favorite) return;
+    selectedSport = favorite.sport;
+    selectedConference = favorite.conferenceId;
+    saveSelection();
+    refreshTriggers();
+    await loadConferences();
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function removeFavorite(key) {
+    favorites = favorites.filter(item => favoriteKey(item.sport, item.conferenceId) !== key);
+    saveFavorites();
+    renderFavorites();
+  }
+
   function setThemeIcon() {
     if (!themeToggle) return;
     const dark = document.documentElement.dataset.theme === "dark";
@@ -186,6 +355,7 @@
 
   sportTrigger.addEventListener("click", () => openPicker("sport"));
   conferenceTrigger.addEventListener("click", () => openPicker("conference"));
+  favoriteToggle?.addEventListener("click", toggleCurrentFavorite);
   pickerClose.addEventListener("click", closePicker);
   pickerDialog.addEventListener("click", event => { if (event.target === pickerDialog) closePicker(); });
   pickerOptions.addEventListener("click", event => {
@@ -197,15 +367,33 @@
     if (kind === "sport") {
       if (value === selectedSport) return;
       selectedSport = value;
-      selectedConference = "";
+      selectedConference = String(lastConferenceBySport[selectedSport] || "");
+      saveSelection();
       refreshTriggers();
       loadConferences();
       return;
     }
     if (value === selectedConference) return;
     selectedConference = value;
+    saveSelection();
     refreshTriggers();
     loadStandings();
+  });
+
+  favoritesGrid?.addEventListener("click", event => {
+    const remove = event.target.closest("[data-favorite-remove]");
+    if (remove) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeFavorite(remove.dataset.favoriteRemove);
+      return;
+    }
+    const open = event.target.closest("[data-favorite-open]");
+    if (open) openFavorite(open.dataset.favoriteOpen);
+  });
+
+  window.addEventListener("storage", event => {
+    if (event.key === FAVORITES_KEY) renderFavorites();
   });
 
   themeToggle?.addEventListener("click", () => {
@@ -215,7 +403,9 @@
     setThemeIcon();
   });
 
+  saveSelection();
   refreshTriggers();
+  renderFavorites();
   setThemeIcon();
   loadConferences();
 })();
