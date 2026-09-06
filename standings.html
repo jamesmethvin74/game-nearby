@@ -11,15 +11,15 @@
   <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
   <title>Standings · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
-  <link rel="manifest" href="manifest.json?v=63" />
+  <link rel="manifest" href="manifest.json?v=64" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
   <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
-  <link rel="stylesheet" href="styles.css?v=63" />
-  <link rel="stylesheet" href="polish.css?v=63" />
-  <link rel="stylesheet" href="brand-exact.css?v=63" />
-  <link rel="stylesheet" href="pitched-layout.css?v=63" />
-  <link rel="stylesheet" href="standings.css?v=63" />
-  <link rel="stylesheet" href="standings-favorites.css?v=63" />
+  <link rel="stylesheet" href="styles.css?v=64" />
+  <link rel="stylesheet" href="polish.css?v=64" />
+  <link rel="stylesheet" href="brand-exact.css?v=64" />
+  <link rel="stylesheet" href="pitched-layout.css?v=64" />
+  <link rel="stylesheet" href="standings.css?v=64" />
+  <link rel="stylesheet" href="standings-favorites.css?v=64" />
 </head>
 <body class="standings-page">
   <header class="app-header branded-header">
@@ -64,8 +64,9 @@
           <tbody id="standingsBody"></tbody>
         </table>
       </div>
-      <div class="standings-source" id="standingsSource" hidden>Standings: <a id="standingsSourceLink" href="#" target="_blank" rel="noopener">MaxPreps</a> · football records are cross-checked with <a href="https://fearlessfriday.com/" target="_blank" rel="noopener">Fearless Friday</a>.</div>
     </section>
+
+    <div id="standingsSource" hidden style="display:none" aria-hidden="true"><a id="standingsSourceLink" href="#" tabindex="-1"></a></div>
 
     <section class="favorite-standings-section" aria-labelledby="favoriteStandingsTitle">
       <div class="favorite-standings-heading">
@@ -95,7 +96,7 @@
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="standings.js?v=63"></script>
+  <script src="standings.js?v=64"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
