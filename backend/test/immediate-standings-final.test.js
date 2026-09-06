@@ -2,7 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { buildRecordsFromInputs } from "../src/record-rebuild.js";
-import { buildCalculatedStandings, rebuildStandingsForTeams } from "../src/calculated-standings.js";
+import {
+  buildCalculatedStandings,
+  overlayCalculatedStandings,
+  rebuildStandingsForTeams
+} from "../src/calculated-standings.js";
 
 function footballTeam(id, schoolId, conferenceId) {
   return { id, school_id: schoolId, sport: "football", gender: "boys", season: "2026", conference_id: conferenceId };
@@ -90,6 +94,89 @@ test("a conference FINAL immediately changes calculated conference order", () =>
   ]);
 });
 
+test("partial local 7A Central standings overlay the full published conference roster", () => {
+  const publishedNames = [
+    "North Little Rock",
+    "Northside",
+    "Little Rock Christian Academy",
+    "Pulaski Academy",
+    "Conway",
+    "Cabot",
+    "Bryant",
+    "Central"
+  ];
+  const published = {
+    conference: {
+      id: "7a-central",
+      name: "7A Central",
+      sport: "football",
+      standings_method: "published",
+      source_url: "https://www.maxpreps.com/ar/football/26-27/conference/7a-central/"
+    },
+    standings: publishedNames.map(name => ({
+      rank: 1,
+      school_name: name,
+      conference_record: "0-0",
+      overall_record: name === "Conway" ? "1-0" : "0-0",
+      conference_pct: ".000",
+      overall_pct: name === "Conway" ? "1.000" : ".000",
+      method: "published"
+    }))
+  };
+  const calculated = {
+    conference: {
+      id: "7a-central",
+      name: "7A Central",
+      sport: "football",
+      standings_method: "calculated",
+      coverage_complete: false
+    },
+    standings: [{
+      rank: 1,
+      team_id: "conway-football-2026",
+      school_name: "Conway High School",
+      conference_record: "0-0",
+      overall_record: "0-1",
+      conference_pct: ".000",
+      overall_pct: ".000",
+      method: "calculated"
+    }]
+  };
+
+  const merged = overlayCalculatedStandings(published, calculated);
+  assert.equal(merged.standings.length, 8, "partial local coverage must not collapse 7A Central to Conway only");
+  assert.deepEqual(new Set(merged.standings.map(row => row.school_name)), new Set(publishedNames));
+  const conway = merged.standings.find(row => row.school_name === "Conway");
+  assert.equal(conway.overall_record, "0-1", "canonical local result must override stale published record");
+  assert.equal(conway.conference_record, "0-0");
+  assert.equal(conway.method, "calculated");
+  assert.equal(merged.conference.canonical_overlay, true);
+  assert.equal(merged.conference.local_coverage_complete, false);
+});
+
+test("canonical conference results rerank the combined published roster immediately", () => {
+  const published = {
+    conference: { id: "7a-central", name: "7A Central", sport: "football" },
+    standings: [
+      { rank: 1, school_name: "Bryant", conference_record: "0-0", overall_record: "2-0", method: "published" },
+      { rank: 1, school_name: "Conway", conference_record: "0-0", overall_record: "1-1", method: "published" },
+      { rank: 1, school_name: "Cabot", conference_record: "0-0", overall_record: "0-2", method: "published" }
+    ]
+  };
+  const calculated = {
+    conference: { id: "7a-central", coverage_complete: false },
+    standings: [
+      { team_id: "conway-football-2026", school_name: "Conway High School", conference_record: "1-0", overall_record: "2-1", method: "calculated" }
+    ]
+  };
+
+  const merged = overlayCalculatedStandings(published, calculated);
+  assert.equal(merged.standings[0].school_name, "Conway");
+  assert.equal(merged.standings[0].rank, 1);
+  assert.equal(merged.standings[0].conference_record, "1-0");
+  assert.deepEqual(merged.standings.slice(1).map(row => row.rank), [2, 2]);
+});
+
 test("record rebuild materializes only the touched football conference cohorts", async () => {
   const writes = [];
   const db = {
@@ -147,5 +234,7 @@ test("live standings route is not held in the public edge cache", async () => {
   assert.doesNotMatch(publicCors, /path === "\/api\/v1\/standings"\s*\|\|/);
   assert.match(publicCors, /path === "\/api\/v1\/standings\/options"/);
   assert.match(standingsWorker, /loadMaterializedCalculatedStandings/);
+  assert.match(standingsWorker, /overlayCalculatedStandings/);
+  assert.match(standingsWorker, /coverage_complete/);
   assert.match(standingsWorker, /200, "no-store"/);
 });

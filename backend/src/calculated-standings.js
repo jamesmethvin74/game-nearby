@@ -27,6 +27,110 @@ function recordGames(value = "") {
   return parts.reduce((sum, part) => sum + part, 0);
 }
 
+function recordParts(value = "") {
+  const parts = String(value).match(/\d+/g)?.map(Number) || [];
+  return {
+    wins: numeric(parts[0]),
+    losses: numeric(parts[1]),
+    ties: numeric(parts[2])
+  };
+}
+
+function schoolKey(value = "") {
+  return String(value)
+    .toLowerCase()
+    .replace(/\b(?:senior|sr\.?)[\s-]+high[\s-]+school\b/g, " ")
+    .replace(/\bhigh[\s-]+school\b/g, " ")
+    .replace(/\bhs\b/g, " ")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function rankCombinedRows(rows = []) {
+  const ranked = rows.map((row, originalIndex) => {
+    const conference = recordParts(row.conference_record);
+    return { ...row, __conference: conference, __originalIndex: originalIndex };
+  });
+
+  ranked.sort((a, b) =>
+    pct(b.__conference.wins, b.__conference.losses, b.__conference.ties)
+      - pct(a.__conference.wins, a.__conference.losses, a.__conference.ties)
+    || b.__conference.wins - a.__conference.wins
+    || a.__conference.losses - b.__conference.losses
+    || a.__conference.ties - b.__conference.ties
+    || a.__originalIndex - b.__originalIndex
+    || String(a.school_name || "").localeCompare(String(b.school_name || ""))
+  );
+
+  let previousRecord = null;
+  let previousRank = 0;
+  return ranked.map((row, index) => {
+    const conferenceKey = `${row.__conference.wins}-${row.__conference.losses}-${row.__conference.ties}`;
+    const rank = conferenceKey === previousRecord ? previousRank : index + 1;
+    previousRecord = conferenceKey;
+    previousRank = rank;
+    const overall = recordParts(row.overall_record);
+    const { __conference, __originalIndex, ...clean } = row;
+    return {
+      ...clean,
+      rank,
+      conference_pct: pctText(__conference.wins, __conference.losses, __conference.ties),
+      overall_pct: pctText(overall.wins, overall.losses, overall.ties)
+    };
+  });
+}
+
+export function overlayCalculatedStandings(published, calculated) {
+  const publishedRows = Array.isArray(published?.standings) ? published.standings : [];
+  const calculatedRows = Array.isArray(calculated?.standings) ? calculated.standings : [];
+  if (!calculatedRows.length) return published;
+  if (!publishedRows.length) return calculated;
+
+  const calculatedBySchool = new Map();
+  for (const row of calculatedRows) {
+    const key = schoolKey(row.school_name);
+    if (key) calculatedBySchool.set(key, row);
+  }
+
+  const matched = new Set();
+  const merged = publishedRows.map(row => {
+    const key = schoolKey(row.school_name);
+    const local = calculatedBySchool.get(key);
+    if (!local) return { ...row };
+    matched.add(key);
+    return {
+      ...row,
+      team_id: local.team_id || row.team_id,
+      conference_record: local.conference_record || row.conference_record || "0-0",
+      overall_record: local.overall_record || row.overall_record || "0-0",
+      method: "calculated",
+      calculated_at: local.calculated_at || null,
+      canonical_overlay: true
+    };
+  });
+
+  for (const local of calculatedRows) {
+    const key = schoolKey(local.school_name);
+    if (!key || matched.has(key)) continue;
+    merged.push({
+      ...local,
+      method: "calculated",
+      canonical_overlay: true
+    });
+  }
+
+  return {
+    ...published,
+    conference: {
+      ...(published?.conference || {}),
+      standings_method: "calculated",
+      canonical_overlay: true,
+      local_coverage_complete: Boolean(calculated?.conference?.coverage_complete)
+    },
+    standings: rankCombinedRows(merged)
+  };
+}
+
 export function buildCalculatedStandings(rows = []) {
   const sorted = rows.map(row => ({
     ...row,
@@ -155,7 +259,7 @@ export async function loadMaterializedCalculatedStandings(env, {
 } = {}) {
   if (!conferenceId || !sport) return null;
   const conference = await env.DB.prepare(`
-    SELECT id,name,classification,source_url
+    SELECT id,name,classification,source_url,standings_method,coverage_complete
     FROM conferences
     WHERE id=?
   `).bind(conferenceId).first();
@@ -184,6 +288,7 @@ export async function loadMaterializedCalculatedStandings(env, {
       name: conference.name,
       sport,
       standings_method: "calculated",
+      coverage_complete: Number(conference.coverage_complete || 0) === 1,
       source_url: null
     },
     standings: rows.map((row, index) => {
