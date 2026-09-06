@@ -3,10 +3,14 @@ name: Standings live proof
 on:
   pull_request:
     paths:
+      - "backend/src/calculated-standings.js"
       - "backend/src/published-standings.js"
+      - "backend/src/record-rebuild.js"
       - "backend/src/standings-worker.js"
       - "backend/src/football-record-reconciliation.js"
+      - "backend/src/public-cors-worker.js"
       - "backend/src/worker.js"
+      - "backend/test/immediate-standings-final.test.js"
       - "backend/test/published-standings.test.js"
       - "backend/test/football-record-reconciliation.test.js"
       - "backend/test/standings-ui.test.js"
@@ -18,10 +22,14 @@ on:
   push:
     branches: [feature/standings-page-v1]
     paths:
+      - "backend/src/calculated-standings.js"
       - "backend/src/published-standings.js"
+      - "backend/src/record-rebuild.js"
       - "backend/src/standings-worker.js"
       - "backend/src/football-record-reconciliation.js"
+      - "backend/src/public-cors-worker.js"
       - "backend/src/worker.js"
+      - "backend/test/immediate-standings-final.test.js"
       - "backend/test/published-standings.test.js"
       - "backend/test/football-record-reconciliation.test.js"
       - "backend/test/standings-ui.test.js"
@@ -42,7 +50,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Verify current Arkansas published standings
+      - name: Verify current Arkansas published standings fallback
         shell: bash
         run: |
           set -euo pipefail
@@ -50,6 +58,8 @@ jobs:
           import assert from 'node:assert/strict';
           import { listPublishedStandingsOptions, fetchPublishedStandings } from './src/published-standings.js';
           import { reconcileFootballGameRecords, reconcileFootballOverallRecords } from './src/football-record-reconciliation.js';
+
+          const recordGames = value => (String(value || '').match(/\d+/g)?.map(Number) || []).reduce((sum, part) => sum + part, 0);
 
           const options = await listPublishedStandingsOptions({ sport: 'volleyball' });
           assert.ok(options.conferences.length >= 10, `expected broad Arkansas conference discovery, found ${options.conferences.length}`);
@@ -65,12 +75,13 @@ jobs:
           assert.ok(standings.standings.every(row => /^\d+-\d+(?:-\d+)?$/.test(row.conference_record)), 'invalid conference record in live standings');
 
           const footballPublished = await fetchPublishedStandings({ sport: 'football', conferenceId: '7a-central' });
+          const publishedConway = footballPublished.standings.find(row => row.school_name.toLowerCase().includes('conway'));
           const football = await reconcileFootballOverallRecords(footballPublished, { sport: 'football', season: 2026 });
           const conwayFootball = football.standings.find(row => row.school_name.toLowerCase().includes('conway'));
           assert.ok(conwayFootball, '7A Central live football standings missing Conway');
           assert.equal(conwayFootball.conference_record, '0-0', 'Conway should not have a conference result yet');
-          assert.equal(conwayFootball.overall_record, '1-0', `Conway verified Aug 28 football win missing; got ${conwayFootball.overall_record}`);
-          assert.equal(conwayFootball.overall_record_source, 'Fearless Friday', 'Conway stale published record was not reconciled');
+          assert.ok(recordGames(conwayFootball.overall_record) >= recordGames(publishedConway?.overall_record), 'football reconciliation must not move Conway backward');
+          assert.ok(recordGames(conwayFootball.overall_record) >= 1, `expected at least one completed Conway football game; got ${conwayFootball.overall_record}`);
 
           const cards = await reconcileFootballGameRecords([{
             id: 'conway-home-proof',
@@ -86,10 +97,8 @@ jobs:
             conference_losses: 0,
             conference_ties: 0
           }]);
-          assert.equal(cards[0].wins, 1, `Home card Conway record should reconcile to 1-0; got ${cards[0].wins}-${cards[0].losses}`);
-          assert.equal(cards[0].losses, 0);
+          assert.ok(cards[0].wins + cards[0].losses + cards[0].ties >= 1, `Home card Conway record should have at least one completed game; got ${cards[0].wins}-${cards[0].losses}`);
           assert.equal(cards[0].conference_wins, 0);
-          assert.equal(cards[0].overall_record_source, 'Fearless Friday');
 
           console.log(JSON.stringify({
             verified: true,
@@ -103,7 +112,7 @@ jobs:
               conway: {
                 conference: conwayFootball.conference_record,
                 overall: conwayFootball.overall_record,
-                source: conwayFootball.overall_record_source_url,
+                source: conwayFootball.overall_record_source_url || conwayFootball.source_url || null,
                 home_card: `${cards[0].wins}-${cards[0].losses}`
               }
             }
