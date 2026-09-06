@@ -7,6 +7,7 @@ function localParts(value) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: TIME_ZONE,
     weekday: "short",
+    month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23"
@@ -14,6 +15,7 @@ function localParts(value) {
   const read = type => parts.find(part => part.type === type)?.value || "";
   return {
     weekday: read("weekday"),
+    month: Number(read("month")),
     hour: Number(read("hour")),
     minute: Number(read("minute"))
   };
@@ -32,7 +34,8 @@ function plan(kind, options = {}) {
 }
 
 export function collectionPlanAt(value = new Date()) {
-  const { weekday, hour, minute } = localParts(value);
+  const { weekday, month, hour, minute } = localParts(value);
+  const volleyballSeason = month >= 8 && month <= 11;
 
   // Weekly maintenance is intentionally isolated from ordinary result polling.
   if (weekday === "Sun" && hour === 4 && minute === 0) {
@@ -44,8 +47,8 @@ export function collectionPlanAt(value = new Date()) {
   }
 
   // Friday high-school/football result window: 8:30 PM Friday through 1:00 AM
-  // Saturday Central. The same cron tick also performs the cheap volleyball
-  // semantic probe so Friday tournament/match finals do not wait until 11 PM.
+  // Saturday Central. During fall volleyball season the same cron tick also
+  // performs the cheap statewide semantic probe.
   const fridayEvening = weekday === "Fri" && (
     (hour === 20 && minute === 30) ||
     (hour >= 21 && hour <= 23 && (minute === 0 || minute === 30))
@@ -56,7 +59,7 @@ export function collectionPlanAt(value = new Date()) {
   );
   if (fridayEvening || fridayLate) {
     return plan("friday-football-results", {
-      runVolleyballLive: true,
+      runVolleyballLive: volleyballSeason,
       runCore: true,
       scope: "football-game-day",
       activeResultMinutes: 30
@@ -67,7 +70,7 @@ export function collectionPlanAt(value = new Date()) {
   // DragonFly varsity feed every 30 minutes from 4:30 PM through 10:30 PM.
   // The probe itself performs no D1 writes unless the semantic feed changes.
   const volleyballWeekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday);
-  const volleyballEvening = volleyballWeekday && (
+  const volleyballEvening = volleyballSeason && volleyballWeekday && (
     (hour === 16 && minute === 30) ||
     (hour >= 17 && hour <= 22 && (minute === 0 || minute === 30))
   );
@@ -79,8 +82,8 @@ export function collectionPlanAt(value = new Date()) {
   }
 
   // Saturday is the college-heavy live-update day. Keep the existing 30-minute
-  // college source polling, while checking the statewide volleyball feed hourly
-  // for tournament finals. No catalog/GIS/branding maintenance runs here.
+  // college source polling, while checking statewide volleyball hourly during
+  // fall tournament season. No catalog/GIS/branding maintenance runs here.
   const saturdayCollege = weekday === "Sat" && (
     (hour === 10 && minute === 30) ||
     (hour >= 11 && hour <= 23 && (minute === 0 || minute === 30))
@@ -91,7 +94,7 @@ export function collectionPlanAt(value = new Date()) {
   );
   if (saturdayCollege || saturdayLate) {
     return plan("saturday-college-results", {
-      runVolleyballLive: minute === 0,
+      runVolleyballLive: volleyballSeason && minute === 0,
       runCore: true,
       scope: "college-game-day",
       activeResultMinutes: 30
