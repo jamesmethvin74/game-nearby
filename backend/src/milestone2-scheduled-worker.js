@@ -18,7 +18,17 @@ export function m2StatewideKeysForPlan(plan){
 }
 
 export function shouldRunOfficialFinalResults(plan){
-  return plan?.kind==="friday-football-results" || plan?.kind==="morning-results" || plan?.kind==="evening-results";
+  return plan?.kind==="friday-football-results"
+    || plan?.kind==="morning-results"
+    || plan?.kind==="evening-results"
+    || Boolean(plan?.runVolleyballLive);
+}
+
+export function officialFinalResultsScope(plan){
+  const broad = plan?.kind==="friday-football-results"
+    || plan?.kind==="morning-results"
+    || plan?.kind==="evening-results";
+  return broad ? "high-school-final-results" : "high-school-volleyball-final-results";
 }
 
 export function shouldRunHootensStatewideResults(plan){
@@ -98,10 +108,13 @@ async function runStatewideSports(env,{keys,payloads=new Map(),reason="scheduled
 
 async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
   if (!shouldRunOfficialFinalResults(plan)) return null;
-  const activeResultMinutes=plan?.kind==="friday-football-results"?30:120;
+  const scope=officialFinalResultsScope(plan);
+  const activeResultMinutes=scope==="high-school-volleyball-final-results"
+    ? Number(plan?.activeResultMinutes||30)
+    : plan?.kind==="friday-football-results"?30:120;
   return runScopedCadence({
     core,env,ctx,controller,
-    plan:{kind:`${plan.kind}-official-finals`,runCore:true,scope:"high-school-final-results",activeResultMinutes}
+    plan:{kind:`${plan.kind}-official-finals`,runCore:true,scope,activeResultMinutes}
   });
 }
 
@@ -130,9 +143,10 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
-  // Hooten is a single statewide result surface. Run it before the per-school
-  // fallback so resolved finals disappear from that fallback's selector. The
-  // resilient finalizer is idempotent and repairs only genuinely missing finals.
+  // Statewide authorities run first. If they resolve a final, the official-school
+  // selector sees that game as no longer SCHEDULED and skips the redundant fetch.
+  // During live volleyball windows the fallback is volleyball-only and capped at
+  // 64 configured official result sources rather than using the football-sized sweep.
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
 
