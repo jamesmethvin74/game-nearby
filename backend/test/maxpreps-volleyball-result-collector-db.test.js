@@ -35,7 +35,7 @@ function scorePage({date,card}){
 const bergmanCard=`<li class="c" data-teams="b3i3gpABj0eTqJfNrCI3Rw,rodllMNpDkWVbWyCVle9GA" data-ri="0" data-contest-id="f5f278ae-d2e1-4016-b349-0e855bd0a838"><div class="contest-box-item" data-contest-state="boxscore"><a href="https://www.maxpreps.com/ar/volleyball/match/bergman-vs-flippin/8-27-2026/?c=f5f278ae-d2e1-4016-b349-0e855bd0a838" class="c-c"><ul class="teams"><li data-result="2" class="winner"><div class="score">3</div><div class="name">Flippin</div></li><li data-result="3"><div class="score">2</div><div class="name">Bergman</div></li></ul><div class="details"> Final</div></a></div></li>`;
 const cotterCard=`<li class="c" data-teams="zYq0zGR3Fkq0D8MQ9-aC8w,rodllMNpDkWVbWyCVle9GA" data-ri="0" data-contest-id="8c531348-9e1a-4661-8af5-babfeb264821"><div class="contest-box-item" data-contest-state="boxscore"><a href="https://www.maxpreps.com/ar/volleyball/match/cotter-vs-flippin/8-29-2026/?c=8c531348-9e1a-4661-8af5-babfeb264821" class="c-c"><ul class="teams"><li data-result="3"><div class="score">0</div><div class="name">Flippin</div></li><li data-result="2" class="winner"><div class="score">2</div><div class="name">Cotter</div></li></ul><div class="details"> Final</div></a></div></li>`;
 
-test("secondary statewide score pages repair a stale DragonFly final and create a missing tournament final",async()=>{
+test("team-scoped secondary score pages repair a stale Flippin final and create a missing tournament final",async()=>{
   const db=new DatabaseSync(":memory:");
   applyMigrations(db);
   const env={DB:d1FromSqlite(db)};
@@ -68,9 +68,12 @@ test("secondary statewide score pages repair a stale DragonFly final and create 
   };
 
   const result=await runMaxPrepsVolleyballResultFallback(env,{
-    dates:["2026-08-27","2026-08-29"],fetchFn,now:new Date(now)
+    dates:["2026-08-27","2026-08-29"],
+    targetTeamIds:["test-flippin-volleyball-2026"],
+    fetchFn,now:new Date(now)
   });
   assert.equal(result.status,"SUCCESS");
+  assert.equal(result.targetTeams,1);
   assert.equal(result.pagesFetched,2);
   assert.equal(result.matchedFinals,2);
   assert.equal(result.touchedTeams,3);
@@ -102,7 +105,9 @@ test("secondary statewide score pages repair a stale DragonFly final and create 
   assert.ok(fallbackSources.every(row=>row.source_type==='secondary'&&row.parser_type==='maxpreps-scores'&&row.authority_rank===80&&row.enabled===0));
 
   const second=await runMaxPrepsVolleyballResultFallback(env,{
-    dates:["2026-08-27","2026-08-29"],fetchFn,now:new Date("2026-09-07T21:05:00.000Z")
+    dates:["2026-08-27","2026-08-29"],
+    targetTeamIds:["test-flippin-volleyball-2026"],
+    fetchFn,now:new Date("2026-09-07T21:05:00.000Z")
   });
   assert.equal(second.status,"NOT_MODIFIED");
   assert.equal(second.matchedFinals,0);
