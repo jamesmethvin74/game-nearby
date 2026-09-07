@@ -1,4 +1,5 @@
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
+import { statewideDragonFlySignature } from "./dragonfly-statewide.js";
 import { certifiedStatewideSignature, runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { statewideSportConfig } from "./statewide-sport-config.js";
 
@@ -11,11 +12,19 @@ function parseDetails(value) {
 
 export function volleyballResultSnapshotChanged(detailsJson, payload) {
   const previousSignature = String(parseDetails(detailsJson)?.signature || "");
-  const signature = certifiedStatewideSignature(payload, CONFIG);
+  const certifiedSignature = certifiedStatewideSignature(payload, CONFIG);
+  const legacySignature = statewideDragonFlySignature(payload);
+  const unchanged = Boolean(previousSignature)
+    && (previousSignature === certifiedSignature || previousSignature === legacySignature);
   return {
-    changed: !previousSignature || previousSignature !== signature,
+    changed: !unchanged,
     previousSignature: previousSignature || null,
-    signature
+    // Do not force a one-time statewide write merely to convert the stored
+    // signature format. If an unchanged production state still carries the
+    // legacy signature, preserve it until a real semantic feed change occurs.
+    signature: unchanged && previousSignature === legacySignature
+      ? legacySignature
+      : certifiedSignature
   };
 }
 
