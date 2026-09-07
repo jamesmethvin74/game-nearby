@@ -19,6 +19,7 @@ jobs:
           set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           curl -fsS --max-time 45 "$API/api/v1/schools" -o schools.json
+          curl -fsS --max-time 45 "$API/api/v1/sources" -o sources.json
 
           node <<'NODE' > ids.env
           const p=require('./schools.json');
@@ -47,6 +48,8 @@ jobs:
           node <<'NODE'
           const fs=require('fs');
           function read(name){return JSON.parse(fs.readFileSync(name,'utf8'))}
+          const sources=(read('sources.json').sources||[]).filter(s=>s.team_id==='conway-volleyball-2026');
+          console.log(`CONWAY_SOURCES=${JSON.stringify(sources.map(s=>({id:s.id,source_type:s.source_type,parser_type:s.parser_type,authority_rank:s.authority_rank,url:s.source_url,last_successful_fetch_at:s.last_successful_fetch_at})))}`);
           function summarize(key){
             const teamPayload=read(`${key}-team.json`);
             const schedulePayload=read(`${key}-schedule.json`);
