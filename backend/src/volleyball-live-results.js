@@ -1,5 +1,5 @@
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
-import { runDragonFlyStatewideCollection, statewideDragonFlySignature } from "./dragonfly-statewide.js";
+import { certifiedStatewideSignature, runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { statewideSportConfig } from "./statewide-sport-config.js";
 
 const CONFIG = statewideSportConfig("volleyball-girls");
@@ -11,7 +11,7 @@ function parseDetails(value) {
 
 export function volleyballResultSnapshotChanged(detailsJson, payload) {
   const previousSignature = String(parseDetails(detailsJson)?.signature || "");
-  const signature = statewideDragonFlySignature(payload);
+  const signature = certifiedStatewideSignature(payload, CONFIG);
   return {
     changed: !previousSignature || previousSignature !== signature,
     previousSignature: previousSignature || null,
@@ -30,29 +30,27 @@ export async function runVolleyballLiveResultProbe(env, {
   const fetched = await fetchDragonFlyPagedPayload(CONFIG.feedUrl, {
     fetchFn,
     headers: {
-      "user-agent": "LocalBleachersAR-volleyball-live/1.0",
+      "user-agent": "LocalBleachersAR-volleyball-live/2.0",
       accept: "application/json"
     }
   });
   const decision = volleyballResultSnapshotChanged(prior?.details_json, fetched.payload);
 
-  // Live result polling is intentionally read-only when the semantic statewide
-  // snapshot is unchanged. Do not touch ~185 source rows every 30 minutes just
-  // to say that nothing changed.
+  // Live polling is a semantic probe first. An unchanged statewide payload must
+  // stay genuinely read-only: no per-source heartbeat writes and no record work.
   if (!decision.changed) {
     return {
       status: "NOT_MODIFIED",
       rawEventCount: Array.isArray(fetched.payload?.schedule) ? fetched.payload.schedule.length : 0,
       pagesFetched: fetched.pageCount,
       signature: decision.signature,
+      touchedTeams: 0,
       d1Writes: 0
     };
   }
 
-  const result = await runDragonFlyStatewideCollection(env, {
+  const result = await runCertifiedDragonFlyStatewideCollection(env, CONFIG, {
     payload: fetched.payload,
-    feedUrl: CONFIG.feedUrl,
-    stateId: CONFIG.stateId,
     now
   });
   return {
