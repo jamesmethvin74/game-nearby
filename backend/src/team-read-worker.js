@@ -34,7 +34,8 @@ function resolvedGameForTeam(row, team) {
     gender: row.gender || team.gender,
     season: row.season || team.season,
     level: row.level || team.level,
-    conference_name: row.conference_name || team.conference_name || null
+    conference_name: row.conference_name || team.conference_name || null,
+    conference_game: Number(row.effective_conference_game ?? row.conference_game ?? 0)
   };
 
   if (!row.canonical_event_id) {
@@ -123,11 +124,29 @@ async function readTeamSchedule(env, teamId) {
       ce.conflict_count,
       hs.name AS canonical_home_name,
       aws.name AS canonical_away_name,
+      CASE
+        WHEN COALESCE(ce.conference_game,g.conference_game)=1 THEN 1
+        WHEN rt.conference_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM teams ot
+          WHERE ot.active=1
+            AND ot.school_id=CASE
+              WHEN ce.id IS NOT NULL AND ce.home_school_id=rt.school_id THEN ce.away_school_id
+              WHEN ce.id IS NOT NULL AND ce.away_school_id=rt.school_id THEN ce.home_school_id
+              ELSE g.opponent_school_id
+            END
+            AND ot.sport=rt.sport
+            AND ot.gender=rt.gender
+            AND ot.season=rt.season
+            AND ot.conference_id=rt.conference_id
+        ) THEN 1
+        ELSE 0
+      END AS effective_conference_game,
       ROW_NUMBER() OVER (
         PARTITION BY COALESCE(g.canonical_event_id,g.id)
         ORDER BY s.authority_rank,s.source_priority,s.id
       ) AS authority_row
     FROM games g
+    JOIN teams rt ON rt.id=g.team_id
     JOIN sources s ON s.id=g.source_id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
