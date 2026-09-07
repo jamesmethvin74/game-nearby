@@ -17,7 +17,17 @@ export function parseResult(text) {
   if (/cancel(?:ed|led)/i.test(value)) return {status:"CANCELED",teamScore:null,opponentScore:null,result:null};
   if (/postpon/i.test(value)) return {status:"POSTPONED",teamScore:null,opponentScore:null,result:null};
   const match = value.match(/\b([WLT])\s*,?\s*(\d+)\s*[-–]\s*(\d+)/i) || value.match(/\b([WLT])\b[^0-9]*(\d+)\s*[-–]\s*(\d+)/i);
-  if (match) return {status:"FINAL",teamScore:Number(match[2]),opponentScore:Number(match[3]),result:match[1].toUpperCase()};
+  if (match) {
+    const result=match[1].toUpperCase();
+    let teamScore=Number(match[2]), opponentScore=Number(match[3]);
+    // Some official school feeds emit scores in opponent/team order even while
+    // providing an explicit W/L code (for example, "W 1-2"). The explicit
+    // outcome is the authoritative orientation signal for the reporting team.
+    if ((result==="W" && teamScore<opponentScore) || (result==="L" && teamScore>opponentScore)) {
+      [teamScore,opponentScore]=[opponentScore,teamScore];
+    }
+    return {status:"FINAL",teamScore,opponentScore,result};
+  }
   const score = value.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
   if (score && /final/i.test(value)) {
     const teamScore=Number(score[1]), opponentScore=Number(score[2]);
