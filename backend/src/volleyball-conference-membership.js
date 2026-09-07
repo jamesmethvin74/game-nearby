@@ -135,6 +135,11 @@ function conferenceUpsertStatement(env,conferences,now) {
       coverage_complete=0,
       source_url=COALESCE(excluded.source_url,conferences.source_url),
       updated_at=excluded.updated_at
+    WHERE conferences.name<>excluded.name
+       OR COALESCE(conferences.classification,'')<>COALESCE(excluded.classification,'')
+       OR conferences.standings_method<>excluded.standings_method
+       OR conferences.coverage_complete<>excluded.coverage_complete
+       OR COALESCE(conferences.source_url,'')<>COALESCE(excluded.source_url,'')
   `).bind(JSON.stringify(conferences),now);
 }
 
