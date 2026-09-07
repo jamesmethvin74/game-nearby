@@ -13,48 +13,29 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe live MaxPreps with production parsers
+      - name: Inspect production volleyball identities
         shell: bash
         run: |
           set -euo pipefail
-          REPO='https://raw.githubusercontent.com/jamesmethvin74/game-nearby/feature/live-sports-pipeline-m1'
-          mkdir -p diag
-          curl -fsSL "$REPO/backend/src/maxpreps-volleyball-results.js" -o diag/maxpreps-volleyball-results.js
-          curl -fsSL "$REPO/backend/src/schedule-authority-core.js" -o diag/schedule-authority-core.js
-          curl -fsSL "$REPO/backend/src/published-standings.js" -o diag/published-standings.js
-
-          node --input-type=module <<'NODE'
-          import { parseMaxPrepsVolleyballScores, matchLocalVolleyballTeams, maxPrepsScoresUrl } from './diag/maxpreps-volleyball-results.js';
-          import { parseConferenceLinks, fetchPublishedStandings } from './diag/published-standings.js';
-          const headers={'user-agent':'LocalBleachersAR-diagnostic/1.0 (+https://github.com/jamesmethvin74/game-nearby)','accept':'text/html,application/xhtml+xml'};
-          const get=async url=>{const r=await fetch(url,{headers});const text=await r.text();console.log(`GET ${url} -> ${r.status} final=${r.url} bytes=${text.length}`);return {r,text};};
-
-          const dir=await get('https://www.maxpreps.com/ar/volleyball/');
-          const links=parseConferenceLinks(dir.text,{sport:'volleyball'});
-          const central=links.find(x=>x.id==='6a-central');
-          console.log('CENTRAL_LINK='+JSON.stringify(central));
-          if(central){
-            const live=await get(central.source_url);
-            console.log('CENTRAL_HAS_SW='+/Little Rock Southwest/i.test(live.text));
-            try {
-              const parsed=await fetchPublishedStandings({sport:'volleyball',conferenceId:'6a-central',fetchFn:fetch});
-              console.log('CENTRAL_PARSED='+JSON.stringify(parsed.standings.filter(x=>/Conway|Southwest/i.test(x.school_name))));
-            } catch(e) { console.log('CENTRAL_PARSE_ERROR='+String(e?.message||e)); }
+          API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          curl -fsS --max-time 45 "$API/api/v1/schools" -o schools.json
+          for id in \
+            df-bkc4ux-volleyball-2026 \
+            df-qyu4f7-volleyball-2026 \
+            df-wgx266-volleyball-2026 \
+            df-sz3b5e-volleyball-2026; do
+            code=$(curl -sS --max-time 45 -o "${id}.json" -w '%{http_code}' "$API/api/v1/teams/$id" || true)
+            echo "$id HTTP=$code"
+          done
+          node <<'NODE'
+          const fs=require('fs');
+          const schools=(JSON.parse(fs.readFileSync('schools.json','utf8')).schools||[]);
+          for(const [label,id] of [['Southwest','df-bkc4ux'],['Flippin','df-qyu4f7'],['Bergman','df-wgx266'],['Cotter','df-sz3b5e']]){
+            const s=schools.find(x=>x.id===id);
+            console.log(label+'_SCHOOL='+JSON.stringify(s&&{id:s.id,name:s.name,location_matched_name:s.location_matched_name,catalog_scope:s.catalog_scope,level:s.level,team_count:s.team_count}));
           }
-
-          const localTeams=[
-            {team_id:'df-qyu4f7-volleyball-2026',school_id:'df-qyu4f7',school_name:'Flippin High School'},
-            {team_id:'df-bergman-volleyball-2026',school_id:'df-bergman',school_name:'Bergman High School'},
-            {team_id:'df-cotter-volleyball-2026',school_id:'df-cotter',school_name:'Cotter High School'}
-          ];
-          for(const date of ['2026-08-27','2026-08-29']){
-            const url=maxPrepsScoresUrl(date);
-            const page=await get(url);
-            const finals=parseMaxPrepsVolleyballScores(page.text,{localDate:date,sourceUrl:page.r.url||url});
-            console.log(`${date}_PARSED_FINALS=${finals.length}`);
-            const relevant=finals.filter(x=>/Flippin|Bergman|Cotter/i.test(`${x.home.name} ${x.away.name}`));
-            console.log(`${date}_RELEVANT=${JSON.stringify(relevant)}`);
-            const matched=matchLocalVolleyballTeams(relevant,localTeams);
-            console.log(`${date}_MATCHED=${JSON.stringify(matched)}`);
+          for(const id of ['df-bkc4ux-volleyball-2026','df-qyu4f7-volleyball-2026','df-wgx266-volleyball-2026','df-sz3b5e-volleyball-2026']){
+            try { const p=JSON.parse(fs.readFileSync(`${id}.json`,'utf8')); console.log(id+'='+JSON.stringify({team:p.team,record:p.record})); }
+            catch(e){ console.log(id+'_PARSE_ERROR='+e.message); }
           }
           NODE
