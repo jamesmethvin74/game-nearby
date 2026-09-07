@@ -1,0 +1,46 @@
+name: Volleyball record dump
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/volleyball-record-dump.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Dump bounded production finals
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const teams=['conway-volleyball-2026','df-qyu4f7-volleyball-2026'];
+          const date=value=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+          for(const teamId of teams){
+            const response=await fetch(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/schedule`,{headers:{accept:'application/json','cache-control':'no-cache'}});
+            if(!response.ok) throw new Error(`${teamId}: HTTP ${response.status}`);
+            const payload=await response.json();
+            const finals=(payload.games||[]).filter(g=>g.status==='FINAL').map(g=>({
+              date:date(g.scheduled_at||g.canonical_scheduled_at),
+              opponent:g.opponent,
+              score:`${g.team_score}-${g.opponent_score}`,
+              result:g.result,
+              counts_for_record:g.counts_for_record,
+              conference_game:g.conference_game,
+              source_type:g.source_type,
+              parser_type:g.parser_type,
+              canonical_event_id:g.canonical_event_id,
+              conflict_count:g.conflict_count,
+              data_trust:g.data_trust
+            }));
+            console.log(`TEAM=${teamId}`);
+            console.log(`RECORD=${JSON.stringify(payload.record)}`);
+            console.log(`FINALS=${JSON.stringify(finals,null,2)}`);
+          }
+          NODE
