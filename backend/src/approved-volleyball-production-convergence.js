@@ -52,9 +52,12 @@ export function validateVolleyballConvergenceProof(rows=[]) {
   const record=teamId=>rows.find(row=>row.kind==="record"&&row.key===teamId)||{};
   const games=teamId=>rows.filter(row=>row.kind==="game"&&row.key===teamId);
   const conway=record(CONWAY_TEAM),southwest=record(SOUTHWEST_TEAM),flippin=record(FLIPPIN_TEAM);
-  const conwayLrChristian=games(CONWAY_TEAM).find(row=>/^little rock christian/i.test(String(row.opponent||"")));
-  const flippinBergman=games(FLIPPIN_TEAM).find(row=>/^bergman/i.test(String(row.opponent||"")));
-  const flippinCotter=games(FLIPPIN_TEAM).find(row=>/^cotter/i.test(String(row.opponent||"")));
+  const hasGame=(teamId,opponentPattern,teamScore,opponentScore,result)=>games(teamId).some(row=>
+    opponentPattern.test(String(row.opponent||""))
+      && Number(row.team_score)===teamScore
+      && Number(row.opponent_score)===opponentScore
+      && row.result===result
+  );
 
   const checks={
     conwayOverall:Number(conway.wins)===5&&Number(conway.losses)===4&&Number(conway.ties||0)===0,
@@ -62,9 +65,9 @@ export function validateVolleyballConvergenceProof(rows=[]) {
     southwestOverall:Number(southwest.wins)===1&&Number(southwest.losses)===3&&Number(southwest.ties||0)===0,
     southwestConference:southwest.conference_id==="6a-central-volleyball"&&Number(southwest.conference_wins||0)===0&&Number(southwest.conference_losses)===1,
     flippinOverall:Number(flippin.wins)===4&&Number(flippin.losses)===2&&Number(flippin.ties||0)===0,
-    conwayLrChristian:Boolean(conwayLrChristian)&&Number(conwayLrChristian.team_score)===2&&Number(conwayLrChristian.opponent_score)===1&&conwayLrChristian.result==="W",
-    flippinBergman:Boolean(flippinBergman)&&Number(flippinBergman.team_score)===3&&Number(flippinBergman.opponent_score)===2&&flippinBergman.result==="W",
-    flippinCotter:Boolean(flippinCotter)&&Number(flippinCotter.team_score)===0&&Number(flippinCotter.opponent_score)===2&&flippinCotter.result==="L"
+    conwayLrChristian:hasGame(CONWAY_TEAM,/^little rock christian/i,2,1,"W"),
+    flippinBergman:hasGame(FLIPPIN_TEAM,/^bergman/i,3,2,"W"),
+    flippinCotter:hasGame(FLIPPIN_TEAM,/^cotter/i,0,2,"L")
   };
   return {complete:Object.values(checks).every(Boolean),checks,rows};
 }
@@ -97,10 +100,13 @@ export async function runApprovedVolleyballProductionConvergence(env,{
   if(typeof refreshSourceIds!=="function") throw new Error("approved volleyball convergence requires bounded source refresh callback");
 
   // 1) Re-read exactly Conway's official school source with the fixed Mascot parser.
-  // Do this first so a missing refresh authorization fails before any repair writes.
+  // The callback clears only this source's conditional validators after verifying
+  // refresh authorization, ensuring the unchanged page body is actually reparsed.
   const officialRefresh=await refreshSourceIds([CONWAY_SOURCE],"approved-volleyball-production-convergence");
-  const failedSource=(officialRefresh?.outcomes||[]).find(row=>row.status==="FAILURE");
-  if(failedSource) throw new Error(`Conway official refresh failed: ${failedSource.error||failedSource.sourceId||"unknown"}`);
+  const officialOutcome=(officialRefresh?.outcomes||[]).find(row=>row.sourceId===CONWAY_SOURCE);
+  if(!officialOutcome || !["SUCCESS","NOT_MODIFIED"].includes(officialOutcome.status)) {
+    throw new Error(`Conway official refresh failed: ${officialOutcome?.error||officialOutcome?.status||"source outcome missing"}`);
+  }
 
   // 2) Materialize only Little Rock Southwest's already-published 6A Central membership.
   // The source fetch is conference-scoped and the D1 mutation remains two set-based statements.
