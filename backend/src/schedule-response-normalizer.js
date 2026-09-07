@@ -131,7 +131,14 @@ export function recordFromScheduleRows(games, options = {}) {
     const opponentScore = Number(row.opponent_score);
     if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) continue;
     scoredFinals++;
-    const result = teamScore === opponentScore ? "T" : teamScore > opponentScore ? "W" : "L";
+    // Official schedule feeds sometimes publish an explicit reporting-team W/L
+    // while presenting the numeric score in opponent/team order. Preserve that
+    // explicit outcome when present; canonical rows normally have no result code
+    // and continue to derive the outcome from canonical scores.
+    const explicitResult = clean(row.result).toUpperCase();
+    const result = /^[WLT]$/.test(explicitResult)
+      ? explicitResult
+      : teamScore === opponentScore ? "T" : teamScore > opponentScore ? "W" : "L";
     if (result === "W") wins++;
     else if (result === "L") losses++;
     else ties++;
@@ -159,6 +166,21 @@ export function humanizeScheduleText(value) {
   const letters = text.replace(/[^A-Za-z]/g, "");
   if (!letters || letters !== letters.toUpperCase()) return text;
   return text.toLowerCase().replace(/(^|[\s(\-])([a-z])/g, (_, prefix, letter) => `${prefix}${letter.toUpperCase()}`);
+}
+
+function orientExplicitResultScore(row) {
+  const next = { ...row };
+  if (next.status !== "FINAL" || next.team_score == null || next.opponent_score == null) return next;
+  const result = clean(next.result).toUpperCase();
+  if (result !== "W" && result !== "L") return next;
+  const teamScore = Number(next.team_score);
+  const opponentScore = Number(next.opponent_score);
+  if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) return next;
+  if ((result === "W" && teamScore < opponentScore) || (result === "L" && teamScore > opponentScore)) {
+    next.team_score = opponentScore;
+    next.opponent_score = teamScore;
+  }
+  return next;
 }
 
 export function applySchoolDisplayNames(row, displayNameById = new Map(), { reportingSchoolId = null } = {}) {
@@ -191,5 +213,5 @@ export function applySchoolDisplayNames(row, displayNameById = new Map(), { repo
   const participantVenue = participantNames.find(([, name]) => name && normalizeSchoolAlias(name) === venueKey)?.[1];
   next.venue = participantVenue || humanizeScheduleText(rawVenue) || next.venue;
   if (next.canonical_venue) next.canonical_venue = participantVenue || humanizeScheduleText(next.canonical_venue);
-  return next;
+  return orientExplicitResultScore(next);
 }
