@@ -19,15 +19,20 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
+          const needles=['Flippin','Bergman','Cotter'];
           for (const date of ['8/27/2026','8/29/2026']) {
             const url=`https://www.maxpreps.com/ar/volleyball/scores/?date=${encodeURIComponent(date)}`;
             const r=await fetch(url,{headers:{'user-agent':'LocalBleachersAR-diagnostic/1.0','accept':'text/html,application/xhtml+xml'}});
             const html=await r.text();
             console.log(`DATE=${date} STATUS=${r.status} LEN=${html.length} FINAL=${r.url}`);
-            for(const needle of ['Flippin','Bergman','Cotter']) {
-              const i=html.toLowerCase().indexOf(needle.toLowerCase());
-              console.log(`NEEDLE=${needle} INDEX=${i}`);
-              if(i>=0) console.log(html.slice(Math.max(0,i-1200),Math.min(html.length,i+2200)).replace(/\s+/g,' '));
+            for(const needle of needles) {
+              const lower=html.toLowerCase(), token=needle.toLowerCase(), indexes=[];
+              let from=0;
+              while(true){const i=lower.indexOf(token,from);if(i<0)break;indexes.push(i);from=i+token.length;}
+              console.log(`NEEDLE=${needle} OCCURRENCES=${indexes.length} INDEXES=${indexes.slice(-8).join(',')}`);
+              for(const i of indexes.slice(-4)) console.log(`SNIP ${needle}@${i}: ${html.slice(Math.max(0,i-900),Math.min(html.length,i+1800)).replace(/\s+/g,' ')}`);
             }
+            const finals=[...html.matchAll(/final/gi)].map(m=>m.index).filter(Number.isFinite);
+            console.log(`FINAL_OCCURRENCES=${finals.length} LAST=${finals.slice(-12).join(',')}`);
           }
           NODE
