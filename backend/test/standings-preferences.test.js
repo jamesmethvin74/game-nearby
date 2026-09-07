@@ -35,26 +35,33 @@ test("standings supports persisted sport+conference favorites below the live car
   assert.match(html, /id="favoriteStandingsGrid"/);
 });
 
-test("standings favorites can move up or down and persist their custom order", async () => {
-  const js = await read("standings.js");
+test("standings favorites support long-press touch drag reorder and persist the custom order", async () => {
+  const drag = await read("standings-drag-reorder.js");
   const css = await read("standings-favorites.css");
+  const html = await read("standings.html");
 
-  assert.match(js, /data-favorite-move-up/);
-  assert.match(js, /data-favorite-move-down/);
-  assert.match(js, /function moveFavorite\(key, direction\)/);
-  assert.match(js, /\[favorites\[index\], favorites\[nextIndex\]\] = \[favorites\[nextIndex\], favorites\[index\]\]/);
-  assert.match(js, /saveFavorites\(\);\s*renderFavorites\(\);/);
-  assert.match(css, /\.favorite-standings-move/);
-  assert.match(css, /\.favorite-standings-move:disabled/);
+  assert.match(drag, /const LONG_PRESS_MS = 340/);
+  assert.match(drag, /addEventListener\("touchstart"/);
+  assert.match(drag, /addEventListener\("touchmove"/);
+  assert.match(drag, /event\.preventDefault\(\)/);
+  assert.match(drag, /grid\.insertBefore\(gesture\.card, reference\)/);
+  assert.match(drag, /localStorage\.setItem\(FAVORITES_KEY, JSON\.stringify\(ordered\)\)/);
+  assert.match(drag, /new StorageEvent\("storage"/);
+  assert.match(css, /\.favorite-standings-move \{\s*display: none;/);
+  assert.match(css, /\.favorite-standings-drag-ghost/);
+  assert.match(css, /\.favorite-standings-card\.is-drag-placeholder/);
+  assert.match(html, /Hold and drag a card to reorder\./);
 });
 
 test("standings preference release advances the PWA shell without dropping live scores", async () => {
   const html = await read("standings.html");
   const sw = await read("service-worker.js");
 
-  assert.match(html, /standings\.js\?v=65/);
-  assert.match(html, /standings-favorites\.css\?v=65/);
-  assert.match(sw, /localbleachersar-shell-v65/);
+  assert.match(html, /standings\.js\?v=66/);
+  assert.match(html, /standings-drag-reorder\.js\?v=66/);
+  assert.match(html, /standings-favorites\.css\?v=66/);
+  assert.match(sw, /localbleachersar-shell-v66/);
+  assert.match(sw, /\.\/standings-drag-reorder\.js/);
   assert.match(sw, /\.\/standings-favorites\.css/);
   assert.match(sw, /\.\/live-scores\.html/);
   assert.match(sw, /\.\/live-scores\.js/);
