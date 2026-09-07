@@ -13,7 +13,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Independent final volleyball production proof
+      - name: Post-cleanup volleyball production proof
         shell: bash
         run: |
           set -euo pipefail
