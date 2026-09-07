@@ -9,6 +9,7 @@ import { syncCertifiedDragonFlySportCatalog } from "./dragonfly-certified-sport-
 import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
 import { runResilientHootensStatewideResults } from "./hootens-resilient-results.js";
+import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -22,6 +23,10 @@ export function shouldRunOfficialFinalResults(plan){
     || plan?.kind==="morning-results"
     || plan?.kind==="evening-results"
     || Boolean(plan?.runVolleyballLive);
+}
+
+export function shouldRunVolleyballLiveResults(plan){
+  return Boolean(plan?.runVolleyballLive);
 }
 
 export function officialFinalResultsScope(plan){
@@ -123,6 +128,25 @@ async function runHootensFinalResultsPass({env,plan}){
   return runResilientHootensStatewideResults(env);
 }
 
+async function runVolleyballLiveResultsPass({env,plan,when}){
+  if (!shouldRunVolleyballLiveResults(plan)) return null;
+  try {
+    const result=await runVolleyballLiveResultProbe(env,{now:when});
+    console.log("volleyball semantic live result probe",{
+      status:result.status,
+      events:result.rawEventCount,
+      touchedTeams:result.touchedTeams??null,
+      pagesFetched:result.pagesFetched,
+      d1Writes:result.d1Writes??null
+    });
+    return result;
+  } catch (error) {
+    const message=String(error?.message||error);
+    console.error("volleyball semantic live result probe failed",message);
+    return {status:"FAILURE",error:message};
+  }
+}
+
 async function runScheduledPlan(controller,env,ctx){
   const scheduledTime=Number(controller?.scheduledTime);
   const when=Number.isFinite(scheduledTime)?new Date(scheduledTime):new Date();
@@ -143,6 +167,11 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
+  // The cheap volleyball semantic probe is intentionally separate from ordinary
+  // statewide maintenance. If the DragonFly payload is unchanged, it performs
+  // zero D1 writes. If it changed, the certified collector rebuilds touched teams.
+  const volleyballLiveResults=await runVolleyballLiveResultsPass({env,plan,when});
+
   // Statewide authorities run first. If they resolve a final, the official-school
   // selector sees that game as no longer SCHEDULED and skips the redundant fetch.
   // During live volleyball windows the fallback is volleyball-only and capped at
@@ -152,12 +181,12 @@ async function runScheduledPlan(controller,env,ctx){
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys,hootensFinalResults,officialFinalResults};
+    if (scoped) return {...scoped,statewideSports:statewideKeys,volleyballLiveResults,hootensFinalResults,officialFinalResults};
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,hootensFinalResults,officialFinalResults,coreResult:result??null};
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,volleyballLiveResults,hootensFinalResults,officialFinalResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,hootensFinalResults,officialFinalResults};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,volleyballLiveResults,hootensFinalResults,officialFinalResults};
 }
 
 export default {
