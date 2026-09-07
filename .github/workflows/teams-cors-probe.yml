@@ -13,29 +13,26 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Prove production 3A-2 volleyball conference handling
+      - name: Map production 3A-2 roster and finals
         shell: bash
         run: |
           set -euo pipefail
           API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
           curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=3a-2" -o standings.json
           for id in df-qyu4f7-volleyball-2026 df-x7qmns-volleyball-2026; do
-            curl -fsS --max-time 45 "$API/api/v1/teams/$id" -o "$id-team.json"
             curl -fsS --max-time 45 "$API/api/v1/teams/$id/schedule" -o "$id-schedule.json"
           done
           node <<'NODE'
           const fs=require('fs');
-          const st=JSON.parse(fs.readFileSync('standings.json','utf8'));
-          const rows=Array.isArray(st.standings)?st.standings:[];
-          console.log('STANDINGS_CONFERENCE='+JSON.stringify(st.conference||{}));
-          console.log('STANDINGS_ROWS='+rows.length);
-          for(const re of [/flippin/i,/melbourne/i]) console.log('STANDINGS_TARGET='+JSON.stringify(rows.find(r=>re.test(String(r.school_name||'')))||null));
+          const rows=JSON.parse(fs.readFileSync('standings.json','utf8')).standings||[];
+          const roster=rows.map(r=>String(r.school_name||''));
+          const norm=s=>String(s||'').toLowerCase().replace(/\bhigh school\b|\bhigh\b|\bschool\b|\bhs\b/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
+          const rosterKeys=new Set(roster.map(norm));
+          console.log('ROSTER='+JSON.stringify(rows.map(r=>({school:r.school_name,conf:r.conference_record,overall:r.overall_record}))));
           for(const id of ['df-qyu4f7-volleyball-2026','df-x7qmns-volleyball-2026']){
-            const t=JSON.parse(fs.readFileSync(`${id}-team.json`,'utf8'));
             const s=JSON.parse(fs.readFileSync(`${id}-schedule.json`,'utf8'));
-            const games=Array.isArray(s.games)?s.games:[];
-            const sep3=games.find(g=>String(g.scheduled_at||'').startsWith('2026-09-03') && /flippin|melbourne/i.test(String(g.opponent||'')));
-            console.log(id+'_TEAM='+JSON.stringify({conference_id:t.team?.conference_id,conference_name:t.team?.conference_name,record:s.record||t.record}));
-            console.log(id+'_SEP3='+JSON.stringify(sep3&&{opponent:sep3.opponent,status:sep3.status,score:`${sep3.team_score}-${sep3.opponent_score}`,result:sep3.result,conference_game:sep3.conference_game,canonical_event_id:sep3.canonical_event_id}));
+            const finals=(s.games||[]).filter(g=>g.status==='FINAL').map(g=>({date:String(g.scheduled_at||'').slice(0,10),opponent:g.opponent,score:`${g.team_score}-${g.opponent_score}`,result:g.result,inRoster:rosterKeys.has(norm(g.opponent))}));
+            console.log(id+'_FINALS='+JSON.stringify(finals));
+            console.log(id+'_PREDICTED_CONF='+finals.filter(g=>g.inRoster).map(g=>`${g.result} ${g.opponent} ${g.score}`).join(' | '));
           }
           NODE
