@@ -7,6 +7,7 @@ const CONWAY_TEAM="conway-volleyball-2026";
 const SOUTHWEST_TEAM="df-bkc4ux-volleyball-2026";
 const FLIPPIN_TEAM="df-qyu4f7-volleyball-2026";
 const CONWAY_SOURCE="conway-volleyball-official";
+const SIX_A_CENTRAL_SOURCE_URL="https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-central/?leagueid=01ee6b6b-f05d-4a62-80a5-a170c72cb088";
 const TARGET_TEAMS=[CONWAY_TEAM,SOUTHWEST_TEAM,FLIPPIN_TEAM];
 const HISTORICAL_DATES=["2026-08-27","2026-08-29"];
 
@@ -99,42 +100,45 @@ export async function runApprovedVolleyballProductionConvergence(env,{
   }
   if(typeof refreshSourceIds!=="function") throw new Error("approved volleyball convergence requires bounded source refresh callback");
 
-  // 1) Re-read exactly Conway's official school source with the fixed Mascot parser.
-  // The callback clears only this source's conditional validators after verifying
-  // refresh authorization, ensuring the unchanged page body is actually reparsed.
-  const officialRefresh=await refreshSourceIds([CONWAY_SOURCE],"approved-volleyball-production-convergence");
-  const officialOutcome=(officialRefresh?.outcomes||[]).find(row=>row.sourceId===CONWAY_SOURCE);
-  if(!officialOutcome || !["SUCCESS","NOT_MODIFIED"].includes(officialOutcome.status)) {
-    throw new Error(`Conway official refresh failed: ${officialOutcome?.error||officialOutcome?.status||"source outcome missing"}`);
+  const before=validateVolleyballConvergenceProof(await proofRows(env));
+
+  let officialRefresh={status:"SKIPPED_ALREADY_FIXED",outcomes:[]};
+  if(!(before.checks.conwayOverall&&before.checks.conwayLrChristian)) {
+    officialRefresh=await refreshSourceIds([CONWAY_SOURCE],"approved-volleyball-production-convergence");
+    const officialOutcome=(officialRefresh?.outcomes||[]).find(row=>row.sourceId===CONWAY_SOURCE);
+    if(!officialOutcome || !["SUCCESS","NOT_MODIFIED"].includes(officialOutcome.status)) {
+      throw new Error(`Conway official refresh failed: ${officialOutcome?.error||officialOutcome?.status||"source outcome missing"}`);
+    }
   }
 
-  // 2) Materialize only Little Rock Southwest's already-published 6A Central membership.
-  // The source fetch is conference-scoped and the D1 mutation remains two set-based statements.
-  const membership=await membershipSync(env,{
-    now,
-    conferenceIds:["6a-central"],
-    targetTeamIds:[SOUTHWEST_TEAM]
-  });
-  if(!["SUCCESS","NOT_MODIFIED"].includes(membership?.status)) {
-    throw new Error(`Southwest conference membership sync did not succeed: ${membership?.status||"unknown"}`);
+  let membership={status:"SKIPPED_ALREADY_FIXED",assignments:0,conferenceWrites:0,teamWrites:0};
+  if(!before.checks.southwestConference) {
+    membership=await membershipSync(env,{
+      now,
+      conferenceIds:["6a-central"],
+      targetTeamIds:[SOUTHWEST_TEAM],
+      conferenceSourceOverrides:{
+        "6a-central":{name:"6A Central",source_url:SIX_A_CENTRAL_SOURCE_URL}
+      }
+    });
+    if(!["SUCCESS","NOT_MODIFIED"].includes(membership?.status)) {
+      throw new Error(`Southwest conference membership sync did not succeed: ${membership?.status||"unknown"} ${JSON.stringify(membership?.failedConferences||[])}`);
+    }
   }
 
-  // 3) Repair only historical finals involving Flippin on the two proven missing dates.
-  // Opponent reciprocal observations are written only for those matched Flippin games.
-  const historical=await resultFallback(env,{
-    dates:HISTORICAL_DATES,
-    now,
-    targetTeamIds:[FLIPPIN_TEAM]
-  });
-  if(!["SUCCESS","NOT_MODIFIED"].includes(historical?.status)) {
-    throw new Error(`Flippin historical result fallback did not succeed: ${historical?.status||"unknown"}`);
+  let historical={status:"SKIPPED_ALREADY_FIXED",dates:HISTORICAL_DATES,matchedFinals:0,touchedTeams:0,writes:0};
+  if(!(before.checks.flippinOverall&&before.checks.flippinBergman&&before.checks.flippinCotter)) {
+    historical=await resultFallback(env,{
+      dates:HISTORICAL_DATES,
+      now,
+      targetTeamIds:[FLIPPIN_TEAM]
+    });
+    if(!["SUCCESS","NOT_MODIFIED"].includes(historical?.status)) {
+      throw new Error(`Flippin historical result fallback did not succeed: ${historical?.status||"unknown"}`);
+    }
   }
 
-  // 4) Recalculate only the three proof teams after membership/result convergence.
   const recordRebuild=await rebuildRecords(env,TARGET_TEAMS,checkedAt);
-
-  // 5) One combined, tightly scoped D1 verification. Completion is recorded only
-  // after exact records and the three repaired finals are all present.
   const proof=validateVolleyballConvergenceProof(await proofRows(env));
   if(!proof.complete) {
     throw new Error(`volleyball production convergence proof failed: ${JSON.stringify(proof.checks)}`);
@@ -143,7 +147,8 @@ export async function runApprovedVolleyballProductionConvergence(env,{
   const details={
     status:"COMPLETE",
     checkedAt,
-    officialRefresh:{outcomes:officialRefresh?.outcomes||[]},
+    beforeChecks:before.checks,
+    officialRefresh:{status:officialRefresh.status||null,outcomes:officialRefresh?.outcomes||[]},
     membership:{status:membership.status,assignments:membership.assignments,conferenceWrites:membership.conferenceWrites??0,teamWrites:membership.teamWrites??0},
     historical:{status:historical.status,dates:historical.dates,matchedFinals:historical.matchedFinals,touchedTeams:historical.touchedTeams,writes:historical.writes},
     recordRebuild,
@@ -159,6 +164,7 @@ export {
   SOUTHWEST_TEAM,
   FLIPPIN_TEAM,
   CONWAY_SOURCE,
+  SIX_A_CENTRAL_SOURCE_URL,
   TARGET_TEAMS,
   HISTORICAL_DATES
 };
