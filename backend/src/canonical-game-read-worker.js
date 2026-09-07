@@ -82,7 +82,7 @@ async function nearbyGames(request, env, url) {
   const radius=Math.max(1,Math.min(500,finiteNumber(url.searchParams.get("radius"))??25));
   const useGeo=hasGeo&&lat!=null&&lon!=null;
 
-  let where="WHERE COALESCE(ce.scheduled_at,g.scheduled_at) BETWEEN ? AND ?";
+  let where="WHERE (g.canonical_event_id IS NOT NULL OR src.enabled=1) AND COALESCE(ce.scheduled_at,g.scheduled_at) BETWEEN ? AND ?";
   const binds=[since,until];
   if (useGeo) {
     const latDelta=radius/69;
@@ -125,7 +125,7 @@ async function nearbyGames(request, env, url) {
     JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local'
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
-    JOIN sources src ON src.id=g.source_id AND src.enabled=1
+    JOIN sources src ON src.id=g.source_id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
     LEFT JOIN schools aws ON aws.id=ce.away_school_id
