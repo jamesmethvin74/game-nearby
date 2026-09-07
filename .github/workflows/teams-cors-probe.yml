@@ -13,40 +13,48 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect live MaxPreps volleyball pages
+      - name: Probe live MaxPreps with production parsers
         shell: bash
         run: |
           set -euo pipefail
-          UA='LocalBleachersAR-diagnostic/1.0 (+https://github.com/jamesmethvin74/game-nearby)'
-          fetch_page() {
-            local label="$1" url="$2" out="$3"
-            code=$(curl -L -sS --max-time 45 -A "$UA" -H 'accept: text/html,application/xhtml+xml' -o "$out" -w '%{http_code}' "$url" || true)
-            bytes=$(wc -c < "$out" 2>/dev/null || echo 0)
-            echo "$label HTTP=$code bytes=$bytes"
-          }
-          fetch_page DIRECTORY 'https://www.maxpreps.com/ar/volleyball/' directory.html
-          fetch_page CENTRAL 'https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-central/' central.html
-          fetch_page AUG27 'https://www.maxpreps.com/ar/volleyball/scores/?date=8%2F27%2F2026' aug27.html
-          fetch_page AUG29 'https://www.maxpreps.com/ar/volleyball/scores/?date=8%2F29%2F2026' aug29.html
+          REPO='https://raw.githubusercontent.com/jamesmethvin74/game-nearby/feature/live-sports-pipeline-m1'
+          mkdir -p diag
+          curl -fsSL "$REPO/backend/src/maxpreps-volleyball-results.js" -o diag/maxpreps-volleyball-results.js
+          curl -fsSL "$REPO/backend/src/schedule-authority-core.js" -o diag/schedule-authority-core.js
+          curl -fsSL "$REPO/backend/src/published-standings.js" -o diag/published-standings.js
 
-          node <<'NODE'
-          const fs=require('fs');
-          const read=f=>fs.readFileSync(f,'utf8');
-          const clean=s=>String(s).replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/\s+/g,' ').trim();
-          const directory=read('directory.html'), central=read('central.html'), a27=read('aug27.html'), a29=read('aug29.html');
-          const links=[...directory.matchAll(/<a\b[^>]*href=["']([^"']*\/ar\/volleyball\/26-27\/conference\/([^\/?#"']+)\/?[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi)].map(m=>({slug:m[2],text:clean(m[3])}));
-          console.log('DIRECTORY_6A_CENTRAL='+JSON.stringify(links.filter(x=>x.slug.toLowerCase()==='6a-central')));
-          const rows=[...central.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map(m=>clean(m[1]));
-          console.log('CENTRAL_SOUTHWEST_ROWS='+JSON.stringify(rows.filter(x=>/little rock southwest/i.test(x))));
-          console.log('CENTRAL_CONWAY_ROWS='+JSON.stringify(rows.filter(x=>/(^|\s)conway(\s|$)/i.test(x))));
-          function inspectScores(label,html,names){
-            console.log(label+'_HAS_FINAL='+(html.match(/>\s*Final\s*</gi)||[]).length);
-            console.log(label+'_CARDS='+(html.match(/<li\b[^>]*class=["']c["'][^>]*data-contest-id=/gi)||[]).length);
-            for(const name of names) console.log(`${label}_${name.toUpperCase().replace(/\s+/g,'_')}=${new RegExp(name,'i').test(html)}`);
-            const contexts=[];
-            for(const name of names){const i=html.toLowerCase().indexOf(name.toLowerCase()); if(i>=0) contexts.push(clean(html.slice(Math.max(0,i-500),i+1000)).slice(0,1200));}
-            console.log(label+'_CONTEXT='+JSON.stringify(contexts));
+          node --input-type=module <<'NODE'
+          import { parseMaxPrepsVolleyballScores, matchLocalVolleyballTeams, maxPrepsScoresUrl } from './diag/maxpreps-volleyball-results.js';
+          import { parseConferenceLinks, fetchPublishedStandings } from './diag/published-standings.js';
+          const headers={'user-agent':'LocalBleachersAR-diagnostic/1.0 (+https://github.com/jamesmethvin74/game-nearby)','accept':'text/html,application/xhtml+xml'};
+          const get=async url=>{const r=await fetch(url,{headers});const text=await r.text();console.log(`GET ${url} -> ${r.status} final=${r.url} bytes=${text.length}`);return {r,text};};
+
+          const dir=await get('https://www.maxpreps.com/ar/volleyball/');
+          const links=parseConferenceLinks(dir.text,{sport:'volleyball'});
+          const central=links.find(x=>x.id==='6a-central');
+          console.log('CENTRAL_LINK='+JSON.stringify(central));
+          if(central){
+            const live=await get(central.source_url);
+            console.log('CENTRAL_HAS_SW='+/Little Rock Southwest/i.test(live.text));
+            try {
+              const parsed=await fetchPublishedStandings({sport:'volleyball',conferenceId:'6a-central',fetchFn:fetch});
+              console.log('CENTRAL_PARSED='+JSON.stringify(parsed.standings.filter(x=>/Conway|Southwest/i.test(x.school_name))));
+            } catch(e) { console.log('CENTRAL_PARSE_ERROR='+String(e?.message||e)); }
           }
-          inspectScores('AUG27',a27,['Flippin','Bergman']);
-          inspectScores('AUG29',a29,['Flippin','Cotter']);
+
+          const localTeams=[
+            {team_id:'df-qyu4f7-volleyball-2026',school_id:'df-qyu4f7',school_name:'Flippin High School'},
+            {team_id:'df-bergman-volleyball-2026',school_id:'df-bergman',school_name:'Bergman High School'},
+            {team_id:'df-cotter-volleyball-2026',school_id:'df-cotter',school_name:'Cotter High School'}
+          ];
+          for(const date of ['2026-08-27','2026-08-29']){
+            const url=maxPrepsScoresUrl(date);
+            const page=await get(url);
+            const finals=parseMaxPrepsVolleyballScores(page.text,{localDate:date,sourceUrl:page.r.url||url});
+            console.log(`${date}_PARSED_FINALS=${finals.length}`);
+            const relevant=finals.filter(x=>/Flippin|Bergman|Cotter/i.test(`${x.home.name} ${x.away.name}`));
+            console.log(`${date}_RELEVANT=${JSON.stringify(relevant)}`);
+            const matched=matchLocalVolleyballTeams(relevant,localTeams);
+            console.log(`${date}_MATCHED=${JSON.stringify(matched)}`);
+          }
           NODE
