@@ -19,20 +19,21 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
-          const needles=['Flippin','Bergman','Cotter'];
-          for (const date of ['8/27/2026','8/29/2026']) {
-            const url=`https://www.maxpreps.com/ar/volleyball/scores/?date=${encodeURIComponent(date)}`;
+          const cases=[
+            {date:'8/27/2026',pairs:[['Flippin','Bergman']]},
+            {date:'8/29/2026',pairs:[['Flippin','Cotter']]},
+            {date:'9/3/2026',pairs:[['Conway','Southwest'],['Flippin','Melbourne']]}
+          ];
+          for (const c of cases) {
+            const url=`https://www.maxpreps.com/ar/volleyball/scores/?date=${encodeURIComponent(c.date)}`;
             const r=await fetch(url,{headers:{'user-agent':'LocalBleachersAR-diagnostic/1.0','accept':'text/html,application/xhtml+xml'}});
             const html=await r.text();
-            console.log(`DATE=${date} STATUS=${r.status} LEN=${html.length} FINAL=${r.url}`);
-            for(const needle of needles) {
-              const lower=html.toLowerCase(), token=needle.toLowerCase(), indexes=[];
-              let from=0;
-              while(true){const i=lower.indexOf(token,from);if(i<0)break;indexes.push(i);from=i+token.length;}
-              console.log(`NEEDLE=${needle} OCCURRENCES=${indexes.length} INDEXES=${indexes.slice(-8).join(',')}`);
-              for(const i of indexes.slice(-4)) console.log(`SNIP ${needle}@${i}: ${html.slice(Math.max(0,i-900),Math.min(html.length,i+1800)).replace(/\s+/g,' ')}`);
+            console.log(`DATE=${c.date} STATUS=${r.status} LEN=${html.length} FINAL=${r.url}`);
+            const cards=[...html.matchAll(/<li\b[^>]*class=["']c["'][^>]*data-teams=["']([^"']+)["'][^>]*data-contest-id=["']([^"']+)["'][^>]*>[\s\S]*?(?=<li\b[^>]*class=["']c["']|<\/ul>\s*<\/section>|$)/gi)].map(m=>({teams:m[1],contestId:m[2],html:m[0]}));
+            for(const pair of c.pairs){
+              const found=cards.filter(card=>pair.every(name=>card.html.toLowerCase().includes(name.toLowerCase())));
+              console.log(`PAIR=${pair.join(' vs ')} FOUND=${found.length}`);
+              for(const card of found.slice(0,3)) console.log(`CARD teams=${card.teams} contest=${card.contestId} html=${card.html.slice(0,1800).replace(/\s+/g,' ')}`);
             }
-            const finals=[...html.matchAll(/final/gi)].map(m=>m.index).filter(Number.isFinite);
-            console.log(`FINAL_OCCURRENCES=${finals.length} LAST=${finals.slice(-12).join(',')}`);
           }
           NODE
