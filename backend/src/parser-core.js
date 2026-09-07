@@ -17,18 +17,7 @@ export function parseResult(text) {
   if (/cancel(?:ed|led)/i.test(value)) return {status:"CANCELED",teamScore:null,opponentScore:null,result:null};
   if (/postpon/i.test(value)) return {status:"POSTPONED",teamScore:null,opponentScore:null,result:null};
   const match = value.match(/\b([WLT])\s*,?\s*(\d+)\s*[-–]\s*(\d+)/i) || value.match(/\b([WLT])\b[^0-9]*(\d+)\s*[-–]\s*(\d+)/i);
-  if (match) {
-    const result=match[1].toUpperCase();
-    let teamScore=Number(match[2]), opponentScore=Number(match[3]);
-    // Some official school sites publish a W/L code beside a score pair that is
-    // ordered winner-first rather than reporting-team-first (for example W 1-2).
-    // Preserve the explicit result authority and orient the numeric pair to the
-    // reporting team before it reaches canonical record calculation.
-    const contradictsWin=result==="W" && teamScore<opponentScore;
-    const contradictsLoss=result==="L" && teamScore>opponentScore;
-    if (contradictsWin || contradictsLoss) [teamScore,opponentScore]=[opponentScore,teamScore];
-    return {status:"FINAL",teamScore,opponentScore,result};
-  }
+  if (match) return {status:"FINAL",teamScore:Number(match[2]),opponentScore:Number(match[3]),result:match[1].toUpperCase()};
   const score = value.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
   if (score && /final/i.test(value)) {
     const teamScore=Number(score[1]), opponentScore=Number(score[2]);
@@ -128,6 +117,16 @@ function mascotCalendarYear(text, source) {
   return String(parsed.month<=7?season+1:season);
 }
 
+export function orientMascotResult(result) {
+  if (result?.status!=="FINAL" || !/^[WLT]$/.test(String(result?.result||""))) return result;
+  let teamScore=Number(result.teamScore), opponentScore=Number(result.opponentScore);
+  if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) return result;
+  const contradictsWin=result.result==="W" && teamScore<opponentScore;
+  const contradictsLoss=result.result==="L" && teamScore>opponentScore;
+  if (!contradictsWin && !contradictsLoss) return result;
+  return {...result,teamScore:opponentScore,opponentScore:teamScore};
+}
+
 export function normalizeMascotRows(rows, source) {
   const events=[];
   for (const raw of rows) {
@@ -164,8 +163,6 @@ export function normalizeMascotRows(rows, source) {
       }
       opponent=cleanText(tail.replace(/\s+-\s+-.*$/,"").replace(/\|.*$/, ""));
     } else {
-      // Newer Mascot Media tables split date/location, opponent and result into
-      // separate cells and use "@" instead of the literal "AT" token.
       const dateLocation=cleanText(cells[0]);
       opponent=cleanText(cells[1]);
       if (!opponent || /^(opponent|results?)$/i.test(opponent)) continue;
@@ -180,7 +177,7 @@ export function normalizeMascotRows(rows, source) {
     if (!opponent) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
-    const result=parseResult(resultText);
+    const result=orientMascotResult(parseResult(resultText));
     const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition|jamboree)\b/i.test(full);
     events.push({
       nativeId:raw.nativeId||"", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,
