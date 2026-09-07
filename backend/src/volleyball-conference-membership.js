@@ -1,10 +1,14 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
-import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
+import { fetchPublishedStandings, listPublishedStandingsOptions, parsePublishedStandings } from "./published-standings.js";
 
 const SPORT="volleyball";
 const GENDER="girls";
 const SEASON="2026";
 const FETCH_BATCH_SIZE=5;
+const PUBLISHED_HEADERS={
+  "user-agent":"LocalBleachersAR-standings/1.0 (+https://github.com/jamesmethvin74/game-nearby)",
+  accept:"text/html,application/xhtml+xml"
+};
 
 function localConferenceId(publishedId) {
   return `${String(publishedId||"").trim().toLowerCase()}-volleyball`;
@@ -94,18 +98,58 @@ function cachedFetch(fetchFn) {
   };
 }
 
-async function fetchPublishedVolleyballConferences(fetchFn,{conferenceIds=null}={}) {
+function normalizeConferenceOverrides(value={}) {
+  const map=new Map();
+  for(const [rawId,raw] of Object.entries(value||{})) {
+    const id=String(rawId||"").trim().toLowerCase();
+    if(!id || !raw) continue;
+    const source_url=String(raw.source_url||raw.url||"").trim();
+    if(!source_url) continue;
+    map.set(id,{id,name:String(raw.name||id),sport:SPORT,source_url,direct_source:true});
+  }
+  return map;
+}
+
+async function fetchDirectPublishedStandings(conference,memoFetch) {
+  const response=await memoFetch(conference.source_url,{headers:PUBLISHED_HEADERS});
+  if(!response.ok) throw new Error(`standings source HTTP ${response.status}`);
+  const html=await response.text();
+  const parsed=parsePublishedStandings(html,{
+    sport:SPORT,
+    conferenceId:conference.id,
+    conferenceName:conference.name,
+    sourceUrl:response.url||conference.source_url
+  });
+  if(!parsed.standings.length) throw new Error(`published standings unavailable for ${SPORT}/${conference.id}`);
+  return parsed;
+}
+
+async function fetchPublishedVolleyballConferences(fetchFn,{conferenceIds=null,conferenceSourceOverrides=null}={}) {
   const memoFetch=cachedFetch(fetchFn);
-  const options=await listPublishedStandingsOptions({sport:SPORT,fetchFn:memoFetch});
   const wanted=conferenceIds?.length?new Set(conferenceIds.map(value=>String(value||"").trim().toLowerCase()).filter(Boolean)):null;
-  const conferences=wanted?options.conferences.filter(row=>wanted.has(String(row.id).toLowerCase())):options.conferences;
+  const overrides=normalizeConferenceOverrides(conferenceSourceOverrides);
+
+  let discoveredConferences=0;
+  let conferences=[];
+  if(wanted && [...wanted].every(id=>overrides.has(id))) {
+    conferences=[...wanted].map(id=>overrides.get(id));
+    discoveredConferences=conferences.length;
+  } else {
+    const options=await listPublishedStandingsOptions({sport:SPORT,fetchFn:memoFetch});
+    discoveredConferences=options.conferences.length;
+    conferences=wanted?options.conferences.filter(row=>wanted.has(String(row.id).toLowerCase())):options.conferences;
+    conferences=conferences.map(row=>overrides.get(String(row.id).toLowerCase())||row);
+  }
+
   const standingsByConference=new Map();
   const failures=[];
   for(let i=0;i<conferences.length;i+=FETCH_BATCH_SIZE) {
     const batch=conferences.slice(i,i+FETCH_BATCH_SIZE);
     const results=await Promise.all(batch.map(async conference=>{
       try {
-        const standings=await fetchPublishedStandings({sport:SPORT,conferenceId:conference.id,fetchFn:memoFetch});
+        const standings=conference.direct_source
+          ? await fetchDirectPublishedStandings(conference,memoFetch)
+          : await fetchPublishedStandings({sport:SPORT,conferenceId:conference.id,fetchFn:memoFetch});
         return {conference,standings};
       } catch(error) {
         return {conference,error:String(error?.message||error)};
@@ -116,7 +160,7 @@ async function fetchPublishedVolleyballConferences(fetchFn,{conferenceIds=null}=
       else failures.push({conference_id:result.conference.id,error:result.error});
     }
   }
-  return {discoveredConferences:options.conferences.length,conferences,standingsByConference,failures};
+  return {discoveredConferences,conferences,standingsByConference,failures};
 }
 
 async function loadLocalVolleyballTeams(env) {
@@ -177,11 +221,12 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
   fetchFn=fetch,
   now=new Date(),
   conferenceIds=null,
-  targetTeamIds=null
+  targetTeamIds=null,
+  conferenceSourceOverrides=null
 }={}) {
   const checkedAt=now.toISOString();
   const localTeams=await loadLocalVolleyballTeams(env);
-  const published=await fetchPublishedVolleyballConferences(fetchFn,{conferenceIds});
+  const published=await fetchPublishedVolleyballConferences(fetchFn,{conferenceIds,conferenceSourceOverrides});
   const built=scopeBuiltMembership(buildVolleyballConferenceMembership({
     conferences:published.conferences,
     standingsByConference:published.standingsByConference,
@@ -201,8 +246,6 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
     };
   }
 
-  // Keep production D1 work set-based: exactly two mutation statements regardless
-  // of how many schools are mapped (conference upsert + changed team memberships).
   const results=await env.DB.batch([
     conferenceUpsertStatement(env,built.conferences,checkedAt),
     teamMembershipUpdateStatement(env,built.assignments,checkedAt)
