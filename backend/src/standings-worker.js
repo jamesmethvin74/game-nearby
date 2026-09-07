@@ -1,4 +1,4 @@
-import app from "./team-read-worker.js";
+import app from "./canonical-game-read-worker.js";
 import { fetchPublishedStandings, listPublishedStandingsOptions } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
 import { loadMaterializedCalculatedStandings, overlayCalculatedStandings } from "./calculated-standings.js";
