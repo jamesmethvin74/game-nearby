@@ -14,35 +14,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Dump two DragonFly event shapes
+      - name: Dump selected DragonFly event shapes
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const base='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity';
-          const wanted=new Set(['698a07913f3e5e1fbb00000e','69cbf80b0d417b1cfe000002']);
-          const found=[];
+          const wanted=new Set(['698a07913f3e5e1fbb00000e','69cbf80b0d417b1cfe000002','696fdd384c43b433e0000002']);
+          const found=new Map();
+          let flippinCotter=null;
           for(let page=0;page<50;page++){
             const response=await fetch(`${base}/${page}`,{headers:{accept:'application/json','user-agent':'LocalBleachersAR-diagnostic/1.0'}});
             if(!response.ok) throw new Error(`DragonFly page ${page}: HTTP ${response.status}`);
             const payload=await response.json();
             for(const event of payload.schedule||[]){
               const id=String(event?.eventId||event?.id||'');
-              if(wanted.has(id)) found.push(event);
+              if(wanted.has(id)) found.set(id,event);
+              const names=(event?.participants||[]).map(p=>String(p?.name||'').toLowerCase());
+              const date=String(event?.date||'');
+              if(date.startsWith('2026-08-29')&&names.some(n=>n.includes('flippin'))&&names.some(n=>n.includes('cotter'))) flippinCotter=event;
             }
-            if(found.length===wanted.size||!payload.hasNextPage) break;
+            if(found.size===wanted.size&&flippinCotter) break;
+            if(!payload.hasNextPage) break;
           }
           const summarize=e=>({
-            eventId:e.eventId||e.id,
-            topLevelKeys:Object.keys(e).sort(),
-            conferenceLike:Object.fromEntries(Object.entries(e).filter(([k])=>/conference|region|district|league/i.test(k))),
-            sport:e.sport||null,
-            associatedSports:e.associatedSports||null,
-            participants:e.participants||null,
-            contestType:e.contestType||null,
-            eventType:e.eventType||null,
-            notes:e.notes||e.locationNotes||null
+            eventId:e?.eventId||e?.id||null,
+            date:e?.date||null,
+            name:e?.name||null,
+            hostOrg:e?.hostOrg||null,
+            hostOrgName:e?.hostOrgName||null,
+            facility:e?.facility||null,
+            locationNotes:e?.locationNotes||null,
+            contestType:e?.contestType||null,
+            topLevelKeys:e?Object.keys(e).sort():[],
+            conferenceLike:e?Object.fromEntries(Object.entries(e).filter(([k])=>/conference|region|district|league/i.test(k))):{},
+            participants:(e?.participants||[]).map(p=>({name:p.name,orgShortCode:p.orgShortCode,isHome:p.isHome,result:p.result||null}))
           });
-          console.log(JSON.stringify(found.map(summarize),null,2));
-          if(found.length!==wanted.size) throw new Error(`Found ${found.length}/2 target events`);
+          console.log(JSON.stringify({selected:[...found.values()].map(summarize),flippinCotter:summarize(flippinCotter)},null,2));
+          if(found.size!==wanted.size) throw new Error(`Found ${found.size}/${wanted.size} known target events`);
           NODE
