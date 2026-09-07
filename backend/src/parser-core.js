@@ -11,13 +11,6 @@ export function slug(value) {
   return cleanText(value).toLowerCase().replace(/&/g," and ").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 }
 
-function orientExplicitResultScores(result, firstScore, secondScore) {
-  const teamScore=Number(firstScore), opponentScore=Number(secondScore);
-  if (result==="W" && teamScore<opponentScore) return {teamScore:opponentScore,opponentScore:teamScore};
-  if (result==="L" && teamScore>opponentScore) return {teamScore:opponentScore,opponentScore:teamScore};
-  return {teamScore,opponentScore};
-}
-
 export function parseResult(text) {
   const value = cleanText(text);
   if (!value || /^-\s*-?$/.test(value)) return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
@@ -26,8 +19,15 @@ export function parseResult(text) {
   const match = value.match(/\b([WLT])\s*,?\s*(\d+)\s*[-–]\s*(\d+)/i) || value.match(/\b([WLT])\b[^0-9]*(\d+)\s*[-–]\s*(\d+)/i);
   if (match) {
     const result=match[1].toUpperCase();
-    const scores=orientExplicitResultScores(result,match[2],match[3]);
-    return {status:"FINAL",...scores,result};
+    let teamScore=Number(match[2]), opponentScore=Number(match[3]);
+    // Some official school sites publish a W/L code beside a score pair that is
+    // ordered winner-first rather than reporting-team-first (for example W 1-2).
+    // Preserve the explicit result authority and orient the numeric pair to the
+    // reporting team before it reaches canonical record calculation.
+    const contradictsWin=result==="W" && teamScore<opponentScore;
+    const contradictsLoss=result==="L" && teamScore>opponentScore;
+    if (contradictsWin || contradictsLoss) [teamScore,opponentScore]=[opponentScore,teamScore];
+    return {status:"FINAL",teamScore,opponentScore,result};
   }
   const score = value.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
   if (score && /final/i.test(value)) {
@@ -107,13 +107,13 @@ export function normalizeSidearmRows(rows, source) {
     else if (new RegExp(`\\bvs\\.?\\s+(?:#\\d+\\s+)?${escapeRegExp(opponent)}`,"i").test(relation) || /^vs\b/i.test(cleanText(raw.opponentText))) homeAway="home";
     const parsed=parseResult(raw.result);
     const full=cleanText(raw.full);
-    const nonCount=/\b(exhibition|scrimmage|meet the cats|benefit game)\b/i.test(full);
+    const nonCount=/\b(exhibition|scrimmage|jamboree|meet the cats|benefit game)\b/i.test(full);
     const venue=cleanText(raw.location) || (homeAway==="home"?source.home_venue:"");
     events.push({
       nativeId:raw.nativeId || "", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,
       venue, locationText:venue, latitude:homeAway==="home"?source.home_latitude:null, longitude:homeAway==="home"?source.home_longitude:null,
       homeAway, conferenceGame:cleanText(raw.conference)?1:0, countsForRecord:nonCount?0:1,
-      ...parsed, notes:nonCount?full.match(/\b(Exhibition|Scrimmage|Meet the Cats|Benefit Game)\b/i)?.[0]||"":""
+      ...parsed, notes:nonCount?full.match(/\b(Exhibition|Scrimmage|Jamboree|Meet the Cats|Benefit Game)\b/i)?.[0]||"":""
     });
   }
   return stableKeys(events);
@@ -181,12 +181,12 @@ export function normalizeMascotRows(rows, source) {
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
     const result=parseResult(resultText);
-    const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition)\b/i.test(full);
+    const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition|jamboree)\b/i.test(full);
     events.push({
       nativeId:raw.nativeId||"", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,
       venue, locationText:venue, latitude:homeAway==="home"?source.home_latitude:null, longitude:homeAway==="home"?source.home_longitude:null,
       homeAway, conferenceGame:0, countsForRecord:nonCount?0:1, ...result,
-      notes:nonCount?full.match(/\b(Meet the Cats|Benefit Game|Scrimmage|Exhibition)\b/i)?.[0]||"":""
+      notes:nonCount?full.match(/\b(Meet the Cats|Benefit Game|Scrimmage|Exhibition|Jamboree)\b/i)?.[0]||"":""
     });
   }
   return stableKeys(events);
