@@ -31,6 +31,7 @@ function resolvedNearbyGame(row) {
   if (!row.canonical_event_id) {
     return {
       ...row,
+      conference_game:Number(row.effective_conference_game??row.conference_game??0),
       data_trust:row.data_trust||"SINGLE_SOURCE_LIVE",
       conflict_count:Number(row.conflict_count||0)
     };
@@ -58,7 +59,7 @@ function resolvedNearbyGame(row) {
     team_score:teamScore,
     opponent_score:opponentScore,
     result,
-    conference_game:Number(row.canonical_conference_game??row.conference_game??0),
+    conference_game:Number(row.effective_conference_game??row.canonical_conference_game??row.conference_game??0),
     data_trust:row.data_trust||"SINGLE_SOURCE_LIVE",
     conflict_count:Number(row.conflict_count||0)
   };
@@ -101,6 +102,23 @@ async function nearbyGames(request, env, url) {
       ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
       ce.conference_game AS canonical_conference_game,ce.trust_state AS data_trust,ce.conflict_count,
       hs.name AS canonical_home_name,aws.name AS canonical_away_name,
+      CASE
+        WHEN COALESCE(ce.conference_game,g.conference_game)=1 THEN 1
+        WHEN t.conference_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM teams ot
+          WHERE ot.active=1
+            AND ot.school_id=CASE
+              WHEN ce.id IS NOT NULL AND ce.home_school_id=t.school_id THEN ce.away_school_id
+              WHEN ce.id IS NOT NULL AND ce.away_school_id=t.school_id THEN ce.home_school_id
+              ELSE g.opponent_school_id
+            END
+            AND ot.sport=t.sport
+            AND ot.gender=t.gender
+            AND ot.season=t.season
+            AND ot.conference_id=t.conference_id
+        ) THEN 1
+        ELSE 0
+      END AS effective_conference_game,
       ROW_NUMBER() OVER (PARTITION BY COALESCE(g.canonical_event_id,g.id) ORDER BY src.authority_rank,src.source_priority,src.id) AS authority_row
     FROM games g
     JOIN teams t ON t.id=g.team_id AND t.active=1
@@ -145,7 +163,28 @@ async function scores(request, env, url) {
   const result=await env.DB.prepare(`
     SELECT ce.id AS canonical_event_id,ce.sport,ce.gender,ce.season,ce.scheduled_at,ce.scheduled_time_known,
       ce.venue,ce.location_text,ce.latitude,ce.longitude,ce.status,ce.home_score,ce.away_score,
-      ce.home_school_id,ce.away_school_id,ce.conference_game,ce.trust_state AS data_trust,ce.conflict_count,
+      ce.home_school_id,ce.away_school_id,
+      CASE
+        WHEN ce.conference_game=1 THEN 1
+        WHEN EXISTS (
+          SELECT 1
+          FROM teams ht
+          JOIN teams at ON at.school_id=ce.away_school_id
+            AND at.active=1
+            AND at.sport=ce.sport
+            AND at.gender=ce.gender
+            AND at.season=ce.season
+            AND at.conference_id=ht.conference_id
+          WHERE ht.school_id=ce.home_school_id
+            AND ht.active=1
+            AND ht.sport=ce.sport
+            AND ht.gender=ce.gender
+            AND ht.season=ce.season
+            AND ht.conference_id IS NOT NULL
+        ) THEN 1
+        ELSE 0
+      END AS conference_game,
+      ce.trust_state AS data_trust,ce.conflict_count,
       hs.name AS home_school_name,hs.mascot AS home_mascot,hs.logo_url AS home_logo_url,
       aws.name AS away_school_name,aws.mascot AS away_mascot,aws.logo_url AS away_logo_url
     FROM canonical_events ce
