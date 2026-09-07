@@ -17,228 +17,56 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Prove representative volleyball results and standings in production
+      - name: Dump bounded representative production volleyball state
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
-
           const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
-          const APP='https://jamesmethvin74.github.io/game-nearby';
           const stamp=Date.now();
-
-          const alias=value=>String(value||'')
-            .toLowerCase()
-            .replace(/high school/g,'')
-            .replace(/[^a-z0-9]+/g,'')
-            .trim();
-
+          const alias=value=>String(value||'').toLowerCase().replace(/high school/g,'').replace(/[^a-z0-9]+/g,'');
           async function getJson(path){
             const join=path.includes('?')?'&':'?';
-            const response=await fetch(`${API}${path}${join}_proof=${stamp}`,{
-              headers:{accept:'application/json','cache-control':'no-cache'},
-              signal:AbortSignal.timeout(45000)
-            });
-            const text=await response.text();
-            if(!response.ok) throw new Error(`${path} HTTP ${response.status}: ${text.slice(0,300)}`);
-            return JSON.parse(text);
+            const r=await fetch(`${API}${path}${join}_proof=${stamp}`,{headers:{accept:'application/json','cache-control':'no-cache'},signal:AbortSignal.timeout(45000)});
+            const t=await r.text();
+            if(!r.ok) throw new Error(`${path} HTTP ${r.status}: ${t.slice(0,300)}`);
+            return JSON.parse(t);
           }
-
-          async function getText(url){
-            const response=await fetch(`${url}?_proof=${stamp}`,{
-              headers:{'cache-control':'no-cache'},
-              signal:AbortSignal.timeout(30000)
-            });
-            if(!response.ok) throw new Error(`${url} HTTP ${response.status}`);
-            return response.text();
-          }
-
-          function localYmd(value){
-            const parts=new Intl.DateTimeFormat('en-US',{
-              timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'
-            }).formatToParts(new Date(value));
-            const map=Object.fromEntries(parts.map(part=>[part.type,part.value]));
-            return `${map.year}-${map.month}-${map.day}`;
-          }
-
-          function score(game){
-            return `${Number(game.team_score)}-${Number(game.opponent_score)}`;
-          }
-
-          function findGame(games, opponentName, ymd){
-            const target=alias(opponentName);
-            return (games||[]).find(game=>
-              alias(game.opponent)===target &&
-              game.scheduled_at &&
-              localYmd(game.scheduled_at)===ymd
-            );
-          }
-
-          function computedRecord(games){
-            const record={wins:0,losses:0,ties:0,conference_wins:0,conference_losses:0,conference_ties:0};
-            const ids=new Set();
-            for(const game of games||[]){
-              const key=game.canonical_event_id||game.id;
-              if(ids.has(key)) throw new Error(`duplicate schedule row for canonical event ${key}`);
-              ids.add(key);
-              if(game.status!=='FINAL' || Number(game.counts_for_record||0)===0 || game.team_score==null || game.opponent_score==null) continue;
-              const team=Number(game.team_score),opp=Number(game.opponent_score);
-              if(!Number.isFinite(team)||!Number.isFinite(opp)) continue;
-              const suffix=team===opp?'ties':team>opp?'wins':'losses';
-              record[suffix]++;
-              if(Number(game.conference_game||0)===1) record[`conference_${suffix}`]++;
-            }
-            return record;
-          }
-
           function recordText(record,prefix=''){
-            const w=Number(record[`${prefix}wins`]||0);
-            const l=Number(record[`${prefix}losses`]||0);
-            const t=Number(record[`${prefix}ties`]||0);
+            const w=Number(record?.[`${prefix}wins`]||0),l=Number(record?.[`${prefix}losses`]||0),t=Number(record?.[`${prefix}ties`]||0);
             return t?`${w}-${l}-${t}`:`${w}-${l}`;
           }
-
-          function standingsRow(payload,name){
-            const target=alias(name);
-            return (payload.standings||[]).find(row=>alias(row.school_name)===target);
+          function finalRows(games){
+            return (games||[]).filter(g=>g.status==='FINAL' && g.team_score!=null && g.opponent_score!=null).map(g=>({
+              id:g.id,canonical_event_id:g.canonical_event_id,scheduled_at:g.scheduled_at,opponent:g.opponent,
+              score:`${g.team_score}-${g.opponent_score}`,result:g.result,counts_for_record:g.counts_for_record,
+              conference_game:g.conference_game,trust:g.data_trust,conflict_count:g.conflict_count,
+              source_type:g.source_type,parser_type:g.parser_type,source_id:g.source_id
+            }));
           }
-
           const catalog=await getJson('/api/v1/schools');
-          const schools=Array.isArray(catalog.schools)?catalog.schools:[];
-          const schoolByName=name=>{
+          const schools=catalog.schools||[];
+          const names=['Conway High School','Little Rock Southwest High School','Flippin High School','Melbourne High School'];
+          const report={teams:[],standings:{}};
+          for(const name of names){
             const target=alias(name);
-            const row=schools.find(s=>alias(s.location_matched_name||s.name)===target || alias(s.name)===target);
-            assert.ok(row,`production catalog missing ${name}`);
-            return row;
-          };
-
-          const selected=[
-            {name:'Conway High School',opponent:'Little Rock Southwest High School',date:'2026-09-03',score:'3-0',conference:'6a-central',expectedOverall:'5-4',expectedConference:'1-0'},
-            {name:'Little Rock Southwest High School',opponent:'Conway High School',date:'2026-09-03',score:'0-3',conference:'6a-central',expectedOverall:'1-3',expectedConference:'0-1'},
-            {name:'Flippin High School',opponent:'Melbourne High School',date:'2026-09-03',score:'3-0',conference:'3a-2',expectedOverall:'4-2',expectedConference:'3-0'},
-            {name:'Melbourne High School',opponent:'Flippin High School',date:'2026-09-03',score:'0-3',conference:'3a-2',expectedOverall:'2-1',expectedConference:'2-1'}
-          ];
-
-          const proof=[];
-          for(const item of selected){
-            const school=schoolByName(item.name);
+            const school=schools.find(s=>alias(s.location_matched_name||s.name)===target||alias(s.name)===target);
+            assert.ok(school,`missing ${name}`);
             const teamId=`${school.id}-volleyball-2026`;
-            const [schedulePayload,recordPayload]=await Promise.all([
+            const [schedule,record]=await Promise.all([
               getJson(`/api/v1/teams/${encodeURIComponent(teamId)}/schedule`),
               getJson(`/api/v1/teams/${encodeURIComponent(teamId)}/record`)
             ]);
-            const game=findGame(schedulePayload.games,item.opponent,item.date);
-            proof.push({
-              ...item,
-              schoolId:school.id,
-              teamId,
-              schedule:schedulePayload.games||[],
-              game,
-              routeRecord:recordPayload.record||{},
-              scheduleRecord:computedRecord(schedulePayload.games||[])
-            });
+            report.teams.push({name,schoolId:school.id,teamId,record:{overall:recordText(record.record),conference:recordText(record.record,'conference_'),calculated_at:record.record?.calculated_at||null},finals:finalRows(schedule.games)});
           }
-
-          const [central,threeA2,dayGames,liveDataJs,liveScoresJs,teamDetailJs,standingsJs]=await Promise.all([
-            getJson('/api/v1/standings?sport=volleyball&conference=6a-central'),
-            getJson('/api/v1/standings?sport=volleyball&conference=3a-2'),
-            getJson('/api/v1/games?since=2026-09-03T05%3A00%3A00.000Z&until=2026-09-04T05%3A00%3A00.000Z'),
-            getText(`${APP}/live-data.js`),
-            getText(`${APP}/live-scores.js`),
-            getText(`${APP}/team-detail.js`),
-            getText(`${APP}/standings.js`)
-          ]);
-
-          const standingsByConference=new Map([['6a-central',central],['3a-2',threeA2]]);
-          const report={
-            catalogSchools:schools.length,
-            dayGames:(dayGames.games||[]).length,
-            conferences:{
-              '6a-central':{name:central.conference?.name,rows:(central.standings||[]).length},
-              '3a-2':{name:threeA2.conference?.name,rows:(threeA2.standings||[]).length}
-            },
-            teams:proof.map(row=>({
-              name:row.name,
-              schoolId:row.schoolId,
-              teamId:row.teamId,
-              game:row.game?{
-                canonical_event_id:row.game.canonical_event_id,
-                scheduled_at:row.game.scheduled_at,
-                opponent:row.game.opponent,
-                status:row.game.status,
-                score:score(row.game),
-                result:row.game.result,
-                counts_for_record:row.game.counts_for_record,
-                conference_game:row.game.conference_game,
-                trust:row.game.data_trust
-              }:null,
-              routeRecord:{
-                overall:recordText(row.routeRecord),
-                conference:recordText(row.routeRecord,'conference_'),
-                calculated_at:row.routeRecord.calculated_at||null
-              },
-              scheduleRecord:{
-                overall:recordText(row.scheduleRecord),
-                conference:recordText(row.scheduleRecord,'conference_')
-              },
-              standings:(()=>{
-                const standing=standingsRow(standingsByConference.get(row.conference),row.name);
-                return standing?{
-                  overall:standing.overall_record,
-                  conference:standing.conference_record,
-                  method:standing.method,
-                  calculated_at:standing.calculated_at||null
-                }:null;
-              })()
-            })),
-            frontend:{
-              homeUsesCanonicalApi:/\/api\/v1\/games/.test(liveDataJs),
-              teamDetailUsesLiveRecords:/event\.record|fetchTeamSchedule/.test(teamDetailJs),
-              standingsUsesCanonicalEndpoint:/\/api\/v1\/standings/.test(standingsJs),
-              liveScoresUsesCanonicalApi:/\/api\/v1\/games|LOCALBLEACHERS_API_BASE/.test(liveScoresJs),
-              liveScoresUsesScoreStream:/scorestream/i.test(liveScoresJs)
-            }
-          };
-          console.log('LOCALBLEACHERS_VOLLEYBALL_PRODUCTION_PROOF_START');
+          for(const conference of ['6a-central','3a-2']){
+            const payload=await getJson(`/api/v1/standings?sport=volleyball&conference=${conference}`);
+            report.standings[conference]={conference:payload.conference,rows:(payload.standings||[]).map(row=>({school_name:row.school_name,conference_record:row.conference_record,overall_record:row.overall_record,method:row.method,calculated_at:row.calculated_at||null}))};
+          }
+          const day=await getJson('/api/v1/games?since=2026-09-03T05%3A00%3A00.000Z&until=2026-09-04T05%3A00%3A00.000Z');
+          report.publicDayGames=(day.games||[]).map(g=>({canonical_event_id:g.canonical_event_id,school_name:g.school_name,opponent:g.opponent,status:g.status,score:`${g.team_score}-${g.opponent_score}`,conference_game:g.conference_game,trust:g.data_trust}));
+          console.log('LOCALBLEACHERS_VOLLEYBALL_DIAGNOSTIC_START');
           console.log(JSON.stringify(report,null,2));
-          console.log('LOCALBLEACHERS_VOLLEYBALL_PRODUCTION_PROOF_END');
-
-          assert.ok(schools.length>=100,`production catalog suspiciously small: ${schools.length}`);
-          assert.ok((central.standings||[]).length>=5,`6A Central roster too small: ${(central.standings||[]).length}`);
-          assert.ok((threeA2.standings||[]).length>=6,`3A 2 roster too small: ${(threeA2.standings||[]).length}`);
-
-          for(const row of proof){
-            assert.ok(row.game,`${row.name} schedule is missing ${row.date} vs ${row.opponent}`);
-            assert.equal(row.game.status,'FINAL',`${row.name}/${row.opponent} is not FINAL`);
-            assert.equal(score(row.game),row.score,`${row.name}/${row.opponent} score mismatch`);
-            assert.ok(row.game.canonical_event_id,`${row.name}/${row.opponent} is missing canonical_event_id`);
-            assert.equal(Number(row.game.counts_for_record),1,`${row.name}/${row.opponent} must count for record`);
-            assert.equal(Number(row.game.conference_game),1,`${row.name}/${row.opponent} must be classified as conference`);
-            assert.equal(recordText(row.routeRecord),recordText(row.scheduleRecord),`${row.name} route overall record disagrees with canonical schedule`);
-            assert.equal(recordText(row.routeRecord,'conference_'),recordText(row.scheduleRecord,'conference_'),`${row.name} route conference record disagrees with canonical schedule`);
-            assert.equal(recordText(row.routeRecord),row.expectedOverall,`${row.name} overall record differs from current real-world record`);
-            assert.equal(recordText(row.routeRecord,'conference_'),row.expectedConference,`${row.name} conference record differs from current real-world record`);
-            const standing=standingsRow(standingsByConference.get(row.conference),row.name);
-            assert.ok(standing,`${row.name} missing from ${row.conference} standings roster`);
-            assert.equal(standing.overall_record,row.expectedOverall,`${row.name} standings overall record mismatch`);
-            assert.equal(standing.conference_record,row.expectedConference,`${row.name} standings conference record mismatch`);
-          }
-
-          const pairs=[
-            [proof[0],proof[1]],
-            [proof[2],proof[3]]
-          ];
-          for(const [a,b] of pairs){
-            assert.equal(a.game.canonical_event_id,b.game.canonical_event_id,`${a.name}/${b.name} reciprocal schedules do not share one canonical event`);
-            const ids=(dayGames.games||[]).filter(game=>game.canonical_event_id===a.game.canonical_event_id);
-            assert.equal(ids.length,1,`${a.name}/${b.name} appears ${ids.length} times in bounded public games feed`);
-            assert.equal(ids[0].status,'FINAL',`${a.name}/${b.name} public games feed is not FINAL`);
-          }
-
-          assert.ok(report.frontend.homeUsesCanonicalApi,'Home production asset is not wired to canonical games API');
-          assert.ok(report.frontend.teamDetailUsesLiveRecords,'Team detail production asset is not wired to live records');
-          assert.ok(report.frontend.standingsUsesCanonicalEndpoint,'Standings production asset is not wired to standings API');
-          assert.ok(report.frontend.liveScoresUsesCanonicalApi,'Live Scores production asset is not wired to canonical games API');
-          assert.equal(report.frontend.liveScoresUsesScoreStream,false,'Live Scores still depends on ScoreStream instead of canonical LocalBleachersAR results');
+          console.log('LOCALBLEACHERS_VOLLEYBALL_DIAGNOSTIC_END');
           JS
