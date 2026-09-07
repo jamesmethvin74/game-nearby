@@ -100,4 +100,12 @@ test("secondary statewide score pages repair a stale DragonFly final and create 
   const fallbackSources=db.prepare("SELECT id,source_type,parser_type,authority_rank,enabled FROM sources WHERE id LIKE 'maxpreps-volleyball-results:%' ORDER BY id").all();
   assert.equal(fallbackSources.length,3);
   assert.ok(fallbackSources.every(row=>row.source_type==='secondary'&&row.parser_type==='maxpreps-scores'&&row.authority_rank===80&&row.enabled===0));
+
+  const second=await runMaxPrepsVolleyballResultFallback(env,{
+    dates:["2026-08-27","2026-08-29"],fetchFn,now:new Date("2026-09-07T21:05:00.000Z")
+  });
+  assert.equal(second.status,"NOT_MODIFIED");
+  assert.equal(second.matchedFinals,0);
+  assert.equal(second.touchedTeams,0);
+  assert.equal(second.writes,0);
 });
