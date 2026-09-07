@@ -37,7 +37,7 @@ function canonicalCandidate(event, team) {
     status: event.status,
     team_score: isHome ? event.home_score : event.away_score,
     opponent_score: isHome ? event.away_score : event.home_score,
-    conference_game: Number(event.conference_game || 0),
+    conference_game: Number(event.effective_conference_game ?? event.conference_game ?? 0),
     counts_for_record: Number(event.counts_for_record ?? 1),
     canonical_event_id: event.id,
     data_trust: event.trust_state || "SINGLE_SOURCE_LIVE",
@@ -54,7 +54,8 @@ function rawCandidate(game, team) {
     sport: team.sport,
     gender: team.gender,
     opponent: game.opponent_name || game.opponent || game.opponent_school_id || "Opponent",
-    opponent_school_id: game.opponent_school_id || null
+    opponent_school_id: game.opponent_school_id || null,
+    conference_game: Number(game.effective_conference_game ?? game.conference_game ?? 0)
   };
 }
 
@@ -97,15 +98,31 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
   // IMPORTANT: when rebuilding one/few teams, keep the restriction inside SQL.
   // The old implementation loaded every FINAL canonical/raw result statewide and
   // filtered in JavaScript, multiplying D1 rows_read once per refreshed source.
+  // DragonFly does not currently publish a conference flag on Arkansas volleyball
+  // events. When both varsity teams already carry the same explicit conference_id,
+  // that shared local catalog membership is sufficient to classify the final for
+  // record purposes without mutating the canonical event or fetching another feed.
   let canonicalQuery = `
     SELECT DISTINCT ce.*,
       cem.reporting_team_id,
       hs.name AS home_name,
       aws.name AS away_name,
-      1 AS counts_for_record
+      1 AS counts_for_record,
+      CASE
+        WHEN ce.conference_game=1 THEN 1
+        WHEN rt.conference_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM teams ot
+          WHERE ot.active=1
+            AND ot.school_id=CASE WHEN ce.home_school_id=rt.school_id THEN ce.away_school_id ELSE ce.home_school_id END
+            AND ot.sport=rt.sport AND ot.gender=rt.gender AND ot.season=rt.season
+            AND ot.conference_id=rt.conference_id
+        ) THEN 1
+        ELSE 0
+      END AS effective_conference_game
     FROM canonical_events ce
     JOIN canonical_event_members cem ON cem.canonical_event_id=ce.id
     JOIN games mg ON mg.id=cem.game_id AND mg.team_id=cem.reporting_team_id
+    JOIN teams rt ON rt.id=cem.reporting_team_id
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
     LEFT JOIN schools aws ON aws.id=ce.away_school_id
     WHERE ce.status='FINAL'
@@ -120,9 +137,20 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
   const canonicals = canonicalResult.results || [];
 
   let rawQuery = `
-    SELECT g.*,src.source_type,src.parser_type,os.name AS opponent_name
+    SELECT g.*,src.source_type,src.parser_type,os.name AS opponent_name,
+      CASE
+        WHEN g.conference_game=1 THEN 1
+        WHEN rt.conference_id IS NOT NULL AND g.opponent_school_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM teams ot
+          WHERE ot.active=1 AND ot.school_id=g.opponent_school_id
+            AND ot.sport=rt.sport AND ot.gender=rt.gender AND ot.season=rt.season
+            AND ot.conference_id=rt.conference_id
+        ) THEN 1
+        ELSE 0
+      END AS effective_conference_game
     FROM games g
     JOIN sources src ON src.id=g.source_id
+    JOIN teams rt ON rt.id=g.team_id
     LEFT JOIN schools os ON os.id=g.opponent_school_id
     WHERE g.canonical_event_id IS NULL
       AND g.status='FINAL'
