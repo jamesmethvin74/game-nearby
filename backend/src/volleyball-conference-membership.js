@@ -13,12 +13,14 @@ function localConferenceId(publishedId) {
 function uniqueLocalTeamMap(localTeams=[]) {
   const byName=new Map();
   for(const team of localTeams) {
-    const key=normalizeSchoolAlias(team.school_name||team.name);
-    if(!key) continue;
-    if(!byName.has(key)) byName.set(key,[]);
-    byName.get(key).push(team);
+    for(const rawName of [team.school_name,team.location_matched_name]) {
+      const key=normalizeSchoolAlias(rawName);
+      if(!key) continue;
+      if(!byName.has(key)) byName.set(key,new Map());
+      byName.get(key).set(team.team_id,team);
+    }
   }
-  return byName;
+  return new Map([...byName].map(([key,teams])=>[key,[...teams.values()]]));
 }
 
 export function buildVolleyballConferenceMembership({conferences=[],standingsByConference=new Map(),localTeams=[]}={}) {
@@ -48,7 +50,7 @@ export function buildVolleyballConferenceMembership({conferences=[],standingsByC
       candidates.get(team.team_id).push({team_id:team.team_id,school_id:team.school_id,conference_id:conferenceId,conference_name:conference.name});
       matchedHere++;
     }
-    if(matchedHere>0) conferenceRows.push({id:conferenceId,name:conference.name});
+    if(matchedHere>0) conferenceRows.push({id:conferenceId,name:conference.name,source_url:conference.source_url||null});
   }
 
   const assignments=[];
@@ -106,7 +108,7 @@ async function fetchAllPublishedVolleyballConferences(fetchFn) {
 async function loadLocalVolleyballTeams(env) {
   const result=await env.DB.prepare(`
     SELECT t.id AS team_id,t.school_id,t.conference_id,
-      COALESCE(NULLIF(s.location_matched_name,''),s.name) AS school_name
+      s.name AS school_name,s.location_matched_name
     FROM teams t JOIN schools s ON s.id=t.school_id
     WHERE t.active=1 AND t.sport=? AND t.gender=? AND t.season=?
       AND s.level='high-school' AND s.catalog_scope='local'
@@ -119,17 +121,19 @@ function conferenceUpsertStatement(env,conferences,now) {
     WITH payload AS (
       SELECT
         json_extract(value,'$.id') AS id,
-        json_extract(value,'$.name') AS name
+        json_extract(value,'$.name') AS name,
+        json_extract(value,'$.source_url') AS source_url
       FROM json_each(?)
     )
-    INSERT INTO conferences(id,name,classification,standings_method,coverage_complete,updated_at)
-    SELECT id,name,'Arkansas high school volleyball','published',0,?
+    INSERT INTO conferences(id,name,classification,standings_method,coverage_complete,source_url,updated_at)
+    SELECT id,name,'Arkansas high school volleyball','published',0,source_url,?
     FROM payload WHERE true
     ON CONFLICT(id) DO UPDATE SET
       name=excluded.name,
       classification=excluded.classification,
       standings_method=excluded.standings_method,
       coverage_complete=0,
+      source_url=COALESCE(excluded.source_url,conferences.source_url),
       updated_at=excluded.updated_at
   `).bind(JSON.stringify(conferences),now);
 }
@@ -191,8 +195,8 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
     unmatched:built.unmatched.length,
     ambiguous:built.ambiguous,
     d1Statements:2,
-    conferenceWrites:Number(results?.[0]?.meta?.changes||0),
-    teamWrites:Number(results?.[1]?.meta?.changes||0)
+    conferenceWrites:Number(results?.[0]?.meta?.changes||results?.[0]?.changes||0),
+    teamWrites:Number(results?.[1]?.meta?.changes||results?.[1]?.changes||0)
   };
 }
 
