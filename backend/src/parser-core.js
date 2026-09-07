@@ -11,13 +11,24 @@ export function slug(value) {
   return cleanText(value).toLowerCase().replace(/&/g," and ").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 }
 
+function orientExplicitResultScores(result, firstScore, secondScore) {
+  const teamScore=Number(firstScore), opponentScore=Number(secondScore);
+  if (result==="W" && teamScore<opponentScore) return {teamScore:opponentScore,opponentScore:teamScore};
+  if (result==="L" && teamScore>opponentScore) return {teamScore:opponentScore,opponentScore:teamScore};
+  return {teamScore,opponentScore};
+}
+
 export function parseResult(text) {
   const value = cleanText(text);
   if (!value || /^-\s*-?$/.test(value)) return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
   if (/cancel(?:ed|led)/i.test(value)) return {status:"CANCELED",teamScore:null,opponentScore:null,result:null};
   if (/postpon/i.test(value)) return {status:"POSTPONED",teamScore:null,opponentScore:null,result:null};
   const match = value.match(/\b([WLT])\s*,?\s*(\d+)\s*[-–]\s*(\d+)/i) || value.match(/\b([WLT])\b[^0-9]*(\d+)\s*[-–]\s*(\d+)/i);
-  if (match) return {status:"FINAL",teamScore:Number(match[2]),opponentScore:Number(match[3]),result:match[1].toUpperCase()};
+  if (match) {
+    const result=match[1].toUpperCase();
+    const scores=orientExplicitResultScores(result,match[2],match[3]);
+    return {status:"FINAL",...scores,result};
+  }
   const score = value.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
   if (score && /final/i.test(value)) {
     const teamScore=Number(score[1]), opponentScore=Number(score[2]);
