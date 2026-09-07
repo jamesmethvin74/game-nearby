@@ -13,20 +13,21 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Capture current Arkansas volleyball conference URLs
+      - name: Prove production 6A Central standings source
         shell: bash
         run: |
           set -euo pipefail
-          REPO='https://raw.githubusercontent.com/jamesmethvin74/game-nearby/feature/live-sports-pipeline-m1'
-          mkdir -p diag
-          curl -fsSL "$REPO/backend/src/published-standings.js" -o diag/published-standings.js
-          node --input-type=module <<'NODE'
-          import { parseConferenceLinks } from './diag/published-standings.js';
-          const url='https://www.maxpreps.com/ar/volleyball/';
-          const r=await fetch(url,{headers:{'user-agent':'LocalBleachersAR-diagnostic/1.0 (+https://github.com/jamesmethvin74/game-nearby)','accept':'text/html,application/xhtml+xml'}});
-          if(!r.ok) throw new Error(`directory HTTP ${r.status}`);
-          const html=await r.text();
-          const links=parseConferenceLinks(html,{sport:'volleyball'});
-          console.log('COUNT='+links.length);
-          console.log('CONFERENCE_URLS='+JSON.stringify(Object.fromEntries(links.map(x=>[x.id,{name:x.name,url:x.source_url}]))));
+          API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=6a-central" -o standings.json
+          node <<'NODE'
+          const p=require('./standings.json');
+          const rows=Array.isArray(p.standings)?p.standings:[];
+          console.log('CONFERENCE='+JSON.stringify(p.conference||{}));
+          console.log('SOURCE_URL='+(p.source_url||p.conference?.source_url||''));
+          console.log('ROWS='+rows.length);
+          console.log('CONWAY='+JSON.stringify(rows.find(r=>/^conway$/i.test(String(r.school_name||'')))||null));
+          console.log('SOUTHWEST='+JSON.stringify(rows.find(r=>/little rock southwest/i.test(String(r.school_name||'')))||null));
+          if(rows.length<5) throw new Error(`expected full 6A Central standings, got ${rows.length}`);
+          if(!rows.some(r=>/^conway$/i.test(String(r.school_name||'')))) throw new Error('Conway missing');
+          if(!rows.some(r=>/little rock southwest/i.test(String(r.school_name||'')))) throw new Error('Southwest missing');
           NODE
