@@ -1,0 +1,32 @@
+name: Volleyball conference membership proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/volleyball-conference-membership-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Read bounded production team metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const teams=['conway-volleyball-2026','df-bkc4ux-volleyball-2026','df-qyu4f7-volleyball-2026','df-x7qmns-volleyball-2026'];
+          for(const id of teams){
+            const r=await fetch(`${API}/api/v1/teams/${encodeURIComponent(id)}/record`,{headers:{accept:'application/json','cache-control':'no-cache','x-localbleachers-diagnostic':'conference-membership'}});
+            console.log(`TEAM=${id} HTTP=${r.status}`);
+            if(r.ok){
+              const p=await r.json();
+              console.log(JSON.stringify({team_id:id,school_id:p.record?.school_id||null,conference_id:p.record?.conference_id||null,conference_name:p.record?.conference_name||null,wins:p.record?.wins,losses:p.record?.losses,conference_wins:p.record?.conference_wins,conference_losses:p.record?.conference_losses}));
+            }
+          }
+          NODE
