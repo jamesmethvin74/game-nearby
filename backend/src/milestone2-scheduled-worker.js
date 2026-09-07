@@ -12,7 +12,6 @@ import { runResilientHootensStatewideResults } from "./hootens-resilient-results
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
-import { runApprovedVolleyballProductionConvergence } from "./approved-volleyball-production-convergence.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -60,9 +59,6 @@ async function runCatalogMaintenance(env){
   }
   console.log("weekly certified DragonFly catalogs",catalogs);
 
-  // Conference membership is catalog data, not live-result data. Refresh it once
-  // during weekly maintenance after the certified team catalog exists and before
-  // statewide collection rebuilds records from those memberships.
   try {
     const membership=await syncPublishedVolleyballConferenceMembership(env);
     console.log("weekly published volleyball conference membership",{
@@ -192,69 +188,13 @@ async function runMaxPrepsVolleyballFallbackPass({env,plan,when}){
   }
 }
 
-async function refreshSourceIdsThroughCore(env,ctx,sourceIds,reason){
-  if(!env.REFRESH_TOKEN) throw new Error("REFRESH_TOKEN is not configured for bounded internal source refresh");
-  const scoped=[...new Set((sourceIds||[]).map(value=>String(value||"").trim()).filter(Boolean))];
-  if(!scoped.length || scoped.length>16) throw new Error(`invalid bounded internal source scope ${scoped.length}`);
-
-  // Parser behavior changed while Conway's upstream HTML may be byte-identical.
-  // Clear conditional validators only for the explicitly approved source so the
-  // body is fetched and reparsed instead of a 304 preserving stale parsed rows.
-  await env.DB.prepare(`
-    UPDATE sources SET etag=NULL,last_modified=NULL
-    WHERE id IN (SELECT value FROM json_each(?))
-      AND (etag IS NOT NULL OR last_modified IS NOT NULL)
-  `).bind(JSON.stringify(scoped)).run();
-
-  const request=new Request("https://localbleachers.internal/api/v1/refresh",{
-    method:"POST",
-    headers:{
-      "accept":"application/json",
-      "content-type":"application/json",
-      "x-refresh-token":String(env.REFRESH_TOKEN)
-    },
-    body:JSON.stringify({sourceIds:scoped})
-  });
-  const response=await core.fetch(request,env,ctx);
-  const payload=await response.json().catch(()=>({}));
-  if(!response.ok) throw new Error(`bounded internal source refresh HTTP ${response.status}: ${JSON.stringify(payload)}`);
-  console.log("bounded internal source refresh",{reason,sourceIds:scoped,outcomes:payload?.outcomes||[]});
-  return payload;
-}
-
-async function runApprovedProductionConvergence(env,ctx,when){
-  try {
-    const result=await runApprovedVolleyballProductionConvergence(env,{
-      now:when,
-      refreshSourceIds:(sourceIds,reason)=>refreshSourceIdsThroughCore(env,ctx,sourceIds,reason)
-    });
-    console.log("approved volleyball production convergence",{
-      status:result.status,
-      stateId:result.stateId,
-      completedAt:result.completedAt||result.checkedAt||null,
-      checks:result.checks||null
-    });
-    return result;
-  } catch(error) {
-    const message=String(error?.message||error);
-    console.error("approved volleyball production convergence failed",message);
-    return {status:"FAILURE",error:message};
-  }
-}
-
 async function runScheduledPlan(controller,env,ctx){
   const scheduledTime=Number(controller?.scheduledTime);
   const when=Number.isFinite(scheduledTime)?new Date(scheduledTime):new Date();
-
-  // Explicitly approved one-time production convergence. It is internally scoped,
-  // idempotent, and records completion before becoming a no-op. This hook is removed
-  // after live proof so normal cron retains no permanent repair overhead.
-  const approvedConvergence=await runApprovedProductionConvergence(env,ctx,when);
-
   const plan=collectionPlanAt(when);
   if (!plan) {
     console.log("collection cadence tick skipped",{scheduledAt:when.toISOString()});
-    return {status:"SKIPPED",approvedConvergence};
+    return {status:"SKIPPED"};
   }
 
   console.log("Milestone 2 collection cadence plan",{scheduledAt:when.toISOString(),...plan});
@@ -268,27 +208,20 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
-  // DragonFly remains the first authority. The semantic probe is zero-write when
-  // unchanged; the MaxPreps pass runs second and only persists finals that remain
-  // missing or conflicting after DragonFly.
   const volleyballLiveResults=await runVolleyballLiveResultsPass({env,plan,when});
   const maxPrepsVolleyballResults=await runMaxPrepsVolleyballFallbackPass({env,plan,when});
 
-  // Statewide authorities run first. If they resolve a final, the official-school
-  // selector sees that game as no longer SCHEDULED and skips the redundant fetch.
-  // During live volleyball windows the fallback is volleyball-only and capped at
-  // 64 configured official result sources rather than using the football-sized sweep.
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,approvedConvergence,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
+    if (scoped) return {...scoped,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,approvedConvergence,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,coreResult:result??null};
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,approvedConvergence,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
 }
 
 export default {
