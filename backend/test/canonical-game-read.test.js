@@ -27,8 +27,11 @@ test("canonical nearby row uses canonical venue/result and effective conference 
   assert.equal(game.conference_game,1);
 });
 
-test("canonical scores derives conference status from shared explicit team membership",()=>{
+test("canonical read SQL keeps reconciled games visible even after statewide collection sources disable",()=>{
   const source=fs.readFileSync(new URL("../src/canonical-game-read-worker.js",import.meta.url),"utf8");
+  assert.match(source,/g\.canonical_event_id IS NOT NULL OR src\.enabled=1/);
+  assert.match(source,/JOIN sources src ON src\.id=g\.source_id\n/);
+  assert.doesNotMatch(source,/JOIN sources src ON src\.id=g\.source_id AND src\.enabled=1/);
   assert.match(source,/END AS conference_game/);
   assert.match(source,/at\.conference_id=ht\.conference_id/);
   assert.match(source,/ht\.conference_id IS NOT NULL/);
