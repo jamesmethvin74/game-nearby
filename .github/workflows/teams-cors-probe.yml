@@ -13,29 +13,20 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect production volleyball identities
+      - name: Capture current Arkansas volleyball conference URLs
         shell: bash
         run: |
           set -euo pipefail
-          API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
-          curl -fsS --max-time 45 "$API/api/v1/schools" -o schools.json
-          for id in \
-            df-bkc4ux-volleyball-2026 \
-            df-qyu4f7-volleyball-2026 \
-            df-wgx266-volleyball-2026 \
-            df-sz3b5e-volleyball-2026; do
-            code=$(curl -sS --max-time 45 -o "${id}.json" -w '%{http_code}' "$API/api/v1/teams/$id" || true)
-            echo "$id HTTP=$code"
-          done
-          node <<'NODE'
-          const fs=require('fs');
-          const schools=(JSON.parse(fs.readFileSync('schools.json','utf8')).schools||[]);
-          for(const [label,id] of [['Southwest','df-bkc4ux'],['Flippin','df-qyu4f7'],['Bergman','df-wgx266'],['Cotter','df-sz3b5e']]){
-            const s=schools.find(x=>x.id===id);
-            console.log(label+'_SCHOOL='+JSON.stringify(s&&{id:s.id,name:s.name,location_matched_name:s.location_matched_name,catalog_scope:s.catalog_scope,level:s.level,team_count:s.team_count}));
-          }
-          for(const id of ['df-bkc4ux-volleyball-2026','df-qyu4f7-volleyball-2026','df-wgx266-volleyball-2026','df-sz3b5e-volleyball-2026']){
-            try { const p=JSON.parse(fs.readFileSync(`${id}.json`,'utf8')); console.log(id+'='+JSON.stringify({team:p.team,record:p.record})); }
-            catch(e){ console.log(id+'_PARSE_ERROR='+e.message); }
-          }
+          REPO='https://raw.githubusercontent.com/jamesmethvin74/game-nearby/feature/live-sports-pipeline-m1'
+          mkdir -p diag
+          curl -fsSL "$REPO/backend/src/published-standings.js" -o diag/published-standings.js
+          node --input-type=module <<'NODE'
+          import { parseConferenceLinks } from './diag/published-standings.js';
+          const url='https://www.maxpreps.com/ar/volleyball/';
+          const r=await fetch(url,{headers:{'user-agent':'LocalBleachersAR-diagnostic/1.0 (+https://github.com/jamesmethvin74/game-nearby)','accept':'text/html,application/xhtml+xml'}});
+          if(!r.ok) throw new Error(`directory HTTP ${r.status}`);
+          const html=await r.text();
+          const links=parseConferenceLinks(html,{sport:'volleyball'});
+          console.log('COUNT='+links.length);
+          console.log('CONFERENCE_URLS='+JSON.stringify(Object.fromEntries(links.map(x=>[x.id,{name:x.name,url:x.source_url}]))));
           NODE
