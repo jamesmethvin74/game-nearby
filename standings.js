@@ -174,11 +174,13 @@
     favoritesCount.textContent = `${favorites.length} saved`;
     favoritesEmpty.hidden = favorites.length > 0;
     favoritesGrid.hidden = favorites.length === 0;
-    favoritesGrid.innerHTML = favorites.map(item => {
+    favoritesGrid.innerHTML = favorites.map((item, index) => {
       const key = favoriteKey(item.sport, item.conferenceId);
       const sportName = itemLabel(sports, item.sport, titleFromSlug(item.sport));
       const conferenceName = item.conferenceName || titleFromSlug(item.conferenceId);
       const active = key === currentFavoriteKey();
+      const first = index === 0;
+      const last = index === favorites.length - 1;
       return `
         <article class="favorite-standings-card${active ? " active" : ""}">
           <button type="button" class="favorite-standings-open" data-favorite-open="${escapeHtml(key)}">
@@ -186,7 +188,11 @@
             <strong>${escapeHtml(conferenceName)}</strong>
             <span class="favorite-standings-view">View standings →</span>
           </button>
-          <button type="button" class="favorite-standings-remove" data-favorite-remove="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(conferenceName)} ${escapeHtml(sportName)} from favorites">★</button>
+          <div class="favorite-standings-actions" aria-label="Favorite controls">
+            <button type="button" class="favorite-standings-remove" data-favorite-remove="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(conferenceName)} ${escapeHtml(sportName)} from favorites">★</button>
+            <button type="button" class="favorite-standings-move" data-favorite-move-up="${escapeHtml(key)}" aria-label="Move ${escapeHtml(conferenceName)} ${escapeHtml(sportName)} up"${first ? " disabled" : ""}>↑</button>
+            <button type="button" class="favorite-standings-move" data-favorite-move-down="${escapeHtml(key)}" aria-label="Move ${escapeHtml(conferenceName)} ${escapeHtml(sportName)} down"${last ? " disabled" : ""}>↓</button>
+          </div>
         </article>`;
     }).join("");
     updateFavoriteToggle();
@@ -346,6 +352,16 @@
     renderFavorites();
   }
 
+  function moveFavorite(key, direction) {
+    const index = favorites.findIndex(item => favoriteKey(item.sport, item.conferenceId) === key);
+    if (index < 0) return;
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= favorites.length) return;
+    [favorites[index], favorites[nextIndex]] = [favorites[nextIndex], favorites[index]];
+    saveFavorites();
+    renderFavorites();
+  }
+
   function setThemeIcon() {
     if (!themeToggle) return;
     const dark = document.documentElement.dataset.theme === "dark";
@@ -386,6 +402,20 @@
       event.preventDefault();
       event.stopPropagation();
       removeFavorite(remove.dataset.favoriteRemove);
+      return;
+    }
+    const moveUp = event.target.closest("[data-favorite-move-up]");
+    if (moveUp) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveFavorite(moveUp.dataset.favoriteMoveUp, -1);
+      return;
+    }
+    const moveDown = event.target.closest("[data-favorite-move-down]");
+    if (moveDown) {
+      event.preventDefault();
+      event.stopPropagation();
+      moveFavorite(moveDown.dataset.favoriteMoveDown, 1);
       return;
     }
     const open = event.target.closest("[data-favorite-open]");

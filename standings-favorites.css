@@ -97,7 +97,7 @@
   border: 0;
   background: transparent;
   color: inherit;
-  padding: 13px 42px 12px 13px;
+  padding: 13px 92px 12px 13px;
   text-align: left;
 }
 
@@ -123,19 +123,68 @@
   font-weight: 800;
 }
 
-.favorite-standings-remove {
+.favorite-standings-actions {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 32px;
-  height: 32px;
+  bottom: 8px;
+  width: 74px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.favorite-standings-actions button {
+  pointer-events: auto;
+}
+
+.favorite-standings-remove,
+.favorite-standings-move {
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 10px;
+  font-weight: 900;
+}
+
+.favorite-standings-remove {
   background: rgba(245, 158, 11, .12);
   color: #b7791f;
   font-size: 1rem;
+}
+
+.favorite-standings-actions::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 74px;
+  height: 34px;
+  pointer-events: none;
+}
+
+.favorite-standings-move {
+  position: absolute;
+  bottom: 0;
+  background: rgba(148, 163, 184, .10);
+  color: inherit;
+  font-size: 1rem;
+}
+
+.favorite-standings-move[data-favorite-move-up] {
+  right: 40px;
+}
+
+.favorite-standings-move[data-favorite-move-down] {
+  right: 0;
+}
+
+.favorite-standings-move:disabled {
+  opacity: .28;
 }
 
 @media (max-width: 430px) {
@@ -155,10 +204,6 @@
 
   .favorite-standings-grid {
     grid-template-columns: 1fr;
-  }
-
-  .favorite-standings-open {
-    min-height: 88px;
   }
 }
 
