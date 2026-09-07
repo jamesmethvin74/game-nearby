@@ -11,6 +11,7 @@ import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-
 import { runResilientHootensStatewideResults } from "./hootens-resilient-results.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
+import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -57,6 +58,26 @@ async function runCatalogMaintenance(env){
     }
   }
   console.log("weekly certified DragonFly catalogs",catalogs);
+
+  // Conference membership is catalog data, not live-result data. Refresh it once
+  // during weekly maintenance after the certified team catalog exists and before
+  // statewide collection rebuilds records from those memberships.
+  try {
+    const membership=await syncPublishedVolleyballConferenceMembership(env);
+    console.log("weekly published volleyball conference membership",{
+      status:membership.status,
+      discoveredConferences:membership.discoveredConferences,
+      fetchedConferences:membership.fetchedConferences,
+      conferenceRows:membership.conferenceRows??0,
+      assignments:membership.assignments,
+      unmatched:membership.unmatched,
+      ambiguous:Array.isArray(membership.ambiguous)?membership.ambiguous.length:0,
+      conferenceWrites:membership.conferenceWrites??0,
+      teamWrites:membership.teamWrites??0
+    });
+  } catch (error) {
+    console.error("weekly published volleyball conference membership sync failed",String(error?.message||error));
+  }
 
   try {
     const locations=await syncArkansasSchoolLocations(env);
