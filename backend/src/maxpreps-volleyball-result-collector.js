@@ -55,18 +55,25 @@ async function loadLocalTeams(env) {
   return results||[];
 }
 
-async function loadExistingCanonicals(env,dates) {
+async function loadExistingCanonicals(env,dates,targetSchoolIds=null) {
   if(!dates.length) return [];
   const first=[...dates].sort()[0],last=[...dates].sort().at(-1);
   const start=localIso(first);
   const end=localIso(localDateOffset(last,1));
-  const {results}=await env.DB.prepare(`
+  const scoped=targetSchoolIds?.length?[...new Set(targetSchoolIds.filter(Boolean))]:null;
+  let sql=`
     SELECT id,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,
       scheduled_at,status,home_score,away_score,conference_game
     FROM canonical_events
     WHERE sport='volleyball' AND gender='girls' AND season='2026'
-      AND datetime(scheduled_at)>=datetime(?) AND datetime(scheduled_at)<datetime(?)
-  `).bind(start,end).all();
+      AND datetime(scheduled_at)>=datetime(?) AND datetime(scheduled_at)<datetime(?)`;
+  if(scoped) sql+=` AND (
+    participant_a_school_id IN (SELECT value FROM json_each(?))
+    OR participant_b_school_id IN (SELECT value FROM json_each(?))
+  )`;
+  let query=env.DB.prepare(sql);
+  query=scoped?query.bind(start,end,JSON.stringify(scoped),JSON.stringify(scoped)):query.bind(start,end);
+  const {results}=await query.all();
   return results||[];
 }
 
@@ -143,14 +150,20 @@ export function datesForMaxPrepsVolleyballFallback(plan,when=new Date()) {
 export async function runMaxPrepsVolleyballResultFallback(env,{
   dates,
   fetchFn=fetch,
-  now=new Date()
+  now=new Date(),
+  targetTeamIds=null
 }={}) {
   const checkedAt=now.toISOString();
   const requested=[...new Set((dates||[]).filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)))];
   if(!requested.length) return {status:"SKIPPED",dates:[],pagesFetched:0,parsedFinals:0,matchedFinals:0,touchedTeams:0,writes:0};
 
   const localTeams=await loadLocalTeams(env);
-  const existing=indexCanonicals(await loadExistingCanonicals(env,requested));
+  const targetSet=targetTeamIds?.length?new Set(targetTeamIds.map(String)):null;
+  const targetSchools=targetSet?[...new Set(localTeams.filter(team=>targetSet.has(String(team.team_id))).map(team=>team.school_id))]:null;
+  if(targetSet && !targetSchools.length) {
+    return {status:"SKIPPED",reason:"NO_TARGET_TEAMS",dates:requested,pagesFetched:0,parsedFinals:0,matchedFinals:0,touchedTeams:0,writes:0};
+  }
+  const existing=indexCanonicals(await loadExistingCanonicals(env,requested,targetSchools));
   const candidateFinals=[];
   let parsedFinals=0,ambiguousMatches=0,pagesFetched=0;
 
@@ -165,6 +178,7 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
     const matched=matchLocalVolleyballTeams(parsed,localTeams);
     ambiguousMatches+=matched.ambiguous.length;
     for(const final of matched.matched) {
+      if(targetSet && !targetSet.has(String(final.homeTeam.team_id)) && !targetSet.has(String(final.awayTeam.team_id))) continue;
       const key=pairKey(final.homeTeam.school_id,final.awayTeam.school_id,final.localDate);
       const canonicals=existing.get(key)||[];
       if(canonicals.some(event=>canonicalMatchesFinal(event,final))) continue;
@@ -199,6 +213,7 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
   return {
     status:"SUCCESS",
     dates:requested,
+    targetTeams:targetSet?.size??null,
     pagesFetched,
     parsedFinals,
     matchedFinals:candidateFinals.length,
