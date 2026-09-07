@@ -194,6 +194,18 @@ async function runMaxPrepsVolleyballFallbackPass({env,plan,when}){
 
 async function refreshSourceIdsThroughCore(env,ctx,sourceIds,reason){
   if(!env.REFRESH_TOKEN) throw new Error("REFRESH_TOKEN is not configured for bounded internal source refresh");
+  const scoped=[...new Set((sourceIds||[]).map(value=>String(value||"").trim()).filter(Boolean))];
+  if(!scoped.length || scoped.length>16) throw new Error(`invalid bounded internal source scope ${scoped.length}`);
+
+  // Parser behavior changed while Conway's upstream HTML may be byte-identical.
+  // Clear conditional validators only for the explicitly approved source so the
+  // body is fetched and reparsed instead of a 304 preserving stale parsed rows.
+  await env.DB.prepare(`
+    UPDATE sources SET etag=NULL,last_modified=NULL
+    WHERE id IN (SELECT value FROM json_each(?))
+      AND (etag IS NOT NULL OR last_modified IS NOT NULL)
+  `).bind(JSON.stringify(scoped)).run();
+
   const request=new Request("https://localbleachers.internal/api/v1/refresh",{
     method:"POST",
     headers:{
@@ -201,12 +213,12 @@ async function refreshSourceIdsThroughCore(env,ctx,sourceIds,reason){
       "content-type":"application/json",
       "x-refresh-token":String(env.REFRESH_TOKEN)
     },
-    body:JSON.stringify({sourceIds})
+    body:JSON.stringify({sourceIds:scoped})
   });
   const response=await core.fetch(request,env,ctx);
   const payload=await response.json().catch(()=>({}));
   if(!response.ok) throw new Error(`bounded internal source refresh HTTP ${response.status}: ${JSON.stringify(payload)}`);
-  console.log("bounded internal source refresh",{reason,sourceIds,outcomes:payload?.outcomes||[]});
+  console.log("bounded internal source refresh",{reason,sourceIds:scoped,outcomes:payload?.outcomes||[]});
   return payload;
 }
 
