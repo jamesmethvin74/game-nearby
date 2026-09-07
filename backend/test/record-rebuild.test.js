@@ -45,6 +45,21 @@ test("record rebuild combines canonical and school-feed finals without double co
   });
 });
 
+test("effective shared-membership flag counts a DragonFly final as conference", () => {
+  const teams=[{id:"conway-volleyball-2026",school_id:"conway",sport:"volleyball",gender:"girls",season:"2026",conference_id:"6a-central-volleyball"}];
+  const canonicals=[{
+    id:"ce-southwest",reporting_team_id:"conway-volleyball-2026",sport:"volleyball",gender:"girls",season:"2026",
+    home_school_id:"southwest",away_school_id:"conway",home_name:"Little Rock Southwest High School",away_name:"Conway High School",
+    scheduled_at:"2026-09-03T23:00:00.000Z",status:"FINAL",home_score:0,away_score:3,
+    conference_game:0,effective_conference_game:1,counts_for_record:1,trust_state:"CORROBORATED"
+  }];
+  const [built]=buildRecordsFromInputs({teams,canonicals,raw:[]});
+  assert.equal(built.record.wins,1);
+  assert.equal(built.record.losses,0);
+  assert.equal(built.record.conference_wins,1);
+  assert.equal(built.record.conference_losses,0);
+});
+
 test("record rebuild excludes exhibition/non-record finals", () => {
   const teams=[{id:"valley-volleyball-2026",school_id:"valley",sport:"volleyball",gender:"girls",season:"2026",conference_id:null}];
   const canonicals=[{
