@@ -1,4 +1,5 @@
 import { dateKeyInZone } from "./schedule-authority-core.js";
+import { zonedIso } from "./parser-core.js";
 import { maxPrepsScoresUrl, matchLocalVolleyballTeams, parseMaxPrepsVolleyballScores } from "./maxpreps-volleyball-results.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
 import { reconcileResolvedObservation, upsertResolvedObservation } from "./canonical-observation-writer.js";
@@ -17,9 +18,9 @@ function localDateOffset(localDate,days) {
   return new Intl.DateTimeFormat("en-CA",{timeZone:TIME_ZONE,year:"numeric",month:"2-digit",day:"2-digit"}).format(noon);
 }
 
-function localNoonIso(localDate) {
-  const [y,m,d]=String(localDate).split("-").map(Number);
-  return new Date(Date.UTC(y,m-1,d,18,0,0)).toISOString();
+function localIso(localDate,{hour=0,minute=0}={}) {
+  const [year,month,day]=String(localDate).split("-").map(Number);
+  return zonedIso({year,month,day,hour,minute},TIME_ZONE);
 }
 
 function pairKey(a,b,date) {
@@ -57,9 +58,8 @@ async function loadLocalTeams(env) {
 async function loadExistingCanonicals(env,dates) {
   if(!dates.length) return [];
   const first=[...dates].sort()[0],last=[...dates].sort().at(-1);
-  const start=`${first}T00:00:00-05:00`;
-  const endDate=localDateOffset(last,1);
-  const end=`${endDate}T00:00:00-05:00`;
+  const start=localIso(first);
+  const end=localIso(localDateOffset(last,1));
   const {results}=await env.DB.prepare(`
     SELECT id,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,
       scheduled_at,status,home_score,away_score,conference_game
@@ -112,7 +112,7 @@ function observationFor(final,reporting,opponent,checkedAt) {
   return {
     sourceEventKey:`native:${final.contestId}`,
     opponent:opponent.school_name,
-    scheduledAt:localNoonIso(final.localDate),
+    scheduledAt:localIso(final.localDate,{hour:12}),
     scheduledTimeKnown:false,
     venue:null,
     locationText:null,
