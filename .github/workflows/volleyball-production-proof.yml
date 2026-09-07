@@ -1,0 +1,168 @@
+name: Volleyball production proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/volleyball-production-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prove two real volleyball finals end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const API = 'https://localbleachersar-sports-api.james-methvin74.workers.dev';
+
+          async function get(path) {
+            const response = await fetch(`${API}${path}`, { headers: { accept: 'application/json', 'cache-control': 'no-cache' } });
+            const text = await response.text();
+            if (!response.ok) throw new Error(`${path} -> HTTP ${response.status}: ${text.slice(0,300)}`);
+            return JSON.parse(text);
+          }
+
+          const isoCentralDate = value => {
+            const parts = new Intl.DateTimeFormat('en-US', {
+              timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(new Date(value));
+            const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+            return `${map.year}-${map.month}-${map.day}`;
+          };
+          const norm = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+          const sameName = (value, target) => norm(value).includes(norm(target)) || norm(target).includes(norm(value));
+          const assert = (condition, message) => { if (!condition) throw new Error(message); };
+
+          async function loadTeam(candidates) {
+            for (const teamId of candidates) {
+              const response = await fetch(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/schedule`, { headers: { accept: 'application/json', 'cache-control': 'no-cache' } });
+              if (response.status === 404) continue;
+              const text = await response.text();
+              if (!response.ok) throw new Error(`${teamId} schedule -> HTTP ${response.status}: ${text.slice(0,300)}`);
+              return { teamId, schedule: JSON.parse(text) };
+            }
+            throw new Error(`No production team route found for ${candidates.join(', ')}`);
+          }
+
+          function findMatch(schedule, date, opponent) {
+            return (schedule.games || []).find(game => isoCentralDate(game.scheduled_at || game.canonical_scheduled_at) === date && sameName(game.opponent, opponent));
+          }
+
+          function countedRecord(games) {
+            const out = { wins:0, losses:0, ties:0, conference_wins:0, conference_losses:0, conference_ties:0 };
+            for (const game of games || []) {
+              if (game.status !== 'FINAL' || Number(game.counts_for_record ?? 1) === 0 || game.team_score == null || game.opponent_score == null) continue;
+              const team = Number(game.team_score), opp = Number(game.opponent_score);
+              const suffix = team === opp ? 'ties' : team > opp ? 'wins' : 'losses';
+              out[suffix]++;
+              if (Number(game.conference_game || 0) === 1) out[`conference_${suffix}`]++;
+            }
+            return out;
+          }
+
+          function assertRecord(label, actual, expected) {
+            for (const field of ['wins','losses','ties','conference_wins','conference_losses','conference_ties']) {
+              assert(Number(actual?.[field] || 0) === Number(expected[field] || 0), `${label} ${field}: expected ${expected[field]}, got ${actual?.[field]}`);
+            }
+          }
+
+          function parseRecord(value) {
+            const nums = String(value || '').match(/\d+/g)?.map(Number) || [];
+            return { wins: nums[0] || 0, losses: nums[1] || 0, ties: nums[2] || 0 };
+          }
+
+          async function proveMatch(spec) {
+            const home = await loadTeam(spec.homeTeamIds);
+            const away = await loadTeam(spec.awayTeamIds);
+            const homeGame = findMatch(home.schedule, spec.date, spec.awayName);
+            const awayGame = findMatch(away.schedule, spec.date, spec.homeName);
+            assert(homeGame, `${spec.label}: missing ${spec.homeName} schedule row`);
+            assert(awayGame, `${spec.label}: missing ${spec.awayName} schedule row`);
+            assert(homeGame.status === 'FINAL' && awayGame.status === 'FINAL', `${spec.label}: both sides must be FINAL`);
+            assert(Number(homeGame.team_score) === spec.homeScore && Number(homeGame.opponent_score) === spec.awayScore, `${spec.label}: ${spec.homeName} score mismatch ${homeGame.team_score}-${homeGame.opponent_score}`);
+            assert(Number(awayGame.team_score) === spec.awayScore && Number(awayGame.opponent_score) === spec.homeScore, `${spec.label}: ${spec.awayName} score mismatch ${awayGame.team_score}-${awayGame.opponent_score}`);
+            assert(homeGame.canonical_event_id && homeGame.canonical_event_id === awayGame.canonical_event_id, `${spec.label}: canonical event mismatch`);
+            assert(homeGame.result === 'W' && awayGame.result === 'L', `${spec.label}: winner/loser orientation mismatch`);
+
+            const homeExpected = countedRecord(home.schedule.games);
+            const awayExpected = countedRecord(away.schedule.games);
+            assertRecord(`${spec.homeName} schedule record`, home.schedule.record, homeExpected);
+            assertRecord(`${spec.awayName} schedule record`, away.schedule.record, awayExpected);
+
+            const homeRoute = await get(`/api/v1/teams/${encodeURIComponent(home.teamId)}/record`);
+            const awayRoute = await get(`/api/v1/teams/${encodeURIComponent(away.teamId)}/record`);
+            assertRecord(`${spec.homeName} record route`, homeRoute.record, homeExpected);
+            assertRecord(`${spec.awayName} record route`, awayRoute.record, awayExpected);
+
+            assert(Number(homeGame.conference_game || 0) === spec.conferenceGame, `${spec.label}: conference flag mismatch on ${spec.homeName}`);
+            assert(Number(awayGame.conference_game || 0) === spec.conferenceGame, `${spec.label}: conference flag mismatch on ${spec.awayName}`);
+
+            return { spec, home, away, homeGame, awayGame, homeExpected, awayExpected };
+          }
+
+          const conway = await proveMatch({
+            label: 'Conway at Little Rock Southwest', date: '2026-09-03',
+            homeName: 'Conway', awayName: 'Little Rock Southwest', homeScore: 3, awayScore: 0, conferenceGame: 1,
+            homeTeamIds: ['conway-volleyball-2026','df-hnhrp8-volleyball-2026'],
+            awayTeamIds: ['df-bkc4ux-volleyball-2026','little-rock-southwest-volleyball-2026']
+          });
+
+          const flippin = await proveMatch({
+            label: 'Flippin vs Melbourne', date: '2026-09-03',
+            homeName: 'Flippin', awayName: 'Melbourne', homeScore: 3, awayScore: 0, conferenceGame: 1,
+            homeTeamIds: ['df-qyu4f7-volleyball-2026','flippin-volleyball-2026'],
+            awayTeamIds: ['df-x7qmns-volleyball-2026','melbourne-volleyball-2026']
+          });
+
+          async function proveStandings(conference, proof) {
+            const payload = await get(`/api/v1/standings?sport=volleyball&conference=${encodeURIComponent(conference)}`);
+            assert((payload.standings || []).length >= 5, `${conference}: full conference roster is suspiciously small (${payload.standings?.length || 0})`);
+            for (const side of [
+              { name: proof.spec.homeName, expected: proof.homeExpected },
+              { name: proof.spec.awayName, expected: proof.awayExpected }
+            ]) {
+              const row = (payload.standings || []).find(item => sameName(item.school_name, side.name));
+              assert(row, `${conference}: standings missing ${side.name}`);
+              const overall = parseRecord(row.overall_record);
+              const conf = parseRecord(row.conference_record);
+              assert(overall.wins === side.expected.wins && overall.losses === side.expected.losses && overall.ties === side.expected.ties,
+                `${conference}: ${side.name} overall standings ${row.overall_record} != canonical ${side.expected.wins}-${side.expected.losses}-${side.expected.ties}`);
+              assert(conf.wins === side.expected.conference_wins && conf.losses === side.expected.conference_losses && conf.ties === side.expected.conference_ties,
+                `${conference}: ${side.name} conference standings ${row.conference_record} != canonical ${side.expected.conference_wins}-${side.expected.conference_losses}-${side.expected.conference_ties}`);
+            }
+            return payload;
+          }
+
+          const standings6a = await proveStandings('6a-central', conway);
+          const standings3a2 = await proveStandings('3a-2', flippin);
+
+          const liveDay = await get('/api/v1/games?since=2026-09-03T05%3A00%3A00.000Z&until=2026-09-04T05%3A00%3A00.000Z');
+          const ids = new Set((liveDay.games || []).map(game => game.canonical_event_id || game.id));
+          assert(ids.has(conway.homeGame.canonical_event_id), 'Home/nearby feed missing Conway-Southwest canonical final');
+          assert(ids.has(flippin.homeGame.canonical_event_id), 'Home/nearby feed missing Flippin-Melbourne canonical final');
+
+          console.log(JSON.stringify({
+            verified: true,
+            conway: {
+              event: conway.homeGame.canonical_event_id,
+              score: `${conway.homeGame.team_score}-${conway.homeGame.opponent_score}`,
+              overall: `${conway.homeExpected.wins}-${conway.homeExpected.losses}-${conway.homeExpected.ties}`,
+              conference: `${conway.homeExpected.conference_wins}-${conway.homeExpected.conference_losses}-${conway.homeExpected.conference_ties}`,
+              rosterRows: standings6a.standings.length
+            },
+            flippin: {
+              event: flippin.homeGame.canonical_event_id,
+              score: `${flippin.homeGame.team_score}-${flippin.homeGame.opponent_score}`,
+              overall: `${flippin.homeExpected.wins}-${flippin.homeExpected.losses}-${flippin.homeExpected.ties}`,
+              conference: `${flippin.homeExpected.conference_wins}-${flippin.homeExpected.conference_losses}-${flippin.homeExpected.conference_ties}`,
+              rosterRows: standings3a2.standings.length
+            },
+            statewideDayRows: liveDay.games.length
+          }, null, 2));
+          NODE
