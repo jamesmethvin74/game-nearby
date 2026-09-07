@@ -49,10 +49,17 @@ test("Saturday college cadence keeps statewide maintenance off while hourly voll
   assert.deepEqual(m2StatewideKeysForPlan(plan),[]);
 });
 
-test("Sunday catalog maintenance refreshes all six certified feeds",()=>{
+test("Sunday catalog maintenance refreshes all six certified feeds and published volleyball membership",()=>{
   const plan=collectionPlanAt(new Date("2026-09-06T09:00:00.000Z")); // Sunday 4 AM Central
   assert.equal(plan.kind,"weekly-catalog-maintenance");
   assert.equal(plan.runCatalogMaintenance,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),ALL);
+
+  const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  assert.match(runner,/syncPublishedVolleyballConferenceMembership/);
+  const membershipCall=runner.indexOf("await syncPublishedVolleyballConferenceMembership(env)");
+  const statewideCall=runner.indexOf("await runStatewideSports(env");
+  assert.ok(membershipCall>=0,"weekly membership sync must be wired");
+  assert.ok(statewideCall>membershipCall,"conference membership must be materialized before statewide record rebuilds");
 });
