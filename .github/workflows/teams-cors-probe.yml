@@ -1,0 +1,54 @@
+name: Teams CORS probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/teams-cors-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post-cleanup volleyball production proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          N="$(date +%s)"
+          for id in conway-volleyball-2026 df-bkc4ux-volleyball-2026 df-qyu4f7-volleyball-2026 df-x7qmns-volleyball-2026; do
+            curl -fsS --max-time 45 -H 'cache-control: no-store' "$API/api/v1/teams/$id/schedule?proof=$N" -o "$id.json"
+          done
+          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=6a-central&proof=$N" -o 6a.json
+          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=3a-2&proof=$N" -o 3a2.json
+          curl -fsS --max-time 45 "$API/api/v1/scores?since=2026-09-03T00%3A00%3A00.000Z&until=2026-09-05T00%3A00%3A00.000Z&sport=volleyball&proof=$N" -o scores.json
+          curl -fsS --max-time 45 "$API/api/v1/games?since=2026-09-03T00%3A00%3A00.000Z&until=2026-09-05T00%3A00%3A00.000Z&proof=$N" -o games.json
+          node <<'NODE'
+          const fs=require('fs');
+          const read=f=>JSON.parse(fs.readFileSync(f,'utf8'));
+          const fail=[];
+          function team(file,label,overall,conf,confId,sep3Opponent,sep3Score,extras=[]){
+            const p=read(file),r=p.record||{},gs=p.games||[];
+            const o=`${Number(r.wins||0)}-${Number(r.losses||0)}`, c=`${Number(r.conference_wins||0)}-${Number(r.conference_losses||0)}`;
+            console.log(`${label} overall=${o} conf=${c} conference_id=${r.conference_id||''}`);
+            if(o!==overall||c!==conf||r.conference_id!==confId) fail.push(`${label} record/membership`);
+            const g=gs.find(x=>String(x.scheduled_at||'').startsWith('2026-09-03')&&String(x.opponent||'').toLowerCase().includes(sep3Opponent));
+            console.log(`${label} Sep3=${g?`${g.status} ${g.team_score}-${g.opponent_score} ${g.result||''} conf=${g.conference_game}`:'MISSING'}`);
+            if(!g||g.status!=='FINAL'||`${g.team_score}-${g.opponent_score}`!==sep3Score||Number(g.conference_game)!==1) fail.push(`${label} Sep3`);
+            for(const e of extras){const x=gs.find(x=>x.status==='FINAL'&&String(x.opponent||'').toLowerCase().startsWith(e.opponent));console.log(`${label} ${e.opponent}=${x?`${x.team_score}-${x.opponent_score} ${x.result}`:'MISSING'}`);if(!x||`${x.team_score}-${x.opponent_score}`!==e.score||x.result!==e.result)fail.push(`${label} ${e.opponent}`)}
+          }
+          team('conway-volleyball-2026.json','Conway','5-4','1-0','6a-central-volleyball','southwest','3-0',[{opponent:'little rock christian',score:'2-1',result:'W'}]);
+          team('df-bkc4ux-volleyball-2026.json','Southwest','1-3','0-1','6a-central-volleyball','conway','0-3');
+          team('df-qyu4f7-volleyball-2026.json','Flippin','4-2','3-0','3a-2-volleyball','melbourne','3-0',[{opponent:'bergman',score:'3-2',result:'W'},{opponent:'cotter',score:'0-2',result:'L'}]);
+          team('df-x7qmns-volleyball-2026.json','Melbourne','3-1','2-1','3a-2-volleyball','flippin','0-3');
+          function standing(file,re,overall,conf,label){const row=(read(file).standings||[]).find(r=>re.test(String(r.school_name||'')));console.log(`${label} standings=${row?`${row.conference_record}/${row.overall_record}`:'MISSING'}`);if(!row||row.overall_record!==overall||row.conference_record!==conf)fail.push(`${label} standings`)}
+          standing('6a.json',/^conway$/i,'5-4','1-0','Conway'); standing('6a.json',/little rock southwest/i,'1-3','0-1','Southwest');
+          standing('3a2.json',/^flippin$/i,'4-2','3-0','Flippin'); standing('3a2.json',/^melbourne$/i,'3-1','2-1','Melbourne');
+          function hasPair(rows,a,b){return rows.find(g=>[g.school_name||g.home_school_name,g.opponent||g.away_school_name].map(x=>String(x||'').toLowerCase()).some(n=>n.includes(a))&&[g.school_name||g.home_school_name,g.opponent||g.away_school_name].map(x=>String(x||'').toLowerCase()).some(n=>n.includes(b)))}
+          for(const [file,label,a,b] of [['scores.json','Scores Conway/Southwest','conway','southwest'],['scores.json','Scores Flippin/Melbourne','flippin','melbourne'],['games.json','Home Conway/Southwest','conway','southwest'],['games.json','Home Flippin/Melbourne','flippin','melbourne']]){const row=hasPair(read(file).games||[],a,b);console.log(`${label}=${row?`FINAL=${row.status} conf=${row.conference_game}`:'MISSING'}`);if(!row||row.status!=='FINAL'||Number(row.conference_game)!==1)fail.push(label)}
+          if(fail.length){console.error('PROOF_FAILURES='+JSON.stringify(fail));process.exit(1)}
+          console.log('VOLLEYBALL_PRODUCTION_PROOF=PASS');
+          NODE
