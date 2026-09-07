@@ -11,15 +11,15 @@
   <meta name="apple-mobile-web-app-title" content="LocalBleachersAR" />
   <title>Standings · LocalBleachersAR</title>
   <script>try{const savedTheme=localStorage.getItem("localBleachersAR:theme");document.documentElement.dataset.theme=savedTheme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");}catch{document.documentElement.dataset.theme="light";}</script>
-  <link rel="manifest" href="manifest.json?v=65" />
+  <link rel="manifest" href="manifest.json?v=66" />
   <link rel="icon" type="image/png" sizes="192x192" href="assets/app-icon-192-v35.png" />
   <link rel="apple-touch-icon" href="assets/app-icon-192-v35.png" />
-  <link rel="stylesheet" href="styles.css?v=65" />
-  <link rel="stylesheet" href="polish.css?v=65" />
-  <link rel="stylesheet" href="brand-exact.css?v=65" />
-  <link rel="stylesheet" href="pitched-layout.css?v=65" />
-  <link rel="stylesheet" href="standings.css?v=65" />
-  <link rel="stylesheet" href="standings-favorites.css?v=65" />
+  <link rel="stylesheet" href="styles.css?v=66" />
+  <link rel="stylesheet" href="polish.css?v=66" />
+  <link rel="stylesheet" href="brand-exact.css?v=66" />
+  <link rel="stylesheet" href="pitched-layout.css?v=66" />
+  <link rel="stylesheet" href="standings.css?v=66" />
+  <link rel="stylesheet" href="standings-favorites.css?v=66" />
 </head>
 <body class="standings-page">
   <header class="app-header branded-header">
@@ -73,6 +73,7 @@
         <div><p class="eyebrow">FAVORITES</p><h2 id="favoriteStandingsTitle">My Standings</h2></div>
         <span id="favoriteStandingsCount" class="standings-count-pill">0 saved</span>
       </div>
+      <p class="favorite-standings-reorder-hint">Hold and drag a card to reorder.</p>
       <p id="favoriteStandingsEmpty" class="favorite-standings-empty">Tap <strong>☆ Favorite</strong> above to keep a sport and conference here for one-tap access.</p>
       <div id="favoriteStandingsGrid" class="favorite-standings-grid" hidden></div>
     </section>
@@ -96,7 +97,8 @@
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="standings.js?v=65"></script>
+  <script src="standings.js?v=66"></script>
+  <script src="standings-drag-reorder.js?v=66"></script>
   <script>
     if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
   </script>
