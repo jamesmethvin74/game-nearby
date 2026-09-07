@@ -96,13 +96,13 @@ export function normalizeSidearmRows(rows, source) {
     else if (new RegExp(`\\bvs\\.?\\s+(?:#\\d+\\s+)?${escapeRegExp(opponent)}`,"i").test(relation) || /^vs\b/i.test(cleanText(raw.opponentText))) homeAway="home";
     const parsed=parseResult(raw.result);
     const full=cleanText(raw.full);
-    const nonCount=/\b(exhibition|scrimmage|meet the cats|benefit game)\b/i.test(full);
+    const nonCount=/\b(exhibition|scrimmage|jamboree|meet the cats|benefit game)\b/i.test(full);
     const venue=cleanText(raw.location) || (homeAway==="home"?source.home_venue:"");
     events.push({
       nativeId:raw.nativeId || "", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,
       venue, locationText:venue, latitude:homeAway==="home"?source.home_latitude:null, longitude:homeAway==="home"?source.home_longitude:null,
       homeAway, conferenceGame:cleanText(raw.conference)?1:0, countsForRecord:nonCount?0:1,
-      ...parsed, notes:nonCount?full.match(/\b(Exhibition|Scrimmage|Meet the Cats|Benefit Game)\b/i)?.[0]||"":""
+      ...parsed, notes:nonCount?full.match(/\b(Exhibition|Scrimmage|Jamboree|Meet the Cats|Benefit Game)\b/i)?.[0]||"":""
     });
   }
   return stableKeys(events);
@@ -115,6 +115,16 @@ function mascotCalendarYear(text, source) {
   const parsed=parseMonthDay(text,String(season));
   if (!parsed) return String(season);
   return String(parsed.month<=7?season+1:season);
+}
+
+export function orientMascotResult(result) {
+  if (result?.status!=="FINAL" || !/^[WLT]$/.test(String(result?.result||""))) return result;
+  let teamScore=Number(result.teamScore), opponentScore=Number(result.opponentScore);
+  if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) return result;
+  const contradictsWin=result.result==="W" && teamScore<opponentScore;
+  const contradictsLoss=result.result==="L" && teamScore>opponentScore;
+  if (!contradictsWin && !contradictsLoss) return result;
+  return {...result,teamScore:opponentScore,opponentScore:teamScore};
 }
 
 export function normalizeMascotRows(rows, source) {
@@ -153,8 +163,6 @@ export function normalizeMascotRows(rows, source) {
       }
       opponent=cleanText(tail.replace(/\s+-\s+-.*$/,"").replace(/\|.*$/, ""));
     } else {
-      // Newer Mascot Media tables split date/location, opponent and result into
-      // separate cells and use "@" instead of the literal "AT" token.
       const dateLocation=cleanText(cells[0]);
       opponent=cleanText(cells[1]);
       if (!opponent || /^(opponent|results?)$/i.test(opponent)) continue;
@@ -169,13 +177,13 @@ export function normalizeMascotRows(rows, source) {
     if (!opponent) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
-    const result=parseResult(resultText);
-    const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition)\b/i.test(full);
+    const result=orientMascotResult(parseResult(resultText));
+    const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition|jamboree)\b/i.test(full);
     events.push({
       nativeId:raw.nativeId||"", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,
       venue, locationText:venue, latitude:homeAway==="home"?source.home_latitude:null, longitude:homeAway==="home"?source.home_longitude:null,
       homeAway, conferenceGame:0, countsForRecord:nonCount?0:1, ...result,
-      notes:nonCount?full.match(/\b(Meet the Cats|Benefit Game|Scrimmage|Exhibition)\b/i)?.[0]||"":""
+      notes:nonCount?full.match(/\b(Meet the Cats|Benefit Game|Scrimmage|Exhibition|Jamboree)\b/i)?.[0]||"":""
     });
   }
   return stableKeys(events);

@@ -36,6 +36,15 @@ test("parses Conway/Mascot Media style schedule row",()=>{
   assert.equal(game.venue,"John McConnell Stadium");
 });
 
+test("Mascot Media jamborees never count toward the official record",()=>{
+  const rows=[{cells:["Aug 20 5:00 PM VS Jamboree Conway High School Conway, AR","Jamboree","- -",""],full:"Aug 20 5:00 PM VS Jamboree Conway High School Conway, AR"}];
+  const conway={season:"2026",timezone:"America/Chicago",home_venue:"Conway High School",home_latitude:35.0872,home_longitude:-92.4628};
+  const [game]=normalizeMascotRows(rows,conway);
+  assert.equal(game.opponent,"Jamboree");
+  assert.equal(game.countsForRecord,0);
+  assert.match(game.notes,/jamboree/i);
+});
+
 test("parses Vilonia varsity volleyball from the official combined-cell Mascot Media format",()=>{
   const rows=[{cells:["","Aug 25 / 05:30 PM VS Greenbrier TBD Vilonia, AR, AR","TBD Vilonia, AR, AR","- -"],full:"Aug 25 / 05:30 PM VS Greenbrier TBD Vilonia, AR, AR - -"}];
   const vilonia={season:"2026",timezone:"America/Chicago",home_venue:"Vilonia High School",home_latitude:35.0839,home_longitude:-92.2029};

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const teamRead = await readFile(new URL("../src/team-read-worker.js", import.meta.url), "utf8");
+const canonicalRead = await readFile(new URL("../src/canonical-game-read-worker.js", import.meta.url), "utf8");
 const standingsWorker = await readFile(new URL("../src/standings-worker.js", import.meta.url), "utf8");
 
 test("team schedule and record GETs are read-only", () => {
@@ -16,6 +17,7 @@ test("team schedule and record GETs are read-only", () => {
   assert.doesNotMatch(teamRead, /UPDATE team_records/);
 });
 
-test("public Worker routes team detail through the read-only layer", () => {
-  assert.match(standingsWorker, /import app from "\.\/team-read-worker\.js"/);
+test("public Worker routes team detail through the read-only canonical wrapper chain", () => {
+  assert.match(standingsWorker, /import app from "\.\/canonical-game-read-worker\.js"/);
+  assert.match(canonicalRead, /import app from "\.\/team-read-worker\.js"/);
 });
