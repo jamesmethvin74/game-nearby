@@ -13,21 +13,29 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Prove production 6A Central standings source
+      - name: Prove production 3A-2 volleyball conference handling
         shell: bash
         run: |
           set -euo pipefail
           API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
-          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=6a-central" -o standings.json
+          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=3a-2" -o standings.json
+          for id in df-qyu4f7-volleyball-2026 df-x7qmns-volleyball-2026; do
+            curl -fsS --max-time 45 "$API/api/v1/teams/$id" -o "$id-team.json"
+            curl -fsS --max-time 45 "$API/api/v1/teams/$id/schedule" -o "$id-schedule.json"
+          done
           node <<'NODE'
-          const p=require('./standings.json');
-          const rows=Array.isArray(p.standings)?p.standings:[];
-          console.log('CONFERENCE='+JSON.stringify(p.conference||{}));
-          console.log('SOURCE_URL='+(p.source_url||p.conference?.source_url||''));
-          console.log('ROWS='+rows.length);
-          console.log('CONWAY='+JSON.stringify(rows.find(r=>/^conway$/i.test(String(r.school_name||'')))||null));
-          console.log('SOUTHWEST='+JSON.stringify(rows.find(r=>/little rock southwest/i.test(String(r.school_name||'')))||null));
-          if(rows.length<5) throw new Error(`expected full 6A Central standings, got ${rows.length}`);
-          if(!rows.some(r=>/^conway$/i.test(String(r.school_name||'')))) throw new Error('Conway missing');
-          if(!rows.some(r=>/little rock southwest/i.test(String(r.school_name||'')))) throw new Error('Southwest missing');
+          const fs=require('fs');
+          const st=JSON.parse(fs.readFileSync('standings.json','utf8'));
+          const rows=Array.isArray(st.standings)?st.standings:[];
+          console.log('STANDINGS_CONFERENCE='+JSON.stringify(st.conference||{}));
+          console.log('STANDINGS_ROWS='+rows.length);
+          for(const re of [/flippin/i,/melbourne/i]) console.log('STANDINGS_TARGET='+JSON.stringify(rows.find(r=>re.test(String(r.school_name||'')))||null));
+          for(const id of ['df-qyu4f7-volleyball-2026','df-x7qmns-volleyball-2026']){
+            const t=JSON.parse(fs.readFileSync(`${id}-team.json`,'utf8'));
+            const s=JSON.parse(fs.readFileSync(`${id}-schedule.json`,'utf8'));
+            const games=Array.isArray(s.games)?s.games:[];
+            const sep3=games.find(g=>String(g.scheduled_at||'').startsWith('2026-09-03') && /flippin|melbourne/i.test(String(g.opponent||'')));
+            console.log(id+'_TEAM='+JSON.stringify({conference_id:t.team?.conference_id,conference_name:t.team?.conference_name,record:s.record||t.record}));
+            console.log(id+'_SEP3='+JSON.stringify(sep3&&{opponent:sep3.opponent,status:sep3.status,score:`${sep3.team_score}-${sep3.opponent_score}`,result:sep3.result,conference_game:sep3.conference_game,canonical_event_id:sep3.canonical_event_id}));
+          }
           NODE
