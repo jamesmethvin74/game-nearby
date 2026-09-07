@@ -3,13 +3,10 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
-import { runApprovedVolleyballProductionConvergence } from "./approved-volleyball-production-convergence.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
-export const VOLLEYBALL_CONVERGENCE_PATH = "/api/v1/internal/volleyball-convergence";
-export const VOLLEYBALL_CONVERGENCE_READY_PATH = "/api/v1/internal/volleyball-convergence/ready";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -33,16 +30,6 @@ export function logoBootstrapReadiness(request, env) {
   return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
 }
 
-export function authorizedVolleyballConvergence(request, env) {
-  return Boolean(env.VOLLEYBALL_CONVERGENCE_TOKEN)
-    && request.headers.get("x-volleyball-convergence-token") === env.VOLLEYBALL_CONVERGENCE_TOKEN;
-}
-
-export function volleyballConvergenceReadiness(request, env) {
-  if (!authorizedVolleyballConvergence(request, env)) return privateJson({ error:"not_found" }, 404);
-  return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
-}
-
 async function options(request) {
   try {
     const body = await request.json();
@@ -50,17 +37,6 @@ async function options(request) {
   } catch {
     return {};
   }
-}
-
-async function runVolleyballConvergenceOnce(env) {
-  return runApprovedVolleyballProductionConvergence(env, {
-    now:new Date(),
-    // Conway is already proven fixed in production. Fail closed instead of
-    // broadening this one-shot executor if that prerequisite unexpectedly regresses.
-    refreshSourceIds:async()=>{
-      throw new Error("Conway unexpectedly requires source refresh during one-shot volleyball convergence");
-    }
-  });
 }
 
 async function runVolleyballLiveTick(controller, env) {
@@ -84,19 +60,6 @@ async function runVolleyballLiveTick(controller, env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    if (request.method === "HEAD" && path === VOLLEYBALL_CONVERGENCE_READY_PATH) {
-      return volleyballConvergenceReadiness(request, env);
-    }
-    if (request.method === "POST" && path === VOLLEYBALL_CONVERGENCE_PATH) {
-      if (!authorizedVolleyballConvergence(request, env)) return privateJson({ error:"not_found" }, 404);
-      try {
-        return privateJson(await runVolleyballConvergenceOnce(env));
-      } catch (error) {
-        console.error("one-shot volleyball convergence failed", String(error?.message || error));
-        return privateJson({ error:"volleyball_convergence_failed", message:String(error?.message || error) }, 500);
-      }
-    }
-
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
     }
@@ -130,5 +93,3 @@ export default {
     return app.scheduled(controller, env, ctx);
   }
 };
-
-export { runVolleyballConvergenceOnce };
