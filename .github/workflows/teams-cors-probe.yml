@@ -13,26 +13,76 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Map production 3A-2 roster and finals
+      - name: Final volleyball production proof
         shell: bash
         run: |
           set -euo pipefail
           API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
-          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=3a-2" -o standings.json
-          for id in df-qyu4f7-volleyball-2026 df-x7qmns-volleyball-2026; do
-            curl -fsS --max-time 45 "$API/api/v1/teams/$id/schedule" -o "$id-schedule.json"
+          for id in conway-volleyball-2026 df-bkc4ux-volleyball-2026 df-qyu4f7-volleyball-2026 df-x7qmns-volleyball-2026; do
+            curl -fsS --max-time 45 "$API/api/v1/teams/$id/schedule" -o "$id.json"
           done
+          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=6a-central" -o 6a.json
+          curl -fsS --max-time 45 "$API/api/v1/standings?sport=volleyball&conference=3a-2" -o 3a2.json
+          curl -fsS --max-time 45 "$API/api/v1/scores?since=2026-09-03T00%3A00%3A00.000Z&until=2026-09-05T00%3A00%3A00.000Z&sport=volleyball" -o scores.json
+          curl -fsS --max-time 45 "$API/api/v1/games?since=2026-09-03T00%3A00%3A00.000Z&until=2026-09-05T00%3A00%3A00.000Z" -o games.json
+
           node <<'NODE'
           const fs=require('fs');
-          const rows=JSON.parse(fs.readFileSync('standings.json','utf8')).standings||[];
-          const roster=rows.map(r=>String(r.school_name||''));
-          const norm=s=>String(s||'').toLowerCase().replace(/\bhigh school\b|\bhigh\b|\bschool\b|\bhs\b/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
-          const rosterKeys=new Set(roster.map(norm));
-          console.log('ROSTER='+JSON.stringify(rows.map(r=>({school:r.school_name,conf:r.conference_record,overall:r.overall_record}))));
-          for(const id of ['df-qyu4f7-volleyball-2026','df-x7qmns-volleyball-2026']){
-            const s=JSON.parse(fs.readFileSync(`${id}-schedule.json`,'utf8'));
-            const finals=(s.games||[]).filter(g=>g.status==='FINAL').map(g=>({date:String(g.scheduled_at||'').slice(0,10),opponent:g.opponent,score:`${g.team_score}-${g.opponent_score}`,result:g.result,inRoster:rosterKeys.has(norm(g.opponent))}));
-            console.log(id+'_FINALS='+JSON.stringify(finals));
-            console.log(id+'_PREDICTED_CONF='+finals.filter(g=>g.inRoster).map(g=>`${g.result} ${g.opponent} ${g.score}`).join(' | '));
+          const read=f=>JSON.parse(fs.readFileSync(f,'utf8'));
+          const fail=[];
+          function proofTeam(file,label,expected,sep3Opponent,sep3Score,extras=[]){
+            const p=read(file), r=p.record||{}, games=p.games||[];
+            const rec=`${Number(r.wins||0)}-${Number(r.losses||0)}`;
+            const conf=`${Number(r.conference_wins||0)}-${Number(r.conference_losses||0)}`;
+            console.log(`${label} record=${rec} conf=${conf} conference_id=${r.conference_id||''}`);
+            if(rec!==expected.overall) fail.push(`${label} overall ${rec} != ${expected.overall}`);
+            if(conf!==expected.conf) fail.push(`${label} conference ${conf} != ${expected.conf}`);
+            if(r.conference_id!==expected.conferenceId) fail.push(`${label} conference_id ${r.conference_id}`);
+            const g=games.find(x=>String(x.scheduled_at||'').startsWith('2026-09-03') && String(x.opponent||'').toLowerCase().includes(sep3Opponent));
+            console.log(`${label} Sep3=${g?JSON.stringify({opponent:g.opponent,status:g.status,score:`${g.team_score}-${g.opponent_score}`,result:g.result,conference_game:g.conference_game}):'MISSING'}`);
+            if(!g || g.status!=='FINAL' || `${g.team_score}-${g.opponent_score}`!==sep3Score || Number(g.conference_game)!==1) fail.push(`${label} Sep3 final/conference mismatch`);
+            for(const e of extras){
+              const x=games.find(g=>String(g.opponent||'').toLowerCase().startsWith(e.opponent));
+              console.log(`${label} extra ${e.opponent}=${x?`${x.team_score}-${x.opponent_score} ${x.result}`:'MISSING'}`);
+              if(!x || x.status!=='FINAL' || `${x.team_score}-${x.opponent_score}`!==e.score || x.result!==e.result) fail.push(`${label} ${e.opponent} mismatch`);
+            }
           }
+          proofTeam('conway-volleyball-2026.json','Conway',{overall:'5-4',conf:'1-0',conferenceId:'6a-central-volleyball'},'southwest','3-0',[{opponent:'little rock christian',score:'2-1',result:'W'}]);
+          proofTeam('df-bkc4ux-volleyball-2026.json','Southwest',{overall:'1-3',conf:'0-1',conferenceId:'6a-central-volleyball'},'conway','0-3');
+          proofTeam('df-qyu4f7-volleyball-2026.json','Flippin',{overall:'4-2',conf:'3-0',conferenceId:'3a-2-volleyball'},'melbourne','3-0',[{opponent:'bergman',score:'3-2',result:'W'},{opponent:'cotter',score:'0-2',result:'L'}]);
+          proofTeam('df-x7qmns-volleyball-2026.json','Melbourne',{overall:'3-1',conf:'2-1',conferenceId:'3a-2-volleyball'},'flippin','0-3');
+
+          function standings(file,label,checks){
+            const rows=read(file).standings||[];
+            console.log(`${label} rows=${rows.length}`);
+            for(const c of checks){
+              const row=rows.find(r=>c.re.test(String(r.school_name||'')));
+              console.log(`${label} ${c.name}=${JSON.stringify(row||null)}`);
+              if(!row || row.overall_record!==c.overall || row.conference_record!==c.conf) fail.push(`${label} ${c.name} standings mismatch`);
+            }
+          }
+          standings('6a.json','6A Central',[{name:'Conway',re:/^conway$/i,overall:'5-4',conf:'1-0'},{name:'Southwest',re:/little rock southwest/i,overall:'1-3',conf:'0-1'}]);
+          standings('3a2.json','3A-2',[{name:'Flippin',re:/^flippin$/i,overall:'4-2',conf:'3-0'},{name:'Melbourne',re:/^melbourne$/i,overall:'3-1',conf:'2-1'}]);
+
+          const scores=read('scores.json').games||[];
+          function scorePair(a,b,homeScore,awayScore){
+            const row=scores.find(g=>[String(g.home_school_name||'').toLowerCase(),String(g.away_school_name||'').toLowerCase()].some(n=>n.includes(a)) && [String(g.home_school_name||'').toLowerCase(),String(g.away_school_name||'').toLowerCase()].some(n=>n.includes(b)));
+            console.log(`Scores ${a}/${b}=${JSON.stringify(row||null)}`);
+            if(!row || row.status!=='FINAL' || Number(row.conference_game)!==1) fail.push(`scores ${a}/${b} missing/final/conf`);
+            if(row && !([Number(row.home_score),Number(row.away_score)].sort((x,y)=>x-y).join('-')===[homeScore,awayScore].sort((x,y)=>x-y).join('-'))) fail.push(`scores ${a}/${b} score mismatch`);
+          }
+          scorePair('conway','southwest',3,0);
+          scorePair('flippin','melbourne',3,0);
+
+          const nearby=read('games.json').games||[];
+          function nearbyPair(a,b){
+            const row=nearby.find(g=>[String(g.school_name||'').toLowerCase(),String(g.opponent||'').toLowerCase()].some(n=>n.includes(a)) && [String(g.school_name||'').toLowerCase(),String(g.opponent||'').toLowerCase()].some(n=>n.includes(b)));
+            console.log(`Home ${a}/${b}=${JSON.stringify(row?{school:row.school_name,opponent:row.opponent,status:row.status,score:`${row.team_score}-${row.opponent_score}`,conference_game:row.conference_game}:null)}`);
+            if(!row || row.status!=='FINAL' || Number(row.conference_game)!==1) fail.push(`Home ${a}/${b} missing/final/conf`);
+          }
+          nearbyPair('conway','southwest');
+          nearbyPair('flippin','melbourne');
+
+          if(fail.length){ console.error('PROOF_FAILURES='+JSON.stringify(fail)); process.exit(1); }
+          console.log('VOLLEYBALL_PRODUCTION_PROOF=PASS');
           NODE
