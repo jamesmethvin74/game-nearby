@@ -6,9 +6,20 @@ const STATE_ID="approved-repair:volleyball-production-proof:2026-09-07";
 const CONWAY_TEAM="conway-volleyball-2026";
 const SOUTHWEST_TEAM="df-bkc4ux-volleyball-2026";
 const FLIPPIN_TEAM="df-qyu4f7-volleyball-2026";
+const MELBOURNE_TEAM="df-x7qmns-volleyball-2026";
 const CONWAY_SOURCE="conway-volleyball-official";
 const SIX_A_CENTRAL_SOURCE_URL="https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-central/?leagueid=01ee6b6b-f05d-4a62-80a5-a170c72cb088";
-const TARGET_TEAMS=[CONWAY_TEAM,SOUTHWEST_TEAM,FLIPPIN_TEAM];
+const THREE_A_TWO_SOURCE_URL="https://www.maxpreps.com/ar/volleyball/26-27/conference/3a-2/?leagueid=04adba69-8b0f-458a-a369-16bf0ac9c6fb";
+const THREE_A_TWO_TEAMS=[
+  "df-qyu4f7-volleyball-2026",
+  "df-x7qmns-volleyball-2026",
+  "df-bjp5e4-volleyball-2026",
+  "df-wgx266-volleyball-2026",
+  "df-xyeqvx-volleyball-2026",
+  "df-t5drr3-volleyball-2026",
+  "df-aybgpr-volleyball-2026"
+];
+const TARGET_TEAMS=[CONWAY_TEAM,SOUTHWEST_TEAM,...THREE_A_TWO_TEAMS];
 const HISTORICAL_DATES=["2026-08-27","2026-08-29"];
 
 async function completionRow(env) {
@@ -52,7 +63,7 @@ async function proofRows(env) {
 export function validateVolleyballConvergenceProof(rows=[]) {
   const record=teamId=>rows.find(row=>row.kind==="record"&&row.key===teamId)||{};
   const games=teamId=>rows.filter(row=>row.kind==="game"&&row.key===teamId);
-  const conway=record(CONWAY_TEAM),southwest=record(SOUTHWEST_TEAM),flippin=record(FLIPPIN_TEAM);
+  const conway=record(CONWAY_TEAM),southwest=record(SOUTHWEST_TEAM),flippin=record(FLIPPIN_TEAM),melbourne=record(MELBOURNE_TEAM);
   const hasGame=(teamId,opponentPattern,teamScore,opponentScore,result)=>games(teamId).some(row=>
     opponentPattern.test(String(row.opponent||""))
       && Number(row.team_score)===teamScore
@@ -66,6 +77,9 @@ export function validateVolleyballConvergenceProof(rows=[]) {
     southwestOverall:Number(southwest.wins)===1&&Number(southwest.losses)===3&&Number(southwest.ties||0)===0,
     southwestConference:southwest.conference_id==="6a-central-volleyball"&&Number(southwest.conference_wins||0)===0&&Number(southwest.conference_losses)===1,
     flippinOverall:Number(flippin.wins)===4&&Number(flippin.losses)===2&&Number(flippin.ties||0)===0,
+    flippinConference:flippin.conference_id==="3a-2-volleyball"&&Number(flippin.conference_wins)===3&&Number(flippin.conference_losses||0)===0,
+    melbourneOverall:Number(melbourne.wins)===3&&Number(melbourne.losses)===1&&Number(melbourne.ties||0)===0,
+    melbourneConference:melbourne.conference_id==="3a-2-volleyball"&&Number(melbourne.conference_wins)===2&&Number(melbourne.conference_losses)===1,
     conwayLrChristian:hasGame(CONWAY_TEAM,/^little rock christian/i,2,1,"W"),
     flippinBergman:hasGame(FLIPPIN_TEAM,/^bergman/i,3,2,"W"),
     flippinCotter:hasGame(FLIPPIN_TEAM,/^cotter/i,0,2,"L")
@@ -111,9 +125,9 @@ export async function runApprovedVolleyballProductionConvergence(env,{
     }
   }
 
-  let membership={status:"SKIPPED_ALREADY_FIXED",assignments:0,conferenceWrites:0,teamWrites:0};
+  let centralMembership={status:"SKIPPED_ALREADY_FIXED",assignments:0,conferenceWrites:0,teamWrites:0};
   if(!before.checks.southwestConference) {
-    membership=await membershipSync(env,{
+    centralMembership=await membershipSync(env,{
       now,
       conferenceIds:["6a-central"],
       targetTeamIds:[SOUTHWEST_TEAM],
@@ -121,8 +135,23 @@ export async function runApprovedVolleyballProductionConvergence(env,{
         "6a-central":{name:"6A Central",source_url:SIX_A_CENTRAL_SOURCE_URL}
       }
     });
-    if(!["SUCCESS","NOT_MODIFIED"].includes(membership?.status)) {
-      throw new Error(`Southwest conference membership sync did not succeed: ${membership?.status||"unknown"} ${JSON.stringify(membership?.failedConferences||[])}`);
+    if(!["SUCCESS","NOT_MODIFIED"].includes(centralMembership?.status)) {
+      throw new Error(`Southwest conference membership sync did not succeed: ${centralMembership?.status||"unknown"} ${JSON.stringify(centralMembership?.failedConferences||[])}`);
+    }
+  }
+
+  let threeATwoMembership={status:"SKIPPED_ALREADY_FIXED",assignments:0,conferenceWrites:0,teamWrites:0};
+  if(!(before.checks.flippinConference&&before.checks.melbourneConference)) {
+    threeATwoMembership=await membershipSync(env,{
+      now,
+      conferenceIds:["3a-2"],
+      targetTeamIds:THREE_A_TWO_TEAMS,
+      conferenceSourceOverrides:{
+        "3a-2":{name:"3A 2",source_url:THREE_A_TWO_SOURCE_URL}
+      }
+    });
+    if(!["SUCCESS","NOT_MODIFIED"].includes(threeATwoMembership?.status)) {
+      throw new Error(`3A-2 conference membership sync did not succeed: ${threeATwoMembership?.status||"unknown"} ${JSON.stringify(threeATwoMembership?.failedConferences||[])}`);
     }
   }
 
@@ -149,7 +178,8 @@ export async function runApprovedVolleyballProductionConvergence(env,{
     checkedAt,
     beforeChecks:before.checks,
     officialRefresh:{status:officialRefresh.status||null,outcomes:officialRefresh?.outcomes||[]},
-    membership:{status:membership.status,assignments:membership.assignments,conferenceWrites:membership.conferenceWrites??0,teamWrites:membership.teamWrites??0},
+    centralMembership:{status:centralMembership.status,assignments:centralMembership.assignments,conferenceWrites:centralMembership.conferenceWrites??0,teamWrites:centralMembership.teamWrites??0},
+    threeATwoMembership:{status:threeATwoMembership.status,assignments:threeATwoMembership.assignments,conferenceWrites:threeATwoMembership.conferenceWrites??0,teamWrites:threeATwoMembership.teamWrites??0},
     historical:{status:historical.status,dates:historical.dates,matchedFinals:historical.matchedFinals,touchedTeams:historical.touchedTeams,writes:historical.writes},
     recordRebuild,
     checks:proof.checks
@@ -163,8 +193,11 @@ export {
   CONWAY_TEAM,
   SOUTHWEST_TEAM,
   FLIPPIN_TEAM,
+  MELBOURNE_TEAM,
   CONWAY_SOURCE,
   SIX_A_CENTRAL_SOURCE_URL,
+  THREE_A_TWO_SOURCE_URL,
+  THREE_A_TWO_TEAMS,
   TARGET_TEAMS,
   HISTORICAL_DATES
 };
