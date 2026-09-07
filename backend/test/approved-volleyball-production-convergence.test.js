@@ -8,6 +8,7 @@ import {
   SOUTHWEST_TEAM,
   FLIPPIN_TEAM,
   CONWAY_SOURCE,
+  SIX_A_CENTRAL_SOURCE_URL,
   HISTORICAL_DATES
 } from "../src/approved-volleyball-production-convergence.js";
 
@@ -48,6 +49,39 @@ function seed(db){
   db.prepare("INSERT INTO games VALUES('conway-lrc',?,'FINAL','Little Rock Christian Early Bird Invitational',1,2,'W')").run(CONWAY_TEAM);
 }
 
+function successfulMembership(db,calls){
+  return async(_env,options)=>{
+    calls.push(["membership",options]);
+    assert.deepEqual(options.conferenceIds,["6a-central"]);
+    assert.deepEqual(options.targetTeamIds,[SOUTHWEST_TEAM]);
+    assert.equal(options.conferenceSourceOverrides["6a-central"].source_url,SIX_A_CENTRAL_SOURCE_URL);
+    db.prepare("UPDATE teams SET conference_id='6a-central-volleyball' WHERE id=?").run(SOUTHWEST_TEAM);
+    return {status:"SUCCESS",assignments:1,conferenceWrites:1,teamWrites:1};
+  };
+}
+
+function successfulFallback(db,calls){
+  return async(_env,options)=>{
+    calls.push(["fallback",options]);
+    assert.deepEqual(options.dates,HISTORICAL_DATES);
+    assert.deepEqual(options.targetTeamIds,[FLIPPIN_TEAM]);
+    db.prepare("INSERT OR REPLACE INTO games VALUES('flippin-bergman',?,'FINAL','Bergman High School',3,2,'W')").run(FLIPPIN_TEAM);
+    db.prepare("INSERT OR REPLACE INTO games VALUES('flippin-cotter',?,'FINAL','Cotter High School',0,2,'L')").run(FLIPPIN_TEAM);
+    return {status:"SUCCESS",dates:HISTORICAL_DATES,matchedFinals:2,touchedTeams:3,writes:6};
+  };
+}
+
+function successfulRebuild(db,calls){
+  return async(_env,teamIds)=>{
+    calls.push(["rebuild",teamIds]);
+    assert.deepEqual(teamIds,[CONWAY_TEAM,SOUTHWEST_TEAM,FLIPPIN_TEAM]);
+    db.prepare("UPDATE team_records SET wins=5,losses=4,ties=0,conference_wins=1,conference_losses=0,conference_ties=0 WHERE team_id=?").run(CONWAY_TEAM);
+    db.prepare("UPDATE team_records SET wins=1,losses=3,ties=0,conference_wins=0,conference_losses=1,conference_ties=0 WHERE team_id=?").run(SOUTHWEST_TEAM);
+    db.prepare("UPDATE team_records SET wins=4,losses=2,ties=0,conference_wins=0,conference_losses=0,conference_ties=0 WHERE team_id=?").run(FLIPPIN_TEAM);
+    return {teams:3,scoredFinals:19,standings:{cohorts:1,standingsRows:2}};
+  };
+}
+
 test("approved production convergence is tightly scoped, proves exact records/finals, then becomes a no-op",async()=>{
   const db=new DatabaseSync(":memory:");
   seed(db);
@@ -62,29 +96,9 @@ test("approved production convergence is tightly scoped, proves exact records/fi
       db.prepare("UPDATE games SET team_score=2,opponent_score=1,result='W' WHERE id='conway-lrc'").run();
       return {outcomes:[{sourceId:CONWAY_SOURCE,status:"SUCCESS"}]};
     },
-    membershipSync:async(_env,options)=>{
-      calls.push(["membership",options]);
-      assert.deepEqual(options.conferenceIds,["6a-central"]);
-      assert.deepEqual(options.targetTeamIds,[SOUTHWEST_TEAM]);
-      db.prepare("UPDATE teams SET conference_id='6a-central-volleyball' WHERE id=?").run(SOUTHWEST_TEAM);
-      return {status:"SUCCESS",assignments:1,conferenceWrites:1,teamWrites:1};
-    },
-    resultFallback:async(_env,options)=>{
-      calls.push(["fallback",options]);
-      assert.deepEqual(options.dates,HISTORICAL_DATES);
-      assert.deepEqual(options.targetTeamIds,[FLIPPIN_TEAM]);
-      db.prepare("INSERT INTO games VALUES('flippin-bergman',?,'FINAL','Bergman High School',3,2,'W')").run(FLIPPIN_TEAM);
-      db.prepare("INSERT INTO games VALUES('flippin-cotter',?,'FINAL','Cotter High School',0,2,'L')").run(FLIPPIN_TEAM);
-      return {status:"SUCCESS",dates:HISTORICAL_DATES,matchedFinals:2,touchedTeams:3,writes:6};
-    },
-    rebuildRecords:async(_env,teamIds)=>{
-      calls.push(["rebuild",teamIds]);
-      assert.deepEqual(teamIds,[CONWAY_TEAM,SOUTHWEST_TEAM,FLIPPIN_TEAM]);
-      db.prepare("UPDATE team_records SET wins=5,losses=4,ties=0,conference_wins=1,conference_losses=0,conference_ties=0 WHERE team_id=?").run(CONWAY_TEAM);
-      db.prepare("UPDATE team_records SET wins=1,losses=3,ties=0,conference_wins=0,conference_losses=1,conference_ties=0 WHERE team_id=?").run(SOUTHWEST_TEAM);
-      db.prepare("UPDATE team_records SET wins=4,losses=2,ties=0,conference_wins=0,conference_losses=0,conference_ties=0 WHERE team_id=?").run(FLIPPIN_TEAM);
-      return {teams:3,scoredFinals:19,standings:{cohorts:1,standingsRows:2}};
-    }
+    membershipSync:successfulMembership(db,calls),
+    resultFallback:successfulFallback(db,calls),
+    rebuildRecords:successfulRebuild(db,calls)
   });
 
   assert.equal(result.status,"COMPLETE");
@@ -109,4 +123,27 @@ test("approved production convergence is tightly scoped, proves exact records/fi
     rebuildRecords:async()=>{throw new Error("completed convergence must not rebuild")}
   });
   assert.equal(second.status,"ALREADY_COMPLETE");
+});
+
+test("retry skips Conway once production already has the corrected 5-4 record and 2-1 final",async()=>{
+  const db=new DatabaseSync(":memory:");
+  seed(db);
+  const env={DB:d1FromSqlite(db)};
+  const calls=[];
+  db.prepare("UPDATE games SET team_score=2,opponent_score=1,result='W' WHERE id='conway-lrc'").run();
+  db.prepare("UPDATE team_records SET wins=5,losses=4 WHERE team_id=?").run(CONWAY_TEAM);
+
+  const result=await runApprovedVolleyballProductionConvergence(env,{
+    now:new Date("2026-09-07T22:30:00.000Z"),
+    refreshSourceIds:async()=>{throw new Error("Conway is already fixed and must not refresh")},
+    membershipSync:successfulMembership(db,calls),
+    resultFallback:successfulFallback(db,calls),
+    rebuildRecords:successfulRebuild(db,calls)
+  });
+
+  assert.equal(result.status,"COMPLETE");
+  assert.equal(result.beforeChecks.conwayOverall,true);
+  assert.equal(result.beforeChecks.conwayLrChristian,true);
+  assert.equal(result.officialRefresh.status,"SKIPPED_ALREADY_FIXED");
+  assert.deepEqual(calls.map(call=>call[0]),["membership","fallback","rebuild"]);
 });
