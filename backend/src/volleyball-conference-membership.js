@@ -72,6 +72,18 @@ export function buildVolleyballConferenceMembership({conferences=[],standingsByC
   };
 }
 
+function scopeBuiltMembership(built,targetTeamIds=null) {
+  const targetSet=targetTeamIds?.length?new Set(targetTeamIds.map(String)):null;
+  if(!targetSet) return built;
+  const assignments=built.assignments.filter(row=>targetSet.has(String(row.team_id)));
+  const conferenceIds=new Set(assignments.map(row=>row.conference_id));
+  return {
+    ...built,
+    assignments,
+    conferences:built.conferences.filter(row=>conferenceIds.has(row.id))
+  };
+}
+
 function cachedFetch(fetchFn) {
   const cache=new Map();
   return async (url,init)=>{
@@ -82,13 +94,15 @@ function cachedFetch(fetchFn) {
   };
 }
 
-async function fetchAllPublishedVolleyballConferences(fetchFn) {
+async function fetchPublishedVolleyballConferences(fetchFn,{conferenceIds=null}={}) {
   const memoFetch=cachedFetch(fetchFn);
   const options=await listPublishedStandingsOptions({sport:SPORT,fetchFn:memoFetch});
+  const wanted=conferenceIds?.length?new Set(conferenceIds.map(value=>String(value||"").trim().toLowerCase()).filter(Boolean)):null;
+  const conferences=wanted?options.conferences.filter(row=>wanted.has(String(row.id).toLowerCase())):options.conferences;
   const standingsByConference=new Map();
   const failures=[];
-  for(let i=0;i<options.conferences.length;i+=FETCH_BATCH_SIZE) {
-    const batch=options.conferences.slice(i,i+FETCH_BATCH_SIZE);
+  for(let i=0;i<conferences.length;i+=FETCH_BATCH_SIZE) {
+    const batch=conferences.slice(i,i+FETCH_BATCH_SIZE);
     const results=await Promise.all(batch.map(async conference=>{
       try {
         const standings=await fetchPublishedStandings({sport:SPORT,conferenceId:conference.id,fetchFn:memoFetch});
@@ -102,7 +116,7 @@ async function fetchAllPublishedVolleyballConferences(fetchFn) {
       else failures.push({conference_id:result.conference.id,error:result.error});
     }
   }
-  return {conferences:options.conferences,standingsByConference,failures};
+  return {discoveredConferences:options.conferences.length,conferences,standingsByConference,failures};
 }
 
 async function loadLocalVolleyballTeams(env) {
@@ -161,21 +175,24 @@ function teamMembershipUpdateStatement(env,assignments,now) {
 
 export async function syncPublishedVolleyballConferenceMembership(env,{
   fetchFn=fetch,
-  now=new Date()
+  now=new Date(),
+  conferenceIds=null,
+  targetTeamIds=null
 }={}) {
   const checkedAt=now.toISOString();
   const localTeams=await loadLocalVolleyballTeams(env);
-  const published=await fetchAllPublishedVolleyballConferences(fetchFn);
-  const built=buildVolleyballConferenceMembership({
+  const published=await fetchPublishedVolleyballConferences(fetchFn,{conferenceIds});
+  const built=scopeBuiltMembership(buildVolleyballConferenceMembership({
     conferences:published.conferences,
     standingsByConference:published.standingsByConference,
     localTeams
-  });
+  }),targetTeamIds);
 
   if(!built.assignments.length) {
     return {
       status:"NO_MATCHES",
-      discoveredConferences:published.conferences.length,
+      discoveredConferences:published.discoveredConferences,
+      selectedConferences:published.conferences.length,
       fetchedConferences:published.standingsByConference.size,
       failedConferences:published.failures,
       assignments:0,
@@ -192,7 +209,8 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
   ]);
   return {
     status:"SUCCESS",
-    discoveredConferences:published.conferences.length,
+    discoveredConferences:published.discoveredConferences,
+    selectedConferences:published.conferences.length,
     fetchedConferences:published.standingsByConference.size,
     failedConferences:published.failures,
     conferenceRows:built.conferences.length,
