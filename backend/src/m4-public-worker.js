@@ -17,6 +17,17 @@ function json(body, status = 200) {
   });
 }
 
+function liveJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "no-store",
+      "access-control-allow-origin": "*"
+    }
+  });
+}
+
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -37,6 +48,17 @@ function legacyCollegeSchoolId(pathname) {
   const teamId = decodeURIComponent(match[1]);
   if (!teamId.endsWith(LEGACY_VOLLEYBALL_SUFFIX)) return null;
   return teamId.slice(0, -LEGACY_VOLLEYBALL_SUFFIX.length) || null;
+}
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  if (![lat1, lon1, lat2, lon2].every(Number.isFinite)) return null;
+  const radius = 3958.7613;
+  const toRad = value => value * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * radius * Math.asin(Math.sqrt(a));
 }
 
 function resolvedGameForSchool(row, schoolId) {
@@ -69,6 +91,7 @@ function resolvedGameForSchool(row, schoolId) {
     latitude: row.canonical_latitude ?? row.latitude,
     longitude: row.canonical_longitude ?? row.longitude,
     home_away: isHome ? "home" : isAway ? "away" : row.home_away,
+    conference_game: row.canonical_conference_game ?? row.conference_game,
     status,
     team_score: teamScore,
     opponent_score: opponentScore,
@@ -76,6 +99,95 @@ function resolvedGameForSchool(row, schoolId) {
     data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
     conflict_count: Number(row.conflict_count || 0)
   };
+}
+
+async function publicGames(request, env, url) {
+  const lat = Number(url.searchParams.get("lat"));
+  const lon = Number(url.searchParams.get("lon"));
+  const radius = Math.max(1, Number(url.searchParams.get("radius") || 25));
+  const since = url.searchParams.get("since") || new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
+  const until = url.searchParams.get("until") || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const hasGeo = [lat, lon, radius].every(Number.isFinite);
+
+  let geoSql = "";
+  const binds = [since, until];
+  if (hasGeo) {
+    const latDelta = radius / 69;
+    const lonScale = Math.max(0.2, Math.cos(lat * Math.PI / 180));
+    const lonDelta = radius / (69 * lonScale);
+    // Keep the inexpensive indexed raw-game bounding box. Canonical resolution
+    // happens after this bounded candidate read and supplies the displayed geo.
+    geoSql = `
+      AND g.latitude BETWEEN ? AND ?
+      AND g.longitude BETWEEN ? AND ?`;
+    binds.push(lat - latDelta, lat + latDelta, lon - lonDelta, lon + lonDelta);
+  }
+
+  const result = await env.DB.prepare(`
+    SELECT g.*,
+      t.sport,t.gender,t.season,t.conference_id,
+      sch.id AS school_id,
+      COALESCE(NULLIF(sch.location_matched_name,''),sch.name) AS school_name,
+      sch.level,sch.mascot,
+      COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) AS opponent,
+      r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at,
+      NULL AS "rank",
+      src.source_type,src.parser_type,src.authority_rank,src.source_priority,
+      src.last_successful_fetch_at AS source_last_successful_fetch_at,
+      ce.scheduled_at AS canonical_scheduled_at,
+      ce.scheduled_time_known AS canonical_time_known,
+      ce.venue AS canonical_venue,
+      ce.location_text AS canonical_location_text,
+      ce.latitude AS canonical_latitude,
+      ce.longitude AS canonical_longitude,
+      ce.conference_game AS canonical_conference_game,
+      ce.status AS canonical_status,
+      ce.home_score AS canonical_home_score,
+      ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,
+      ce.away_school_id AS canonical_away_school_id,
+      ce.trust_state AS data_trust,
+      ce.conflict_count,
+      COALESCE(NULLIF(hs.location_matched_name,''),hs.name) AS canonical_home_name,
+      COALESCE(NULLIF(aws.location_matched_name,''),aws.name) AS canonical_away_name,
+      ROW_NUMBER() OVER (
+        PARTITION BY COALESCE(g.canonical_event_id,g.id)
+        ORDER BY src.authority_rank,src.source_priority,src.id,g.id
+      ) AS authority_row
+    FROM games g
+    JOIN teams t ON t.id=g.team_id AND t.active=1
+    JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local'
+    JOIN sources src ON src.id=g.source_id
+    LEFT JOIN schools opp ON opp.id=g.opponent_school_id
+    LEFT JOIN team_records r ON r.team_id=t.id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    LEFT JOIN schools hs ON hs.id=ce.home_school_id
+    LEFT JOIN schools aws ON aws.id=ce.away_school_id
+    WHERE g.scheduled_at BETWEEN ? AND ?
+      ${geoSql}
+    ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at),COALESCE(g.canonical_event_id,g.id),src.authority_rank,src.source_priority,src.id
+  `).bind(...binds).all();
+
+  const games = [];
+  for (const row of result.results || []) {
+    if (Number(row.authority_row) !== 1) continue;
+    const game = resolvedGameForSchool(row, row.school_id);
+    if (hasGeo) {
+      const distance = haversineMiles(lat, lon, Number(game.latitude), Number(game.longitude));
+      if (distance == null || distance > radius) continue;
+      game.distance_miles = distance;
+    }
+    games.push(game);
+  }
+
+  console.log("public canonical games read", {
+    games: games.length,
+    geo: hasGeo,
+    rowsRead: Number(result.meta?.rows_read || 0),
+    rowsWritten: Number(result.meta?.rows_written || 0),
+    durationMs: Number(result.meta?.duration || 0) || null
+  });
+  return liveJson({ games });
 }
 
 async function collegeSchoolSchedule(request, env, schoolId) {
@@ -104,6 +216,7 @@ async function collegeSchoolSchedule(request, env, schoolId) {
       ce.location_text AS canonical_location_text,
       ce.latitude AS canonical_latitude,
       ce.longitude AS canonical_longitude,
+      ce.conference_game AS canonical_conference_game,
       ce.status AS canonical_status,
       ce.home_score AS canonical_home_score,
       ce.away_score AS canonical_away_score,
@@ -171,6 +284,9 @@ export default {
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
     }
+    if (request.method === "GET" && url.pathname === "/api/v1/games") {
+      return publicGames(request, env, url);
+    }
     if (request.method === "GET") {
       const schoolId = legacyCollegeSchoolId(url.pathname);
       if (schoolId) {
@@ -190,6 +306,7 @@ export {
   COLLEGE_BOOTSTRAP_SEASON,
   collegeSchoolSchedule,
   legacyCollegeSchoolId,
+  publicGames,
   resolvedGameForSchool,
   runCollegeBootstrap
 };
