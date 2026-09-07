@@ -1,7 +1,7 @@
-import { dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.js";
+import { dateKeyInZone } from "./schedule-authority-core.js";
 import { maxPrepsScoresUrl, matchLocalVolleyballTeams, parseMaxPrepsVolleyballScores } from "./maxpreps-volleyball-results.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
-import { upsertGame, reconcileCanonicalGame } from "./index.js";
+import { reconcileResolvedObservation, upsertResolvedObservation } from "./canonical-observation-writer.js";
 
 const TIME_ZONE="America/Chicago";
 const SOURCE_PREFIX="maxpreps-volleyball-results:";
@@ -19,8 +19,7 @@ function localDateOffset(localDate,days) {
 
 function localNoonIso(localDate) {
   const [y,m,d]=String(localDate).split("-").map(Number);
-  const guess=new Date(Date.UTC(y,m-1,d,18,0,0));
-  return guess.toISOString();
+  return new Date(Date.UTC(y,m-1,d,18,0,0)).toISOString();
 }
 
 function pairKey(a,b,date) {
@@ -106,7 +105,7 @@ async function ensureSecondarySource(env,team,checkedAt) {
   };
 }
 
-function observationFor(final,reporting,opponent,source,checkedAt) {
+function observationFor(final,reporting,opponent,checkedAt) {
   const isHome=reporting.school_id===final.homeTeam.school_id;
   const teamScore=isHome?final.home.score:final.away.score;
   const opponentScore=isHome?final.away.score:final.home.score;
@@ -187,10 +186,10 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
         source=await ensureSecondarySource(env,reporting,checkedAt);
         sources.set(reporting.team_id,source);
       }
-      const game=observationFor(final,reporting,opponent,source,checkedAt);
-      const gameId=await upsertGame(env,source,game,checkedAt);
+      const game=observationFor(final,reporting,opponent,checkedAt);
+      const gameId=await upsertResolvedObservation(env,source,game,checkedAt,{opponentSchoolId:opponent.school_id});
       observations++;
-      const canonicalId=await reconcileCanonicalGame(env,gameId);
+      const canonicalId=await reconcileResolvedObservation(env,gameId);
       if(canonicalId) reconciled++;
       touched.add(reporting.team_id);
     }
