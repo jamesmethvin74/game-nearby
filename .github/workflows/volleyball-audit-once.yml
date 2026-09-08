@@ -20,16 +20,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Approved retry after fixing the compound SELECT ORDER BY syntax failure.
           URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/vb-audit-8f1c7a2d91e54b6e'
           code=$(curl -sS --max-time 240 -o volleyball-audit.json -w '%{http_code}' "$URL")
           echo "Audit HTTP $code"
-          test "$code" = "200"
           node <<'NODE'
           const fs=require('fs');
           const payload=JSON.parse(fs.readFileSync('volleyball-audit.json','utf8'));
+          console.log('VOLLEYBALL_AUDIT_HTTP_BODY='+JSON.stringify(payload));
           const d1=payload.d1||{};
-          console.log('VOLLEYBALL_AUDIT_D1='+JSON.stringify(d1));
-          console.log('VOLLEYBALL_AUDIT_SUMMARY='+JSON.stringify(payload.summary||{}));
-          console.log('VOLLEYBALL_AUDIT_JSON='+JSON.stringify(payload));
+          if(d1.statements!=null) console.log('VOLLEYBALL_AUDIT_D1='+JSON.stringify(d1));
+          if(payload.summary) console.log('VOLLEYBALL_AUDIT_SUMMARY='+JSON.stringify(payload.summary));
+          if(payload.summary) console.log('VOLLEYBALL_AUDIT_JSON='+JSON.stringify(payload));
           if(Number(d1.rows_written||0)!==0) throw new Error(`Audit wrote ${d1.rows_written} D1 rows`);
           NODE
+          test "$code" = "200"
