@@ -1,5 +1,5 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
-import { maxPrepsScoresUrl, parseMaxPrepsVolleyballScores } from "./maxpreps-volleyball-results.js";
+import { parseMaxPrepsVolleyballScores } from "./maxpreps-volleyball-results.js";
 import { runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 
 export const VOLLEYBALL_CONVERGENCE_PATH="/api/v1/internal/volleyball-convergence";
@@ -9,34 +9,15 @@ export const VOLLEYBALL_CONVERGENCE_BATCHES=Object.freeze({
   [VOLLEYBALL_CONVERGENCE_BATCH_KEY]:Object.freeze({
     dates:Object.freeze(["2026-08-24"]),
     contests:Object.freeze([
-      Object.freeze({
-        contestId:"bf452b95-43e9-412c-8bbc-80fcd92ca147",
-        teamId:"df-ezw3f9-volleyball-2026",
-        localSchool:"Marion High School",
-        opponent:"Collierville"
-      }),
-      Object.freeze({
-        contestId:"01c9d8e3-fdea-4c12-879b-6a9f9726bb58",
-        teamId:"df-26g9fq-volleyball-2026",
-        localSchool:"Columbia Christian School",
-        opponent:"Word of God Academy"
-      }),
-      Object.freeze({
-        contestId:"b3ba2de8-200c-412e-923e-7bad05699fd2",
-        teamId:"df-kybtet-volleyball-2026",
-        localSchool:"Magnolia High School",
-        opponent:"Pleasant Grove"
-      })
+      Object.freeze({contestId:"bf452b95-43e9-412c-8bbc-80fcd92ca147",teamId:"df-ezw3f9-volleyball-2026",localSchool:"Marion High School",opponent:"Collierville"}),
+      Object.freeze({contestId:"01c9d8e3-fdea-4c12-879b-6a9f9726bb58",teamId:"df-26g9fq-volleyball-2026",localSchool:"Columbia Christian School",opponent:"Word of God Academy"}),
+      Object.freeze({contestId:"b3ba2de8-200c-412e-923e-7bad05699fd2",teamId:"df-kybtet-volleyball-2026",localSchool:"Magnolia High School",opponent:"Pleasant Grove"})
     ])
   })
 });
 
 function escapeHtml(value="") {
-  return String(value)
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;");
+  return String(value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 function localDateFromScoresUrl(url) {
@@ -52,23 +33,20 @@ function selectedFinalHtml(finals) {
     options.set(final.home.maxprepsId,final.home.name);
     options.set(final.away.maxprepsId,final.away.name);
   }
-  const optionHtml=[...options.entries()]
-    .map(([id,name])=>`<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`)
-    .join("");
+  const optionHtml=[...options.entries()].map(([id,name])=>`<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join("");
   const cards=finals.map(final=>`<li class="c" data-teams="${escapeHtml(final.home.maxprepsId)},${escapeHtml(final.away.maxprepsId)}" data-contest-id="${escapeHtml(final.contestId)}"><div class="contest-box-item" data-contest-state="boxscore"><a href="${escapeHtml(final.sourceUrl)}" class="c-c"><ul class="teams"><li><div class="score">${Number(final.home.score)}</div><div class="name">${escapeHtml(final.home.name)}</div></li><li><div class="score">${Number(final.away.score)}</div><div class="name">${escapeHtml(final.away.name)}</div></li></ul><div class="details"> Final</div></a></div></li>`).join("");
   return `<!doctype html><html><body><select id="q_n_teams">${optionHtml}</select><ul>${cards}</ul></body></html>`;
 }
 
 function contestPairMatches(final,spec) {
   const names=[normalizeSchoolAlias(final.home.name),normalizeSchoolAlias(final.away.name)];
-  return names.includes(normalizeSchoolAlias(spec.localSchool))
-    && names.includes(normalizeSchoolAlias(spec.opponent));
+  return names.includes(normalizeSchoolAlias(spec.localSchool)) && names.includes(normalizeSchoolAlias(spec.opponent));
 }
 
 async function loadLocalScope(env,batch) {
   const targetIds=[...new Set(batch.contests.map(row=>row.teamId))];
   const targetQuery=await env.DB.prepare(`
-    SELECT t.id AS team_id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS school_name
+    SELECT t.id AS team_id,t.conference_id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS school_name
     FROM teams t JOIN schools s ON s.id=t.school_id
     WHERE t.id IN (SELECT value FROM json_each(?))
       AND t.active=1 AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
@@ -90,11 +68,14 @@ async function loadLocalScope(env,batch) {
     if(normalizeSchoolAlias(target?.school_name)!==normalizeSchoolAlias(spec.localSchool)) {
       throw new Error(`Bounded volleyball convergence local identity changed for ${spec.contestId}`);
     }
+    if(target?.conference_id!=null && String(target.conference_id)!=="") {
+      throw new Error(`Bounded volleyball convergence target now has conference membership for ${spec.contestId}`);
+    }
     if(localAliases.has(normalizeSchoolAlias(spec.opponent))) {
       throw new Error(`Bounded volleyball convergence opponent is now local for ${spec.contestId}`);
     }
   }
-  return {targetTeams:targetIds.length,localTeams:localQuery.results?.length||0};
+  return {targetTeams:targetIds.length,localTeams:localQuery.results?.length||0,conferenceCohorts:0};
 }
 
 function makeContestFilteredFetch(batch,fetchFn) {
@@ -105,7 +86,6 @@ function makeContestFilteredFetch(batch,fetchFn) {
     if(!expectedByDate.has(date)) expectedByDate.set(date,new Set());
     expectedByDate.get(date).add(spec.contestId);
   }
-
   return async (url,init)=>{
     const response=await fetchFn(url,init);
     if(!response.ok) return response;
@@ -121,46 +101,26 @@ function makeContestFilteredFetch(batch,fetchFn) {
     }
     for(const final of selected) {
       const spec=specByContest.get(final.contestId);
-      if(!spec || !contestPairMatches(final,spec)) {
-        throw new Error(`Bounded volleyball convergence pairing changed for ${final.contestId}`);
-      }
+      if(!spec || !contestPairMatches(final,spec)) throw new Error(`Bounded volleyball convergence pairing changed for ${final.contestId}`);
     }
     return new Response(selectedFinalHtml(selected),{status:200,headers:{"content-type":"text/html; charset=utf-8"}});
   };
 }
 
-export async function runVolleyballConvergenceBatch(env,{
-  batchKey,
-  fetchFn=fetch,
-  now=new Date(),
-  runner=runMaxPrepsVolleyballResultFallback
-}={}) {
+export async function runVolleyballConvergenceBatch(env,{batchKey,fetchFn=fetch,now=new Date(),runner=runMaxPrepsVolleyballResultFallback}={}) {
   const batch=VOLLEYBALL_CONVERGENCE_BATCHES[String(batchKey||"")];
   if(!batch) throw new Error("Unknown volleyball convergence batch");
   if(batch.contests.length>3 || batch.dates.length!==1) throw new Error("Volleyball convergence batch exceeds hard safety bounds");
-
   const preflight=await loadLocalScope(env,batch);
   const targetTeamIds=[...new Set(batch.contests.map(row=>row.teamId))];
-  const result=await runner(env,{
-    dates:[...batch.dates],
-    targetTeamIds,
-    fetchFn:makeContestFilteredFetch(batch,fetchFn),
-    now
-  });
-
+  const result=await runner(env,{dates:[...batch.dates],targetTeamIds,fetchFn:makeContestFilteredFetch(batch,fetchFn),now});
   if(Number(result?.matchedFinals||0)>batch.contests.length
     || Number(result?.observations||0)>batch.contests.length
-    || Number(result?.touchedTeams||0)>targetTeamIds.length) {
+    || Number(result?.touchedTeams||0)>targetTeamIds.length
+    || Number(result?.recordResult?.standings?.cohorts||0)>0) {
     throw new Error("Volleyball convergence result exceeded approved logical bounds");
   }
-
-  return {
-    batchKey,
-    approvedContestIds:batch.contests.map(row=>row.contestId),
-    approvedTeamIds:targetTeamIds,
-    preflight,
-    result
-  };
+  return {batchKey,approvedContestIds:batch.contests.map(row=>row.contestId),approvedTeamIds:targetTeamIds,preflight,result};
 }
 
 export { localDateFromScoresUrl, makeContestFilteredFetch, selectedFinalHtml };
