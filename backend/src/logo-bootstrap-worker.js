@@ -1,3 +1,4 @@
+// Clean production entrypoint; temporary volleyball convergence surfaces are intentionally absent.
 import app from "./m4-public-worker.js";
 import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } from "./statewide-logo-completion.js";
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
