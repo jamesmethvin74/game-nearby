@@ -45,6 +45,8 @@ console.log('AUG24_STATIC_RESULT='+JSON.stringify(p));
 const contests=['bf452b95-43e9-412c-8bbc-80fcd92ca147','01c9d8e3-fdea-4c12-879b-6a9f9726bb58','b3ba2de8-200c-412e-923e-7bad05699fd2'];
 const teams=['df-ezw3f9-volleyball-2026','df-26g9fq-volleyball-2026','df-kybtet-volleyball-2026'];
 if(p.batchKey!=='aug24-external-opponents-v1') throw new Error('Wrong batch key');
+if(Number(p.auditRunId)!==34172135818) throw new Error('Wrong audited snapshot provenance');
+if(p.sourceMode!=='audited-snapshot') throw new Error('Unexpected convergence source mode');
 if(JSON.stringify([...(p.approvedContestIds||[])].sort())!==JSON.stringify([...contests].sort())) throw new Error('Approved contest set changed');
 if(JSON.stringify([...(p.approvedTeamIds||[])].sort())!==JSON.stringify([...teams].sort())) throw new Error('Approved team set changed');
 if(Number(p.preflight?.targetTeams)!==3 || Number(p.preflight?.conferenceCohorts||0)!==0) throw new Error('Unexpected preflight');
