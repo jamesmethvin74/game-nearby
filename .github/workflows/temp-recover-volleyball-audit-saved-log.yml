@@ -4,7 +4,6 @@ on:
     branches: [temp/recover-volleyball-audit-saved-log]
 permissions:
   actions: read
-  issues: write
   contents: read
 jobs:
   recover:
@@ -20,7 +19,7 @@ jobs:
           set -euo pipefail
           curl -sS -L -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/$REPO/actions/jobs/101894329625/logs" -o recovered-audit.log
           python <<'PY'
-          import io,json,os,urllib.request,zipfile
+          import io,json,zipfile
           raw=open('recovered-audit.log','rb').read()
           if raw[:2]==b'PK':
               z=zipfile.ZipFile(io.BytesIO(raw)); text='\n'.join(z.read(n).decode('utf-8','replace') for n in z.namelist())
@@ -40,12 +39,12 @@ jobs:
           p=json.loads(raw_json); groups=p.get('exceptions_by_deficiency',{})
           counts={k:int(v.get('count',0)) for k,v in groups.items()}
           target=groups.get('authority_final_unmatched_opponent',{}).get('exceptions',[])
-          representatives={k:v.get('exceptions',[])[:3] for k,v in groups.items() if int(v.get('count',0))}
-          report={'source_job':101894329625,'production_recalled':False,'d1':p.get('d1',{}),'summary':p.get('summary',{}),'authority_fetch':p.get('authority_fetch',{}),'deficiency_counts':counts,'authority_final_unmatched_opponent':target,'representatives':representatives}
-          body='SAVED_AUDIT_RECOVERY_V2\n\n```json\n'+json.dumps(report,indent=2,sort_keys=True)+'\n```'
-          if len(body)>64000:
-              report.pop('representatives',None)
-              body='SAVED_AUDIT_RECOVERY_V2\n\n```json\n'+json.dumps(report,indent=2,sort_keys=True)+'\n```'
-          req=urllib.request.Request(f"https://api.github.com/repos/{os.environ['REPO']}/issues/403/comments",data=json.dumps({'body':body}).encode(),headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'},method='POST')
-          with urllib.request.urlopen(req,timeout=30) as r: print('posted',r.status)
+          reps={k:v.get('exceptions',[])[:3] for k,v in groups.items() if int(v.get('count',0))}
+          print('SAVED_AUDIT_D1='+json.dumps(p.get('d1',{}),separators=(',',':'),sort_keys=True))
+          print('SAVED_AUDIT_SUMMARY='+json.dumps(p.get('summary',{}),separators=(',',':'),sort_keys=True))
+          print('SAVED_AUDIT_AUTHORITY='+json.dumps(p.get('authority_fetch',{}),separators=(',',':'),sort_keys=True))
+          print('SAVED_AUDIT_COUNTS='+json.dumps(counts,separators=(',',':'),sort_keys=True))
+          print('SAVED_AUDIT_TARGET='+json.dumps(target,separators=(',',':'),sort_keys=True))
+          print('SAVED_AUDIT_REPRESENTATIVES='+json.dumps(reps,separators=(',',':'),sort_keys=True))
+          print('SAVED_AUDIT_RECOVERY_V3=PASS')
           PY
