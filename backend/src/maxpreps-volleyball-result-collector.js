@@ -1,4 +1,4 @@
-import { dateKeyInZone } from "./schedule-authority-core.js";
+import { dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { zonedIso } from "./parser-core.js";
 import { maxPrepsScoresUrl, matchLocalVolleyballTeams, parseMaxPrepsVolleyballScores } from "./maxpreps-volleyball-results.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
@@ -7,6 +7,7 @@ import { reconcileResolvedObservation, upsertResolvedObservation } from "./canon
 const TIME_ZONE="America/Chicago";
 const SOURCE_PREFIX="maxpreps-volleyball-results:";
 const SOURCE_AUTHORITY_RANK=80;
+const MAXPREPS_IDENTITY_PROVIDER="maxpreps";
 
 function localDateAt(value) {
   return dateKeyInZone(value instanceof Date?value.toISOString():value,TIME_ZONE);
@@ -44,6 +45,24 @@ function canonicalMatchesFinal(event,final) {
   return false;
 }
 
+function fnv1a32(value) {
+  let hash=0x811c9dc5;
+  for(const char of String(value||"")) {
+    hash^=char.codePointAt(0);
+    hash=Math.imul(hash,0x01000193)>>>0;
+  }
+  return hash.toString(16).padStart(8,"0");
+}
+
+function maxPrepsOpponentSchoolId(externalId,name) {
+  const safe=String(externalId||name||"opponent")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/^-+|-+$/g,"")
+    .slice(0,36)||"opponent";
+  return `mp-${safe}-${fnv1a32(`${externalId}|${name}`)}`;
+}
+
 async function loadLocalTeams(env) {
   const {results}=await env.DB.prepare(`
     SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,t.conference_id,
@@ -53,6 +72,88 @@ async function loadLocalTeams(env) {
       AND s.level='high-school' AND s.catalog_scope='local'
   `).all();
   return results||[];
+}
+
+async function loadOpponentIdentityContext(env) {
+  const {results:schools}=await env.DB.prepare(`
+    SELECT id,COALESCE(NULLIF(location_matched_name,''),name) AS school_name,catalog_scope
+    FROM schools
+    WHERE level='high-school'
+  `).all();
+  const {results:identities}=await env.DB.prepare(`
+    SELECT external_school_id,school_id
+    FROM school_external_identities
+    WHERE provider=?
+  `).bind(MAXPREPS_IDENTITY_PROVIDER).all();
+  const byId=new Map();
+  const byName=new Map();
+  for(const school of schools||[]) {
+    byId.set(school.id,school);
+    const key=normalizeSchoolAlias(school.school_name);
+    if(!key) continue;
+    if(!byName.has(key)) byName.set(key,[]);
+    byName.get(key).push(school);
+  }
+  return {
+    byId,
+    byName,
+    identityByExternal:new Map((identities||[]).map(row=>[String(row.external_school_id),row.school_id]))
+  };
+}
+
+function planOpponentSchool(context,side) {
+  const externalId=String(side?.maxprepsId||"").trim();
+  const observedName=String(side?.name||"").trim();
+  if(!externalId || !observedName) return {ambiguous:true};
+
+  const identitySchoolId=context.identityByExternal.get(externalId);
+  if(identitySchoolId) {
+    const school=context.byId.get(identitySchoolId);
+    if(!school) return {ambiguous:true};
+    return {
+      school:{school_id:school.id,school_name:school.school_name,catalog_scope:school.catalog_scope},
+      externalId,observedName,createSchool:false,linkIdentity:false
+    };
+  }
+
+  const candidates=context.byName.get(normalizeSchoolAlias(observedName))||[];
+  if(candidates.length>1) return {ambiguous:true};
+  if(candidates.length===1) {
+    const school=candidates[0];
+    return {
+      school:{school_id:school.id,school_name:school.school_name,catalog_scope:school.catalog_scope},
+      externalId,observedName,createSchool:false,linkIdentity:true
+    };
+  }
+
+  const schoolId=maxPrepsOpponentSchoolId(externalId,observedName);
+  return {
+    school:{school_id:schoolId,school_name:observedName,catalog_scope:"opponent-only"},
+    externalId,observedName,createSchool:true,linkIdentity:true
+  };
+}
+
+async function persistOpponentPlan(env,plan,checkedAt) {
+  let schoolCreated=0,identityLinked=0;
+  if(plan.createSchool) {
+    const result=await env.DB.prepare(`
+      INSERT OR IGNORE INTO schools
+        (id,name,city,state,level,catalog_scope,membership_source,membership_verified_at,updated_at)
+      VALUES(?,?, '', '', 'high-school','opponent-only','maxpreps-result-opponent',NULL,?)
+    `).bind(plan.school.school_id,plan.observedName,checkedAt).run();
+    schoolCreated=Number(result?.meta?.changes??result?.changes??0)>0?1:0;
+  }
+  if(plan.linkIdentity) {
+    const result=await env.DB.prepare(`
+      INSERT INTO school_external_identities
+        (provider,external_school_id,school_id,observed_name,last_seen_at,updated_at)
+      VALUES(?,?,?,?,?,?)
+      ON CONFLICT(provider,external_school_id) DO UPDATE SET
+        observed_name=excluded.observed_name,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at
+    `).bind(MAXPREPS_IDENTITY_PROVIDER,plan.externalId,plan.school.school_id,plan.observedName,checkedAt,checkedAt).run();
+    identityLinked=Number(result?.meta?.changes??result?.changes??0)>0?1:0;
+  }
+  return {schoolCreated,identityLinked};
 }
 
 async function loadExistingCanonicals(env,dates,targetSchoolIds=null) {
@@ -164,8 +265,9 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
     return {status:"SKIPPED",reason:"NO_TARGET_TEAMS",dates:requested,pagesFetched:0,parsedFinals:0,matchedFinals:0,touchedTeams:0,writes:0};
   }
   const existing=indexCanonicals(await loadExistingCanonicals(env,requested,targetSchools));
-  const candidateFinals=[];
-  let parsedFinals=0,ambiguousMatches=0,pagesFetched=0;
+  const localLocal=[];
+  const oneSided=[];
+  let parsedFinals=0,ambiguousMatches=0,oneSidedMatches=0,pagesFetched=0;
 
   for(const localDate of requested) {
     const url=maxPrepsScoresUrl(localDate);
@@ -175,26 +277,69 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
     pagesFetched++;
     const parsed=parseMaxPrepsVolleyballScores(html,{localDate,sourceUrl:response.url||url});
     parsedFinals+=parsed.length;
-    const matched=matchLocalVolleyballTeams(parsed,localTeams);
-    ambiguousMatches+=matched.ambiguous.length;
-    for(const final of matched.matched) {
+    const matches=matchLocalVolleyballTeams(parsed,localTeams);
+    ambiguousMatches+=matches.ambiguous.length;
+    oneSidedMatches+=matches.oneSided.length;
+    for(const final of matches.matched) {
       if(targetSet && !targetSet.has(String(final.homeTeam.team_id)) && !targetSet.has(String(final.awayTeam.team_id))) continue;
-      const key=pairKey(final.homeTeam.school_id,final.awayTeam.school_id,final.localDate);
-      const canonicals=existing.get(key)||[];
-      if(canonicals.some(event=>canonicalMatchesFinal(event,final))) continue;
-      candidateFinals.push(final);
+      localLocal.push(final);
+    }
+    for(const final of matches.oneSided) {
+      const localTeam=final.homeTeam?.team_id?final.homeTeam:final.awayTeam;
+      if(targetSet && !targetSet.has(String(localTeam?.team_id))) continue;
+      oneSided.push(final);
     }
   }
 
+  const resolvedFinals=[...localLocal];
+  if(oneSided.length) {
+    const context=await loadOpponentIdentityContext(env);
+    for(const final of oneSided) {
+      const sideKey=final.unresolvedSide;
+      const plan=planOpponentSchool(context,final[sideKey]);
+      if(plan.ambiguous) {
+        ambiguousMatches++;
+        continue;
+      }
+      resolvedFinals.push({
+        ...final,
+        homeTeam:sideKey==="home"?plan.school:final.homeTeam,
+        awayTeam:sideKey==="away"?plan.school:final.awayTeam,
+        opponentPlan:plan
+      });
+    }
+  }
+
+  const candidateFinals=[];
+  for(const final of resolvedFinals) {
+    const key=pairKey(final.homeTeam.school_id,final.awayTeam.school_id,final.localDate);
+    const canonicals=existing.get(key)||[];
+    if(canonicals.some(event=>canonicalMatchesFinal(event,final))) continue;
+    candidateFinals.push(final);
+  }
+
   if(!candidateFinals.length) {
-    return {status:"NOT_MODIFIED",dates:requested,pagesFetched,parsedFinals,matchedFinals:0,ambiguousMatches,touchedTeams:0,writes:0};
+    return {status:"NOT_MODIFIED",dates:requested,pagesFetched,parsedFinals,matchedFinals:0,oneSidedMatches,ambiguousMatches,touchedTeams:0,writes:0};
   }
 
   const sources=new Map();
   const touched=new Set();
-  let observations=0,reconciled=0;
+  const persistedOpponents=new Map();
+  let observations=0,reconciled=0,opponentSchoolsMaterialized=0,opponentIdentitiesLinked=0;
   for(const final of candidateFinals) {
-    for(const [reporting,opponent] of [[final.homeTeam,final.awayTeam],[final.awayTeam,final.homeTeam]]) {
+    if(final.opponentPlan) {
+      const key=final.opponentPlan.externalId;
+      if(!persistedOpponents.has(key)) {
+        const persisted=await persistOpponentPlan(env,final.opponentPlan,checkedAt);
+        persistedOpponents.set(key,persisted);
+        opponentSchoolsMaterialized+=persisted.schoolCreated;
+        opponentIdentitiesLinked+=persisted.identityLinked;
+      }
+    }
+    const reportingPairs=[];
+    if(final.homeTeam?.team_id) reportingPairs.push([final.homeTeam,final.awayTeam]);
+    if(final.awayTeam?.team_id) reportingPairs.push([final.awayTeam,final.homeTeam]);
+    for(const [reporting,opponent] of reportingPairs) {
       let source=sources.get(reporting.team_id);
       if(!source) {
         source=await ensureSecondarySource(env,reporting,checkedAt);
@@ -217,13 +362,16 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
     pagesFetched,
     parsedFinals,
     matchedFinals:candidateFinals.length,
+    oneSidedMatches,
     ambiguousMatches,
     observations,
     reconciled,
+    opponentSchoolsMaterialized,
+    opponentIdentitiesLinked,
     touchedTeams:touched.size,
     recordResult,
-    writes:observations+sources.size
+    writes:observations+sources.size+opponentSchoolsMaterialized+opponentIdentitiesLinked
   };
 }
 
-export { SOURCE_AUTHORITY_RANK, SOURCE_PREFIX };
+export { MAXPREPS_IDENTITY_PROVIDER, SOURCE_AUTHORITY_RANK, SOURCE_PREFIX };

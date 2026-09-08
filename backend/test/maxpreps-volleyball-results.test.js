@@ -30,9 +30,28 @@ test("maps unique score-card schools onto existing local varsity volleyball team
   ];
   const result=matchLocalVolleyballTeams(finals,localTeams);
   assert.equal(result.matched.length,1);
+  assert.equal(result.oneSided.length,0);
   assert.equal(result.ambiguous.length,0);
   assert.equal(result.matched[0].homeTeam.team_id,"cotter-volleyball-2026");
   assert.equal(result.matched[0].awayTeam.team_id,"flippin-volleyball-2026");
+});
+
+test("returns a one-sided final when exactly one Arkansas local team resolves uniquely",()=>{
+  const finals=[{
+    contestId:"one-sided-1",
+    localDate:"2026-08-30",
+    sourceUrl:"https://www.maxpreps.com/ar/volleyball/scores/",
+    home:{maxprepsId:"local-id",name:"Flippin",score:3},
+    away:{maxprepsId:"external-id",name:"Missouri Academy",score:1}
+  }];
+  const localTeams=[{team_id:"flippin-volleyball-2026",school_id:"flippin",school_name:"Flippin High School"}];
+  const result=matchLocalVolleyballTeams(finals,localTeams);
+  assert.equal(result.matched.length,0);
+  assert.equal(result.oneSided.length,1);
+  assert.equal(result.ambiguous.length,0);
+  assert.equal(result.oneSided[0].homeTeam.team_id,"flippin-volleyball-2026");
+  assert.equal(result.oneSided[0].awayTeam,null);
+  assert.equal(result.oneSided[0].unresolvedSide,"away");
 });
 
 test("skips ambiguous school names rather than guessing",()=>{
@@ -44,6 +63,7 @@ test("skips ambiguous school names rather than guessing",()=>{
   ];
   const result=matchLocalVolleyballTeams(finals,localTeams);
   assert.equal(result.matched.length,0);
+  assert.equal(result.oneSided.length,0);
   assert.equal(result.ambiguous.length,1);
 });
 
