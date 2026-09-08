@@ -5,38 +5,24 @@ API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
 READY_PATH="/api/v1/internal/volleyball-convergence/ready"
 RUN_PATH="/api/v1/internal/volleyball-convergence"
 BATCH_KEY="aug24-external-opponents-v1"
+TOKEN="$(node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));process.stdout.write(String(p.vars.VOLLEYBALL_CONVERGENCE_TOKEN||''))")"
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-npm run check
-TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
-
-wrangler deploy --keep-vars \
-  --var "ENVIRONMENT:production" \
-  --var "ALLOWED_ORIGIN:https://jamesmethvin74.github.io" \
-  --var "LAZY_STATEWIDE_BOOTSTRAP:1" \
-  --var "CLOUDFLARE_ACCOUNT_ID:588568148fa47810445f37081e49562c" \
-  --var "D1_DATABASE_ID:50806cc9-7710-4f21-8ab3-159623f6a0a9" \
-  --var "VOLLEYBALL_CONVERGENCE_TOKEN:$TOKEN"
-
-echo "AUG24_V3_TOKEN_DEPLOYED"
-
-READY_STATUS=""
-for ATTEMPT in 1 2 3 4 5 6 7 8 9 10; do
-  READY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head \
-    -H "x-volleyball-convergence-token: $TOKEN" \
-    -H 'cache-control: no-store' \
-    "$API$READY_PATH" || true)"
-  if [ "$READY_STATUS" = "204" ]; then
-    echo "AUG24_V3_READY attempt=$ATTEMPT"
-    break
-  fi
-  sleep 3
-done
-if [ "$READY_STATUS" != "204" ]; then
-  echo "Deploy-var volleyball convergence readiness never reached 204; last=${READY_STATUS:-curl_error}" >&2
+if [ -z "$TOKEN" ]; then
+  echo "Missing staged convergence token" >&2
   exit 1
 fi
+
+READY_STATUS="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head \
+  -H "x-volleyball-convergence-token: $TOKEN" \
+  -H 'cache-control: no-store' \
+  "$API$READY_PATH" || true)"
+if [ "$READY_STATUS" != "204" ]; then
+  echo "Staged-token volleyball convergence readiness failed: HTTP ${READY_STATUS:-curl_error}" >&2
+  exit 1
+fi
+echo "AUG24_STATIC_READY"
 
 RUN_OUT="$TMPDIR/convergence.json"
 RUN_CODE="$(curl -sS --max-time 180 -o "$RUN_OUT" -w '%{http_code}' -X POST \
@@ -55,7 +41,7 @@ fi
 node - "$RUN_OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-console.log('AUG24_V3_RESULT='+JSON.stringify(p));
+console.log('AUG24_STATIC_RESULT='+JSON.stringify(p));
 const contests=['bf452b95-43e9-412c-8bbc-80fcd92ca147','01c9d8e3-fdea-4c12-879b-6a9f9726bb58','b3ba2de8-200c-412e-923e-7bad05699fd2'];
 const teams=['df-ezw3f9-volleyball-2026','df-26g9fq-volleyball-2026','df-kybtet-volleyball-2026'];
 if(p.batchKey!=='aug24-external-opponents-v1') throw new Error('Wrong batch key');
@@ -94,4 +80,4 @@ for(const e of expected){
 }
 NODE
 
-echo "AUG24_V3_VERIFIED"
+echo "AUG24_STATIC_VERIFIED"
