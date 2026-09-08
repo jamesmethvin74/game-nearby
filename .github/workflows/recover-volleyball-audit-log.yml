@@ -1,0 +1,87 @@
+name: Recover completed volleyball audit log
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/recover-volleyball-audit-log.yml
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Recover saved successful audit output
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/jobs/101894329625/logs" \
+            -o recovered-audit.log
+          python <<'PY'
+          import json, os, urllib.request, zipfile, io
+          raw=open('recovered-audit.log','rb').read()
+          if raw[:2] == b'PK':
+              z=zipfile.ZipFile(io.BytesIO(raw))
+              text='\n'.join(z.read(n).decode('utf-8','replace') for n in z.namelist())
+          else:
+              text=raw.decode('utf-8','replace')
+          def marker(name):
+              token=name+'='
+              for line in text.splitlines():
+                  pos=line.find(token)
+                  if pos >= 0:
+                      return line[pos+len(token):].strip()
+              return None
+          payload_raw=marker('VOLLEYBALL_AUDIT_JSON') or marker('VOLLEYBALL_AUDIT_HTTP_BODY')
+          if not payload_raw:
+              raise SystemExit('Saved successful job log has no volleyball audit JSON marker')
+          payload=json.loads(payload_raw)
+          d1=payload.get('d1',{})
+          summary=payload.get('summary',{})
+          authority=payload.get('authority_fetch',{})
+          groups=payload.get('exceptions_by_deficiency',{})
+          lines=['## Recovered statewide volleyball audit result','',
+                 'Recovered from completed successful job `101894329625`; **this recovery did not call the Worker or D1 again.**','',
+                 '### D1 telemetry','```json',json.dumps(d1,indent=2,sort_keys=True),'```','',
+                 '### Statewide summary','```json',json.dumps(summary,indent=2,sort_keys=True),'```','',
+                 '### Authority fetch','```json',json.dumps(authority,indent=2,sort_keys=True),'```','',
+                 '### Deficiency counts','','| Deficiency | Count |','|---|---:|']
+          ordered=sorted(groups.items(), key=lambda kv:(-int(kv[1].get('count',0)),kv[0]))
+          for key,val in ordered:
+              lines.append(f"| `{key}` | {int(val.get('count',0))} |")
+          lines += ['','### Representative exceptions','']
+          for key,val in ordered:
+              lines.append(f"#### {key} — {int(val.get('count',0))}")
+              for row in val.get('exceptions',[])[:5]:
+                  school=row.get('school') or '(unmatched school)'
+                  team=row.get('team_id') or '—'
+                  conf=row.get('conference') or row.get('conference_id') or '—'
+                  local=str(row.get('local_state','')).replace('\n',' ')
+                  auth=str(row.get('authority_state','')).replace('\n',' ')
+                  repair=str(row.get('recommended_repair','')).replace('\n',' ')
+                  lines.append(f"- **{school}** (`{team}`; {conf}) — local: {local}; authority: {auth}; repair: {repair}")
+              lines.append('')
+          body='\n'.join(lines)
+          if len(body)>60000:
+              body=body[:59500]+'\n\n_Report truncated after preserving all deficiency counts._'
+          req=urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/403/comments",
+              data=json.dumps({'body':body}).encode(),
+              headers={'Authorization':f"Bearer {os.environ['GH_TOKEN']}",'Accept':'application/vnd.github+json','Content-Type':'application/json','X-GitHub-Api-Version':'2022-11-28'},
+              method='POST')
+          with urllib.request.urlopen(req,timeout=30) as r:
+              print('posted recovery report',r.status)
+          PY
