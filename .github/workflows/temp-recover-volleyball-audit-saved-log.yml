@@ -1,0 +1,128 @@
+name: Temporary recover saved volleyball audit output
+
+on:
+  push:
+    branches:
+      - temp/recover-volleyball-audit-saved-log
+    paths:
+      - .github/workflows/temp-recover-volleyball-audit-saved-log.yml
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Recover saved successful audit output only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -L \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/jobs/101894329625/logs" \
+            -o recovered-audit.log
+          python <<'PY'
+          import io, json, os, urllib.request, zipfile
+
+          raw = open('recovered-audit.log', 'rb').read()
+          if raw[:2] == b'PK':
+              z = zipfile.ZipFile(io.BytesIO(raw))
+              text = '\n'.join(z.read(n).decode('utf-8', 'replace') for n in z.namelist())
+          else:
+              text = raw.decode('utf-8', 'replace')
+
+          def marker(name):
+              token = name + '='
+              # The old recovery incorrectly selected the first source-code occurrence.
+              # Select the last actual emitted JSON marker instead.
+              for line in reversed(text.splitlines()):
+                  pos = line.find(token)
+                  if pos < 0:
+                      continue
+                  candidate = line[pos + len(token):].strip()
+                  if not candidate.startswith('{'):
+                      continue
+                  try:
+                      json.loads(candidate)
+                  except json.JSONDecodeError:
+                      continue
+                  return candidate
+              return None
+
+          payload_raw = marker('VOLLEYBALL_AUDIT_JSON') or marker('VOLLEYBALL_AUDIT_HTTP_BODY')
+          if not payload_raw:
+              raise SystemExit('Saved successful job log has no emitted volleyball audit JSON marker')
+          payload = json.loads(payload_raw)
+          d1 = payload.get('d1', {})
+          summary = payload.get('summary', {})
+          authority = payload.get('authority_fetch', {})
+          groups = payload.get('exceptions_by_deficiency', {})
+
+          ordered = sorted(groups.items(), key=lambda kv: (-int(kv[1].get('count', 0)), kv[0]))
+          lines = [
+              'SAVED_AUDIT_RECOVERY_V2',
+              '',
+              'Recovered exclusively from completed successful GitHub Actions job `101894329625`; **no Worker or D1 call was made by this recovery.**',
+              '',
+              '### D1 telemetry',
+              '```json', json.dumps(d1, indent=2, sort_keys=True), '```',
+              '',
+              '### Statewide summary',
+              '```json', json.dumps(summary, indent=2, sort_keys=True), '```',
+              '',
+              '### Authority fetch',
+              '```json', json.dumps(authority, indent=2, sort_keys=True), '```',
+              '',
+              '### Deficiency counts',
+              '', '| Deficiency | Count |', '|---|---:|'
+          ]
+          for key, val in ordered:
+              lines.append(f"| `{key}` | {int(val.get('count', 0))} |")
+
+          target = groups.get('authority_final_unmatched_opponent', {})
+          lines += [
+              '',
+              '### Exact `authority_final_unmatched_opponent` exceptions',
+              '```json',
+              json.dumps(target.get('exceptions', []), indent=2, sort_keys=True),
+              '```',
+              '',
+              '### Representative exceptions by deficiency'
+          ]
+          for key, val in ordered:
+              lines.append(f"\n#### {key} — {int(val.get('count', 0))}")
+              for row in val.get('exceptions', [])[:5]:
+                  lines.append('```json')
+                  lines.append(json.dumps(row, indent=2, sort_keys=True))
+                  lines.append('```')
+
+          body = '\n'.join(lines)
+          if len(body) > 64000:
+              # Preserve totals + the exact target class; trim only the tail of representative groups.
+              cutoff = body.find('### Representative exceptions by deficiency')
+              head = body if cutoff < 0 else body[:cutoff]
+              body = head[:63500] + '\n\n_Report tail truncated; statewide counts and target exceptions preserved._'
+
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['REPO']}/issues/403/comments",
+              data=json.dumps({'body': body}).encode(),
+              headers={
+                  'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28'
+              },
+              method='POST'
+          )
+          with urllib.request.urlopen(req, timeout=30) as response:
+              print('posted SAVED_AUDIT_RECOVERY_V2', response.status)
+          PY
