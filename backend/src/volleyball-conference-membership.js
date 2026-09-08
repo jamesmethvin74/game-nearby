@@ -76,6 +76,48 @@ export function buildVolleyballConferenceMembership({conferences=[],standingsByC
   };
 }
 
+export function planVolleyballConferenceMembershipChanges({assignments=[],localTeams=[]}={}) {
+  const currentByTeam=new Map(localTeams.map(team=>[String(team.team_id),team]));
+  const aligned=[];
+  const missing=[];
+  const wrong=[];
+  const changes=[];
+
+  for(const assignment of assignments) {
+    const team=currentByTeam.get(String(assignment.team_id));
+    if(!team) continue;
+    const current=String(team.conference_id||"");
+    const expected=String(assignment.conference_id||"");
+    const row={
+      team_id:assignment.team_id,
+      school_id:assignment.school_id,
+      school_name:team.school_name||null,
+      current_conference_id:current||null,
+      expected_conference_id:expected||null,
+      expected_conference_name:assignment.conference_name||null
+    };
+    if(current===expected) {
+      aligned.push(row);
+      continue;
+    }
+    if(!current) missing.push(row);
+    else wrong.push(row);
+    changes.push(row);
+  }
+
+  return {
+    assignments:assignments.length,
+    aligned_count:aligned.length,
+    missing_count:missing.length,
+    wrong_count:wrong.length,
+    change_count:changes.length,
+    aligned,
+    missing,
+    wrong,
+    changes
+  };
+}
+
 function scopeBuiltMembership(built,targetTeamIds=null) {
   const targetSet=targetTeamIds?.length?new Set(targetTeamIds.map(String)):null;
   if(!targetSet) return built;
@@ -217,12 +259,28 @@ function teamMembershipUpdateStatement(env,assignments,now) {
   `).bind(JSON.stringify(assignments),now);
 }
 
+function enforceMembershipWriteFuses({plan,conferenceRows,maxTeamChanges,maxConferenceRows}) {
+  if(maxTeamChanges!=null) {
+    const limit=Number(maxTeamChanges);
+    if(!Number.isInteger(limit)||limit<0) throw new Error("maxTeamChanges must be a non-negative integer");
+    if(plan.change_count>limit) throw new Error(`volleyball membership team-change fuse exceeded: planned ${plan.change_count}, limit ${limit}`);
+  }
+  if(maxConferenceRows!=null) {
+    const limit=Number(maxConferenceRows);
+    if(!Number.isInteger(limit)||limit<0) throw new Error("maxConferenceRows must be a non-negative integer");
+    if(conferenceRows>limit) throw new Error(`volleyball membership conference-row fuse exceeded: planned ${conferenceRows}, limit ${limit}`);
+  }
+}
+
 export async function syncPublishedVolleyballConferenceMembership(env,{
   fetchFn=fetch,
   now=new Date(),
   conferenceIds=null,
   targetTeamIds=null,
-  conferenceSourceOverrides=null
+  conferenceSourceOverrides=null,
+  dryRun=false,
+  maxTeamChanges=null,
+  maxConferenceRows=null
 }={}) {
   const checkedAt=now.toISOString();
   const localTeams=await loadLocalVolleyballTeams(env);
@@ -232,26 +290,16 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
     standingsByConference:published.standingsByConference,
     localTeams
   }),targetTeamIds);
+  const plan=planVolleyballConferenceMembershipChanges({assignments:built.assignments,localTeams});
 
-  if(!built.assignments.length) {
-    return {
-      status:"NO_MATCHES",
-      discoveredConferences:published.discoveredConferences,
-      selectedConferences:published.conferences.length,
-      fetchedConferences:published.standingsByConference.size,
-      failedConferences:published.failures,
-      assignments:0,
-      unmatched:built.unmatched.length,
-      ambiguous:built.ambiguous
-    };
-  }
+  enforceMembershipWriteFuses({
+    plan,
+    conferenceRows:built.conferences.length,
+    maxTeamChanges,
+    maxConferenceRows
+  });
 
-  const results=await env.DB.batch([
-    conferenceUpsertStatement(env,built.conferences,checkedAt),
-    teamMembershipUpdateStatement(env,built.assignments,checkedAt)
-  ]);
-  return {
-    status:"SUCCESS",
+  const base={
     discoveredConferences:published.discoveredConferences,
     selectedConferences:published.conferences.length,
     fetchedConferences:published.standingsByConference.size,
@@ -260,6 +308,19 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
     assignments:built.assignments.length,
     unmatched:built.unmatched.length,
     ambiguous:built.ambiguous,
+    plan
+  };
+
+  if(!built.assignments.length) return {status:"NO_MATCHES",...base};
+  if(dryRun) return {status:"DRY_RUN",...base,d1Statements:0,conferenceWrites:0,teamWrites:0};
+
+  const results=await env.DB.batch([
+    conferenceUpsertStatement(env,built.conferences,checkedAt),
+    teamMembershipUpdateStatement(env,built.assignments,checkedAt)
+  ]);
+  return {
+    status:"SUCCESS",
+    ...base,
     d1Statements:2,
     conferenceWrites:Number(results?.[0]?.meta?.changes||results?.[0]?.changes||0),
     teamWrites:Number(results?.[1]?.meta?.changes||results?.[1]?.changes||0)
