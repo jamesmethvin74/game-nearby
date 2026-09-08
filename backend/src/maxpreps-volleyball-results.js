@@ -112,19 +112,28 @@ export function matchLocalVolleyballTeams(finals,localTeams) {
     byName.get(key).push(team);
   }
   const matched=[];
+  const oneSided=[];
   const ambiguous=[];
   for(const final of finals||[]) {
     const homeCandidates=byName.get(normalizeSchoolAlias(final.home.name))||[];
     const awayCandidates=byName.get(normalizeSchoolAlias(final.away.name))||[];
-    if(homeCandidates.length!==1 || awayCandidates.length!==1) {
-      ambiguous.push({contestId:final.contestId,home:final.home.name,away:final.away.name,homeCandidates:homeCandidates.length,awayCandidates:awayCandidates.length});
+    if(homeCandidates.length===1 && awayCandidates.length===1) {
+      const homeTeam=homeCandidates[0],awayTeam=awayCandidates[0];
+      if(homeTeam.school_id===awayTeam.school_id) continue;
+      matched.push({...final,homeTeam,awayTeam});
       continue;
     }
-    const homeTeam=homeCandidates[0],awayTeam=awayCandidates[0];
-    if(homeTeam.school_id===awayTeam.school_id) continue;
-    matched.push({...final,homeTeam,awayTeam});
+    if(homeCandidates.length===1 && awayCandidates.length===0) {
+      oneSided.push({...final,homeTeam:homeCandidates[0],awayTeam:null,unresolvedSide:"away"});
+      continue;
+    }
+    if(homeCandidates.length===0 && awayCandidates.length===1) {
+      oneSided.push({...final,homeTeam:null,awayTeam:awayCandidates[0],unresolvedSide:"home"});
+      continue;
+    }
+    ambiguous.push({contestId:final.contestId,home:final.home.name,away:final.away.name,homeCandidates:homeCandidates.length,awayCandidates:awayCandidates.length});
   }
-  return {matched,ambiguous};
+  return {matched,oneSided,ambiguous};
 }
 
 export { MAXPREPS_SCORES_BASE };
