@@ -3,6 +3,7 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
+import { runVolleyballConvergenceBatch, VOLLEYBALL_CONVERGENCE_PATH } from "./volleyball-convergence-batch.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -62,6 +63,23 @@ export default {
     const path = new URL(request.url).pathname;
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
+    }
+
+    // Temporary, exact-batch production convergence surface. It is intentionally
+    // unreachable by cron and accepts only the hard-coded audited contest batch.
+    // Remove immediately after the approved one-shot convergence and verification.
+    if (request.method === "POST" && path === VOLLEYBALL_CONVERGENCE_PATH) {
+      if (!authorizedLogoBootstrap(request, env)) return privateJson({ error:"not_found" }, 404);
+      const input = await options(request);
+      try {
+        const result = await runVolleyballConvergenceBatch(env, { batchKey:input.batchKey });
+        return privateJson(result);
+      } catch (error) {
+        const message=String(error?.message || error);
+        console.error("bounded volleyball convergence failed", { error:message });
+        const status=/Unknown volleyball convergence batch/.test(message)?400:409;
+        return privateJson({ error:"volleyball_convergence_failed", message }, status);
+      }
     }
 
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
