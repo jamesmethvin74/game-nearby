@@ -8,9 +8,8 @@ cat "$OUT"
 node - "$OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-if(p.status!=="PASS") throw new Error(p.message||"Aug 24 convergence preflight failed");
-if(p.tokenConfigured!==true) throw new Error("Convergence token is not configured");
-if(Number(p.preflight?.targetTeams)!==3) throw new Error("Unexpected target-team count");
-if(Number(p.source?.approvedContests)!==3) throw new Error("Approved MaxPreps contest set incomplete");
-console.log("AUG24_PREFLIGHT_PASS");
+if(p.status==="PASS") throw new Error("Unexpected PASS; previous preflight already failed");
+const message=String(p.message||"");
+if(!message.includes("target now has conference membership")) throw new Error(`Not a conference-membership failure: ${message}`);
+console.log("AUG24_PREFLIGHT_BLOCKER=CONFERENCE_MEMBERSHIP");
 NODE
