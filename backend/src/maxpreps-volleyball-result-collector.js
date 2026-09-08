@@ -74,7 +74,7 @@ async function loadLocalTeams(env) {
   return results||[];
 }
 
-async function loadOpponentIdentityContext(env) {
+async function loadOpponentIdentityContext(env,identityProvider=MAXPREPS_IDENTITY_PROVIDER) {
   const {results:schools}=await env.DB.prepare(`
     SELECT id,COALESCE(NULLIF(location_matched_name,''),name) AS school_name,catalog_scope
     FROM schools
@@ -84,7 +84,7 @@ async function loadOpponentIdentityContext(env) {
     SELECT external_school_id,school_id
     FROM school_external_identities
     WHERE provider=?
-  `).bind(MAXPREPS_IDENTITY_PROVIDER).all();
+  `).bind(identityProvider).all();
   const byId=new Map();
   const byName=new Map();
   for(const school of schools||[]) {
@@ -133,7 +133,7 @@ function planOpponentSchool(context,side) {
   };
 }
 
-async function persistOpponentPlan(env,plan,checkedAt) {
+async function persistOpponentPlan(env,plan,checkedAt,identityProvider=MAXPREPS_IDENTITY_PROVIDER) {
   let schoolCreated=0,identityLinked=0;
   if(plan.createSchool) {
     const result=await env.DB.prepare(`
@@ -150,7 +150,7 @@ async function persistOpponentPlan(env,plan,checkedAt) {
       VALUES(?,?,?,?,?,?)
       ON CONFLICT(provider,external_school_id) DO UPDATE SET
         observed_name=excluded.observed_name,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at
-    `).bind(MAXPREPS_IDENTITY_PROVIDER,plan.externalId,plan.school.school_id,plan.observedName,checkedAt,checkedAt).run();
+    `).bind(identityProvider,plan.externalId,plan.school.school_id,plan.observedName,checkedAt,checkedAt).run();
     identityLinked=Number(result?.meta?.changes??result?.changes??0)>0?1:0;
   }
   return {schoolCreated,identityLinked};
@@ -252,7 +252,8 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
   dates,
   fetchFn=fetch,
   now=new Date(),
-  targetTeamIds=null
+  targetTeamIds=null,
+  opponentIdentityProvider=MAXPREPS_IDENTITY_PROVIDER
 }={}) {
   const checkedAt=now.toISOString();
   const requested=[...new Set((dates||[]).filter(date=>/^\d{4}-\d{2}-\d{2}$/.test(date)))];
@@ -293,7 +294,7 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
 
   const resolvedFinals=[...localLocal];
   if(oneSided.length) {
-    const context=await loadOpponentIdentityContext(env);
+    const context=await loadOpponentIdentityContext(env,opponentIdentityProvider);
     for(const final of oneSided) {
       const sideKey=final.unresolvedSide;
       const plan=planOpponentSchool(context,final[sideKey]);
@@ -330,7 +331,7 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
     if(final.opponentPlan) {
       const key=final.opponentPlan.externalId;
       if(!persistedOpponents.has(key)) {
-        const persisted=await persistOpponentPlan(env,final.opponentPlan,checkedAt);
+        const persisted=await persistOpponentPlan(env,final.opponentPlan,checkedAt,opponentIdentityProvider);
         persistedOpponents.set(key,persisted);
         opponentSchoolsMaterialized+=persisted.schoolCreated;
         opponentIdentitiesLinked+=persisted.identityLinked;
