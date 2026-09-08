@@ -10,6 +10,7 @@ const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 if(p.status==="PASS") throw new Error("Unexpected PASS; previous preflight already failed");
 const message=String(p.message||"");
-if(!message.includes("target now has conference membership")) throw new Error(`Not a conference-membership failure: ${message}`);
-console.log("AUG24_PREFLIGHT_BLOCKER=CONFERENCE_MEMBERSHIP");
+const localFailure=/target-team preflight failed|local identity changed|opponent is now local/.test(message);
+if(!localFailure) throw new Error(`Not a local-catalog failure: ${message}`);
+console.log("AUG24_PREFLIGHT_BLOCKER=LOCAL_CATALOG");
 NODE
