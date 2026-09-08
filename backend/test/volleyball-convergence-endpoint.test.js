@@ -15,10 +15,12 @@ test("v3 convergence endpoint requires its dedicated token",()=>{
   assert.equal(volleyballConvergenceReadiness(bad,env).status,404);
 });
 
-test("v3 executor uses deploy-time var and preserves production vars",()=>{
+test("executor only makes bounded readiness, post, and verification calls",()=>{
   const s=fs.readFileSync(new URL("../scripts/run-approved-aug24-volleyball-convergence-v3.sh",import.meta.url),"utf8");
-  assert.match(s,/wrangler deploy --keep-vars/);
-  for(const key of ["ENVIRONMENT","ALLOWED_ORIGIN","LAZY_STATEWIDE_BOOTSTRAP","CLOUDFLARE_ACCOUNT_ID","D1_DATABASE_ID","VOLLEYBALL_CONVERGENCE_TOKEN"]) assert.match(s,new RegExp(key));
-  assert.doesNotMatch(s,/workers\/scripts\/.+\/secrets|wrangler d1 execute|migrations apply|db:migrate:remote/i);
+  assert.doesNotMatch(s,/wrangler deploy|workers\/scripts\/.+\/secrets|wrangler d1 execute|migrations apply|db:migrate:remote/i);
+  assert.match(s,/wrangler\.jsonc/);
+  assert.match(s,/VOLLEYBALL_CONVERGENCE_TOKEN/);
+  assert.match(s,/x-volleyball-convergence-token/);
   assert.match(s,/aug24-external-opponents-v1/);
+  assert.match(s,/api\/v1\/scores/);
 });

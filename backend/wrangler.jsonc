@@ -9,7 +9,8 @@
     "ALLOWED_ORIGIN": "https://jamesmethvin74.github.io",
     "LAZY_STATEWIDE_BOOTSTRAP": "1",
     "CLOUDFLARE_ACCOUNT_ID": "588568148fa47810445f37081e49562c",
-    "D1_DATABASE_ID": "50806cc9-7710-4f21-8ab3-159623f6a0a9"
+    "D1_DATABASE_ID": "50806cc9-7710-4f21-8ab3-159623f6a0a9",
+    "VOLLEYBALL_CONVERGENCE_TOKEN": "3443af67c167c4d95ff9544c7bb18f40b590c1ca44b396a042fe48de73bd54bf"
   },
   "assets": {
     "directory": "../",
