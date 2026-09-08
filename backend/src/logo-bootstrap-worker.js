@@ -3,13 +3,13 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
-import { runVolleyballCompletenessAudit } from "./volleyball-completeness-audit.js";
+import { runFixedVolleyballCompletenessAudit } from "./volleyball-completeness-audit-runner.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 const VOLLEYBALL_AUDIT_PATH = "/api/v1/internal/vb-audit-8f1c7a2d91e54b6e";
-const VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-08T00:15:00Z");
+const VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-08T00:30:00Z");
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -66,7 +66,7 @@ export default {
     if (request.method === "GET" && path === VOLLEYBALL_AUDIT_PATH) {
       if (Date.now() > VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       try {
-        return privateJson(await runVolleyballCompletenessAudit(env));
+        return privateJson(await runFixedVolleyballCompletenessAudit(env));
       } catch (error) {
         console.error("statewide volleyball completeness audit failed", { error:String(error?.message || error) });
         return privateJson({ error:"volleyball_audit_failed", message:String(error?.message || error) }, 500);
