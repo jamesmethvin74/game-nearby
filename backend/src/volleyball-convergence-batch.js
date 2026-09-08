@@ -1,5 +1,5 @@
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
-import { parseMaxPrepsVolleyballScores } from "./maxpreps-volleyball-results.js";
+import { parseMaxPrepsVolleyballScores, maxPrepsScoresUrl } from "./maxpreps-volleyball-results.js";
 import { runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 
 export const VOLLEYBALL_CONVERGENCE_PATH="/api/v1/internal/volleyball-convergence";
@@ -58,6 +58,26 @@ function makeContestFilteredFetch(batch,fetchFn){
     if(found.size!==expected.size||[...expected].some(id=>!found.has(id))) throw new Error(`Bounded volleyball convergence source page is missing an approved contest for ${localDate}`);
     for(const final of selected){const spec=specByContest.get(final.contestId);if(!spec||!contestPairMatches(final,spec)) throw new Error(`Bounded volleyball convergence pairing changed for ${final.contestId}`);}
     return new Response(selectedFinalHtml(selected),{status:200,headers:{"content-type":"text/html; charset=utf-8"}});
+  };
+}
+
+export async function diagnoseVolleyballConvergenceBatch(env,{batchKey=VOLLEYBALL_CONVERGENCE_BATCH_KEY,fetchFn=fetch}={}){
+  const batch=VOLLEYBALL_CONVERGENCE_BATCHES[String(batchKey||"")];
+  if(!batch) throw new Error("Unknown volleyball convergence batch");
+  if(batch.contests.length>3||batch.dates.length!==1) throw new Error("Volleyball convergence batch exceeds hard safety bounds");
+  const preflight=await loadLocalScope(env,batch);
+  const filteredFetch=makeContestFilteredFetch(batch,fetchFn);
+  const sourceResponse=await filteredFetch(maxPrepsScoresUrl(batch.dates[0]),{});
+  if(!sourceResponse.ok) throw new Error(`Bounded volleyball convergence source returned HTTP ${sourceResponse.status}`);
+  const selected=parseMaxPrepsVolleyballScores(await sourceResponse.text(),{localDate:batch.dates[0]});
+  return {
+    batchKey,
+    preflight,
+    source:{
+      selectedFinals:selected.length,
+      approvedContestIds:selected.map(row=>row.contestId),
+      scores:selected.map(row=>({contestId:row.contestId,home:row.home.name,homeScore:row.home.score,away:row.away.name,awayScore:row.away.score}))
+    }
   };
 }
 
