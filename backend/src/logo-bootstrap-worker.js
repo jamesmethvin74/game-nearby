@@ -4,6 +4,7 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { diagnoseVolleyballConvergenceBatch, runVolleyballConvergenceBatch, VOLLEYBALL_CONVERGENCE_PATH, VOLLEYBALL_CONVERGENCE_BATCH_KEY } from "./volleyball-convergence-batch.js";
+import { finalizeAug24Finals, verifyAug24Finals, AUG24_FINALIZE_PATH, AUG24_FINALIZE_STATUS_PATH } from "./volleyball-aug24-finalizer.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -73,6 +74,18 @@ async function runVolleyballLiveTick(controller, env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+
+    if ((request.method === "POST" && path === AUG24_FINALIZE_PATH) || (request.method === "GET" && path === AUG24_FINALIZE_STATUS_PATH)) {
+      if (!authorizedVolleyballConvergence(request, env)) return privateJson({ error:"not_found" }, 404);
+      try {
+        const result=request.method === "POST" ? await finalizeAug24Finals(env) : await verifyAug24Finals(env);
+        return privateJson(result);
+      } catch(error) {
+        const message=String(error?.message||error);
+        console.error("exact Aug 24 volleyball finalizer failed", { method:request.method, error:message });
+        return privateJson({ status:"FAIL", message }, 409);
+      }
+    }
 
     if (request.method === "GET" && path === VOLLEYBALL_CONVERGENCE_DIAGNOSTIC_PATH) {
       const tokenConfigured=Boolean(env.VOLLEYBALL_CONVERGENCE_TOKEN);
