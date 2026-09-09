@@ -3,29 +3,15 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
-import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
-import { APPROVED_VOLLEYBALL_MEMBERSHIP_REPAIR_PATH, runApprovedVolleyballMembershipRepair } from "./volleyball-membership-approved-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
-export const VOLLEYBALL_MEMBERSHIP_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" }
-  });
-}
-
-function diagnosticJson(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type":"application/json; charset=utf-8",
-      "cache-control":"no-store",
-      "access-control-allow-origin":"*"
-    }
   });
 }
 
@@ -75,40 +61,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
-
-    if (request.method === "GET" && path === APPROVED_VOLLEYBALL_MEMBERSHIP_REPAIR_PATH) {
-      try {
-        const result = await runApprovedVolleyballMembershipRepair(env);
-        return diagnosticJson(result, result.verification?.ok ? 200 : 409);
-      } catch (error) {
-        console.error("approved volleyball membership repair failed", String(error?.message || error));
-        return diagnosticJson({
-          error:"approved_volleyball_membership_repair_failed",
-          message:String(error?.message || error)
-        }, 500);
-      }
-    }
-
-    if (request.method === "GET" && path === VOLLEYBALL_MEMBERSHIP_DIAGNOSTIC_PATH) {
-      try {
-        const conferenceIds = url.searchParams.getAll("conference")
-          .map(value => String(value || "").trim())
-          .filter(Boolean);
-        const result = await syncPublishedVolleyballConferenceMembership(env, {
-          conferenceIds: conferenceIds.length ? conferenceIds : null,
-          dryRun: true,
-          maxTeamChanges: 500,
-          maxConferenceRows: 50
-        });
-        return diagnosticJson(result);
-      } catch (error) {
-        console.error("volleyball membership diagnostic failed", String(error?.message || error));
-        return diagnosticJson({
-          error:"volleyball_membership_diagnostic_failed",
-          message:String(error?.message || error)
-        }, 500);
-      }
-    }
 
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
