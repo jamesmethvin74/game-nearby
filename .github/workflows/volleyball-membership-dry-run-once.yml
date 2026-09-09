@@ -1,4 +1,4 @@
-name: One-shot volleyball membership dry-run
+name: One-shot approved volleyball membership repair
 
 on:
   push:
@@ -11,44 +11,55 @@ permissions:
   contents: read
 
 jobs:
-  dry-run:
+  repair:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Print smallest exact membership repair group
+      - name: Execute and prove exact approved 4A 5 repair
         shell: bash
         run: |
           set -euo pipefail
-          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/diagnostics/volleyball-membership"
+          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/diagnostics/volleyball-membership/repair-4a5-20260909-7f31d2"
           code=$(curl -sS --max-time 60 -o membership.json -w '%{http_code}' "$URL" || true)
-          echo "Diagnostic HTTP ${code}"
+          echo "Repair HTTP ${code}"
+          cat membership.json
+          echo
           test "$code" = "200"
           node <<'NODE'
           const fs=require('fs');
           const p=JSON.parse(fs.readFileSync('membership.json','utf8'));
-          const plan=p.plan||{};
-          const changes=Array.isArray(plan.changes)?plan.changes:[];
-          const groups=new Map();
-          for(const row of changes){
-            const id=String(row.expected_conference_id||'');
-            if(!groups.has(id)) groups.set(id,[]);
-            groups.get(id).push(row);
+          const expectedIds=[
+            'df-vvme46-volleyball-2026',
+            'df-y85lbp-volleyball-2026'
+          ].sort();
+          const rows=Array.isArray(p.verification?.rows)?p.verification.rows:[];
+          const ids=rows.map(row=>String(row.team_id)).sort();
+          const exactIds=JSON.stringify(ids)===JSON.stringify(expectedIds);
+          const memberships=rows.length===2 && rows.every(row=>row.conference_id==='4a-5-volleyball');
+          const ok=p.status==='SUCCESS'
+            && p.verification?.ok===true
+            && p.approvedScope?.conference_id==='4a-5'
+            && Number(p.plan?.change_count)===2
+            && Number(p.teamWrites)===2
+            && Number(p.conferenceWrites)<=1
+            && exactIds
+            && memberships;
+          if(!ok){
+            console.error('Approved repair verification failed',JSON.stringify({
+              status:p.status,
+              plan_change_count:p.plan?.change_count,
+              teamWrites:p.teamWrites,
+              conferenceWrites:p.conferenceWrites,
+              verification:p.verification,
+              approvedScope:p.approvedScope
+            }));
+            process.exit(1);
           }
-          const ranked=[...groups.entries()]
-            .map(([conference_id,rows])=>({
-              conference_id,
-              conference_name:rows[0]?.expected_conference_name||null,
-              count:rows.length,
-              rows
-            }))
-            .sort((a,b)=>a.count-b.count||a.conference_id.localeCompare(b.conference_id));
-          const selected=ranked.find(g=>g.count>=2&&g.count<=4)||ranked[0]||null;
-          console.log('VOLLEYBALL_MEMBERSHIP_REPAIR_GROUP='+JSON.stringify({
+          console.log('VOLLEYBALL_4A5_REPAIR_VERIFIED='+JSON.stringify({
             status:p.status,
-            missing_count:Number(plan.missing_count||0),
-            wrong_count:Number(plan.wrong_count||0),
-            change_count:Number(plan.change_count||0),
-            conference_groups:ranked.map(({conference_id,conference_name,count})=>({conference_id,conference_name,count})),
-            selected_group:selected
+            plan_change_count:p.plan.change_count,
+            teamWrites:p.teamWrites,
+            conferenceWrites:p.conferenceWrites,
+            rows
           }));
           NODE
