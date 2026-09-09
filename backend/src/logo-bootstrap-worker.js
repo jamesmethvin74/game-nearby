@@ -4,6 +4,7 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
+import { load2a2DragonFlyEvidence } from "./volleyball-2a2-dragonfly-evidence.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -83,7 +84,8 @@ export default {
           maxTeamChanges: 4,
           maxConferenceRows: 1
         });
-        return diagnosticJson(result);
+        const dragonflyEvidence = await load2a2DragonFlyEvidence(env);
+        return diagnosticJson({ ...result, dragonflyEvidence });
       } catch (error) {
         console.error("2A 2 volleyball membership diagnostic failed", String(error?.message || error));
         return diagnosticJson({
