@@ -4,6 +4,7 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
+import { APPROVED_VOLLEYBALL_MEMBERSHIP_REPAIR_PATH, runApprovedVolleyballMembershipRepair } from "./volleyball-membership-approved-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -74,6 +75,19 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (request.method === "GET" && path === APPROVED_VOLLEYBALL_MEMBERSHIP_REPAIR_PATH) {
+      try {
+        const result = await runApprovedVolleyballMembershipRepair(env);
+        return diagnosticJson(result, result.verification?.ok ? 200 : 409);
+      } catch (error) {
+        console.error("approved volleyball membership repair failed", String(error?.message || error));
+        return diagnosticJson({
+          error:"approved_volleyball_membership_repair_failed",
+          message:String(error?.message || error)
+        }, 500);
+      }
+    }
 
     if (request.method === "GET" && path === VOLLEYBALL_MEMBERSHIP_DIAGNOSTIC_PATH) {
       try {
