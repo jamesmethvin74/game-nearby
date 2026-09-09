@@ -13,61 +13,32 @@ permissions:
 jobs:
   dry-run:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 3
     steps:
-      - name: Wait for diagnostic deployment and print smallest repair group
+      - name: Print bounded membership source diagnostics
         shell: bash
         run: |
           set -euo pipefail
-          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          URL="$API/api/v1/diagnostics/volleyball-membership"
-          rm -f membership.json membership.tmp
-
-          for attempt in $(seq 1 36); do
-            code=$(curl -sS --max-time 60 -o membership.tmp -w '%{http_code}' "$URL" || true)
-            echo "Diagnostic attempt ${attempt}: HTTP ${code}"
-            if [ "$code" = "404" ]; then
-              sleep 5
-              continue
-            fi
-            mv membership.tmp membership.json
-            if [ "$code" != "200" ]; then
-              echo "Unexpected diagnostic response:"
-              head -c 1000 membership.json || true
-              echo
-              exit 1
-            fi
-            break
-          done
-
-          test -f membership.json
-
+          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/diagnostics/volleyball-membership"
+          code=$(curl -sS --max-time 60 -o membership.json -w '%{http_code}' "$URL" || true)
+          echo "Diagnostic HTTP ${code}"
+          test "$code" = "200"
           node <<'NODE'
           const fs=require('fs');
           const p=JSON.parse(fs.readFileSync('membership.json','utf8'));
           const plan=p.plan||{};
-          const changes=Array.isArray(plan.changes)?plan.changes:[];
-          const groups=new Map();
-          for(const row of changes){
-            const id=String(row.expected_conference_id||'');
-            if(!groups.has(id)) groups.set(id,[]);
-            groups.get(id).push(row);
-          }
-          const ranked=[...groups.entries()]
-            .map(([conference_id,rows])=>({
-              conference_id,
-              conference_name:rows[0]?.expected_conference_name||null,
-              count:rows.length,
-              rows
-            }))
-            .sort((a,b)=>a.count-b.count||a.conference_id.localeCompare(b.conference_id));
-          const preferred=ranked.find(g=>g.count>=2&&g.count<=4)||ranked[0]||null;
-          console.log('VOLLEYBALL_MEMBERSHIP_DRY_RUN='+JSON.stringify({
+          console.log('VOLLEYBALL_MEMBERSHIP_SOURCE_DIAGNOSTIC='+JSON.stringify({
             status:p.status,
+            discoveredConferences:p.discoveredConferences??null,
+            selectedConferences:p.selectedConferences??null,
+            fetchedConferences:p.fetchedConferences??null,
+            failedConferences:p.failedConferences??null,
+            conferenceRows:p.conferenceRows??null,
+            assignments:p.assignments??null,
+            unmatched:p.unmatched??null,
+            ambiguousCount:Array.isArray(p.ambiguous)?p.ambiguous.length:null,
             missing_count:Number(plan.missing_count||0),
             wrong_count:Number(plan.wrong_count||0),
-            change_count:Number(plan.change_count||0),
-            conference_groups:ranked.map(({conference_id,conference_name,count})=>({conference_id,conference_name,count})),
-            selected_group:preferred
+            change_count:Number(plan.change_count||0)
           }));
           NODE
