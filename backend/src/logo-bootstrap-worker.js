@@ -15,6 +15,16 @@ const CHRISTIAN_GROUP_TARGETS = Object.freeze({
   "df-uqet7h-volleyball-2026":"arkansas-christian--south-volleyball"
 });
 const CHRISTIAN_GROUP_TEAM_IDS = Object.freeze(Object.keys(CHRISTIAN_GROUP_TARGETS));
+const CHRISTIAN_GROUP_SOURCES = Object.freeze({
+  "arkansas-christian--central": {
+    name:"Arkansas Christian - Central",
+    source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/arkansas-christian--central/?leagueid=81719532-a468-4671-a383-4b11ac49de2e"
+  },
+  "arkansas-christian--south": {
+    name:"Arkansas Christian - South",
+    source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/arkansas-christian--south/?leagueid=2685360d-419d-49e9-9051-ebfc3069ea94"
+  }
+});
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -136,6 +146,7 @@ async function runChristianGroupRepair(env) {
   const syncOptions={
     conferenceIds:["arkansas-christian--central","arkansas-christian--south"],
     targetTeamIds:CHRISTIAN_GROUP_TEAM_IDS,
+    conferenceSourceOverrides:CHRISTIAN_GROUP_SOURCES,
     maxTeamChanges:2,
     maxConferenceRows:2
   };
