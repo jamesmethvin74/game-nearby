@@ -22,7 +22,7 @@ jobs:
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           PATH_BASE="/api/v1/maintenance/volleyball-membership/remaining-aaa-approved-20260910-5c1d8e"
           conferences=(
-            4a-3 4a-4 4a-6 5a-south
+            4a-4 4a-6 5a-south
             2a-4 2a-5 2a-7 3a-1 3a-3 3a-5 3a-6 5a-central
             2a-8 3a-4 5a-west
             4a-1 5a-east 6a-west
@@ -93,7 +93,7 @@ jobs:
           node <<'NODE'
           const fs=require('fs');
           const rows=fs.readFileSync('results.ndjson','utf8').trim().split(/\n+/).filter(Boolean).map(JSON.parse);
-          if(rows.length!==18) throw new Error(`expected 18 conference results, got ${rows.length}`);
+          if(rows.length!==17) throw new Error(`expected 17 conference results, got ${rows.length}`);
           console.log('VOLLEYBALL_REMAINING_AAA_RESUME='+JSON.stringify({
             conferences:rows.length,
             successConferences:rows.filter(row=>row.status==='SUCCESS').length,
