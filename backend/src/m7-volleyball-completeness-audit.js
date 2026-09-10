@@ -9,7 +9,7 @@ import {
   pairDateKey
 } from "./volleyball-completeness-audit.js";
 import { loadFixedVolleyballAuditSnapshot } from "./volleyball-completeness-audit-runner.js";
-import { CURATED_CONFERENCE_TEAM_OVERRIDES } from "./volleyball-conference-membership.js";
+import { buildVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
 const SPORT="volleyball";
 const GENDER="girls";
@@ -64,17 +64,43 @@ function auditedIdentityToken(teamId){
   return `localbleachers audit identity ${String(teamId||"").replace(/[^a-z0-9]+/gi," ")}`;
 }
 
+function localConferenceId(publishedId){
+  return `${String(publishedId||"").trim().toLowerCase()}-volleyball`;
+}
+
+function teamAliases(team){
+  return [...new Set([team.school_name,team.raw_school_name,team.location_matched_name]
+    .map(normalizeSchoolAlias).filter(Boolean))];
+}
+
 export function applyPublishedVolleyballIdentityOverrides(published,teams=[]){
+  const standingsByConference=new Map((published?.conferences||[]).map(conference=>[
+    conference.id,{standings:conference.standings||[]}
+  ]));
+  const membership=buildVolleyballConferenceMembership({
+    conferences:published?.conferences||[],
+    standingsByConference,
+    localTeams:teams
+  });
   const teamById=new Map(teams.map(team=>[String(team.team_id),team]));
+  const assignedByConference=new Map();
+  for(const assignment of membership.assignments){
+    if(!assignedByConference.has(assignment.conference_id)) assignedByConference.set(assignment.conference_id,[]);
+    const team=teamById.get(String(assignment.team_id));
+    if(team) assignedByConference.get(assignment.conference_id).push(team);
+  }
+
   const tokenByTeam=new Map();
   const conferences=(published?.conferences||[]).map(conference=>{
-    const conferenceKey=String(conference.id||"").trim().toLowerCase();
+    const assignments=assignedByConference.get(localConferenceId(conference.id))||[];
     const standings=(conference.standings||[]).map(row=>{
-      const key=`${conferenceKey}|${normalizeSchoolAlias(row.school_name)}`;
-      const overrideTeamId=CURATED_CONFERENCE_TEAM_OVERRIDES.get(key);
-      if(!overrideTeamId || !teamById.has(String(overrideTeamId))) return row;
-      const token=auditedIdentityToken(overrideTeamId);
-      tokenByTeam.set(String(overrideTeamId),token);
+      const alias=normalizeSchoolAlias(row.school_name);
+      if(!alias) return row;
+      const candidates=assignments.filter(team=>teamAliases(team).includes(alias));
+      if(candidates.length!==1) return row;
+      const target=candidates[0];
+      const token=auditedIdentityToken(target.team_id);
+      tokenByTeam.set(String(target.team_id),token);
       return {...row,school_name:token};
     });
     return {...conference,standings};
@@ -86,7 +112,9 @@ export function applyPublishedVolleyballIdentityOverrides(published,teams=[]){
   return {
     teams:auditTeams,
     published:{...published,conferences},
-    applied_overrides:[...tokenByTeam.keys()]
+    applied_assignments:[...tokenByTeam.keys()],
+    membership_unmatched:membership.unmatched,
+    membership_ambiguous:membership.ambiguous
   };
 }
 
@@ -163,11 +191,6 @@ function canonicalMatchesFinal(event,final){
   const actual=scoreBySchool(event);
   return Number(actual.get(String(final.homeTeam.school_id)))===Number(final.home.score)
     && Number(actual.get(String(final.awayTeam.school_id)))===Number(final.away.score);
-}
-
-function teamAliases(team){
-  return [...new Set([team.school_name,team.raw_school_name,team.location_matched_name]
-    .map(normalizeSchoolAlias).filter(Boolean))];
 }
 
 function localAliasIndex(teams){
@@ -311,7 +334,9 @@ export async function runM7VolleyballCompletenessAudit(env,{fetchFn=fetch,now=ne
       maxpreps_failures:maxPreps.failures
     },
     audit_corrections:{
-      published_identity_override_team_ids:identity.applied_overrides,
+      published_identity_assignment_team_ids:identity.applied_assignments,
+      membership_unmatched:identity.membership_unmatched,
+      membership_ambiguous:identity.membership_ambiguous,
       conflict_classification:"SCORE conflicts separated from DATE/TIME/HOME_AWAY/VENUE/STATUS/metadata conflicts"
     },
     final_gap_plan:buildM7FinalGapPlan({teams:snapshot.teams,canonicals:snapshot.canonicals,maxPreps})
