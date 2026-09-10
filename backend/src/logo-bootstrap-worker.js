@@ -4,11 +4,13 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { runM7VolleyballCompletenessAudit } from "./m7-volleyball-completeness-audit.js";
+import { planM7Aug17VolleyballFinalRepair } from "./m7-volleyball-final-repair-plan.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const M7_VOLLEYBALL_AUDIT_PATH = "/api/v1/internal/m7-vb-audit-7e49c2a1bd6f4083";
+export const M7_VOLLEYBALL_REPAIR_PLAN_PATH = "/api/v1/internal/m7-vb-plan-aug17-6f1e1dd2b0b74b78";
 export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T03:00:00Z");
 
 function privateJson(body, status = 200) {
@@ -74,6 +76,18 @@ export default {
           error:String(error?.message || error)
         });
         return privateJson({ error:"volleyball_audit_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && path === M7_VOLLEYBALL_REPAIR_PLAN_PATH) {
+      if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        return privateJson(await planM7Aug17VolleyballFinalRepair(env));
+      } catch (error) {
+        console.error("M7 Aug 17 volleyball final repair planner failed", {
+          error:String(error?.message || error)
+        });
+        return privateJson({ error:"volleyball_repair_plan_failed", message:String(error?.message || error) }, 500);
       }
     }
 
