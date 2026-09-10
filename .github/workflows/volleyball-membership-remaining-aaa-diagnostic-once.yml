@@ -1,0 +1,83 @@
+name: One-shot remaining AAA volleyball membership diagnostic
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - backend/src/logo-bootstrap-worker.js
+      - .github/workflows/volleyball-membership-remaining-aaa-diagnostic-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prove Worker health and fetch remaining AAA dry-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          health_code=$(curl -sS --max-time 20 -o health.json -w '%{http_code}' "$BASE/api/v1/health" || true)
+          echo "Health HTTP ${health_code}"
+          cat health.json || true
+          echo
+          test "$health_code" = "200"
+          node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
+
+          URL="$BASE/api/v1/diagnostics/volleyball-membership/remaining-aaa-20260910-b71d42"
+          code=000
+          for attempt in $(seq 1 18); do
+            code=$(curl -sS --max-time 90 -o membership.json -w '%{http_code}' "$URL" || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 5
+          done
+          echo "Remaining AAA Diagnostic HTTP ${code}"
+          cat membership.json || true
+          echo
+          test "$code" = "200"
+
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('membership.json','utf8'));
+          const plan=p.plan||{};
+          const changes=Array.isArray(plan.changes)?plan.changes:[];
+          const allowed=new Set([
+            '4a-2-volleyball','4a-3-volleyball','4a-4-volleyball','4a-6-volleyball','5a-south-volleyball',
+            '2a-4-volleyball','2a-5-volleyball','2a-7-volleyball','3a-1-volleyball','3a-3-volleyball','3a-5-volleyball','3a-6-volleyball','5a-central-volleyball',
+            '2a-8-volleyball','3a-4-volleyball','5a-west-volleyball','4a-1-volleyball','5a-east-volleyball','6a-west-volleyball'
+          ]);
+          const ok=p.status==='DRY_RUN'
+            && p.selectedConferences===19
+            && p.fetchedConferences===19
+            && Array.isArray(p.failedConferences) && p.failedConferences.length===0
+            && p.conferenceRows<=19
+            && plan.wrong_count===0
+            && plan.change_count<=121
+            && changes.length===plan.change_count
+            && changes.every(row=>row.current_conference_id==null && allowed.has(String(row.expected_conference_id)))
+            && p.d1Statements===0
+            && p.teamWrites===0
+            && p.conferenceWrites===0;
+          if(!ok){
+            console.error('Remaining AAA bounded diagnostic failed validation');
+            process.exit(1);
+          }
+          console.log('VOLLEYBALL_REMAINING_AAA_BATCH='+JSON.stringify({
+            status:p.status,
+            selectedConferences:p.selectedConferences,
+            fetchedConferences:p.fetchedConferences,
+            conferenceRows:p.conferenceRows,
+            assignments:p.assignments,
+            missing_count:plan.missing_count,
+            wrong_count:plan.wrong_count,
+            change_count:plan.change_count,
+            unmatched:p.unmatched,
+            ambiguous:p.ambiguous,
+            changes
+          }));
+          NODE
