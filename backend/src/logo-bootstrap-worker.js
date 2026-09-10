@@ -285,6 +285,6 @@ export default {
 
   async scheduled(controller, env, ctx) {
     await runVolleyballLiveTick(controller,env);
-    return app.scheduled(controller,env,ctx);
+    return app.scheduled(controller, env, ctx);
   }
 };
