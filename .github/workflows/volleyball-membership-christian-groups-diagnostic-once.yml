@@ -1,0 +1,63 @@
+name: One-shot Arkansas Christian volleyball membership diagnostic
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - backend/src/logo-bootstrap-worker.js
+      - .github/workflows/volleyball-membership-christian-groups-diagnostic-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Run exact zero-write Christian group diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          URL="$BASE/api/v1/diagnostics/volleyball-membership/christian-groups-20260910-a7c2f9"
+
+          health_code=$(curl -sS --max-time 20 -o health.json -w '%{http_code}' "$BASE/api/v1/health" || true)
+          echo "Health HTTP ${health_code}"
+          cat health.json || true
+          echo
+          test "$health_code" = "200"
+          node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
+
+          code=000
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS --max-time 90 -o diagnostic.json -w '%{http_code}' "$URL" || true)
+            if [ "$code" = "200" ]; then break; fi
+            if [ "$code" = "404" ]; then
+              echo "Diagnostic route not deployed yet; retry ${attempt}/12 after 5s"
+              sleep 5
+              continue
+            fi
+            if grep -q 'standings source HTTP 403' diagnostic.json 2>/dev/null; then
+              echo "Transient MaxPreps 403; retry ${attempt}/12 after 15s"
+              sleep 15
+              continue
+            fi
+            break
+          done
+
+          echo "Christian groups diagnostic HTTP ${code}"
+          cat diagnostic.json || true
+          echo
+          test "$code" = "200"
+
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('diagnostic.json','utf8'));
+          if(!['DRY_RUN','NO_MATCHES'].includes(p.status)) throw new Error('unexpected diagnostic status');
+          if(p.selectedConferences!==2) throw new Error('expected exactly two selected conferences');
+          if(p.d1Statements!==0 || p.teamWrites!==0 || p.conferenceWrites!==0) throw new Error('diagnostic attempted a write');
+          if(Number(p.plan?.change_count||0)>2) throw new Error('historical two-row ceiling exceeded');
+          console.log('VOLLEYBALL_CHRISTIAN_GROUPS_DIAGNOSTIC='+JSON.stringify(p));
+          NODE

@@ -3,15 +3,28 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
+import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
+export const VOLLEYBALL_CHRISTIAN_GROUP_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership/christian-groups-20260910-a7c2f9";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" }
+  });
+}
+
+function diagnosticJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type":"application/json; charset=utf-8",
+      "cache-control":"no-store",
+      "access-control-allow-origin":"*"
+    }
   });
 }
 
@@ -39,6 +52,15 @@ async function options(request) {
   }
 }
 
+async function runChristianGroupDiagnostic(env) {
+  return syncPublishedVolleyballConferenceMembership(env, {
+    conferenceIds:["arkansas-christian--central","arkansas-christian--south"],
+    dryRun:true,
+    maxTeamChanges:2,
+    maxConferenceRows:2
+  });
+}
+
 async function runVolleyballLiveTick(controller, env) {
   const scheduledTime = Number(controller?.scheduledTime);
   const when = Number.isFinite(scheduledTime) ? new Date(scheduledTime) : new Date();
@@ -61,6 +83,21 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (request.method === "GET" && path === VOLLEYBALL_CHRISTIAN_GROUP_DIAGNOSTIC_PATH) {
+      try {
+        const result = await runChristianGroupDiagnostic(env);
+        return diagnosticJson(result);
+      } catch (error) {
+        return diagnosticJson({
+          status:"DIAGNOSTIC_FAILED",
+          message:String(error?.message || error),
+          d1Statements:0,
+          conferenceWrites:0,
+          teamWrites:0
+        }, 500);
+      }
+    }
 
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
