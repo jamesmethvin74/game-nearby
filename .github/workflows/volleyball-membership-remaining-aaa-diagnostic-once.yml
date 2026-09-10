@@ -1,4 +1,4 @@
-name: One-shot approved remaining AAA volleyball membership repair
+name: One-shot final Southside and 6A West volleyball repair
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - feature/live-sports-pipeline-m1
     paths:
       - backend/src/logo-bootstrap-worker.js
+      - backend/src/volleyball-conference-membership.js
       - .github/workflows/volleyball-membership-remaining-aaa-diagnostic-once.yml
 
 permissions:
@@ -14,15 +15,14 @@ permissions:
 jobs:
   approved-write:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
-      - name: Repair final 6A West conference and verify
+      - name: Execute exact 11-row final membership correction
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          PATH_BASE="/api/v1/maintenance/volleyball-membership/remaining-aaa-approved-20260910-5c1d8e"
-          conf="6a-west"
+          URL="$BASE/api/v1/maintenance/volleyball-membership/final-southside-6awest-20260910-c9e4a1"
 
           health_code=$(curl -sS --max-time 20 -o health.json -w '%{http_code}' "$BASE/api/v1/health" || true)
           echo "Health HTTP ${health_code}"
@@ -32,18 +32,23 @@ jobs:
           node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
 
           code=000
-          for attempt in $(seq 1 8); do
-            code=$(curl -sS --max-time 90 -o repair.json -w '%{http_code}' "$BASE$PATH_BASE?conference=$conf" || true)
+          for attempt in $(seq 1 12); do
+            code=$(curl -sS --max-time 90 -o repair.json -w '%{http_code}' "$URL" || true)
             if [ "$code" = "200" ]; then break; fi
+            if [ "$code" = "404" ]; then
+              echo "Final route not deployed yet; retry ${attempt}/12 after 5s"
+              sleep 5
+              continue
+            fi
             if grep -q 'standings source HTTP 403' repair.json 2>/dev/null; then
-              echo "Transient MaxPreps 403 for ${conf}; retry ${attempt}/8 after 15s"
+              echo "Transient MaxPreps 403; retry ${attempt}/12 after 15s"
               sleep 15
               continue
             fi
-            if [ "$code" = "404" ]; then sleep 5; continue; fi
             break
           done
-          echo "HTTP ${code}"
+
+          echo "Final repair HTTP ${code}"
           cat repair.json || true
           echo
           test "$code" = "200"
@@ -51,24 +56,36 @@ jobs:
           node <<'NODE'
           const fs=require('fs');
           const p=JSON.parse(fs.readFileSync('repair.json','utf8'));
+          const expected={
+            'df-s3xu7u-volleyball-2026':'4a-4-volleyball',
+            'df-jh2s9b-volleyball-2026':'6a-west-volleyball',
+            'df-3y3kbw-volleyball-2026':'6a-west-volleyball',
+            'df-bqp5sf-volleyball-2026':'6a-west-volleyball',
+            'df-s7358s-volleyball-2026':'6a-west-volleyball',
+            'df-7rxkjc-volleyball-2026':'6a-west-volleyball',
+            'df-qe9p6z-volleyball-2026':'6a-west-volleyball',
+            'df-qg2ant-volleyball-2026':'6a-west-volleyball',
+            'df-7k6qj6-volleyball-2026':'6a-west-volleyball',
+            'df-bf8zxn-volleyball-2026':'6a-west-volleyball',
+            'df-ptxzvg-volleyball-2026':'6a-west-volleyball'
+          };
           const rows=Array.isArray(p.verification)?p.verification:[];
-          const expected='6a-west-volleyball';
+          const exact=rows.length===11
+            && new Set(rows.map(row=>row.team_id)).size===11
+            && rows.every(row=>expected[row.team_id]===row.conference_id);
           const success=p.status==='SUCCESS'
-            && p.conferenceId==='6a-west'
-            && p.wrong_count===0
-            && p.change_count===10
+            && p.change_count===11
             && p.missing_count===10
-            && p.teamWrites===10
-            && p.d1WriteStatements===2
-            && Number(p.conferenceWrites)<=1
-            && rows.length===10
-            && rows.every(row=>row.conference_id===expected && row.expected_conference_id===expected);
+            && p.wrong_count===1
+            && p.d1Statements===2
+            && p.teamWrites===11
+            && Number(p.conferenceWrites)<=2
+            && exact;
           const already=p.status==='ALREADY_APPLIED'
-            && p.conferenceId==='6a-west'
-            && p.wrong_count===0
+            && p.change_count===0
             && p.teamWrites===0
-            && p.conferenceWrites===0
-            && p.d1WriteStatements===0;
-          if(!success && !already) throw new Error('final 6A West repair validation failed');
-          console.log('VOLLEYBALL_6A_WEST_FINAL_REPAIR='+JSON.stringify(p));
+            && p.d1Statements===0
+            && exact;
+          if(!success && !already) throw new Error('exact final membership repair validation failed');
+          console.log('VOLLEYBALL_FINAL_MEMBERSHIP_REPAIR='+JSON.stringify(p));
           NODE
