@@ -1,0 +1,72 @@
+name: One-shot 2A 6 volleyball membership diagnostic
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - backend/src/logo-bootstrap-worker.js
+      - .github/workflows/volleyball-membership-2a6-diagnostic-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Prove Worker health and fetch exact 2A 6 dry-run
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          health_code=$(curl -sS --max-time 20 -o health.json -w '%{http_code}' "$BASE/api/v1/health" || true)
+          echo "Health HTTP ${health_code}"
+          cat health.json || true
+          echo
+          test "$health_code" = "200"
+          node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
+
+          URL="$BASE/api/v1/diagnostics/volleyball-membership/2a6-20260909-8f3b9c"
+          code=000
+          for attempt in $(seq 1 18); do
+            code=$(curl -sS --max-time 30 -o membership.json -w '%{http_code}' "$URL" || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 5
+          done
+          echo "2A6 Diagnostic HTTP ${code}"
+          cat membership.json || true
+          echo
+          test "$code" = "200"
+
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('membership.json','utf8'));
+          const plan=p.plan||{};
+          const changes=Array.isArray(plan.changes)?plan.changes:[];
+          const ok=p.status==='DRY_RUN'
+            && p.selectedConferences===1
+            && p.fetchedConferences===1
+            && Array.isArray(p.failedConferences) && p.failedConferences.length===0
+            && p.conferenceRows===1
+            && plan.wrong_count===0
+            && plan.change_count===4
+            && changes.length===4
+            && changes.every(row=>row.current_conference_id==null && row.expected_conference_id==='2a-6-volleyball');
+          if(!ok){
+            console.error('2A 6 bounded diagnostic failed validation');
+            process.exit(1);
+          }
+          console.log('VOLLEYBALL_2A6_NEXT_BATCH='+JSON.stringify({
+            status:p.status,
+            selectedConferences:p.selectedConferences,
+            fetchedConferences:p.fetchedConferences,
+            conferenceRows:p.conferenceRows,
+            missing_count:plan.missing_count,
+            wrong_count:plan.wrong_count,
+            change_count:plan.change_count,
+            changes
+          }));
+          NODE
