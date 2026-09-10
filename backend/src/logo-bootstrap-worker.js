@@ -10,6 +10,15 @@ export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/h
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const VOLLEYBALL_2A2_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership/2a2-20260909-42d8e1";
+export const VOLLEYBALL_2A2_APPROVED_WRITE_PATH = "/api/v1/maintenance/volleyball-membership/2a2-approved-20260909-f6c4317d";
+
+const VOLLEYBALL_2A2_TARGET_TEAM_IDS = Object.freeze([
+  "df-sz3b5e-volleyball-2026",
+  "df-ltv6cw-volleyball-2026",
+  "df-mr3rj5-volleyball-2026",
+  "df-st7tzg-volleyball-2026"
+]);
+const VOLLEYBALL_2A2_EXPECTED_CONFERENCE_ID = "2a-2-volleyball";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -53,6 +62,97 @@ async function options(request) {
   }
 }
 
+async function loadApproved2a2Verification(env) {
+  const { results=[] } = await env.DB.prepare(`
+    SELECT t.id AS team_id,
+      s.name AS school_name,
+      t.conference_id,
+      c.name AS conference_name
+    FROM teams t
+    JOIN schools s ON s.id=t.school_id
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    WHERE t.id IN (?,?,?,?)
+    ORDER BY t.id
+  `).bind(...VOLLEYBALL_2A2_TARGET_TEAM_IDS).all();
+  return results;
+}
+
+function exactApprovedTeamSet(rows) {
+  if (!Array.isArray(rows) || rows.length!==VOLLEYBALL_2A2_TARGET_TEAM_IDS.length) return false;
+  const actual=new Set(rows.map(row=>String(row.team_id)));
+  return VOLLEYBALL_2A2_TARGET_TEAM_IDS.every(id=>actual.has(id));
+}
+
+function allConference(rows, conferenceId) {
+  return exactApprovedTeamSet(rows)
+    && rows.every(row=>String(row.conference_id||"")===conferenceId);
+}
+
+async function runApproved2a2MembershipWrite(env) {
+  const before=await loadApproved2a2Verification(env);
+  if (!exactApprovedTeamSet(before)) {
+    return { httpStatus:409, body:{
+      status:"REFUSED",
+      reason:"approved_team_set_not_found",
+      targetTeamIds:VOLLEYBALL_2A2_TARGET_TEAM_IDS,
+      before
+    }};
+  }
+  if (allConference(before,VOLLEYBALL_2A2_EXPECTED_CONFERENCE_ID)) {
+    return { httpStatus:200, body:{
+      status:"ALREADY_APPLIED",
+      teamWrites:0,
+      conferenceWrites:0,
+      verification:before
+    }};
+  }
+  if (!before.every(row=>row.conference_id==null || String(row.conference_id).trim()==="")) {
+    return { httpStatus:409, body:{
+      status:"REFUSED",
+      reason:"approved_precondition_failed_non_null_membership",
+      expectedCurrentConferenceId:null,
+      before
+    }};
+  }
+
+  const result=await syncPublishedVolleyballConferenceMembership(env, {
+    conferenceIds:["2a-2"],
+    targetTeamIds:VOLLEYBALL_2A2_TARGET_TEAM_IDS,
+    dryRun:false,
+    maxTeamChanges:4,
+    maxConferenceRows:1
+  });
+  const verification=await loadApproved2a2Verification(env);
+  const verified=result.status==="SUCCESS"
+    && result.plan?.change_count===4
+    && result.plan?.wrong_count===0
+    && result.assignments===4
+    && result.d1Statements===2
+    && result.teamWrites===4
+    && result.conferenceWrites<=1
+    && allConference(verification,VOLLEYBALL_2A2_EXPECTED_CONFERENCE_ID);
+
+  return {
+    httpStatus:verified?200:500,
+    body:{
+      status:verified?"SUCCESS":"VERIFICATION_FAILED",
+      approvedBatch:{
+        conferenceId:VOLLEYBALL_2A2_EXPECTED_CONFERENCE_ID,
+        teamIds:VOLLEYBALL_2A2_TARGET_TEAM_IDS
+      },
+      plan:{
+        change_count:result.plan?.change_count,
+        missing_count:result.plan?.missing_count,
+        wrong_count:result.plan?.wrong_count
+      },
+      d1Statements:result.d1Statements,
+      conferenceWrites:result.conferenceWrites,
+      teamWrites:result.teamWrites,
+      verification
+    }
+  };
+}
+
 async function runVolleyballLiveTick(controller, env) {
   const scheduledTime = Number(controller?.scheduledTime);
   const when = Number.isFinite(scheduledTime) ? new Date(scheduledTime) : new Date();
@@ -75,6 +175,19 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (request.method === "GET" && path === VOLLEYBALL_2A2_APPROVED_WRITE_PATH) {
+      try {
+        const outcome=await runApproved2a2MembershipWrite(env);
+        return diagnosticJson(outcome.body,outcome.httpStatus);
+      } catch (error) {
+        console.error("approved 2A 2 volleyball membership write failed", String(error?.message || error));
+        return diagnosticJson({
+          error:"approved_2a2_membership_write_failed",
+          message:String(error?.message || error)
+        },500);
+      }
+    }
 
     if (request.method === "GET" && path === VOLLEYBALL_2A2_DIAGNOSTIC_PATH) {
       try {
