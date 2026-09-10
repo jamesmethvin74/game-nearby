@@ -1,4 +1,3 @@
-import { dateKeyInZone } from "./schedule-authority-core.js";
 import { zonedIso } from "./parser-core.js";
 import {
   matchLocalVolleyballTeams,
@@ -14,21 +13,21 @@ function rowsWritten(result){return Number(result?.meta?.rows_written||0);}
 function sourceId(teamId){return `${SOURCE_PREFIX}${teamId}`;}
 function gameId(teamId,contestId){return `${sourceId(teamId)}:native:${contestId}`;}
 function pairKey(a,b){return [String(a),String(b)].sort().join("|");}
+function placeholders(count){return Array(count).fill("?").join(",");}
 function fnv1a32(value){
   let hash=0x811c9dc5;
   for(const char of String(value||"")){hash^=char.codePointAt(0);hash=Math.imul(hash,0x01000193)>>>0;}
   return hash.toString(16).padStart(8,"0");
 }
-function localIso(localDate,{hour=0,minute=0}={}){
+function localIso(localDate){
   const [year,month,day]=String(localDate).split("-").map(Number);
-  return zonedIso({year,month,day,hour,minute},TIME_ZONE);
+  return zonedIso({year,month,day,hour:0,minute:0},TIME_ZONE);
 }
 function nextLocalDate(localDate){
   const [year,month,day]=String(localDate).split("-").map(Number);
   const value=new Date(Date.UTC(year,month-1,day+1,18));
   return new Intl.DateTimeFormat("en-CA",{timeZone:TIME_ZONE,year:"numeric",month:"2-digit",day:"2-digit"}).format(value);
 }
-function placeholders(count){return Array(count).fill("?").join(",");}
 
 async function read(env,sql,args=[]){
   const result=await env.DB.prepare(sql).bind(...args).all();
@@ -52,6 +51,21 @@ function classifyMatchedFinal(final,events){
   if(events.some(event=>event.status==="FINAL")) return "external_final_score_conflict";
   return "missing_externally_published_final";
 }
+
+export function canonicalDesiredFinal(target,canonical){
+  const scores=new Map([
+    [String(target.home.school_id),Number(target.home.score)],
+    [String(target.away.school_id),Number(target.away.score)]
+  ]);
+  return {
+    status:"FINAL",
+    home_school_id:canonical.home_school_id,
+    away_school_id:canonical.away_school_id,
+    home_score:scores.get(String(canonical.home_school_id)),
+    away_score:scores.get(String(canonical.away_school_id))
+  };
+}
+
 function reportingRows(target){
   return [
     {
@@ -86,6 +100,7 @@ export async function planM7VolleyballDateFinals(env,localDate,{fetchFn=fetch}={
       AND s.level='high-school' AND s.state='AR' AND s.catalog_scope='local'
     ORDER BY t.id`);
 
+  // Keep the indexed column bare. Wrapping scheduled_at in datetime() defeats idx_canonical_events_time.
   const canonicals=await read(env,`
     SELECT ce.id,ce.participant_a_school_id,ce.participant_b_school_id,ce.home_school_id,ce.away_school_id,
       ce.scheduled_at,ce.status,ce.home_score,ce.away_score,ce.selected_source_id,ce.trust_state,ce.conflict_count,
@@ -93,19 +108,17 @@ export async function planM7VolleyballDateFinals(env,localDate,{fetchFn=fetch}={
     FROM canonical_events ce
     LEFT JOIN sources src ON src.id=ce.selected_source_id
     WHERE ce.sport='volleyball' AND ce.gender='girls' AND ce.season='2026'
-      AND datetime(ce.scheduled_at)>=datetime(?) AND datetime(ce.scheduled_at)<datetime(?)
+      AND ce.scheduled_at>=? AND ce.scheduled_at<?
     ORDER BY ce.id`,[start,end]);
 
-  const response=await fetchFn(maxPrepsScoresUrl(localDate),{
-    headers:{"user-agent":"LocalBleachersAR-m7-date-audit/1.0","accept":"text/html,application/xhtml+xml"}
-  });
+  const scoreUrl=maxPrepsScoresUrl(localDate);
+  const response=await fetchFn(scoreUrl,{headers:{"user-agent":"LocalBleachersAR-m7-date-audit/1.0","accept":"text/html,application/xhtml+xml"}});
   if(!response.ok) throw new Error(`MaxPreps volleyball scores HTTP ${response.status} for ${localDate}`);
-  const parsed=parseMaxPrepsVolleyballScores(await response.text(),{localDate,sourceUrl:response.url||maxPrepsScoresUrl(localDate)});
+  const parsed=parseMaxPrepsVolleyballScores(await response.text(),{localDate,sourceUrl:response.url||scoreUrl});
   const matches=matchLocalVolleyballTeams(parsed,teams.rows);
 
   const eventsByPair=new Map();
   for(const event of canonicals.rows){
-    if(dateKeyInZone(event.scheduled_at,TIME_ZONE)!==localDate) continue;
     const key=pairKey(event.participant_a_school_id,event.participant_b_school_id);
     if(!eventsByPair.has(key)) eventsByPair.set(key,[]);
     eventsByPair.get(key).push(event);
@@ -120,12 +133,10 @@ export async function planM7VolleyballDateFinals(env,localDate,{fetchFn=fetch}={
       type,contest_id:final.contestId,source_url:final.sourceUrl,
       home:{name:final.home.name,score:Number(final.home.score),team_id:final.homeTeam.team_id,school_id:final.homeTeam.school_id},
       away:{name:final.away.name,score:Number(final.away.score),team_id:final.awayTeam.team_id,school_id:final.awayTeam.school_id},
-      canonical_events:events.map(event=>({id:event.id,status:event.status,home_score:event.home_score,away_score:event.away_score,selected_source_id:event.selected_source_id,selected_parser_type:event.selected_parser_type,trust_state:event.trust_state,conflict_count:event.conflict_count}))
+      canonical_events:events.map(event=>({id:event.id,status:event.status,home_school_id:event.home_school_id,away_school_id:event.away_school_id,home_score:event.home_score,away_score:event.away_score,selected_source_id:event.selected_source_id,selected_parser_type:event.selected_parser_type,trust_state:event.trust_state,conflict_count:event.conflict_count}))
     };
     matched.push(row);
-    if(type==="stale_scheduled_external_final"&&events.length===1){
-      staleTargets.push({...row,canonical_event_id:events[0].id,canonical:events[0]});
-    }
+    if(type==="stale_scheduled_external_final"&&events.length===1) staleTargets.push({...row,canonical_event_id:events[0].id,canonical:events[0]});
   }
 
   const observations=staleTargets.flatMap(reportingRows);
@@ -156,10 +167,15 @@ export async function planM7VolleyballDateFinals(env,localDate,{fetchFn=fetch}={
   const stalePlan=[];
   for(const target of staleTargets){
     const canonical=target.canonical;
+    const participants=new Set([String(canonical.participant_a_school_id),String(canonical.participant_b_school_id)]);
+    if(!participants.has(String(target.home.school_id))||!participants.has(String(target.away.school_id))) blockers.push(`${target.contest_id}:participant_mismatch`);
+    if(!participants.has(String(canonical.home_school_id))||!participants.has(String(canonical.away_school_id))) blockers.push(`${target.contest_id}:canonical_home_away_invalid`);
     if(canonical.status!=="SCHEDULED"||canonical.home_score!=null||canonical.away_score!=null) blockers.push(`${target.contest_id}:canonical_state_changed`);
     if(canonical.selected_parser_type!=="dragonfly-public") blockers.push(`${target.contest_id}:selected_source_not_dragonfly`);
     if(Number(canonical.conflict_count)!==0||(conflictsByCanonical.get(target.canonical_event_id)||[]).length) blockers.push(`${target.contest_id}:unresolved_conflict`);
-    stalePlan.push({contest_id:target.contest_id,canonical_event_id:target.canonical_event_id,home:target.home,away:target.away,current:canonical});
+    const desired=canonicalDesiredFinal(target,canonical);
+    if(!Number.isFinite(desired.home_score)||!Number.isFinite(desired.away_score)) blockers.push(`${target.contest_id}:score_orientation_unresolved`);
+    stalePlan.push({contest_id:target.contest_id,canonical_event_id:target.canonical_event_id,authority_home:target.home,authority_away:target.away,canonical_desired:desired,current:canonical});
   }
 
   const sourcePlan=[];const gamePlan=[];const memberPlan=[];
@@ -180,21 +196,15 @@ export async function planM7VolleyballDateFinals(env,localDate,{fetchFn=fetch}={
     memberPlan.push({game_id:expected.game_id,canonical_event_id:expected.canonical_event_id,current:member,insert_required:!member});
   }
 
-  const distinctSourceInserts=new Set(sourcePlan.filter(row=>row.insert_required).map(row=>row.source_id)).size;
-  const writeScope={
-    logical_table_rows:{
-      sources_insert:distinctSourceInserts,
-      games_insert:gamePlan.filter(row=>row.action==="INSERT").length,
-      games_update:gamePlan.filter(row=>row.action==="UPDATE").length,
-      canonical_event_members_insert:memberPlan.filter(row=>row.insert_required).length,
-      canonical_events_update:stalePlan.length,
-      event_conflicts:0,
-      team_records:0,
-      standings:0
-    }
+  const logicalTableRows={
+    sources_insert:new Set(sourcePlan.filter(row=>row.insert_required).map(row=>row.source_id)).size,
+    games_insert:gamePlan.filter(row=>row.action==="INSERT").length,
+    games_update:gamePlan.filter(row=>row.action==="UPDATE").length,
+    canonical_event_members_insert:memberPlan.filter(row=>row.insert_required).length,
+    canonical_events_update:stalePlan.length,
+    event_conflicts:0,team_records:0,standings:0
   };
-  writeScope.logical_application_rows=Object.values(writeScope.logical_table_rows).reduce((sum,value)=>sum+Number(value||0),0);
-
+  const writeScope={logical_table_rows:logicalTableRows,logical_application_rows:Object.values(logicalTableRows).reduce((sum,value)=>sum+Number(value||0),0)};
   const d1Statements=[teams.meta,canonicals.meta,sources.meta,games.meta,members.meta,conflicts.meta];
   const d1={statements:d1Statements.length,rows_read:d1Statements.reduce((sum,row)=>sum+row.rows_read,0),rows_written:0,per_statement:d1Statements};
   const oneSided=matches.oneSided.map(final=>({
@@ -213,12 +223,10 @@ export async function planM7VolleyballDateFinals(env,localDate,{fetchFn=fetch}={
     plan_fingerprint:`m7-${localDate.replaceAll("-","")}-${fnv1a32(JSON.stringify(fingerprintInput))}`,
     write_scope:writeScope,
     stale_local_local:stalePlan,
-    source_plan:sourcePlan,
-    game_plan:gamePlan,
-    member_plan:memberPlan,
+    source_plan:sourcePlan,game_plan:gamePlan,member_plan:memberPlan,
     one_sided_finals:oneSided,
     other_local_local_gaps:matched.filter(row=>row.type!=="already_converged"&&row.type!=="stale_scheduled_external_final"),
     already_converged_count:matched.filter(row=>row.type==="already_converged").length,
-    invariants:{production_write_performed:false,logical_rows_are_not_d1_rows_written:true}
+    invariants:{production_write_performed:false,logical_rows_are_not_d1_rows_written:true,indexed_canonical_time_predicate:true}
   };
 }

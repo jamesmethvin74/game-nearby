@@ -1,5 +1,6 @@
 name: One-shot M7 Aug 18 final plan
 
+# Hardened rerun: indexed date predicate + canonical score orientation proof.
 on:
   push:
     branches:
