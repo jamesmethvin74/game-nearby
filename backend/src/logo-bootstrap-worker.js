@@ -8,64 +8,97 @@ import { syncPublishedVolleyballConferenceMembership } from "./volleyball-confer
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
-export const VOLLEYBALL_REMAINING_AAA_APPROVED_WRITE_PATH = "/api/v1/maintenance/volleyball-membership/remaining-aaa-approved-20260910-5c1d8e";
-export const VOLLEYBALL_SOUTHSIDE_COLLISION_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership/southside-collision-20260910-73e29c";
+export const VOLLEYBALL_FINAL_SOUTHSIDE_6AWEST_REPAIR_PATH = "/api/v1/maintenance/volleyball-membership/final-southside-6awest-20260910-c9e4a1";
 
-const VOLLEYBALL_REMAINING_AAA = Object.freeze({
-  "2a-4": { name:"2A 4", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/2a-4/?leagueid=7cd5359b-6357-4e1e-ad1c-48545caa85c6" },
-  "2a-5": { name:"2A 5", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/2a-5/?leagueid=6cc5c87a-1664-47d7-bedf-517fa12d7ca7" },
-  "2a-7": { name:"2A 7", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/2a-7/?leagueid=26656194-f38b-45de-a4c1-7eec71140f19" },
-  "2a-8": { name:"2A 8", maxTeamChanges:7, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/2a-8/?leagueid=6d2a607d-c7ca-4722-94a4-2e5ad630ce36" },
-  "3a-1": { name:"3A 1", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/3a-1/?leagueid=7b99690e-5d67-4ddd-9543-ba66913f4fb4" },
-  "3a-3": { name:"3A 3", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/3a-3/?leagueid=2d6e72cb-9cf0-45db-ad63-b74f2ceb66bc" },
-  "3a-4": { name:"3A 4", maxTeamChanges:7, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/3a-4/?leagueid=1654733e-00c6-45a9-ac3e-d446baa636c8" },
-  "3a-5": { name:"3A 5", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/3a-5/?leagueid=86fb7214-557c-4700-a14d-879b8f8e12e7" },
-  "3a-6": { name:"3A 6", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/3a-6/?leagueid=928184f7-63f1-4e45-8290-d73ad54392cb" },
-  "4a-1": { name:"4A 1", maxTeamChanges:9, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/4a-1/?leagueid=e40753e0-1af1-4d1e-94c6-9803212a3709" },
-  "4a-2": { name:"4A 2", maxTeamChanges:5, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/4a-2/?leagueid=52fc048b-cbdd-4b10-bbd0-43a6921d0dc6" },
-  "4a-3": { name:"4A 3", maxTeamChanges:5, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/4a-3/?leagueid=cc5ff5ec-a78b-41fa-8995-fb9c913441cd" },
-  "4a-4": { name:"4A 4", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/4a-4/?leagueid=f33689bb-e031-43c1-bdff-27332140303f" },
-  "4a-6": { name:"4A 6", maxTeamChanges:5, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/4a-6/?leagueid=9f4ed236-4d6f-492d-85de-c12808ea789a" },
-  "5a-central": { name:"5A Central", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-central/?leagueid=6f0edb9d-9fcb-4529-ae2f-729ae00d6f6c" },
-  "5a-east": { name:"5A East", maxTeamChanges:9, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-east/?leagueid=898701fe-263a-4f52-922a-3dd604188dda" },
-  "5a-south": { name:"5A South", maxTeamChanges:5, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-south/?leagueid=1fdc2e7a-a965-47b7-8b21-71f380757444" },
-  "5a-west": { name:"5A West", maxTeamChanges:7, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-west/?leagueid=9dd260d5-8ea3-49e8-a766-3855f61d2b6c" },
-  "6a-west": { name:"6A West", maxTeamChanges:10, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-west/?leagueid=a6284ae0-876a-44c2-9a1c-ab9bbc94b8ef" }
+const FINAL_CONFERENCE_SOURCES = Object.freeze({
+  "4a-4": {
+    name:"4A 4",
+    source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/4a-4/?leagueid=f33689bb-e031-43c1-bdff-27332140303f"
+  },
+  "6a-west": {
+    name:"6A West",
+    source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-west/?leagueid=a6284ae0-876a-44c2-9a1c-ab9bbc94b8ef"
+  }
 });
 
+const FINAL_TARGETS = Object.freeze({
+  "df-s3xu7u-volleyball-2026":"4a-4-volleyball",
+  "df-jh2s9b-volleyball-2026":"6a-west-volleyball",
+  "df-3y3kbw-volleyball-2026":"6a-west-volleyball",
+  "df-bqp5sf-volleyball-2026":"6a-west-volleyball",
+  "df-s7358s-volleyball-2026":"6a-west-volleyball",
+  "df-7rxkjc-volleyball-2026":"6a-west-volleyball",
+  "df-qe9p6z-volleyball-2026":"6a-west-volleyball",
+  "df-qg2ant-volleyball-2026":"6a-west-volleyball",
+  "df-7k6qj6-volleyball-2026":"6a-west-volleyball",
+  "df-bf8zxn-volleyball-2026":"6a-west-volleyball",
+  "df-ptxzvg-volleyball-2026":"6a-west-volleyball"
+});
+const FINAL_TEAM_IDS = Object.freeze(Object.keys(FINAL_TARGETS));
+const FORT_SMITH_SOUTHSIDE_TEAM_ID = "df-jh2s9b-volleyball-2026";
+
 function privateJson(body, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers:{ "content-type":"application/json; charset=utf-8", "cache-control":"no-store" }
+  });
 }
 
 function maintenanceJson(body, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store", "access-control-allow-origin":"*" } });
+  return new Response(JSON.stringify(body), {
+    status,
+    headers:{
+      "content-type":"application/json; charset=utf-8",
+      "cache-control":"no-store",
+      "access-control-allow-origin":"*"
+    }
+  });
 }
 
 export function authorizedLogoBootstrap(request, env) {
-  const refreshAuthorized = Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
-  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN) && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  const refreshAuthorized = Boolean(env.REFRESH_TOKEN)
+    && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
+    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
   return refreshAuthorized || executionAuthorized;
 }
 
 export function logoBootstrapReadiness(request, env) {
-  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN) && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
-  if (!executionAuthorized) return privateJson({ error:"not_found" }, 404);
-  return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
+    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  if (!executionAuthorized) return privateJson({ error:"not_found" },404);
+  return new Response(null,{ status:204, headers:{ "cache-control":"no-store" } });
 }
 
 async function options(request) {
-  try { const body = await request.json(); return body && typeof body === "object" ? body : {}; } catch { return {}; }
+  try {
+    const body=await request.json();
+    return body && typeof body === "object" ? body : {};
+  } catch {
+    return {};
+  }
 }
 
-async function verifyConferenceTargets(env, payload) {
-  const { results=[] } = await env.DB.prepare(`
+function finalExpectedPayload() {
+  return FINAL_TEAM_IDS.map(team_id=>({ team_id, conference_id:FINAL_TARGETS[team_id] }));
+}
+
+async function verifyFinalTargets(env) {
+  const payload=finalExpectedPayload();
+  const { results=[] }=await env.DB.prepare(`
     WITH target AS (
-      SELECT json_extract(value,'$.team_id') AS team_id,
-             json_extract(value,'$.conference_id') AS expected_conference_id
+      SELECT
+        json_extract(value,'$.team_id') AS team_id,
+        json_extract(value,'$.conference_id') AS expected_conference_id
       FROM json_each(?)
     )
-    SELECT target.team_id, s.name AS school_name, t.conference_id,
-           c.name AS conference_name, target.expected_conference_id
+    SELECT
+      target.team_id,
+      s.name AS school_name,
+      s.city,
+      t.conference_id,
+      c.name AS conference_name,
+      target.expected_conference_id
     FROM target
     JOIN teams t ON t.id=target.team_id
     JOIN schools s ON s.id=t.school_id
@@ -75,157 +108,183 @@ async function verifyConferenceTargets(env, payload) {
   return results;
 }
 
-async function runApprovedRemainingAaaConferenceRepair(env, conferenceId) {
-  const source=VOLLEYBALL_REMAINING_AAA[conferenceId];
-  if(!source) return { httpStatus:404, body:{ status:"REFUSED", reason:"conference_not_allowlisted", conferenceId } };
-  const expectedConferenceId=`${conferenceId}-volleyball`;
-  const dry=await syncPublishedVolleyballConferenceMembership(env, {
-    conferenceIds:[conferenceId],
-    conferenceSourceOverrides:{ [conferenceId]:{ name:source.name, source_url:source.source_url } },
-    dryRun:true,
-    maxTeamChanges:source.maxTeamChanges,
-    maxConferenceRows:1
-  });
-  const plan=dry.plan||{};
-  const changes=Array.isArray(plan.changes)?plan.changes:[];
-  const safe=dry.status==="DRY_RUN"
-    && dry.selectedConferences===1 && dry.fetchedConferences===1
+function exactFinalVerification(rows=[]) {
+  return rows.length===FINAL_TEAM_IDS.length
+    && new Set(rows.map(row=>String(row.team_id))).size===FINAL_TEAM_IDS.length
+    && rows.every(row=>FINAL_TARGETS[String(row.team_id)]===String(row.conference_id||""));
+}
+
+function commonFinalDryRunSafe(dry) {
+  const plan=dry?.plan||{};
+  return dry?.status==="DRY_RUN"
+    && dry.selectedConferences===2
+    && dry.fetchedConferences===2
     && Array.isArray(dry.failedConferences) && dry.failedConferences.length===0
-    && dry.conferenceRows===1 && plan.wrong_count===0
-    && plan.change_count<=source.maxTeamChanges && changes.length===plan.change_count
-    && changes.every(row=>row.current_conference_id==null && row.expected_conference_id===expectedConferenceId);
-  if(!safe) return { httpStatus:409, body:{ status:"REFUSED", reason:"conference_preflight_failed", conferenceId, source:source.source_url, dryRun:{ status:dry.status, selectedConferences:dry.selectedConferences, fetchedConferences:dry.fetchedConferences, failedConferences:dry.failedConferences, conferenceRows:dry.conferenceRows, assignments:dry.assignments, unmatched:dry.unmatched, ambiguous:dry.ambiguous, plan } } };
-  if(plan.change_count===0) return { httpStatus:200, body:{ status:"ALREADY_APPLIED", conferenceId, conferenceName:source.name, missing_count:0, wrong_count:0, teamWrites:0, conferenceWrites:0, d1WriteStatements:0, unmatched:dry.unmatched, ambiguous:dry.ambiguous } };
-  const payload=plan.missing.map(row=>({ team_id:String(row.team_id), conference_id:expectedConferenceId }));
-  if(payload.length!==plan.change_count) return { httpStatus:409, body:{ status:"REFUSED", reason:"non_missing_change_detected", conferenceId, plan } };
-  const now=new Date().toISOString();
-  const results=await env.DB.batch([
-    env.DB.prepare(`
-      INSERT INTO conferences(id,name,classification,standings_method,coverage_complete,source_url,updated_at)
-      VALUES(?,?,'Arkansas high school volleyball','published',0,?,?)
-      ON CONFLICT(id) DO UPDATE SET
-        name=excluded.name, classification=excluded.classification,
-        standings_method=excluded.standings_method, coverage_complete=0,
-        source_url=excluded.source_url, updated_at=excluded.updated_at
-      WHERE conferences.name<>excluded.name
-         OR COALESCE(conferences.classification,'')<>COALESCE(excluded.classification,'')
-         OR conferences.standings_method<>excluded.standings_method
-         OR conferences.coverage_complete<>excluded.coverage_complete
-         OR COALESCE(conferences.source_url,'')<>COALESCE(excluded.source_url,'')
-    `).bind(expectedConferenceId,source.name,source.source_url,now),
-    env.DB.prepare(`
-      WITH payload AS (
-        SELECT json_extract(value,'$.team_id') AS team_id,
-               json_extract(value,'$.conference_id') AS conference_id
-        FROM json_each(?)
-      )
-      UPDATE teams
-      SET conference_id=(SELECT p.conference_id FROM payload p WHERE p.team_id=teams.id), updated_at=?
-      WHERE id IN (SELECT team_id FROM payload) AND COALESCE(conference_id,'')=''
-    `).bind(JSON.stringify(payload),now)
-  ]);
-  const conferenceWrites=Number(results?.[0]?.meta?.changes||results?.[0]?.changes||0);
-  const teamWrites=Number(results?.[1]?.meta?.changes||results?.[1]?.changes||0);
-  const verification=await verifyConferenceTargets(env,payload);
-  const verified=verification.length===payload.length
-    && verification.every(row=>row.conference_id===row.expected_conference_id)
-    && teamWrites===payload.length && conferenceWrites<=1;
-  return { httpStatus:verified?200:500, body:{ status:verified?"SUCCESS":"VERIFICATION_FAILED", conferenceId, conferenceName:source.name, source:source.source_url, change_count:plan.change_count, missing_count:plan.missing_count, wrong_count:plan.wrong_count, unmatched:dry.unmatched, ambiguous:dry.ambiguous, d1WriteStatements:2, conferenceWrites, teamWrites, verification } };
+    && dry.conferenceRows===2
+    && dry.assignments===11
+    && plan.assignments===11
+    && Array.isArray(dry.ambiguous) && dry.ambiguous.length===0
+    && dry.d1Statements===0
+    && dry.teamWrites===0
+    && dry.conferenceWrites===0;
+}
+
+function exactInitialFinalPlan(plan={}) {
+  const changes=Array.isArray(plan.changes)?plan.changes:[];
+  const missing=Array.isArray(plan.missing)?plan.missing:[];
+  const wrong=Array.isArray(plan.wrong)?plan.wrong:[];
+  const expectedIds=new Set(FINAL_TEAM_IDS);
+  const changeIds=new Set(changes.map(row=>String(row.team_id)));
+  const wrongRow=wrong[0];
+
+  return plan.change_count===11
+    && plan.missing_count===10
+    && plan.wrong_count===1
+    && changes.length===11
+    && missing.length===10
+    && wrong.length===1
+    && changeIds.size===11
+    && FINAL_TEAM_IDS.every(id=>changeIds.has(id))
+    && changes.every(row=>
+      expectedIds.has(String(row.team_id))
+      && String(row.expected_conference_id||"")===FINAL_TARGETS[String(row.team_id)]
+    )
+    && missing.every(row=>row.current_conference_id==null)
+    && String(wrongRow?.team_id||"")===FORT_SMITH_SOUTHSIDE_TEAM_ID
+    && String(wrongRow?.current_conference_id||"")==="4a-4-volleyball"
+    && String(wrongRow?.expected_conference_id||"")==="6a-west-volleyball";
+}
+
+async function runFinalSouthside6aWestRepair(env) {
+  const syncOptions={
+    conferenceIds:["4a-4","6a-west"],
+    targetTeamIds:FINAL_TEAM_IDS,
+    conferenceSourceOverrides:FINAL_CONFERENCE_SOURCES,
+    maxTeamChanges:11,
+    maxConferenceRows:2
+  };
+
+  const dry=await syncPublishedVolleyballConferenceMembership(env,{ ...syncOptions, dryRun:true });
+  const plan=dry.plan||{};
+  if(!commonFinalDryRunSafe(dry)) {
+    return { httpStatus:409, body:{ status:"REFUSED", reason:"final_preflight_shape_failed", dryRun:dry } };
+  }
+
+  if(plan.change_count===0) {
+    const verification=await verifyFinalTargets(env);
+    if(!exactFinalVerification(verification)) {
+      return { httpStatus:409, body:{ status:"REFUSED", reason:"already_applied_verification_failed", verification } };
+    }
+    return { httpStatus:200, body:{
+      status:"ALREADY_APPLIED",
+      change_count:0,
+      missing_count:0,
+      wrong_count:0,
+      d1Statements:0,
+      conferenceWrites:0,
+      teamWrites:0,
+      verification
+    }};
+  }
+
+  if(!exactInitialFinalPlan(plan)) {
+    return { httpStatus:409, body:{ status:"REFUSED", reason:"final_exact_plan_mismatch", dryRun:dry } };
+  }
+
+  const written=await syncPublishedVolleyballConferenceMembership(env,{ ...syncOptions, dryRun:false });
+  const verification=await verifyFinalTargets(env);
+  const success=written.status==="SUCCESS"
+    && written.plan?.change_count===11
+    && written.plan?.missing_count===10
+    && written.plan?.wrong_count===1
+    && written.d1Statements===2
+    && written.teamWrites===11
+    && Number(written.conferenceWrites)<=2
+    && exactFinalVerification(verification);
+
+  return {
+    httpStatus:success?200:500,
+    body:{
+      status:success?"SUCCESS":"VERIFICATION_FAILED",
+      change_count:Number(written.plan?.change_count||0),
+      missing_count:Number(written.plan?.missing_count||0),
+      wrong_count:Number(written.plan?.wrong_count||0),
+      d1Statements:Number(written.d1Statements||0),
+      conferenceWrites:Number(written.conferenceWrites||0),
+      teamWrites:Number(written.teamWrites||0),
+      verification
+    }
+  };
 }
 
 async function runVolleyballLiveTick(controller, env) {
-  const scheduledTime = Number(controller?.scheduledTime);
-  const when = Number.isFinite(scheduledTime) ? new Date(scheduledTime) : new Date();
-  const plan = collectionPlanAt(when);
-  if (!plan?.runVolleyballLive) return null;
+  const scheduledTime=Number(controller?.scheduledTime);
+  const when=Number.isFinite(scheduledTime)?new Date(scheduledTime):new Date();
+  const plan=collectionPlanAt(when);
+  if(!plan?.runVolleyballLive) return null;
   try {
-    const result = await runVolleyballLiveResultProbe(env, { now: when });
-    console.log("live statewide volleyball result probe", { plan:plan.kind, ...result });
+    const result=await runVolleyballLiveResultProbe(env,{ now:when });
+    console.log("live statewide volleyball result probe",{ plan:plan.kind, ...result });
     return result;
-  } catch (error) {
-    console.error("live statewide volleyball result probe failed", { plan:plan.kind, error:String(error?.message || error) });
-    return { status:"FAILURE", error:String(error?.message || error) };
+  } catch(error) {
+    console.error("live statewide volleyball result probe failed",{
+      plan:plan.kind,
+      error:String(error?.message||error)
+    });
+    return { status:"FAILURE", error:String(error?.message||error) };
   }
 }
 
 export default {
   async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname;
+    const url=new URL(request.url);
+    const path=url.pathname;
 
-    if (request.method === "GET" && path === VOLLEYBALL_SOUTHSIDE_COLLISION_DIAGNOSTIC_PATH) {
+    if(request.method==="GET" && path===VOLLEYBALL_FINAL_SOUTHSIDE_6AWEST_REPAIR_PATH) {
       try {
-        const { results=[] }=await env.DB.prepare(`
-          SELECT
-            s.id AS school_id,
-            s.name AS school_name,
-            s.city,
-            s.state,
-            s.location_matched_name,
-            s.latitude,
-            s.longitude,
-            t.id AS team_id,
-            t.conference_id,
-            c.name AS conference_name,
-            GROUP_CONCAT(DISTINCT sei.provider || ':' || sei.external_school_id) AS external_identities
-          FROM schools s
-          LEFT JOIN teams t
-            ON t.school_id=s.id
-           AND t.active=1
-           AND t.sport='volleyball'
-           AND t.gender='girls'
-           AND t.season='2026'
-          LEFT JOIN conferences c ON c.id=t.conference_id
-          LEFT JOIN school_external_identities sei ON sei.school_id=s.id
-          WHERE s.level='high-school'
-            AND s.catalog_scope='local'
-            AND (
-              lower(s.name) LIKE '%southside%'
-              OR lower(COALESCE(s.location_matched_name,'')) LIKE '%southside%'
-              OR lower(COALESCE(s.city,'')) IN ('fort smith','batesville')
-            )
-          GROUP BY s.id,s.name,s.city,s.state,s.location_matched_name,s.latitude,s.longitude,t.id,t.conference_id,c.name
-          ORDER BY s.city,s.name,s.id
-        `).all();
-        return maintenanceJson({ status:"DIAGNOSTIC", rows:results, d1Statements:0, teamWrites:0, conferenceWrites:0 });
-      } catch (error) {
-        return maintenanceJson({ status:"FAILURE", message:String(error?.message||error) },500);
-      }
-    }
-
-    if (request.method === "GET" && path === VOLLEYBALL_REMAINING_AAA_APPROVED_WRITE_PATH) {
-      const conferenceId=String(url.searchParams.get("conference")||"").trim().toLowerCase();
-      try {
-        const outcome=await runApprovedRemainingAaaConferenceRepair(env,conferenceId);
+        const outcome=await runFinalSouthside6aWestRepair(env);
         return maintenanceJson(outcome.body,outcome.httpStatus);
-      } catch (error) {
-        console.error("remaining AAA approved volleyball membership repair failed", { conferenceId, error:String(error?.message||error) });
-        return maintenanceJson({ status:"REFUSED", reason:"repair_exception", conferenceId, message:String(error?.message||error) },500);
+      } catch(error) {
+        console.error("final Southside / 6A West volleyball repair failed",String(error?.message||error));
+        return maintenanceJson({
+          status:"REFUSED",
+          reason:"final_repair_exception",
+          message:String(error?.message||error)
+        },500);
       }
     }
 
-    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
-    const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
-    if (request.method === "POST" && logoPath) {
-      if (!authorizedLogoBootstrap(request, env)) return privateJson({ error:"not_found" }, 404);
-      const input = await options(request);
+    if(request.method==="HEAD" && path===LOGO_BOOTSTRAP_READY_PATH) {
+      return logoBootstrapReadiness(request,env);
+    }
+
+    const logoPath=path===HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path===COLLEGE_LOGO_BOOTSTRAP_PATH;
+    if(request.method==="POST" && logoPath) {
+      if(!authorizedLogoBootstrap(request,env)) return privateJson({ error:"not_found" },404);
+      const input=await options(request);
       try {
-        if (path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH) {
-          const result = await runStatewideHighSchoolLogoCompletion(env, { limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT) });
+        if(path===HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH) {
+          const result=await runStatewideHighSchoolLogoCompletion(env,{
+            limit:Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT,Number(input.limit)||HIGH_SCHOOL_LOGO_BATCH_LIMIT)
+          });
           return privateJson(result);
         }
-        const result = await runCollegeLogoCompletion(env, { limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT), schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null });
+        const result=await runCollegeLogoCompletion(env,{
+          limit:Math.min(COLLEGE_LOGO_BATCH_LIMIT,Number(input.limit)||COLLEGE_LOGO_BATCH_LIMIT),
+          schoolIds:Array.isArray(input.schoolIds)?input.schoolIds:null
+        });
         return privateJson(result);
-      } catch (error) {
-        console.error("logo bootstrap failed", { path, error:String(error?.message || error) });
-        return privateJson({ error:"logo_bootstrap_failed", message:String(error?.message || error) }, 500);
+      } catch(error) {
+        console.error("logo bootstrap failed",{ path,error:String(error?.message||error) });
+        return privateJson({ error:"logo_bootstrap_failed",message:String(error?.message||error) },500);
       }
     }
-    return app.fetch(request, env, ctx);
+
+    return app.fetch(request,env,ctx);
   },
 
   async scheduled(controller, env, ctx) {
-    await runVolleyballLiveTick(controller, env);
+    await runVolleyballLiveTick(controller,env);
     return app.scheduled(controller, env, ctx);
   }
 };
