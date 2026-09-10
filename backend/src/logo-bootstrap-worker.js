@@ -5,12 +5,14 @@ import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { runM7VolleyballCompletenessAudit } from "./m7-volleyball-completeness-audit.js";
 import { planM7Aug17VolleyballFinalRepair } from "./m7-volleyball-final-repair-plan.js";
+import { executeM7Aug17VolleyballFinalRepair, M7_AUG17_APPROVED_FINGERPRINT } from "./m7-volleyball-final-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const M7_VOLLEYBALL_AUDIT_PATH = "/api/v1/internal/m7-vb-audit-7e49c2a1bd6f4083";
 export const M7_VOLLEYBALL_REPAIR_PLAN_PATH = "/api/v1/internal/m7-vb-plan-aug17-6f1e1dd2b0b74b78";
+export const M7_VOLLEYBALL_REPAIR_EXECUTE_PATH = "/api/v1/internal/m7-vb-repair-aug17-bfe0c8f493a14f8a";
 export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T03:00:00Z");
 
 function privateJson(body, status = 200) {
@@ -88,6 +90,24 @@ export default {
           error:String(error?.message || error)
         });
         return privateJson({ error:"volleyball_repair_plan_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "POST" && path === M7_VOLLEYBALL_REPAIR_EXECUTE_PATH) {
+      if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      const input=await options(request);
+      if (input.plan_fingerprint !== M7_AUG17_APPROVED_FINGERPRINT) {
+        return privateJson({ error:"repair_fingerprint_required" }, 409);
+      }
+      try {
+        return privateJson(await executeM7Aug17VolleyballFinalRepair(env, {
+          approvedFingerprint:input.plan_fingerprint
+        }));
+      } catch (error) {
+        console.error("M7 Aug 17 volleyball final repair failed", {
+          error:String(error?.message || error)
+        });
+        return privateJson({ error:"volleyball_repair_failed", message:String(error?.message || error) }, 409);
       }
     }
 
