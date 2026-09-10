@@ -6,6 +6,7 @@ import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { runM7VolleyballCompletenessAudit } from "./m7-volleyball-completeness-audit.js";
 import { planM7VolleyballDateFinals } from "./m7-volleyball-date-final-plan.js";
 import { planM7OneSidedIdentity } from "./m7-volleyball-one-sided-identity-plan.js";
+import { loadM7VolleyballIdentityCatalog } from "./m7-volleyball-identity-catalog.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -13,6 +14,7 @@ export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const M7_VOLLEYBALL_AUDIT_PATH = "/api/v1/internal/m7-vb-audit-7e49c2a1bd6f4083";
 export const M7_VOLLEYBALL_AUG18_PLAN_PATH = "/api/v1/internal/m7-vb-plan-aug18-891f4ea83c214327";
 export const M7_VOLLEYBALL_ONE_SIDED_IDENTITY_PATH = "/api/v1/internal/m7-vb-one-sided-identity-36ea42b0ea994312";
+export const M7_VOLLEYBALL_IDENTITY_CATALOG_PATH = "/api/v1/internal/m7-vb-identity-catalog-d2bd775959894b2d";
 export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T03:00:00Z");
 
 function privateJson(body, status = 200) {
@@ -96,6 +98,16 @@ export default {
       } catch (error) {
         console.error("M7 one-sided identity planner failed", { error:String(error?.message || error) });
         return privateJson({ error:"volleyball_one_sided_identity_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && path === M7_VOLLEYBALL_IDENTITY_CATALOG_PATH) {
+      if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        return privateJson(await loadM7VolleyballIdentityCatalog(env));
+      } catch (error) {
+        console.error("M7 identity catalog failed", { error:String(error?.message || error) });
+        return privateJson({ error:"volleyball_identity_catalog_failed", message:String(error?.message || error) }, 500);
       }
     }
 
