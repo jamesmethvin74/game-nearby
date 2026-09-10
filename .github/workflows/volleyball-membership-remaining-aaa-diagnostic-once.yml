@@ -14,16 +14,16 @@ permissions:
 jobs:
   approved-write:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
-      - name: Repair remaining AAA conferences sequentially and verify each one
+      - name: Resume remaining AAA conferences sequentially and verify each one
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           PATH_BASE="/api/v1/maintenance/volleyball-membership/remaining-aaa-approved-20260910-5c1d8e"
           conferences=(
-            4a-2 4a-3 4a-4 4a-6 5a-south
+            4a-4 4a-6 5a-south
             2a-4 2a-5 2a-7 3a-1 3a-3 3a-5 3a-6 5a-central
             2a-8 3a-4 5a-west
             4a-1 5a-east 6a-west
@@ -37,15 +37,22 @@ jobs:
           node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
 
           : > results.ndjson
-          first=1
           for conf in "${conferences[@]}"; do
             echo "=== ${conf} ==="
             code=000
-            for attempt in $(seq 1 18); do
+            for attempt in $(seq 1 8); do
               code=$(curl -sS --max-time 90 -o repair.json -w '%{http_code}' "$BASE$PATH_BASE?conference=$conf" || true)
               if [ "$code" = "200" ]; then break; fi
-              if [ "$code" != "404" ]; then break; fi
-              sleep 5
+              if grep -q 'standings source HTTP 403' repair.json 2>/dev/null; then
+                echo "Transient MaxPreps 403 for ${conf}; retry ${attempt}/8 after 15s"
+                sleep 15
+                continue
+              fi
+              if [ "$code" = "404" ]; then
+                sleep 5
+                continue
+              fi
+              break
             done
             echo "HTTP ${code}"
             cat repair.json || true
@@ -85,13 +92,13 @@ jobs:
           }));
           NODE
 
-            sleep 2
+            sleep 3
           done
 
           node <<'NODE'
           const fs=require('fs');
           const rows=fs.readFileSync('results.ndjson','utf8').trim().split(/\n+/).filter(Boolean).map(JSON.parse);
-          if(rows.length!==19) throw new Error(`expected 19 conference results, got ${rows.length}`);
+          if(rows.length!==17) throw new Error(`expected 17 conference results, got ${rows.length}`);
           console.log('VOLLEYBALL_REMAINING_AAA_PRODUCTION_REPAIR='+JSON.stringify({
             conferences:rows.length,
             successConferences:rows.filter(row=>row.status==='SUCCESS').length,
