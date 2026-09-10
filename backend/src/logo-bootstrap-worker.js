@@ -3,7 +3,7 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
-import { runFixedVolleyballCompletenessAudit } from "./volleyball-completeness-audit-runner.js";
+import { runM7VolleyballCompletenessAudit } from "./m7-volleyball-completeness-audit.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -68,7 +68,7 @@ export default {
     if (request.method === "GET" && path === M7_VOLLEYBALL_AUDIT_PATH) {
       if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       try {
-        return privateJson(await runFixedVolleyballCompletenessAudit(env));
+        return privateJson(await runM7VolleyballCompletenessAudit(env));
       } catch (error) {
         console.error("M7 statewide volleyball completeness audit failed", {
           error:String(error?.message || error)
