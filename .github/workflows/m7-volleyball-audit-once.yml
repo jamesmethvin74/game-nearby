@@ -1,0 +1,37 @@
+name: One-shot M7 volleyball completeness audit
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m7-volleyball-audit-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Run zero-write production audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-vb-audit-7e49c2a1bd6f4083'
+          code=$(curl -sS --retry 2 --retry-delay 2 --max-time 300 -o m7-volleyball-audit.json -w '%{http_code}' "$URL")
+          echo "M7_AUDIT_HTTP=$code"
+          node <<'NODE'
+          const fs=require('fs');
+          const payload=JSON.parse(fs.readFileSync('m7-volleyball-audit.json','utf8'));
+          const d1=payload.d1||{};
+          console.log('M7_AUDIT_D1='+JSON.stringify(d1));
+          console.log('M7_AUDIT_AUTHORITY='+JSON.stringify(payload.authority_fetch||{}));
+          console.log('M7_AUDIT_SUMMARY='+JSON.stringify(payload.summary||{}));
+          for (const [type,group] of Object.entries(payload.exceptions_by_deficiency||{})) {
+            console.log('M7_DEFICIENCY='+JSON.stringify({type,count:group.count,exceptions:group.exceptions}));
+          }
+          if(Number(d1.rows_written||0)!==0) throw new Error(`Audit wrote ${d1.rows_written} D1 rows`);
+          NODE
+          test "$code" = "200"
