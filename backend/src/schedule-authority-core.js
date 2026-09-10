@@ -55,6 +55,12 @@ function dragonFlyNativeEventKey(observation) {
   return key.startsWith("native:") ? key : "";
 }
 
+function maxPrepsNativeEventKey(observation) {
+  if (observation?.parser_type !== "maxpreps-scores") return "";
+  const key=observationSourceEventKey(observation);
+  return key.startsWith("native:") ? key : "";
+}
+
 function safeIdToken(value) {
   return cleanAuthorityText(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
 }
@@ -98,6 +104,8 @@ export function canonicalParticipants(observation) {
 function observationSlot(observation,timeZone="America/Chicago") {
   const dragonFlyKey=dragonFlyNativeEventKey(observation);
   if (dragonFlyKey) return `df-${safeIdToken(dragonFlyKey.replace(/^native:/,""))}`;
+  const maxPrepsKey=maxPrepsNativeEventKey(observation);
+  if (maxPrepsKey) return `mp-${safeIdToken(maxPrepsKey.replace(/^native:/,""))}`;
   if (observation?.scheduled_time_known && observation?.scheduled_at) {
     const clock=clockKeyInZone(observation.scheduled_at,timeZone);
     if (clock) return `t${clock}`;
@@ -148,6 +156,8 @@ export function observationsLikelySameEvent(a,b,{timeZone="America/Chicago",maxD
 
   const aDragonFly=dragonFlyNativeEventKey(a), bDragonFly=dragonFlyNativeEventKey(b);
   if (aDragonFly && bDragonFly) return aDragonFly===bDragonFly;
+  const aMaxPreps=maxPrepsNativeEventKey(a), bMaxPreps=maxPrepsNativeEventKey(b);
+  if (aMaxPreps && bMaxPreps) return aMaxPreps===bMaxPreps;
 
   const aSource=cleanAuthorityText(a.source_id), bSource=cleanAuthorityText(b.source_id);
   const aEvent=observationSourceEventKey(a), bEvent=observationSourceEventKey(b);
