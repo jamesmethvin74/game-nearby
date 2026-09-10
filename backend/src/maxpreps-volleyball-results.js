@@ -2,14 +2,26 @@ import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 
 const MAXPREPS_SCORES_BASE="https://www.maxpreps.com/ar/volleyball/scores/";
 
-function cleanText(value="") {
+function decodeNumericEntities(value="") {
   return String(value)
+    .replace(/&#x([0-9a-f]+);/gi,(_,hex)=>{
+      const code=Number.parseInt(hex,16);
+      return Number.isFinite(code)?String.fromCodePoint(code):_;
+    })
+    .replace(/&#(\d+);/g,(_,decimal)=>{
+      const code=Number.parseInt(decimal,10);
+      return Number.isFinite(code)?String.fromCodePoint(code):_;
+    });
+}
+
+function cleanText(value="") {
+  return decodeNumericEntities(String(value)
     .replace(/<span\b[^>]*class=["'][^"']*rank[^"']*["'][^>]*>[\s\S]*?<\/span>/gi," ")
     .replace(/<[^>]+>/g," ")
     .replace(/&nbsp;/gi," ")
     .replace(/&amp;/gi,"&")
     .replace(/&#39;/g,"'")
-    .replace(/&quot;/gi,'"')
+    .replace(/&quot;/gi,'"'))
     .replace(/\s+/g," ")
     .trim();
 }
@@ -67,6 +79,20 @@ function scoreForSchool(cardTeams,schoolName) {
   return match?.score??null;
 }
 
+function localAliasVariants(team={}) {
+  const raw=[team.school_name,team.name,team.raw_school_name,team.location_matched_name]
+    .map(value=>String(value||"").trim()).filter(Boolean);
+  const aliases=new Set();
+  for(const value of raw) {
+    const base=normalizeSchoolAlias(value);
+    if(base) aliases.add(base);
+    const withoutGradeWords=value.replace(/\b(?:senior|sr\.?|junior|jr\.?)\b/gi," ");
+    const simplified=normalizeSchoolAlias(withoutGradeWords);
+    if(simplified) aliases.add(simplified);
+  }
+  return [...aliases];
+}
+
 export function maxPrepsScoresUrl(localDate) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(localDate||""))) throw new Error("MaxPreps score date must be YYYY-MM-DD");
   const [year,month,day]=localDate.split("-").map(Number);
@@ -104,13 +130,14 @@ export function parseMaxPrepsVolleyballScores(html,{localDate,sourceUrl=maxPreps
 }
 
 export function matchLocalVolleyballTeams(finals,localTeams) {
-  const byName=new Map();
+  const byNameMaps=new Map();
   for(const team of localTeams||[]) {
-    const key=normalizeSchoolAlias(team.school_name||team.name);
-    if(!key) continue;
-    if(!byName.has(key)) byName.set(key,[]);
-    byName.get(key).push(team);
+    for(const key of localAliasVariants(team)) {
+      if(!byNameMaps.has(key)) byNameMaps.set(key,new Map());
+      byNameMaps.get(key).set(String(team.team_id||team.school_id),team);
+    }
   }
+  const byName=new Map([...byNameMaps].map(([key,map])=>[key,[...map.values()]]));
   const matched=[];
   const oneSided=[];
   const ambiguous=[];
