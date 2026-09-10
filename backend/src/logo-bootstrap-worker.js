@@ -3,15 +3,24 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
+import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
+export const VOLLEYBALL_4A2_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership/4a2-20260910-61b2e4";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" }
+  });
+}
+
+function diagnosticJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store", "access-control-allow-origin":"*" }
   });
 }
 
@@ -49,10 +58,7 @@ async function runVolleyballLiveTick(controller, env) {
     console.log("live statewide volleyball result probe", { plan:plan.kind, ...result });
     return result;
   } catch (error) {
-    console.error("live statewide volleyball result probe failed", {
-      plan:plan.kind,
-      error:String(error?.message || error)
-    });
+    console.error("live statewide volleyball result probe failed", { plan:plan.kind, error:String(error?.message || error) });
     return { status:"FAILURE", error:String(error?.message || error) };
   }
 }
@@ -62,9 +68,22 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
-      return logoBootstrapReadiness(request, env);
+    if (request.method === "GET" && path === VOLLEYBALL_4A2_DIAGNOSTIC_PATH) {
+      try {
+        const result = await syncPublishedVolleyballConferenceMembership(env, {
+          conferenceIds:["4a-2"],
+          dryRun:true,
+          maxTeamChanges:5,
+          maxConferenceRows:1
+        });
+        return diagnosticJson(result);
+      } catch (error) {
+        console.error("4A 2 volleyball membership diagnostic failed", String(error?.message || error));
+        return diagnosticJson({ error:"volleyball_4a2_membership_diagnostic_failed", message:String(error?.message || error) },500);
+      }
     }
+
+    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
 
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
     if (request.method === "POST" && logoPath) {
@@ -72,15 +91,10 @@ export default {
       const input = await options(request);
       try {
         if (path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH) {
-          const result = await runStatewideHighSchoolLogoCompletion(env, {
-            limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT)
-          });
+          const result = await runStatewideHighSchoolLogoCompletion(env, { limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT) });
           return privateJson(result);
         }
-        const result = await runCollegeLogoCompletion(env, {
-          limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT),
-          schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null
-        });
+        const result = await runCollegeLogoCompletion(env, { limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT), schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null });
         return privateJson(result);
       } catch (error) {
         console.error("logo bootstrap failed", { path, error:String(error?.message || error) });
