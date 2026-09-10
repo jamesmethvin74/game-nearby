@@ -3,15 +3,28 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
+import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
+export const VOLLEYBALL_2A6_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership/2a6-20260909-8f3b9c";
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" }
+  });
+}
+
+function diagnosticJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      "content-type":"application/json; charset=utf-8",
+      "cache-control":"no-store",
+      "access-control-allow-origin":"*"
+    }
   });
 }
 
@@ -61,6 +74,24 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+
+    if (request.method === "GET" && path === VOLLEYBALL_2A6_DIAGNOSTIC_PATH) {
+      try {
+        const result = await syncPublishedVolleyballConferenceMembership(env, {
+          conferenceIds:["2a-6"],
+          dryRun:true,
+          maxTeamChanges:4,
+          maxConferenceRows:1
+        });
+        return diagnosticJson(result);
+      } catch (error) {
+        console.error("2A 6 volleyball membership diagnostic failed", String(error?.message || error));
+        return diagnosticJson({
+          error:"volleyball_2a6_membership_diagnostic_failed",
+          message:String(error?.message || error)
+        },500);
+      }
+    }
 
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
