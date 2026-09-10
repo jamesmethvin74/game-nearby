@@ -29,7 +29,7 @@ const VOLLEYBALL_REMAINING_AAA = Object.freeze({
   "5a-east": { name:"5A East", maxTeamChanges:9, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-east/?leagueid=898701fe-263a-4f52-922a-3dd604188dda" },
   "5a-south": { name:"5A South", maxTeamChanges:5, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-south/?leagueid=1fdc2e7a-a965-47b7-8b21-71f380757444" },
   "5a-west": { name:"5A West", maxTeamChanges:7, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/5a-west/?leagueid=9dd260d5-8ea3-49e8-a766-3855f61d2b6c" },
-  "6a-west": { name:"6A West", maxTeamChanges:9, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-west/?leagueid=a6284ae0-876a-44c2-9a1c-ab9bbc94b8ef" }
+  "6a-west": { name:"6A West", maxTeamChanges:10, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/6a-west/?leagueid=a6284ae0-876a-44c2-9a1c-ab9bbc94b8ef" }
 });
 
 function privateJson(body, status = 200) {
