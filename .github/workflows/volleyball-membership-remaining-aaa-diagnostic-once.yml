@@ -1,4 +1,4 @@
-name: One-shot remaining AAA volleyball membership diagnostic
+name: One-shot approved remaining AAA volleyball membership repair
 
 on:
   push:
@@ -12,15 +12,22 @@ permissions:
   contents: read
 
 jobs:
-  diagnostic:
+  approved-write:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
-      - name: Prove Worker health and fetch remaining AAA dry-run
+      - name: Repair remaining AAA conferences sequentially and verify each one
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          PATH_BASE="/api/v1/maintenance/volleyball-membership/remaining-aaa-approved-20260910-5c1d8e"
+          conferences=(
+            4a-2 4a-3 4a-4 4a-6 5a-south
+            2a-4 2a-5 2a-7 3a-1 3a-3 3a-5 3a-6 5a-central
+            2a-8 3a-4 5a-west
+            4a-1 5a-east 6a-west
+          )
 
           health_code=$(curl -sS --max-time 20 -o health.json -w '%{http_code}' "$BASE/api/v1/health" || true)
           echo "Health HTTP ${health_code}"
@@ -29,55 +36,70 @@ jobs:
           test "$health_code" = "200"
           node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
 
-          URL="$BASE/api/v1/diagnostics/volleyball-membership/remaining-aaa-20260910-b71d42"
-          code=000
-          for attempt in $(seq 1 18); do
-            code=$(curl -sS --max-time 90 -o membership.json -w '%{http_code}' "$URL" || true)
-            if [ "$code" = "200" ]; then break; fi
-            sleep 5
+          : > results.ndjson
+          first=1
+          for conf in "${conferences[@]}"; do
+            echo "=== ${conf} ==="
+            code=000
+            for attempt in $(seq 1 18); do
+              code=$(curl -sS --max-time 90 -o repair.json -w '%{http_code}' "$BASE$PATH_BASE?conference=$conf" || true)
+              if [ "$code" = "200" ]; then break; fi
+              if [ "$code" != "404" ]; then break; fi
+              sleep 5
+            done
+            echo "HTTP ${code}"
+            cat repair.json || true
+            echo
+            test "$code" = "200"
+
+            node - "$conf" <<'NODE' | tee -a results.ndjson
+          const fs=require('fs');
+          const conf=process.argv[2];
+          const p=JSON.parse(fs.readFileSync('repair.json','utf8'));
+          if(p.conferenceId!==conf) throw new Error(`conference mismatch ${p.conferenceId} vs ${conf}`);
+          const rows=Array.isArray(p.verification)?p.verification:[];
+          const expected=`${conf}-volleyball`;
+          const success=p.status==='SUCCESS'
+            && p.wrong_count===0
+            && p.change_count===p.missing_count
+            && p.teamWrites===p.change_count
+            && p.d1WriteStatements===2
+            && Number(p.conferenceWrites)<=1
+            && rows.length===p.teamWrites
+            && rows.every(row=>row.conference_id===expected && row.expected_conference_id===expected);
+          const already=p.status==='ALREADY_APPLIED'
+            && p.wrong_count===0
+            && p.teamWrites===0
+            && p.conferenceWrites===0
+            && p.d1WriteStatements===0;
+          if(!success && !already) throw new Error(`repair validation failed for ${conf}`);
+          console.log(JSON.stringify({
+            conferenceId:conf,
+            status:p.status,
+            change_count:Number(p.change_count||0),
+            teamWrites:Number(p.teamWrites||0),
+            conferenceWrites:Number(p.conferenceWrites||0),
+            unmatched:Number(p.unmatched||0),
+            ambiguousCount:Array.isArray(p.ambiguous)?p.ambiguous.length:0,
+            verification:rows
+          }));
+          NODE
+
+            sleep 2
           done
-          echo "Remaining AAA Diagnostic HTTP ${code}"
-          cat membership.json || true
-          echo
-          test "$code" = "200"
 
           node <<'NODE'
           const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync('membership.json','utf8'));
-          const plan=p.plan||{};
-          const changes=Array.isArray(plan.changes)?plan.changes:[];
-          const allowed=new Set([
-            '4a-2-volleyball','4a-3-volleyball','4a-4-volleyball','4a-6-volleyball','5a-south-volleyball',
-            '2a-4-volleyball','2a-5-volleyball','2a-7-volleyball','3a-1-volleyball','3a-3-volleyball','3a-5-volleyball','3a-6-volleyball','5a-central-volleyball',
-            '2a-8-volleyball','3a-4-volleyball','5a-west-volleyball','4a-1-volleyball','5a-east-volleyball','6a-west-volleyball'
-          ]);
-          const ok=p.status==='DRY_RUN'
-            && p.selectedConferences===19
-            && p.fetchedConferences===19
-            && Array.isArray(p.failedConferences) && p.failedConferences.length===0
-            && p.conferenceRows<=19
-            && plan.wrong_count===0
-            && plan.change_count<=121
-            && changes.length===plan.change_count
-            && changes.every(row=>row.current_conference_id==null && allowed.has(String(row.expected_conference_id)))
-            && p.d1Statements===0
-            && p.teamWrites===0
-            && p.conferenceWrites===0;
-          if(!ok){
-            console.error('Remaining AAA bounded diagnostic failed validation');
-            process.exit(1);
-          }
-          console.log('VOLLEYBALL_REMAINING_AAA_BATCH='+JSON.stringify({
-            status:p.status,
-            selectedConferences:p.selectedConferences,
-            fetchedConferences:p.fetchedConferences,
-            conferenceRows:p.conferenceRows,
-            assignments:p.assignments,
-            missing_count:plan.missing_count,
-            wrong_count:plan.wrong_count,
-            change_count:plan.change_count,
-            unmatched:p.unmatched,
-            ambiguous:p.ambiguous,
-            changes
+          const rows=fs.readFileSync('results.ndjson','utf8').trim().split(/\n+/).filter(Boolean).map(JSON.parse);
+          if(rows.length!==19) throw new Error(`expected 19 conference results, got ${rows.length}`);
+          console.log('VOLLEYBALL_REMAINING_AAA_PRODUCTION_REPAIR='+JSON.stringify({
+            conferences:rows.length,
+            successConferences:rows.filter(row=>row.status==='SUCCESS').length,
+            alreadyAppliedConferences:rows.filter(row=>row.status==='ALREADY_APPLIED').length,
+            teamWrites:rows.reduce((n,row)=>n+row.teamWrites,0),
+            conferenceWrites:rows.reduce((n,row)=>n+row.conferenceWrites,0),
+            unmatched:rows.reduce((n,row)=>n+row.unmatched,0),
+            ambiguousCount:rows.reduce((n,row)=>n+row.ambiguousCount,0),
+            results:rows
           }));
           NODE
