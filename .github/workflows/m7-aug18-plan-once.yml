@@ -1,0 +1,47 @@
+name: One-shot M7 Aug 18 final plan
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m7-aug18-plan-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run zero-write Aug 18 production planner
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-vb-plan-aug18-891f4ea83c214327'
+          code=000
+          for attempt in $(seq 1 24); do
+            code=$(curl -sS --max-time 60 -o m7-aug18.json -w '%{http_code}' "$URL" || true)
+            echo "M7_AUG18_ATTEMPT=$attempt HTTP=$code"
+            if [ "$code" = "200" ]; then break; fi
+            if [ "$code" != "404" ] && [ "$code" != "000" ]; then cat m7-aug18.json || true; exit 1; fi
+            sleep 5
+          done
+          test "$code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('m7-aug18.json','utf8'));
+          console.log('M7_AUG18_D1='+JSON.stringify(p.d1||{}));
+          console.log('M7_AUG18_AUTHORITY='+JSON.stringify(p.authority||{}));
+          console.log('M7_AUG18_SAFE='+JSON.stringify({safe:p.safe_to_execute_stale_local_local,blockers:p.blockers||[]}));
+          console.log('M7_AUG18_FINGERPRINT='+String(p.plan_fingerprint||''));
+          console.log('M7_AUG18_WRITE_SCOPE='+JSON.stringify(p.write_scope||{}));
+          console.log('M7_AUG18_STALE='+JSON.stringify(p.stale_local_local||[]));
+          console.log('M7_AUG18_SOURCES='+JSON.stringify(p.source_plan||[]));
+          console.log('M7_AUG18_GAMES='+JSON.stringify(p.game_plan||[]));
+          console.log('M7_AUG18_MEMBERS='+JSON.stringify(p.member_plan||[]));
+          console.log('M7_AUG18_ONE_SIDED='+JSON.stringify(p.one_sided_finals||[]));
+          console.log('M7_AUG18_OTHER_GAPS='+JSON.stringify(p.other_local_local_gaps||[]));
+          if(Number(p.d1?.rows_written||0)!==0) throw new Error(`Planner wrote ${p.d1.rows_written} rows`);
+          NODE
