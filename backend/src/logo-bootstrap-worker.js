@@ -156,15 +156,36 @@ export default {
     if (request.method === "GET" && path === VOLLEYBALL_SOUTHSIDE_COLLISION_DIAGNOSTIC_PATH) {
       try {
         const { results=[] }=await env.DB.prepare(`
-          SELECT t.id AS team_id, t.school_id, s.name AS school_name,
-                 s.location_matched_name, t.conference_id, c.name AS conference_name
-          FROM teams t
-          JOIN schools s ON s.id=t.school_id
+          SELECT
+            s.id AS school_id,
+            s.name AS school_name,
+            s.city,
+            s.state,
+            s.location_matched_name,
+            s.latitude,
+            s.longitude,
+            t.id AS team_id,
+            t.conference_id,
+            c.name AS conference_name,
+            GROUP_CONCAT(DISTINCT sei.provider || ':' || sei.external_school_id) AS external_identities
+          FROM schools s
+          LEFT JOIN teams t
+            ON t.school_id=s.id
+           AND t.active=1
+           AND t.sport='volleyball'
+           AND t.gender='girls'
+           AND t.season='2026'
           LEFT JOIN conferences c ON c.id=t.conference_id
-          WHERE t.active=1 AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
-            AND s.level='high-school' AND s.catalog_scope='local'
-            AND (lower(s.name) LIKE '%southside%' OR lower(COALESCE(s.location_matched_name,'')) LIKE '%southside%')
-          ORDER BY s.name,t.id
+          LEFT JOIN school_external_identities sei ON sei.school_id=s.id
+          WHERE s.level='high-school'
+            AND s.catalog_scope='local'
+            AND (
+              lower(s.name) LIKE '%southside%'
+              OR lower(COALESCE(s.location_matched_name,'')) LIKE '%southside%'
+              OR lower(COALESCE(s.city,'')) IN ('fort smith','batesville')
+            )
+          GROUP BY s.id,s.name,s.city,s.state,s.location_matched_name,s.latitude,s.longitude,t.id,t.conference_id,c.name
+          ORDER BY s.city,s.name,s.id
         `).all();
         return maintenanceJson({ status:"DIAGNOSTIC", rows:results, d1Statements:0, teamWrites:0, conferenceWrites:0 });
       } catch (error) {
