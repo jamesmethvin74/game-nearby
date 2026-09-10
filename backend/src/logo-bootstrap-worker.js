@@ -9,6 +9,7 @@ export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/h
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const VOLLEYBALL_REMAINING_AAA_APPROVED_WRITE_PATH = "/api/v1/maintenance/volleyball-membership/remaining-aaa-approved-20260910-5c1d8e";
+export const VOLLEYBALL_SOUTHSIDE_COLLISION_DIAGNOSTIC_PATH = "/api/v1/diagnostics/volleyball-membership/southside-collision-20260910-73e29c";
 
 const VOLLEYBALL_REMAINING_AAA = Object.freeze({
   "2a-4": { name:"2A 4", maxTeamChanges:6, source_url:"https://www.maxpreps.com/ar/volleyball/26-27/conference/2a-4/?leagueid=7cd5359b-6357-4e1e-ad1c-48545caa85c6" },
@@ -33,60 +34,38 @@ const VOLLEYBALL_REMAINING_AAA = Object.freeze({
 });
 
 function privateJson(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" }
-  });
+  return new Response(JSON.stringify(body), { status, headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store" } });
 }
 
 function maintenanceJson(body, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      "content-type":"application/json; charset=utf-8",
-      "cache-control":"no-store",
-      "access-control-allow-origin":"*"
-    }
-  });
+  return new Response(JSON.stringify(body), { status, headers: { "content-type":"application/json; charset=utf-8", "cache-control":"no-store", "access-control-allow-origin":"*" } });
 }
 
 export function authorizedLogoBootstrap(request, env) {
-  const refreshAuthorized = Boolean(env.REFRESH_TOKEN)
-    && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
-  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
-    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  const refreshAuthorized = Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN) && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
   return refreshAuthorized || executionAuthorized;
 }
 
 export function logoBootstrapReadiness(request, env) {
-  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
-    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN) && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
   if (!executionAuthorized) return privateJson({ error:"not_found" }, 404);
   return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
 }
 
 async function options(request) {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" ? body : {};
-  } catch {
-    return {};
-  }
+  try { const body = await request.json(); return body && typeof body === "object" ? body : {}; } catch { return {}; }
 }
 
 async function verifyConferenceTargets(env, payload) {
   const { results=[] } = await env.DB.prepare(`
     WITH target AS (
-      SELECT
-        json_extract(value,'$.team_id') AS team_id,
-        json_extract(value,'$.conference_id') AS expected_conference_id
+      SELECT json_extract(value,'$.team_id') AS team_id,
+             json_extract(value,'$.conference_id') AS expected_conference_id
       FROM json_each(?)
     )
-    SELECT target.team_id,
-      s.name AS school_name,
-      t.conference_id,
-      c.name AS conference_name,
-      target.expected_conference_id
+    SELECT target.team_id, s.name AS school_name, t.conference_id,
+           c.name AS conference_name, target.expected_conference_id
     FROM target
     JOIN teams t ON t.id=target.team_id
     JOIN schools s ON s.id=t.school_id
@@ -99,13 +78,10 @@ async function verifyConferenceTargets(env, payload) {
 async function runApprovedRemainingAaaConferenceRepair(env, conferenceId) {
   const source=VOLLEYBALL_REMAINING_AAA[conferenceId];
   if(!source) return { httpStatus:404, body:{ status:"REFUSED", reason:"conference_not_allowlisted", conferenceId } };
-
   const expectedConferenceId=`${conferenceId}-volleyball`;
   const dry=await syncPublishedVolleyballConferenceMembership(env, {
     conferenceIds:[conferenceId],
-    conferenceSourceOverrides:{
-      [conferenceId]:{ name:source.name, source_url:source.source_url }
-    },
+    conferenceSourceOverrides:{ [conferenceId]:{ name:source.name, source_url:source.source_url } },
     dryRun:true,
     maxTeamChanges:source.maxTeamChanges,
     maxConferenceRows:1
@@ -113,69 +89,24 @@ async function runApprovedRemainingAaaConferenceRepair(env, conferenceId) {
   const plan=dry.plan||{};
   const changes=Array.isArray(plan.changes)?plan.changes:[];
   const safe=dry.status==="DRY_RUN"
-    && dry.selectedConferences===1
-    && dry.fetchedConferences===1
+    && dry.selectedConferences===1 && dry.fetchedConferences===1
     && Array.isArray(dry.failedConferences) && dry.failedConferences.length===0
-    && dry.conferenceRows===1
-    && plan.wrong_count===0
-    && plan.change_count<=source.maxTeamChanges
-    && changes.length===plan.change_count
+    && dry.conferenceRows===1 && plan.wrong_count===0
+    && plan.change_count<=source.maxTeamChanges && changes.length===plan.change_count
     && changes.every(row=>row.current_conference_id==null && row.expected_conference_id===expectedConferenceId);
-
-  if(!safe) return { httpStatus:409, body:{
-    status:"REFUSED",
-    reason:"conference_preflight_failed",
-    conferenceId,
-    source:source.source_url,
-    dryRun:{
-      status:dry.status,
-      selectedConferences:dry.selectedConferences,
-      fetchedConferences:dry.fetchedConferences,
-      failedConferences:dry.failedConferences,
-      conferenceRows:dry.conferenceRows,
-      assignments:dry.assignments,
-      unmatched:dry.unmatched,
-      ambiguous:dry.ambiguous,
-      plan
-    }
-  }};
-
-  if(plan.change_count===0) return { httpStatus:200, body:{
-    status:"ALREADY_APPLIED",
-    conferenceId,
-    conferenceName:source.name,
-    missing_count:0,
-    wrong_count:0,
-    teamWrites:0,
-    conferenceWrites:0,
-    d1WriteStatements:0,
-    unmatched:dry.unmatched,
-    ambiguous:dry.ambiguous
-  }};
-
-  const payload=plan.missing.map(row=>({
-    team_id:String(row.team_id),
-    conference_id:expectedConferenceId
-  }));
-  if(payload.length!==plan.change_count) return { httpStatus:409, body:{
-    status:"REFUSED",
-    reason:"non_missing_change_detected",
-    conferenceId,
-    plan
-  }};
-
+  if(!safe) return { httpStatus:409, body:{ status:"REFUSED", reason:"conference_preflight_failed", conferenceId, source:source.source_url, dryRun:{ status:dry.status, selectedConferences:dry.selectedConferences, fetchedConferences:dry.fetchedConferences, failedConferences:dry.failedConferences, conferenceRows:dry.conferenceRows, assignments:dry.assignments, unmatched:dry.unmatched, ambiguous:dry.ambiguous, plan } } };
+  if(plan.change_count===0) return { httpStatus:200, body:{ status:"ALREADY_APPLIED", conferenceId, conferenceName:source.name, missing_count:0, wrong_count:0, teamWrites:0, conferenceWrites:0, d1WriteStatements:0, unmatched:dry.unmatched, ambiguous:dry.ambiguous } };
+  const payload=plan.missing.map(row=>({ team_id:String(row.team_id), conference_id:expectedConferenceId }));
+  if(payload.length!==plan.change_count) return { httpStatus:409, body:{ status:"REFUSED", reason:"non_missing_change_detected", conferenceId, plan } };
   const now=new Date().toISOString();
   const results=await env.DB.batch([
     env.DB.prepare(`
       INSERT INTO conferences(id,name,classification,standings_method,coverage_complete,source_url,updated_at)
       VALUES(?,?,'Arkansas high school volleyball','published',0,?,?)
       ON CONFLICT(id) DO UPDATE SET
-        name=excluded.name,
-        classification=excluded.classification,
-        standings_method=excluded.standings_method,
-        coverage_complete=0,
-        source_url=excluded.source_url,
-        updated_at=excluded.updated_at
+        name=excluded.name, classification=excluded.classification,
+        standings_method=excluded.standings_method, coverage_complete=0,
+        source_url=excluded.source_url, updated_at=excluded.updated_at
       WHERE conferences.name<>excluded.name
          OR COALESCE(conferences.classification,'')<>COALESCE(excluded.classification,'')
          OR conferences.standings_method<>excluded.standings_method
@@ -184,45 +115,22 @@ async function runApprovedRemainingAaaConferenceRepair(env, conferenceId) {
     `).bind(expectedConferenceId,source.name,source.source_url,now),
     env.DB.prepare(`
       WITH payload AS (
-        SELECT
-          json_extract(value,'$.team_id') AS team_id,
-          json_extract(value,'$.conference_id') AS conference_id
+        SELECT json_extract(value,'$.team_id') AS team_id,
+               json_extract(value,'$.conference_id') AS conference_id
         FROM json_each(?)
       )
       UPDATE teams
-      SET conference_id=(SELECT p.conference_id FROM payload p WHERE p.team_id=teams.id),
-          updated_at=?
-      WHERE id IN (SELECT team_id FROM payload)
-        AND COALESCE(conference_id,'')=''
+      SET conference_id=(SELECT p.conference_id FROM payload p WHERE p.team_id=teams.id), updated_at=?
+      WHERE id IN (SELECT team_id FROM payload) AND COALESCE(conference_id,'')=''
     `).bind(JSON.stringify(payload),now)
   ]);
-
   const conferenceWrites=Number(results?.[0]?.meta?.changes||results?.[0]?.changes||0);
   const teamWrites=Number(results?.[1]?.meta?.changes||results?.[1]?.changes||0);
   const verification=await verifyConferenceTargets(env,payload);
   const verified=verification.length===payload.length
     && verification.every(row=>row.conference_id===row.expected_conference_id)
-    && teamWrites===payload.length
-    && conferenceWrites<=1;
-
-  return {
-    httpStatus:verified?200:500,
-    body:{
-      status:verified?"SUCCESS":"VERIFICATION_FAILED",
-      conferenceId,
-      conferenceName:source.name,
-      source:source.source_url,
-      change_count:plan.change_count,
-      missing_count:plan.missing_count,
-      wrong_count:plan.wrong_count,
-      unmatched:dry.unmatched,
-      ambiguous:dry.ambiguous,
-      d1WriteStatements:2,
-      conferenceWrites,
-      teamWrites,
-      verification
-    }
-  };
+    && teamWrites===payload.length && conferenceWrites<=1;
+  return { httpStatus:verified?200:500, body:{ status:verified?"SUCCESS":"VERIFICATION_FAILED", conferenceId, conferenceName:source.name, source:source.source_url, change_count:plan.change_count, missing_count:plan.missing_count, wrong_count:plan.wrong_count, unmatched:dry.unmatched, ambiguous:dry.ambiguous, d1WriteStatements:2, conferenceWrites, teamWrites, verification } };
 }
 
 async function runVolleyballLiveTick(controller, env) {
@@ -235,10 +143,7 @@ async function runVolleyballLiveTick(controller, env) {
     console.log("live statewide volleyball result probe", { plan:plan.kind, ...result });
     return result;
   } catch (error) {
-    console.error("live statewide volleyball result probe failed", {
-      plan:plan.kind,
-      error:String(error?.message || error)
-    });
+    console.error("live statewide volleyball result probe failed", { plan:plan.kind, error:String(error?.message || error) });
     return { status:"FAILURE", error:String(error?.message || error) };
   }
 }
@@ -248,44 +153,47 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
+    if (request.method === "GET" && path === VOLLEYBALL_SOUTHSIDE_COLLISION_DIAGNOSTIC_PATH) {
+      try {
+        const { results=[] }=await env.DB.prepare(`
+          SELECT t.id AS team_id, t.school_id, s.name AS school_name,
+                 s.location_matched_name, t.conference_id, c.name AS conference_name
+          FROM teams t
+          JOIN schools s ON s.id=t.school_id
+          LEFT JOIN conferences c ON c.id=t.conference_id
+          WHERE t.active=1 AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
+            AND s.level='high-school' AND s.catalog_scope='local'
+            AND (lower(s.name) LIKE '%southside%' OR lower(COALESCE(s.location_matched_name,'')) LIKE '%southside%')
+          ORDER BY s.name,t.id
+        `).all();
+        return maintenanceJson({ status:"DIAGNOSTIC", rows:results, d1Statements:0, teamWrites:0, conferenceWrites:0 });
+      } catch (error) {
+        return maintenanceJson({ status:"FAILURE", message:String(error?.message||error) },500);
+      }
+    }
+
     if (request.method === "GET" && path === VOLLEYBALL_REMAINING_AAA_APPROVED_WRITE_PATH) {
       const conferenceId=String(url.searchParams.get("conference")||"").trim().toLowerCase();
       try {
         const outcome=await runApprovedRemainingAaaConferenceRepair(env,conferenceId);
         return maintenanceJson(outcome.body,outcome.httpStatus);
       } catch (error) {
-        console.error("remaining AAA approved volleyball membership repair failed", {
-          conferenceId,
-          error:String(error?.message||error)
-        });
-        return maintenanceJson({
-          status:"REFUSED",
-          reason:"repair_exception",
-          conferenceId,
-          message:String(error?.message||error)
-        },500);
+        console.error("remaining AAA approved volleyball membership repair failed", { conferenceId, error:String(error?.message||error) });
+        return maintenanceJson({ status:"REFUSED", reason:"repair_exception", conferenceId, message:String(error?.message||error) },500);
       }
     }
 
-    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
-      return logoBootstrapReadiness(request, env);
-    }
-
+    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
     if (request.method === "POST" && logoPath) {
       if (!authorizedLogoBootstrap(request, env)) return privateJson({ error:"not_found" }, 404);
       const input = await options(request);
       try {
         if (path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH) {
-          const result = await runStatewideHighSchoolLogoCompletion(env, {
-            limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT)
-          });
+          const result = await runStatewideHighSchoolLogoCompletion(env, { limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT) });
           return privateJson(result);
         }
-        const result = await runCollegeLogoCompletion(env, {
-          limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT),
-          schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null
-        });
+        const result = await runCollegeLogoCompletion(env, { limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT), schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null });
         return privateJson(result);
       } catch (error) {
         console.error("logo bootstrap failed", { path, error:String(error?.message || error) });
