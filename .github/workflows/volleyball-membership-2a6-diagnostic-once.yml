@@ -1,4 +1,4 @@
-name: One-shot 2A 6 volleyball membership diagnostic
+name: One-shot approved 2A 6 volleyball membership repair
 
 on:
   push:
@@ -12,11 +12,11 @@ permissions:
   contents: read
 
 jobs:
-  diagnostic:
+  approved-write:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Prove Worker health and fetch exact 2A 6 dry-run
+      - name: Invoke exact approved 2A 6 Worker repair and verify response
         shell: bash
         run: |
           set -euo pipefail
@@ -29,44 +29,44 @@ jobs:
           test "$health_code" = "200"
           node -e "const p=require('./health.json'); if(p.ok!==true||p.service!=='localbleachersar-sports-api') process.exit(1);"
 
-          URL="$BASE/api/v1/diagnostics/volleyball-membership/2a6-20260909-8f3b9c"
+          URL="$BASE/api/v1/maintenance/volleyball-membership/2a6-approved-20260909-71c5a2"
           code=000
           for attempt in $(seq 1 18); do
-            code=$(curl -sS --max-time 30 -o membership.json -w '%{http_code}' "$URL" || true)
+            code=$(curl -sS --max-time 60 -o repair.json -w '%{http_code}' "$URL" || true)
             if [ "$code" = "200" ]; then break; fi
             sleep 5
           done
-          echo "2A6 Diagnostic HTTP ${code}"
-          cat membership.json || true
+          echo "2A6 Approved Repair HTTP ${code}"
+          cat repair.json || true
           echo
           test "$code" = "200"
 
           node <<'NODE'
           const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync('membership.json','utf8'));
-          const plan=p.plan||{};
-          const changes=Array.isArray(plan.changes)?plan.changes:[];
-          const ok=p.status==='DRY_RUN'
-            && p.selectedConferences===1
-            && p.fetchedConferences===1
-            && Array.isArray(p.failedConferences) && p.failedConferences.length===0
-            && p.conferenceRows===1
-            && plan.wrong_count===0
-            && plan.change_count===4
-            && changes.length===4
-            && changes.every(row=>row.current_conference_id==null && row.expected_conference_id==='2a-6-volleyball');
-          if(!ok){
-            console.error('2A 6 bounded diagnostic failed validation');
+          const p=JSON.parse(fs.readFileSync('repair.json','utf8'));
+          const ids=new Set([
+            'df-x5ebah-volleyball-2026',
+            'df-blzxrg-volleyball-2026',
+            'df-qqfrm3-volleyball-2026',
+            'df-tnebcj-volleyball-2026'
+          ]);
+          const rows=Array.isArray(p.verification)?p.verification:[];
+          const verified=rows.length===4
+            && rows.every(row=>ids.has(String(row.team_id)) && row.conference_id==='2a-6-volleyball');
+          const success=p.status==='SUCCESS'
+            && p.plan?.change_count===4
+            && p.plan?.wrong_count===0
+            && p.d1Statements===2
+            && p.teamWrites===4
+            && Number(p.conferenceWrites)<=1
+            && verified;
+          const already=p.status==='ALREADY_APPLIED'
+            && p.teamWrites===0
+            && p.conferenceWrites===0
+            && verified;
+          if(!success && !already) {
+            console.error('Approved 2A 6 production repair validation failed');
             process.exit(1);
           }
-          console.log('VOLLEYBALL_2A6_NEXT_BATCH='+JSON.stringify({
-            status:p.status,
-            selectedConferences:p.selectedConferences,
-            fetchedConferences:p.fetchedConferences,
-            conferenceRows:p.conferenceRows,
-            missing_count:plan.missing_count,
-            wrong_count:plan.wrong_count,
-            change_count:plan.change_count,
-            changes
-          }));
+          console.log('VOLLEYBALL_2A6_PRODUCTION_REPAIR='+JSON.stringify(p));
           NODE
