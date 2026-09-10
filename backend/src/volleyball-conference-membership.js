@@ -10,6 +10,11 @@ const PUBLISHED_HEADERS={
   accept:"text/html,application/xhtml+xml"
 };
 
+const CURATED_CONFERENCE_TEAM_OVERRIDES=new Map([
+  [`4a-4|${normalizeSchoolAlias("Southside")}`,"df-s3xu7u-volleyball-2026"],
+  [`6a-west|${normalizeSchoolAlias("Southside")}`,"df-jh2s9b-volleyball-2026"]
+]);
+
 function localConferenceId(publishedId) {
   return `${String(publishedId||"").trim().toLowerCase()}-volleyball`;
 }
@@ -29,6 +34,7 @@ function uniqueLocalTeamMap(localTeams=[]) {
 
 export function buildVolleyballConferenceMembership({conferences=[],standingsByConference=new Map(),localTeams=[]}={}) {
   const byName=uniqueLocalTeamMap(localTeams);
+  const byId=new Map(localTeams.map(team=>[String(team.team_id),team]));
   const candidates=new Map();
   const conferenceRows=[];
   const unmatched=[];
@@ -40,7 +46,11 @@ export function buildVolleyballConferenceMembership({conferences=[],standingsByC
     let matchedHere=0;
     for(const row of standings) {
       const key=normalizeSchoolAlias(row.school_name);
-      const matches=key?(byName.get(key)||[]):[];
+      const overrideTeamId=key
+        ? CURATED_CONFERENCE_TEAM_OVERRIDES.get(`${String(conference.id||"").trim().toLowerCase()}|${key}`)
+        : null;
+      const overrideTeam=overrideTeamId?byId.get(String(overrideTeamId)):null;
+      const matches=overrideTeam?[overrideTeam]:(key?(byName.get(key)||[]):[]);
       if(matches.length===0) {
         unmatched.push({conference_id:conferenceId,school_name:row.school_name});
         continue;
@@ -318,6 +328,7 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
     conferenceUpsertStatement(env,built.conferences,checkedAt),
     teamMembershipUpdateStatement(env,built.assignments,checkedAt)
   ]);
+
   return {
     status:"SUCCESS",
     ...base,
@@ -327,4 +338,4 @@ export async function syncPublishedVolleyballConferenceMembership(env,{
   };
 }
 
-export { FETCH_BATCH_SIZE, localConferenceId };
+export { CURATED_CONFERENCE_TEAM_OVERRIDES, FETCH_BATCH_SIZE, localConferenceId };
