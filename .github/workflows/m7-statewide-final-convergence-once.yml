@@ -13,7 +13,7 @@ permissions:
 jobs:
   converge:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - name: Plan and execute bounded statewide volleyball convergence
         shell: bash
@@ -22,36 +22,42 @@ jobs:
           BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
           PLAN="$BASE/api/v1/internal/m7-vb-statewide-final-plan-1f2b3ac4d5e64788"
           EXEC="$BASE/api/v1/internal/m7-vb-statewide-final-execute-6c812b9f0de34a55"
-          ready=0
-          for attempt in $(seq 1 30); do
-            code=$(curl -sS --max-time 300 -o m7-plan.json -w '%{http_code}' "$PLAN" || true)
-            echo "M7_STATEWIDE_PLAN_ATTEMPT=$attempt HTTP=$code"
-            if [ "$code" = "200" ]; then ready=1; break; fi
-            if [ "$code" != "404" ] && [ "$code" != "000" ]; then cat m7-plan.json || true; exit 1; fi
-            sleep 5
-          done
-          test "$ready" = "1"
-          node <<'NODE'
+          for through in 2026-08-20 2026-08-24 2026-08-27 2026-08-29 2026-08-31 2026-09-01 2026-09-03 2026-09-05 2026-09-08 2026-09-10; do
+            ready=0
+            for attempt in $(seq 1 30); do
+              code=$(curl -sS --max-time 300 -o m7-plan.json -w '%{http_code}' "$PLAN?through=$through" || true)
+              echo "M7_STATEWIDE_PLAN through=$through attempt=$attempt HTTP=$code"
+              if [ "$code" = "200" ]; then ready=1; break; fi
+              if [ "$code" != "404" ] && [ "$code" != "000" ]; then cat m7-plan.json || true; exit 1; fi
+              sleep 5
+            done
+            test "$ready" = "1"
+            node <<'NODE'
           const p=require('./m7-plan.json');
-          console.log('M7_STATEWIDE_PLAN='+JSON.stringify({fingerprint:p.plan_fingerprint,authority:p.authority,d1:p.d1,catalog:p.catalog_plan,candidates:p.candidates,write_scope:p.write_scope,identity_blocks:p.blocked_identity?.length||0,blocked:p.blocked?.length||0,excluded:p.excluded?.length||0}));
-          if(!p.safe_to_execute) throw new Error('Live statewide plan is not safe to execute');
+          console.log('M7_STATEWIDE_PLAN='+JSON.stringify({through:p.through_local_date,fingerprint:p.plan_fingerprint,authority:p.authority,d1:p.d1,catalog:p.catalog_plan,candidates:p.candidates,write_scope:p.write_scope,identity_blocks:p.blocked_identity?.length||0,blocked:p.blocked?.length||0,excluded:p.excluded?.length||0}));
           if(Number(p.d1?.rows_written||0)!==0) throw new Error('Planner wrote to D1');
           if(Number(p.d1?.rows_read||0)>100000) throw new Error(`Planner rows_read too high: ${p.d1.rows_read}`);
           if(Number(p.write_scope?.logical_application_rows||0)>2200) throw new Error('Logical write cap exceeded');
           if(Number(p.write_scope?.projected_d1_rows_written_guard||0)>20000) throw new Error('Projected D1 write guard exceeded');
-          if(Number(p.candidates?.total||0)<1) throw new Error('No safe candidates');
+          if(Number(p.candidates?.total||0)>0 && !p.safe_to_execute) throw new Error('Live cohort plan is not safe to execute');
           NODE
-          code=$(curl -sS --max-time 300 -o m7-result.json -w '%{http_code}' \
-            -H 'content-type: application/json' \
-            --data '{"approved_scope":"m7-statewide-volleyball-preapproved"}' \
-            "$EXEC")
-          echo "M7_STATEWIDE_EXEC_HTTP=$code"
-          cat m7-result.json
-          test "$code" = "200"
-          node <<'NODE'
+            candidates=$(node -e "const p=require('./m7-plan.json'); process.stdout.write(String(Number(p.candidates?.total||0)))")
+            if [ "$candidates" = "0" ]; then
+              echo "M7_STATEWIDE_SKIP through=$through reason=no_safe_candidates"
+              continue
+            fi
+            code=$(curl -sS --max-time 300 -o m7-result.json -w '%{http_code}' \
+              -H 'content-type: application/json' \
+              --data "{\"approved_scope\":\"m7-statewide-volleyball-preapproved\",\"through_local_date\":\"$through\"}" \
+              "$EXEC")
+            echo "M7_STATEWIDE_EXEC through=$through HTTP=$code"
+            cat m7-result.json
+            test "$code" = "200"
+            node <<'NODE'
           const r=require('./m7-result.json');
-          console.log('M7_STATEWIDE_RESULT='+JSON.stringify({status:r.status,fingerprint:r.plan_fingerprint,authority:r.authority,catalog:r.catalog_plan,candidates:r.candidates,write_scope:r.write_scope,d1:r.d1,verified:r.verified,touched:r.touched_team_ids?.length||0}));
+          console.log('M7_STATEWIDE_RESULT='+JSON.stringify({through:r.through_local_date,status:r.status,fingerprint:r.plan_fingerprint,authority:r.authority,catalog:r.catalog_plan,candidates:r.candidates,write_scope:r.write_scope,d1:r.d1,verified:r.verified,touched:r.touched_team_ids?.length||0}));
           if(r.status!=='SUCCESS') throw new Error(`Unexpected status ${r.status}`);
           if(Number(r.d1?.repair?.rows_written||0)>25000) throw new Error('Observed D1 writes exceeded runtime fuse');
           if(Number(r.d1?.verification?.rows_written||0)!==0) throw new Error('Verification wrote to D1');
           NODE
+          done

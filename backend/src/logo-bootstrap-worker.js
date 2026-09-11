@@ -51,6 +51,13 @@ async function options(request) {
   }
 }
 
+function m7ThroughDate(value) {
+  const text=String(value||"").trim();
+  if(!/^2026-\d{2}-\d{2}$/.test(text)) return null;
+  const date=new Date(`${text}T18:00:00Z`);
+  return Number.isNaN(date.getTime())?null:date;
+}
+
 async function runVolleyballLiveTick(controller, env) {
   const scheduledTime = Number(controller?.scheduledTime);
   const when = Number.isFinite(scheduledTime) ? new Date(scheduledTime) : new Date();
@@ -117,7 +124,8 @@ export default {
     if (request.method === "GET" && path === M7_VOLLEYBALL_STATEWIDE_FINAL_PLAN_PATH) {
       if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       try {
-        const plan=await planM7StatewideFinalConvergence(env);
+        const through=m7ThroughDate(url.searchParams.get("through"));
+        const plan=await planM7StatewideFinalConvergence(env,through?{now:through}:{});
         const { _private, ...publicPlan }=plan;
         return privateJson(publicPlan);
       } catch (error) {
@@ -131,7 +139,8 @@ export default {
       const input=await options(request);
       if(input.approved_scope!=="m7-statewide-volleyball-preapproved") return privateJson({ error:"approved_scope_required" },409);
       try {
-        return privateJson(await executeM7StatewideFinalConvergence(env));
+        const through=m7ThroughDate(input.through_local_date);
+        return privateJson(await executeM7StatewideFinalConvergence(env,through?{now:through}:{}));
       } catch (error) {
         console.error("M7 statewide final convergence failed", { error:String(error?.message || error) });
         return privateJson({ error:"volleyball_statewide_final_convergence_failed", message:String(error?.message || error) }, 409);
