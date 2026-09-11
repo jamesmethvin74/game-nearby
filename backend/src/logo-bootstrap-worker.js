@@ -5,7 +5,7 @@ import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { diagnoseM7AttachmentGaps } from "./m7-attachment-gap-diagnostic.js";
 import { readM7FiveGapEvidence } from "./m7-five-gap-evidence.js";
-import { planM7PrematureFinalRepair, executeM7PrematureFinalRepair } from "./m7-premature-final-repair.js";
+import { planM7PrematureFinalRepair, executeM7PrematureFinalRepair, planM7PrematureFinalRecordRecovery, executeM7PrematureFinalRecordRecovery } from "./m7-premature-final-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -20,6 +20,10 @@ export const M7_PREMATURE_FINAL_VERSION_PATH = "/api/v1/internal/m7-premature-fi
 export const M7_PREMATURE_FINAL_PLAN_PATH = "/api/v1/internal/m7-premature-final-plan-82eb3069";
 export const M7_PREMATURE_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-premature-final-execute-82eb3069";
 export const M7_PREMATURE_FINAL_MARKER = "m7-premature-final-repair-v1-56e9aa4b";
+export const M7_PREMATURE_RECORD_VERSION_PATH = "/api/v1/internal/m7-pea-ridge-record-version-52e4a1bc";
+export const M7_PREMATURE_RECORD_PLAN_PATH = "/api/v1/internal/m7-pea-ridge-record-plan-52e4a1bc";
+export const M7_PREMATURE_RECORD_EXECUTE_PATH = "/api/v1/internal/m7-pea-ridge-record-execute-52e4a1bc";
+export const M7_PREMATURE_RECORD_MARKER = "m7-pea-ridge-record-recovery-v1-37f29e0d";
 export const M7_ATTACHMENT_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
@@ -30,27 +34,20 @@ function privateJson(body, status = 200) {
 }
 
 export function authorizedLogoBootstrap(request, env) {
-  const refreshAuthorized = Boolean(env.REFRESH_TOKEN)
-    && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
-  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
-    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  const refreshAuthorized = Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN) && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
   return refreshAuthorized || executionAuthorized;
 }
 
 export function logoBootstrapReadiness(request, env) {
-  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN)
-    && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
+  const executionAuthorized = Boolean(env.LOGO_BOOTSTRAP_TOKEN) && request.headers.get("x-logo-bootstrap-token") === env.LOGO_BOOTSTRAP_TOKEN;
   if (!executionAuthorized) return privateJson({ error:"not_found" }, 404);
   return new Response(null, { status:204, headers:{ "cache-control":"no-store" } });
 }
 
 async function options(request) {
-  try {
-    const body = await request.json();
-    return body && typeof body === "object" ? body : {};
-  } catch {
-    return {};
-  }
+  try { const body = await request.json(); return body && typeof body === "object" ? body : {}; }
+  catch { return {}; }
 }
 
 async function runVolleyballLiveTick(controller, env) {
@@ -63,10 +60,7 @@ async function runVolleyballLiveTick(controller, env) {
     console.log("live statewide volleyball result probe", { plan:plan.kind, ...result });
     return result;
   } catch (error) {
-    console.error("live statewide volleyball result probe failed", {
-      plan:plan.kind,
-      error:String(error?.message || error)
-    });
+    console.error("live statewide volleyball result probe failed", { plan:plan.kind, error:String(error?.message || error) });
     return { status:"FAILURE", error:String(error?.message || error) };
   }
 }
@@ -74,92 +68,68 @@ async function runVolleyballLiveTick(controller, env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-
     if (request.method === "GET" && path === M7_ATTACHMENT_VERSION_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       return privateJson({ marker:M7_ATTACHMENT_DEPLOYMENT_MARKER, d1_access:false });
     }
-
     if (request.method === "GET" && path === M7_ATTACHMENT_DIAGNOSTIC_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      try {
-        return privateJson(await diagnoseM7AttachmentGaps(env));
-      } catch (error) {
-        console.error("M7 attachment gap diagnostic failed", { error:String(error?.message || error) });
-        return privateJson({ error:"m7_attachment_gap_diagnostic_failed", message:String(error?.message || error) }, 500);
-      }
+      try { return privateJson(await diagnoseM7AttachmentGaps(env)); }
+      catch (error) { return privateJson({ error:"m7_attachment_gap_diagnostic_failed", message:String(error?.message || error) }, 500); }
     }
-
     if (request.method === "GET" && path === M7_FIVE_GAP_EVIDENCE_VERSION_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       return privateJson({ marker:M7_FIVE_GAP_EVIDENCE_MARKER, d1_access:false });
     }
-
     if (request.method === "GET" && path === M7_FIVE_GAP_EVIDENCE_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      try {
-        return privateJson(await readM7FiveGapEvidence(env));
-      } catch (error) {
-        console.error("M7 five-gap evidence failed", { error:String(error?.message || error) });
-        return privateJson({ error:"m7_five_gap_evidence_failed", message:String(error?.message || error) }, 500);
-      }
+      try { return privateJson(await readM7FiveGapEvidence(env)); }
+      catch (error) { return privateJson({ error:"m7_five_gap_evidence_failed", message:String(error?.message || error) }, 500); }
     }
-
     if (request.method === "GET" && path === M7_PREMATURE_FINAL_VERSION_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       return privateJson({ marker:M7_PREMATURE_FINAL_MARKER, d1_access:false });
     }
-
     if (request.method === "GET" && path === M7_PREMATURE_FINAL_PLAN_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      try {
-        return privateJson(await planM7PrematureFinalRepair(env));
-      } catch (error) {
-        console.error("M7 premature-final plan failed", { error:String(error?.message || error) });
-        return privateJson({ error:"m7_premature_final_plan_failed", message:String(error?.message || error) }, 500);
-      }
+      try { return privateJson(await planM7PrematureFinalRepair(env)); }
+      catch (error) { return privateJson({ error:"m7_premature_final_plan_failed", message:String(error?.message || error) }, 500); }
     }
-
     if (request.method === "POST" && path === M7_PREMATURE_FINAL_EXECUTE_PATH) {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       const input=await options(request);
-      try {
-        return privateJson(await executeM7PrematureFinalRepair(env,{fingerprint:input.fingerprint}));
-      } catch (error) {
-        console.error("M7 premature-final execute failed", { error:String(error?.message || error) });
-        return privateJson({ error:"m7_premature_final_execute_failed", message:String(error?.message || error) }, 409);
-      }
+      try { return privateJson(await executeM7PrematureFinalRepair(env,{fingerprint:input.fingerprint})); }
+      catch (error) { return privateJson({ error:"m7_premature_final_execute_failed", message:String(error?.message || error) }, 409); }
     }
-
-    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
-      return logoBootstrapReadiness(request, env);
+    if (request.method === "GET" && path === M7_PREMATURE_RECORD_VERSION_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      return privateJson({ marker:M7_PREMATURE_RECORD_MARKER, d1_access:false });
     }
-
+    if (request.method === "GET" && path === M7_PREMATURE_RECORD_PLAN_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try { return privateJson(await planM7PrematureFinalRecordRecovery(env)); }
+      catch (error) { return privateJson({ error:"m7_pea_ridge_record_plan_failed", message:String(error?.message || error) }, 500); }
+    }
+    if (request.method === "POST" && path === M7_PREMATURE_RECORD_EXECUTE_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      const input=await options(request);
+      try { return privateJson(await executeM7PrematureFinalRecordRecovery(env,{fingerprint:input.fingerprint})); }
+      catch (error) { return privateJson({ error:"m7_pea_ridge_record_execute_failed", message:String(error?.message || error) }, 409); }
+    }
+    if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
     if (request.method === "POST" && logoPath) {
       if (!authorizedLogoBootstrap(request, env)) return privateJson({ error:"not_found" }, 404);
       const input = await options(request);
       try {
         if (path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH) {
-          const result = await runStatewideHighSchoolLogoCompletion(env, {
-            limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT)
-          });
-          return privateJson(result);
+          return privateJson(await runStatewideHighSchoolLogoCompletion(env, { limit: Math.min(HIGH_SCHOOL_LOGO_BATCH_LIMIT, Number(input.limit) || HIGH_SCHOOL_LOGO_BATCH_LIMIT) }));
         }
-        const result = await runCollegeLogoCompletion(env, {
-          limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT),
-          schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null
-        });
-        return privateJson(result);
-      } catch (error) {
-        console.error("logo bootstrap failed", { path, error:String(error?.message || error) });
-        return privateJson({ error:"logo_bootstrap_failed", message:String(error?.message || error) }, 500);
-      }
+        return privateJson(await runCollegeLogoCompletion(env, { limit: Math.min(COLLEGE_LOGO_BATCH_LIMIT, Number(input.limit) || COLLEGE_LOGO_BATCH_LIMIT), schoolIds: Array.isArray(input.schoolIds) ? input.schoolIds : null }));
+      } catch (error) { return privateJson({ error:"logo_bootstrap_failed", message:String(error?.message || error) }, 500); }
     }
-
     return app.fetch(request, env, ctx);
   },
-
   async scheduled(controller, env, ctx) {
     await runVolleyballLiveTick(controller, env);
     return app.scheduled(controller, env, ctx);
