@@ -7,7 +7,7 @@ import { runM7VolleyballCompletenessAudit } from "./m7-volleyball-completeness-a
 import { planM7VolleyballDateFinals } from "./m7-volleyball-date-final-plan.js";
 import { planM7OneSidedIdentity } from "./m7-volleyball-one-sided-identity-plan.js";
 import { loadM7VolleyballIdentityCatalog } from "./m7-volleyball-identity-catalog.js";
-import { planM7StatewideFinalConvergence, executeM7StatewideFinalConvergence } from "./m7-volleyball-statewide-final-convergence.js";
+import { planM7StatewideFinalConvergence, executeM7StatewideFinalConvergence, CURATED_LOCAL_IDENTITIES } from "./m7-volleyball-statewide-final-convergence.js";
 import { diagnoseMaxPrepsDateReplay } from "./m7-maxpreps-date-diagnostic.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
@@ -21,6 +21,19 @@ export const M7_VOLLEYBALL_STATEWIDE_FINAL_PLAN_PATH = "/api/v1/internal/m7-vb-s
 export const M7_VOLLEYBALL_STATEWIDE_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-vb-statewide-final-execute-6c812b9f0de34a55";
 export const M7_MAXPREPS_DATE_DIAGNOSTIC_PATH = "/api/v1/internal/m7-maxpreps-date-replay-4460d631147b4a5a";
 export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T06:00:00Z");
+
+// Proven against production schedule/canonical participation before M7 convergence:
+// Benton df-bnytwl carries 19 schedule rows / 18 canonicals; Ozark df-g58a54 carries
+// 19 schedule rows / 18 canonicals. Their same-name DragonFly duplicates carry only
+// one incidental observation each and must not be promoted into the local catalog.
+const M7_CURATED_IDENTITY_PINS = new Map([
+  ["F9-X-i8gqU64FyP_dzDpJA", { schoolId:"df-bnytwl", teamId:"df-bnytwl-volleyball-2026" }],
+  ["usogxZzRRkquprCpPVv1sQ", { schoolId:"df-g58a54", teamId:"df-g58a54-volleyball-2026" }]
+]);
+for (const identity of CURATED_LOCAL_IDENTITIES) {
+  const pin=M7_CURATED_IDENTITY_PINS.get(identity.externalId);
+  if(pin) Object.assign(identity,pin);
+}
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
