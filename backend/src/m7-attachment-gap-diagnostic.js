@@ -24,14 +24,19 @@ const GAP_SQL=`
     ce.home_school_id,ht.team_id AS home_team_id,ht.school_name AS home_name,ce.home_score,
     ce.away_school_id,at.team_id AS away_team_id,at.school_name AS away_name,ce.away_score,
     ce.selected_source_id,ce.trust_state,
-    SUM(CASE WHEN cem.reporting_team_id=ht.team_id THEN 1 ELSE 0 END) AS home_member_count,
-    SUM(CASE WHEN cem.reporting_team_id=at.team_id THEN 1 ELSE 0 END) AS away_member_count,
-    COUNT(cem.game_id) AS member_count,
-    GROUP_CONCAT(DISTINCT cem.reporting_team_id) AS reporting_team_ids
+    CASE WHEN EXISTS(
+      SELECT 1 FROM canonical_event_members cemh
+      WHERE cemh.reporting_team_id=ht.team_id AND cemh.canonical_event_id=ce.id
+    ) THEN 1 ELSE 0 END AS home_member_count,
+    CASE WHEN EXISTS(
+      SELECT 1 FROM canonical_event_members cema
+      WHERE cema.reporting_team_id=at.team_id AND cema.canonical_event_id=ce.id
+    ) THEN 1 ELSE 0 END AS away_member_count,
+    (SELECT GROUP_CONCAT(DISTINCT cem.reporting_team_id)
+      FROM canonical_event_members cem WHERE cem.canonical_event_id=ce.id) AS reporting_team_ids
   FROM canonical_events ce
   JOIN vb ht ON ht.school_id=ce.home_school_id
   JOIN vb at ON at.school_id=ce.away_school_id
-  LEFT JOIN canonical_event_members cem ON cem.canonical_event_id=ce.id
   WHERE ce.sport='volleyball'
     AND ce.gender='girls'
     AND ce.season='2026'
@@ -39,8 +44,16 @@ const GAP_SQL=`
     AND ce.home_score IS NOT NULL
     AND ce.away_score IS NOT NULL
     AND ce.scheduled_at>=? AND ce.scheduled_at<?
-  GROUP BY ce.id
-  HAVING home_member_count=0 OR away_member_count=0
+    AND (
+      NOT EXISTS(
+        SELECT 1 FROM canonical_event_members cemh
+        WHERE cemh.reporting_team_id=ht.team_id AND cemh.canonical_event_id=ce.id
+      )
+      OR NOT EXISTS(
+        SELECT 1 FROM canonical_event_members cema
+        WHERE cema.reporting_team_id=at.team_id AND cema.canonical_event_id=ce.id
+      )
+    )
   ORDER BY ce.scheduled_at,ce.id`;
 
 function localDate(value){
