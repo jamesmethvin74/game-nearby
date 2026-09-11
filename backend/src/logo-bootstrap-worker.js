@@ -4,6 +4,7 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { diagnoseM7AttachmentGaps } from "./m7-attachment-gap-diagnostic.js";
+import { readM7FiveGapEvidence } from "./m7-five-gap-evidence.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -11,6 +12,9 @@ export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const M7_ATTACHMENT_VERSION_PATH = "/api/v1/internal/m7-attachment-gap-version-6b7f48f291e34a21";
 export const M7_ATTACHMENT_DIAGNOSTIC_PATH = "/api/v1/internal/m7-attachment-gap-diagnostic-6b7f48f291e34a21";
 export const M7_ATTACHMENT_DEPLOYMENT_MARKER = "m7-attachment-gap-v3-33f72b3c";
+export const M7_FIVE_GAP_EVIDENCE_VERSION_PATH = "/api/v1/internal/m7-five-gap-evidence-version-20b84b91";
+export const M7_FIVE_GAP_EVIDENCE_PATH = "/api/v1/internal/m7-five-gap-evidence-20b84b91";
+export const M7_FIVE_GAP_EVIDENCE_MARKER = "m7-five-gap-evidence-v1-e1ea7d47";
 export const M7_ATTACHMENT_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
@@ -78,6 +82,21 @@ export default {
       } catch (error) {
         console.error("M7 attachment gap diagnostic failed", { error:String(error?.message || error) });
         return privateJson({ error:"m7_attachment_gap_diagnostic_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && path === M7_FIVE_GAP_EVIDENCE_VERSION_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      return privateJson({ marker:M7_FIVE_GAP_EVIDENCE_MARKER, d1_access:false });
+    }
+
+    if (request.method === "GET" && path === M7_FIVE_GAP_EVIDENCE_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        return privateJson(await readM7FiveGapEvidence(env));
+      } catch (error) {
+        console.error("M7 five-gap evidence failed", { error:String(error?.message || error) });
+        return privateJson({ error:"m7_five_gap_evidence_failed", message:String(error?.message || error) }, 500);
       }
     }
 
