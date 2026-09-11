@@ -215,12 +215,13 @@ export async function executeM7VolleyballFinalization(env,{fetchFn=fetch,expecte
   const plan=await planM7VolleyballFinalization(env,{fetchFn});
   if(!plan.safe_to_execute) throw new Error("M7 closeout live plan is not safe to execute");
   if(expectedFingerprint&&expectedFingerprint!==plan.plan_fingerprint) throw new Error(`M7 closeout fingerprint changed: expected ${expectedFingerprint}, got ${plan.plan_fingerprint}`);
-  const now=new Date().toISOString();
+  const now=new Date();
+  const calculatedAt=now.toISOString();
   const membership=await syncPublishedVolleyballConferenceMembership(env,{fetchFn,now,dryRun:false,maxTeamChanges:MAX_MEMBERSHIP_CHANGES,maxConferenceRows:40});
-  const records=await rebuildStatewideRecords(env,now);
+  const records=await rebuildStatewideRecords(env,calculatedAt);
   const verification=await planM7VolleyballFinalization(env,{fetchFn});
   return {
-    status:"SUCCESS",executed_at:now,plan_fingerprint:plan.plan_fingerprint,
+    status:"SUCCESS",executed_at:calculatedAt,plan_fingerprint:plan.plan_fingerprint,
     planned_write_scope:plan.write_scope,
     membership,records,
     verification:{
