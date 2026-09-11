@@ -1,0 +1,31 @@
+name: One-shot M7 MaxPreps date diagnostic
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m7-maxpreps-date-diagnostic-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read zero-D1 date replay diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-maxpreps-date-replay-4460d631147b4a5a?through=2026-08-20'
+          code=$(curl -sS --max-time 180 -o diag.json -w '%{http_code}' "$URL")
+          echo "M7_DATE_DIAG_HTTP=$code"
+          cat diag.json
+          test "$code" = "200"
+          node <<'NODE'
+          const d=require('./diag.json');
+          console.log('M7_DATE_DIAG='+JSON.stringify({dates:d.dates,parsed_observations:d.parsed_observations,unique_contests:d.unique_contests,repeated_contests:d.repeated_contests,duplicate_observations:d.duplicate_observations,requested_vs_url_date_mismatches:d.requested_vs_url_date_mismatches,invariants:d.invariants,repeats:d.repeats?.slice(0,10),mismatches:d.mismatches?.slice(0,10)}));
+          if(Number(d.invariants?.d1_rows_written||0)!==0) throw new Error('diagnostic wrote to D1');
+          NODE
