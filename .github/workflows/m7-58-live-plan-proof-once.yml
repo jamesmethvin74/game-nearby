@@ -1,0 +1,41 @@
+name: One-shot M7 58 live plan proof
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m7-58-live-plan-proof-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read live finalization plan without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-vb-finalization-plan-7bc9c3e42f6a4f8b'
+          code=$(curl -sS --max-time 600 -o plan.json -w '%{http_code}' "$URL")
+          echo "M7_58_PLAN_PROOF_HTTP=$code"
+          test "$code" = "200" || { cat plan.json; exit 1; }
+          node <<'NODE'
+          const p=require('./plan.json');
+          const out={
+            approved_scope:p.approved_scope||null,
+            safe:p.safe_to_execute,
+            route_fingerprint:p.plan_fingerprint||null,
+            convergence_fingerprint:p.convergence_fingerprint||null,
+            through_local_date:p.through_local_date||null,
+            candidates:p.candidates||null,
+            d1:p.d1||null,
+            write_scope:p.write_scope||null,
+            approved_candidate_shape:p.approved_candidate_shape||null
+          };
+          console.log('M7_58_LIVE_PLAN='+JSON.stringify(out));
+          if(Number(p.d1?.rows_written||0)!==0) throw new Error('Plan proof wrote to D1');
+          NODE
