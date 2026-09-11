@@ -1,7 +1,13 @@
 name: M7 record mismatch diagnostic once
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/m7-record-mismatch-diagnostic-once.yml'
+      - 'backend/src/m7-record-mismatch-diagnostic.js'
+      - 'backend/src/logo-bootstrap-worker.js'
 
 permissions:
   contents: read
