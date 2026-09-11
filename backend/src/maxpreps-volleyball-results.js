@@ -93,6 +93,20 @@ function localAliasVariants(team={}) {
   return [...aliases];
 }
 
+function matchDateFromUrl(value) {
+  try {
+    const path=new URL(value,"https://www.maxpreps.com").pathname;
+    const match=path.match(/\/(\d{1,2})-(\d{1,2})-(\d{4})\//);
+    if(!match) return null;
+    const month=Number(match[1]),day=Number(match[2]),year=Number(match[3]);
+    const probe=new Date(Date.UTC(year,month-1,day));
+    if(probe.getUTCFullYear()!==year||probe.getUTCMonth()!==month-1||probe.getUTCDate()!==day) return null;
+    return `${String(year).padStart(4,"0")}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+  } catch {
+    return null;
+  }
+}
+
 export function maxPrepsScoresUrl(localDate) {
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(localDate||""))) throw new Error("MaxPreps score date must be YYYY-MM-DD");
   const [year,month,day]=localDate.split("-").map(Number);
@@ -118,6 +132,12 @@ export function parseMaxPrepsVolleyballScores(html,{localDate,sourceUrl=maxPreps
     if(homeScore==null || awayScore==null) continue;
     const hrefMatch=slice.body.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*class=["'][^"']*c-c[^"']*["']/i);
     const eventUrl=hrefMatch?new URL(hrefMatch[1],"https://www.maxpreps.com").toString():sourceUrl;
+    const eventDate=hrefMatch?matchDateFromUrl(eventUrl):null;
+    // MaxPreps can ignore historical ?date= requests and replay a current/latest
+    // score page. Never stamp that replayed card with the requested historical date.
+    // When the match URL proves a different date, the observation belongs to that
+    // other collection day and must be discarded here.
+    if(eventDate && eventDate!==localDate) continue;
     finals.push({
       contestId,
       localDate,
@@ -163,4 +183,4 @@ export function matchLocalVolleyballTeams(finals,localTeams) {
   return {matched,oneSided,ambiguous};
 }
 
-export { MAXPREPS_SCORES_BASE };
+export { MAXPREPS_SCORES_BASE, matchDateFromUrl };
