@@ -76,9 +76,17 @@ async function loadLocalTeams(env) {
 
 async function loadOpponentIdentityContext(env,identityProvider=MAXPREPS_IDENTITY_PROVIDER) {
   const {results:schools}=await env.DB.prepare(`
-    SELECT id,COALESCE(NULLIF(location_matched_name,''),name) AS school_name,catalog_scope
-    FROM schools
-    WHERE level='high-school'
+    WITH local_vb AS (
+      SELECT school_id,MIN(id) AS team_id
+      FROM teams
+      WHERE active=1 AND sport='volleyball' AND gender='girls' AND season='2026'
+      GROUP BY school_id
+    )
+    SELECT s.id,COALESCE(NULLIF(s.location_matched_name,''),s.name) AS school_name,
+      s.catalog_scope,local_vb.team_id
+    FROM schools s
+    LEFT JOIN local_vb ON local_vb.school_id=s.id
+    WHERE s.level='high-school'
   `).all();
   const {results:identities}=await env.DB.prepare(`
     SELECT external_school_id,school_id
@@ -111,7 +119,7 @@ function planOpponentSchool(context,side) {
     const school=context.byId.get(identitySchoolId);
     if(!school) return {ambiguous:true};
     return {
-      school:{school_id:school.id,school_name:school.school_name,catalog_scope:school.catalog_scope},
+      school:{school_id:school.id,school_name:school.school_name,catalog_scope:school.catalog_scope,team_id:school.team_id||null},
       externalId,observedName,createSchool:false,linkIdentity:false
     };
   }
@@ -121,7 +129,7 @@ function planOpponentSchool(context,side) {
   if(candidates.length===1) {
     const school=candidates[0];
     return {
-      school:{school_id:school.id,school_name:school.school_name,catalog_scope:school.catalog_scope},
+      school:{school_id:school.id,school_name:school.school_name,catalog_scope:school.catalog_scope,team_id:school.team_id||null},
       externalId,observedName,createSchool:false,linkIdentity:true
     };
   }
