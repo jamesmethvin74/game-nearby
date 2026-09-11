@@ -1,0 +1,34 @@
+name: One-shot M7 compact identity proof
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m7-compact-identity-proof-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read compact unresolved Arkansas identity set
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-vb-one-sided-identity-36ea42b0ea994312'
+          code=$(curl -sS --max-time 240 -o identity.json -w '%{http_code}' "$URL")
+          echo "M7_COMPACT_IDENTITY_HTTP=$code"
+          test "$code" = "200"
+          node <<'NODE'
+          const p=require('./identity.json');
+          const rows=(p.unique_opponents||[])
+            .filter(x=>x.classification==='local_unresolved')
+            .map(x=>({name:x.observed_name,maxpreps_id:x.maxpreps_id,contests:x.contests,state:x.state_hint,suggestions:x.suggestions}));
+          console.log('M7_LOCAL_UNRESOLVED='+JSON.stringify(rows));
+          console.log('M7_LOCAL_UNRESOLVED_CONTESTS='+rows.reduce((n,x)=>n+Number(x.contests||0),0));
+          if(Number(p.d1?.rows_written||0)!==0) throw new Error('Identity planner wrote to D1');
+          NODE
