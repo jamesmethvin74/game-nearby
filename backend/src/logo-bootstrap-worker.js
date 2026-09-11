@@ -3,10 +3,13 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
+import { diagnoseM7AttachmentGaps } from "./m7-attachment-gap-diagnostic.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
+export const M7_ATTACHMENT_GAP_DIAGNOSTIC_PATH = "/api/v1/internal/m7-attachment-gap-965f15d17e244eb6";
+export const M7_ATTACHMENT_GAP_EXPIRES_AT = Date.parse("2026-09-12T06:00:00Z");
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -60,6 +63,16 @@ async function runVolleyballLiveTick(controller, env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+
+    if (request.method === "GET" && path === M7_ATTACHMENT_GAP_DIAGNOSTIC_PATH) {
+      if (Date.now() > M7_ATTACHMENT_GAP_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        return privateJson(await diagnoseM7AttachmentGaps(env));
+      } catch (error) {
+        console.error("M7 attachment gap diagnostic failed", { error:String(error?.message || error) });
+        return privateJson({ error:"m7_attachment_gap_diagnostic_failed", message:String(error?.message || error) }, 500);
+      }
+    }
 
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) {
       return logoBootstrapReadiness(request, env);
