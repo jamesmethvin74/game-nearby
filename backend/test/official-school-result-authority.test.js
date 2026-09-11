@@ -34,7 +34,7 @@ test("Mascot Media schedule rows normalize final football and volleyball results
 test("Mascot basketball January results roll into the second calendar year of the season",()=>{
   const basketball=normalizeMascotRows([{
     cells:["Jan 12 | 7:00 PM","Cabot","W 62 - 58"]
-  }],{...source,sport:"basketball",home_venue:"Buzz Bolding Arena"})[0];
+  }],{...source,sport:"basketball",home_venue:"Buzz Bolding Arena"},{now:new Date("2027-01-13T03:00:00.000Z")})[0];
   assert.equal(basketball.status,"FINAL");
   assert.equal(basketball.teamScore,62);
   assert.equal(basketball.opponentScore,58);
