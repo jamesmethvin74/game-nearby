@@ -5,6 +5,7 @@ import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { diagnoseM7AttachmentGaps } from "./m7-attachment-gap-diagnostic.js";
 import { readM7FiveGapEvidence } from "./m7-five-gap-evidence.js";
+import { planM7PrematureFinalRepair, executeM7PrematureFinalRepair } from "./m7-premature-final-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -15,6 +16,10 @@ export const M7_ATTACHMENT_DEPLOYMENT_MARKER = "m7-attachment-gap-v3-33f72b3c";
 export const M7_FIVE_GAP_EVIDENCE_VERSION_PATH = "/api/v1/internal/m7-five-gap-evidence-version-20b84b91";
 export const M7_FIVE_GAP_EVIDENCE_PATH = "/api/v1/internal/m7-five-gap-evidence-20b84b91";
 export const M7_FIVE_GAP_EVIDENCE_MARKER = "m7-five-gap-evidence-v1-e1ea7d47";
+export const M7_PREMATURE_FINAL_VERSION_PATH = "/api/v1/internal/m7-premature-final-version-82eb3069";
+export const M7_PREMATURE_FINAL_PLAN_PATH = "/api/v1/internal/m7-premature-final-plan-82eb3069";
+export const M7_PREMATURE_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-premature-final-execute-82eb3069";
+export const M7_PREMATURE_FINAL_MARKER = "m7-premature-final-repair-v1-56e9aa4b";
 export const M7_ATTACHMENT_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
@@ -97,6 +102,32 @@ export default {
       } catch (error) {
         console.error("M7 five-gap evidence failed", { error:String(error?.message || error) });
         return privateJson({ error:"m7_five_gap_evidence_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && path === M7_PREMATURE_FINAL_VERSION_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      return privateJson({ marker:M7_PREMATURE_FINAL_MARKER, d1_access:false });
+    }
+
+    if (request.method === "GET" && path === M7_PREMATURE_FINAL_PLAN_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        return privateJson(await planM7PrematureFinalRepair(env));
+      } catch (error) {
+        console.error("M7 premature-final plan failed", { error:String(error?.message || error) });
+        return privateJson({ error:"m7_premature_final_plan_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "POST" && path === M7_PREMATURE_FINAL_EXECUTE_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      const input=await options(request);
+      try {
+        return privateJson(await executeM7PrematureFinalRepair(env,{fingerprint:input.fingerprint}));
+      } catch (error) {
+        console.error("M7 premature-final execute failed", { error:String(error?.message || error) });
+        return privateJson({ error:"m7_premature_final_execute_failed", message:String(error?.message || error) }, 409);
       }
     }
 
