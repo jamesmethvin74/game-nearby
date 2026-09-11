@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchLocalVolleyballTeams, maxPrepsScoresUrl, parseMaxPrepsVolleyballScores } from "../src/maxpreps-volleyball-results.js";
+import { matchLocalVolleyballTeams, matchDateFromUrl, maxPrepsScoresUrl, parseMaxPrepsVolleyballScores } from "../src/maxpreps-volleyball-results.js";
 
 const options=`
 <select id="q_n_teams">
@@ -12,14 +12,24 @@ const options=`
 const bergman=`<li class="c" data-teams="b3i3gpABj0eTqJfNrCI3Rw,rodllMNpDkWVbWyCVle9GA" data-ri="0" data-contest-id="f5f278ae-d2e1-4016-b349-0e855bd0a838"><div class="contest-box-item" data-contest-state="boxscore"><a href="https://www.maxpreps.com/ar/volleyball/match/bergman-vs-flippin/8-27-2026/?c=f5f278ae-d2e1-4016-b349-0e855bd0a838" class="c-c"><ul class="teams"><li data-result="2" class="winner"><div class="score">3</div><div class="name">Flippin</div></li><li data-result="3"><div class="score">2</div><div class="name">Bergman</div></li></ul><div class="details"> Final</div></a></div></li>`;
 const cotter=`<li class="c" data-teams="zYq0zGR3Fkq0D8MQ9-aC8w,rodllMNpDkWVbWyCVle9GA" data-ri="0" data-contest-id="8c531348-9e1a-4661-8af5-babfeb264821"><div class="contest-box-item" data-contest-state="boxscore"><a href="https://www.maxpreps.com/ar/volleyball/match/cotter-vs-flippin/8-29-2026/?c=8c531348-9e1a-4661-8af5-babfeb264821" class="c-c"><ul class="teams"><li data-result="3"><div class="score">0</div><div class="name">Flippin</div></li><li data-result="2" class="winner"><div class="score">2</div><div class="name"><span class="rank">(#20)</span> Cotter</div></li></ul><div class="details"> Final</div></a></div></li>`;
 
-test("parses final score cards and restores MaxPreps home/away identity from data-teams",()=>{
+test("parses only final score cards whose match URL date matches the requested score date",()=>{
   const html=`${options}<ul>${bergman}${cotter}</ul>`;
   const finals=parseMaxPrepsVolleyballScores(html,{localDate:"2026-08-29"});
-  assert.equal(finals.length,2);
-  assert.deepEqual(finals[0].home,{maxprepsId:"b3i3gpABj0eTqJfNrCI3Rw",name:"Bergman",score:2});
-  assert.deepEqual(finals[0].away,{maxprepsId:"rodllMNpDkWVbWyCVle9GA",name:"Flippin",score:3});
-  assert.deepEqual(finals[1].home,{maxprepsId:"zYq0zGR3Fkq0D8MQ9-aC8w",name:"Cotter",score:2});
-  assert.deepEqual(finals[1].away,{maxprepsId:"rodllMNpDkWVbWyCVle9GA",name:"Flippin",score:0});
+  assert.equal(finals.length,1);
+  assert.deepEqual(finals[0].home,{maxprepsId:"zYq0zGR3Fkq0D8MQ9-aC8w",name:"Cotter",score:2});
+  assert.deepEqual(finals[0].away,{maxprepsId:"rodllMNpDkWVbWyCVle9GA",name:"Flippin",score:0});
+});
+
+test("rejects replayed current-day finals from a historical date request",()=>{
+  const septemberReplay=bergman.replace("8-27-2026","9-10-2026");
+  const finals=parseMaxPrepsVolleyballScores(`${options}<ul>${septemberReplay}</ul>`,{localDate:"2026-08-01"});
+  assert.deepEqual(finals,[]);
+});
+
+test("extracts the authoritative local match date from MaxPreps event URLs",()=>{
+  assert.equal(matchDateFromUrl("https://www.maxpreps.com/ar/volleyball/match/a-vs-b/9-10-2026/?c=x"),"2026-09-10");
+  assert.equal(matchDateFromUrl("https://www.maxpreps.com/inter-state/volleyball/match/a-ar-vs-b-la/8-29-2026/?c=x"),"2026-08-29");
+  assert.equal(matchDateFromUrl("https://www.maxpreps.com/ar/volleyball/scores/"),null);
 });
 
 test("maps unique score-card schools onto existing local varsity volleyball teams",()=>{
