@@ -1,0 +1,71 @@
+name: M7 premature final execute HTTP once
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/m7-premature-final-execute-http-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Marker, preflight, execute once
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER_URL="$BASE/api/v1/internal/m7-premature-final-version-82eb3069"
+          PLAN_URL="$BASE/api/v1/internal/m7-premature-final-plan-82eb3069"
+          EXEC_URL="$BASE/api/v1/internal/m7-premature-final-execute-82eb3069"
+          EXPECTED_MARKER='m7-premature-final-repair-v1-56e9aa4b'
+          EXPECTED_FINGERPRINT='m7-premature-finals-3-v1'
+
+          marker_code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$MARKER_URL")
+          echo "marker HTTP=$marker_code"
+          test "$marker_code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('marker.json','utf8'));
+          console.log('MARKER='+JSON.stringify(r));
+          if(r.marker!=='m7-premature-final-repair-v1-56e9aa4b') throw new Error(`Unexpected marker: ${r.marker}`);
+          if(r.d1_access!==false) throw new Error('Marker did not prove d1_access=false');
+          NODE
+
+          plan_code=$(curl -sS --max-time 60 -o plan.json -w '%{http_code}' "$PLAN_URL")
+          echo "plan HTTP=$plan_code"
+          cat plan.json
+          echo
+          test "$plan_code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('plan.json','utf8'));
+          console.log('PLAN='+JSON.stringify(r));
+          if(r.fingerprint!=='m7-premature-finals-3-v1') throw new Error(`Unexpected fingerprint: ${r.fingerprint}`);
+          if(r.safe!==true) throw new Error(`Preflight unsafe: ${JSON.stringify(r.reasons)}`);
+          if(Number(r.event_count)!==3) throw new Error(`Expected 3 events, got ${r.event_count}`);
+          if(Number(r.d1?.rows_written||0)!==0) throw new Error('Plan wrote to D1');
+          NODE
+
+          exec_code=$(curl -sS --max-time 180 -X POST -H 'content-type: application/json' \
+            --data '{"fingerprint":"m7-premature-finals-3-v1"}' \
+            -o execute.json -w '%{http_code}' "$EXEC_URL")
+          echo "execute HTTP=$exec_code"
+          cat execute.json
+          echo
+          test "$exec_code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('execute.json','utf8'));
+          console.log('EXECUTE='+JSON.stringify(r));
+          if(r.status!=='SUCCESS') throw new Error(`Unexpected status: ${r.status}`);
+          if(r.fingerprint!=='m7-premature-finals-3-v1') throw new Error('Fingerprint mismatch after execution');
+          if(Number(r.event_count)!==3) throw new Error(`Unexpected event count: ${r.event_count}`);
+          if(Number(r.write_telemetry?.rows_written)!==6) throw new Error(`Expected 6 repair writes, got ${r.write_telemetry?.rows_written}`);
+          if(r.verification?.verified!==true) throw new Error('Post-write verification failed');
+          NODE
