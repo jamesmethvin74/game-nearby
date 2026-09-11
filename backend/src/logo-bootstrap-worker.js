@@ -5,6 +5,7 @@ import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { diagnoseM7AttachmentGaps } from "./m7-attachment-gap-diagnostic.js";
 import { readM7FiveGapEvidence } from "./m7-five-gap-evidence.js";
+import { readM7HistoricalTwoEvidence } from "./m7-historical-two-evidence.js";
 import { planM7PrematureFinalRepair, executeM7PrematureFinalRepair, planM7PrematureFinalRecordRecovery, executeM7PrematureFinalRecordRecovery } from "./m7-premature-final-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
@@ -24,6 +25,9 @@ export const M7_PREMATURE_RECORD_VERSION_PATH = "/api/v1/internal/m7-pea-ridge-r
 export const M7_PREMATURE_RECORD_PLAN_PATH = "/api/v1/internal/m7-pea-ridge-record-plan-52e4a1bc";
 export const M7_PREMATURE_RECORD_EXECUTE_PATH = "/api/v1/internal/m7-pea-ridge-record-execute-52e4a1bc";
 export const M7_PREMATURE_RECORD_MARKER = "m7-pea-ridge-record-recovery-v1-37f29e0d";
+export const M7_HISTORICAL_TWO_VERSION_PATH = "/api/v1/internal/m7-historical-two-version-6f9c12aa";
+export const M7_HISTORICAL_TWO_EVIDENCE_PATH = "/api/v1/internal/m7-historical-two-evidence-6f9c12aa";
+export const M7_HISTORICAL_TWO_MARKER = "m7-historical-two-v1-beb95ad4";
 export const M7_ATTACHMENT_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
@@ -115,6 +119,15 @@ export default {
       const input=await options(request);
       try { return privateJson(await executeM7PrematureFinalRecordRecovery(env,{fingerprint:input.fingerprint})); }
       catch (error) { return privateJson({ error:"m7_pea_ridge_record_execute_failed", message:String(error?.message || error) }, 409); }
+    }
+    if (request.method === "GET" && path === M7_HISTORICAL_TWO_VERSION_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      return privateJson({ marker:M7_HISTORICAL_TWO_MARKER, d1_access:false });
+    }
+    if (request.method === "GET" && path === M7_HISTORICAL_TWO_EVIDENCE_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try { return privateJson(await readM7HistoricalTwoEvidence(env)); }
+      catch (error) { return privateJson({ error:"m7_historical_two_evidence_failed", message:String(error?.message || error) }, 500); }
     }
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
