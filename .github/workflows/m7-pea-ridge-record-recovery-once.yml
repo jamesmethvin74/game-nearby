@@ -1,0 +1,65 @@
+name: M7 Pea Ridge record recovery once
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/m7-pea-ridge-record-recovery-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prove deployment, preflight, execute one-team recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER="$BASE/api/v1/internal/m7-pea-ridge-record-version-52e4a1bc"
+          PLAN="$BASE/api/v1/internal/m7-pea-ridge-record-plan-52e4a1bc"
+          EXEC="$BASE/api/v1/internal/m7-pea-ridge-record-execute-52e4a1bc"
+
+          code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$MARKER")
+          echo "marker HTTP=$code"
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./marker.json');
+          console.log('MARKER='+JSON.stringify(r));
+          if(r.marker!=='m7-pea-ridge-record-recovery-v1-37f29e0d') throw new Error(`Unexpected marker ${r.marker}`);
+          if(r.d1_access!==false) throw new Error('Marker did not prove d1_access=false');
+          NODE
+
+          code=$(curl -sS --max-time 60 -o plan.json -w '%{http_code}' "$PLAN")
+          echo "plan HTTP=$code"
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./plan.json');
+          console.log('PLAN='+JSON.stringify(r));
+          if(r.fingerprint!=='m7-pea-ridge-record-recovery-v1') throw new Error(`Unexpected fingerprint ${r.fingerprint}`);
+          if(r.safe!==true) throw new Error(`Unsafe plan: ${JSON.stringify(r.reasons)}`);
+          if(Number(r.event_count)!==3) throw new Error(`Unexpected event count ${r.event_count}`);
+          if(r.target_team_id!=='df-7x4sxh-volleyball-2026') throw new Error(`Unexpected team ${r.target_team_id}`);
+          if(Number(r.d1?.rows_written||0)!==0) throw new Error('Preflight wrote to D1');
+          NODE
+
+          code=$(curl -sS --max-time 120 -o result.json -w '%{http_code}' \
+            -H 'content-type: application/json' \
+            -d '{"fingerprint":"m7-pea-ridge-record-recovery-v1"}' \
+            "$EXEC")
+          echo "execute HTTP=$code"
+          cat result.json
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./result.json');
+          console.log('RESULT='+JSON.stringify(r));
+          if(r.status!=='SUCCESS') throw new Error(`Recovery failed: ${JSON.stringify(r)}`);
+          if(r.fingerprint!=='m7-pea-ridge-record-recovery-v1') throw new Error('Fingerprint changed');
+          if(r.target_team_id!=='df-7x4sxh-volleyball-2026') throw new Error('Wrong target team');
+          if(Number(r.record_result?.teams||0)!==1) throw new Error(`Rebuilt ${r.record_result?.teams||0} teams`);
+          if(r.corrected_event_verification?.verified!==true) throw new Error('Corrected event verification failed');
+          NODE
