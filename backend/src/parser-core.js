@@ -127,7 +127,15 @@ export function orientMascotResult(result) {
   return {...result,teamScore:opponentScore,opponentScore:teamScore};
 }
 
-export function normalizeMascotRows(rows, source) {
+function suppressPrematureMascotFinal(result,schedule,now) {
+  if (result?.status!=="FINAL" || !schedule?.timeKnown) return result;
+  const nowMs=now instanceof Date?now.getTime():Date.parse(now);
+  const scheduledMs=Date.parse(schedule.scheduledAt);
+  if (!Number.isFinite(nowMs) || !Number.isFinite(scheduledMs) || scheduledMs<=nowMs) return result;
+  return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
+}
+
+export function normalizeMascotRows(rows, source, {now=new Date()}={}) {
   const events=[];
   for (const raw of rows) {
     const cells=(raw.cells||[]).map(cleanText);
@@ -177,7 +185,8 @@ export function normalizeMascotRows(rows, source) {
     if (!opponent) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
-    const result=orientMascotResult(parseResult(resultText));
+    const parsedResult=orientMascotResult(parseResult(resultText));
+    const result=suppressPrematureMascotFinal(parsedResult,schedule,now);
     const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition|jamboree)\b/i.test(full);
     events.push({
       nativeId:raw.nativeId||"", opponent, scheduledAt:schedule.scheduledAt, scheduledTimeKnown:schedule.timeKnown,

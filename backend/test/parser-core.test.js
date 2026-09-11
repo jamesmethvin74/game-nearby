@@ -59,13 +59,34 @@ test("parses Vilonia varsity volleyball from the official combined-cell Mascot M
 test("parses Greenbrier varsity volleyball from the official split-column Mascot Media format",()=>{
   const rows=[{cells:["Aug 25 4:30 PM @ Vilonia Vilonia Vilonia, AR","Vilonia","W 3 - 0",""],full:"Aug 25 4:30 PM @ Vilonia Vilonia Vilonia, AR W 3 - 0"}];
   const greenbrier={season:"2026",timezone:"America/Chicago",home_venue:"Greenbrier High School",home_latitude:35.2334,home_longitude:-92.3870};
-  const [game]=normalizeMascotRows(rows,greenbrier);
+  const [game]=normalizeMascotRows(rows,greenbrier,{now:new Date("2026-08-25T23:00:00.000Z")});
   assert.equal(game.opponent,"Vilonia");
   assert.equal(game.homeAway,"away");
   assert.equal(game.status,"FINAL");
   assert.equal(game.result,"W");
   assert.equal(game.teamScore,3);
   assert.equal(game.opponentScore,0);
+});
+
+test("Mascot Media cannot publish a known-time future game as FINAL",()=>{
+  const rows=[{cells:["Sep 19 4:30 PM VS Clarksville Pea Ridge, AR","Clarksville","W 3 - 0",""],full:"Sep 19 4:30 PM VS Clarksville Pea Ridge, AR W 3 - 0"}];
+  const peaRidge={season:"2026",sport:"volleyball",timezone:"America/Chicago",home_venue:"Pea Ridge High School",home_latitude:36.4537,home_longitude:-94.1152};
+  const [game]=normalizeMascotRows(rows,peaRidge,{now:new Date("2026-09-11T21:00:00.000Z")});
+  assert.equal(game.status,"SCHEDULED");
+  assert.equal(game.teamScore,null);
+  assert.equal(game.opponentScore,null);
+  assert.equal(game.result,null);
+  assert.equal(game.scheduledTimeKnown,true);
+});
+
+test("Mascot Media preserves the same scored row once its scheduled time has passed",()=>{
+  const rows=[{cells:["Sep 19 4:30 PM VS Clarksville Pea Ridge, AR","Clarksville","W 3 - 0",""],full:"Sep 19 4:30 PM VS Clarksville Pea Ridge, AR W 3 - 0"}];
+  const peaRidge={season:"2026",sport:"volleyball",timezone:"America/Chicago",home_venue:"Pea Ridge High School",home_latitude:36.4537,home_longitude:-94.1152};
+  const [game]=normalizeMascotRows(rows,peaRidge,{now:new Date("2026-09-20T00:00:00.000Z")});
+  assert.equal(game.status,"FINAL");
+  assert.equal(game.teamScore,3);
+  assert.equal(game.opponentScore,0);
+  assert.equal(game.result,"W");
 });
 
 test("keeps a multiword Conway away opponent separate from its field",()=>{
