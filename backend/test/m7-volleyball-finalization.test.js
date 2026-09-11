@@ -35,6 +35,16 @@ test("duplicate planner refuses contradictory score evidence",()=>{
   assert.equal(plan.blocked[0].reason,"final_scores_disagree");
 });
 
+test("duplicate planner refuses schedule-only duplicates without final evidence",()=>{
+  const canonicals=[
+    event({status:"SCHEDULED",home_score:null,away_score:null}),
+    event({id:"ce-b",status:"SCHEDULED",home_score:null,away_score:null,scheduled_at:"2026-09-01T23:08:00.000Z"})
+  ];
+  const plan=planDuplicateCanonicalMerges(canonicals,[],[]);
+  assert.equal(plan.merges.length,0);
+  assert.equal(plan.blocked[0].reason,"schedule_only_duplicate_not_proven");
+});
+
 test("orphan planner attaches only one exact participant/date/score canonical",()=>{
   const orphan={id:"g-orphan",team_id:"ta",source_id:"src",reporting_school_id:"a",opponent_school_id:"b",scheduled_at:"2026-09-01T23:03:00.000Z",scheduled_time_known:1,status:"FINAL",team_score:3,opponent_score:1};
   const plan=planOrphanAttachments([orphan],[event()],[]);
@@ -50,4 +60,11 @@ test("coordinate planner trusts selected-source member location",()=>{
   ];
   const plan=planCoordinateUpdates(canonicals,members);
   assert.deepEqual(plan.updates,[{canonical_event_id:"ce-a",latitude:35.1,longitude:-92.4,evidence:"selected_source_member"}]);
+});
+
+test("coordinate planner rejects zero-zero as missing location evidence",()=>{
+  const canonicals=[event()];
+  const members=[{canonical_event_id:"ce-a",source_id:"dragonfly-a",latitude:0,longitude:0}];
+  const plan=planCoordinateUpdates(canonicals,members);
+  assert.equal(plan.updates.length,0);
 });
