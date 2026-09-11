@@ -8,6 +8,7 @@ import { planM7VolleyballDateFinals } from "./m7-volleyball-date-final-plan.js";
 import { planM7OneSidedIdentity } from "./m7-volleyball-one-sided-identity-plan.js";
 import { loadM7VolleyballIdentityCatalog } from "./m7-volleyball-identity-catalog.js";
 import { planM7StatewideFinalConvergence, executeM7StatewideFinalConvergence } from "./m7-volleyball-statewide-final-convergence.js";
+import { diagnoseMaxPrepsDateReplay } from "./m7-maxpreps-date-diagnostic.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -18,6 +19,7 @@ export const M7_VOLLEYBALL_ONE_SIDED_IDENTITY_PATH = "/api/v1/internal/m7-vb-one
 export const M7_VOLLEYBALL_IDENTITY_CATALOG_PATH = "/api/v1/internal/m7-vb-identity-catalog-d2bd775959894b2d";
 export const M7_VOLLEYBALL_STATEWIDE_FINAL_PLAN_PATH = "/api/v1/internal/m7-vb-statewide-final-plan-1f2b3ac4d5e64788";
 export const M7_VOLLEYBALL_STATEWIDE_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-vb-statewide-final-execute-6c812b9f0de34a55";
+export const M7_MAXPREPS_DATE_DIAGNOSTIC_PATH = "/api/v1/internal/m7-maxpreps-date-replay-4460d631147b4a5a";
 export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T06:00:00Z");
 
 function privateJson(body, status = 200) {
@@ -118,6 +120,17 @@ export default {
       } catch (error) {
         console.error("M7 identity catalog failed", { error:String(error?.message || error) });
         return privateJson({ error:"volleyball_identity_catalog_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && path === M7_MAXPREPS_DATE_DIAGNOSTIC_PATH) {
+      if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        const through=String(url.searchParams.get("through")||"2026-08-20");
+        return privateJson(await diagnoseMaxPrepsDateReplay({through}));
+      } catch (error) {
+        console.error("M7 MaxPreps date replay diagnostic failed", { error:String(error?.message || error) });
+        return privateJson({ error:"maxpreps_date_replay_diagnostic_failed", message:String(error?.message || error) }, 500);
       }
     }
 
