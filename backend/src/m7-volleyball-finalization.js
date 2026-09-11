@@ -211,27 +211,8 @@ export async function planM7VolleyballFinalization(env,{fetchFn=fetch}={}){
   return plan;
 }
 
-export async function executeM7VolleyballFinalization(env,{fetchFn=fetch,expectedFingerprint=null}={}){
-  const plan=await planM7VolleyballFinalization(env,{fetchFn});
-  if(!plan.safe_to_execute) throw new Error("M7 closeout live plan is not safe to execute");
-  if(expectedFingerprint&&expectedFingerprint!==plan.plan_fingerprint) throw new Error(`M7 closeout fingerprint changed: expected ${expectedFingerprint}, got ${plan.plan_fingerprint}`);
-  const now=new Date();
-  const calculatedAt=now.toISOString();
-  const membership=await syncPublishedVolleyballConferenceMembership(env,{fetchFn,now,dryRun:false,maxTeamChanges:MAX_MEMBERSHIP_CHANGES,maxConferenceRows:40});
-  const records=await rebuildStatewideRecords(env,calculatedAt);
-  const verification=await planM7VolleyballFinalization(env,{fetchFn});
-  return {
-    status:"SUCCESS",executed_at:calculatedAt,plan_fingerprint:plan.plan_fingerprint,
-    planned_write_scope:plan.write_scope,
-    membership,records,
-    verification:{
-      safe_to_execute:verification.safe_to_execute,
-      fingerprint:verification.plan_fingerprint,
-      membership_changes_remaining:Number(verification.membership?.plan?.change_count||0),
-      local_team_count:verification.local_team_count,
-      d1:verification.d1
-    }
-  };
+export async function executeM7VolleyballFinalization(){
+  throw new Error("M7 finalization execution is closed");
 }
 
 export const M7_FINALIZATION_LIMITS={MAX_MEMBERSHIP_CHANGES,MAX_LOCAL_TEAMS};
