@@ -1,0 +1,52 @@
+name: M7 attachment diagnostic HTTP once
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/m7-attachment-diagnostic-http-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify deployed marker then call diagnostic exactly once
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER_URL="$BASE/api/v1/internal/m7-attachment-gap-version-6b7f48f291e34a21"
+          DIAG_URL="$BASE/api/v1/internal/m7-attachment-gap-diagnostic-6b7f48f291e34a21"
+
+          marker_code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$MARKER_URL")
+          echo "marker HTTP=$marker_code"
+          test "$marker_code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('marker.json','utf8'));
+          console.log('MARKER='+JSON.stringify(r));
+          if(r.marker!=='m7-attachment-gap-v3-33f72b3c') throw new Error(`Unexpected marker: ${r.marker}`);
+          if(r.d1_access!==false) throw new Error('Marker did not explicitly prove d1_access=false');
+          NODE
+
+          diag_code=$(curl -sS --max-time 180 -o diagnostic.json -w '%{http_code}' "$DIAG_URL")
+          echo "diagnostic HTTP=$diag_code"
+          cat diagnostic.json
+          echo
+          test "$diag_code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('diagnostic.json','utf8'));
+          console.log('M7_ATTACHMENT_DIAGNOSTIC='+JSON.stringify(r));
+          const reads=Number(r.d1?.rows_read||0);
+          const writes=Number(r.d1?.rows_written||0);
+          const gaps=Number(r.missing_attachment_count||0);
+          if(writes!==0) throw new Error(`Diagnostic wrote ${writes} rows`);
+          if(reads>50000) throw new Error(`Read fuse exceeded: ${reads}`);
+          if(gaps>20) throw new Error(`Gap fuse exceeded: ${gaps}`);
+          NODE
