@@ -1,0 +1,91 @@
+name: One-shot M7 approved 58 final results
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m7-approved-58-final-results-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify exact 58-result scope, execute once, and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          PLAN="$BASE/api/v1/internal/m7-vb-finalization-plan-7bc9c3e42f6a4f8b"
+          EXEC="$BASE/api/v1/internal/m7-vb-finalization-execute-d34c08d0f6cf44a8"
+          AUDIT="$BASE/api/v1/internal/m7-vb-final-audit-8e04df761c9142f1"
+          ROUTE_FP='m7-finalize-approved58-fb347c49'
+          CONVERGENCE_FP='m7-statewide-finals-fb347c49'
+
+          ready=0
+          for attempt in $(seq 1 60); do
+            code=$(curl -sS --max-time 300 -o plan.json -w '%{http_code}' "$PLAN" || true)
+            echo "M7_58_PREFLIGHT attempt=$attempt HTTP=$code"
+            if [ "$code" = "200" ]; then
+              if node - <<'NODE'
+          const p=require('./plan.json');
+          const ok=p.approved_scope==='58-final-result-convergence'
+            && p.plan_fingerprint==='m7-finalize-approved58-fb347c49'
+            && p.convergence_fingerprint==='m7-statewide-finals-fb347c49';
+          process.exit(ok?0:1);
+          NODE
+              then ready=1; break; fi
+              echo 'M7_58_PREFLIGHT old deployment response; retrying'
+            elif [ "$code" != "404" ] && [ "$code" != "000" ] && [ "$code" != "500" ]; then
+              cat plan.json || true
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$ready" = "1"
+
+          node <<'NODE'
+          const p=require('./plan.json');
+          const c=p.candidates||{};
+          console.log('M7_58_PREFLIGHT='+JSON.stringify({safe:p.safe_to_execute,route_fingerprint:p.plan_fingerprint,convergence_fingerprint:p.convergence_fingerprint,candidates:c,d1:p.d1,write_scope:p.write_scope}));
+          if(p.safe_to_execute!==true) throw new Error('Approved 58-result preflight is not safe');
+          if(Number(p.d1?.rows_written||0)!==0) throw new Error('Preflight wrote to D1');
+          if(Number(c.total)!==58||Number(c.stale)!==57||Number(c.missing)!==1||Number(c.score_fill||0)!==0) throw new Error('Approved candidate shape changed');
+          if(p.convergence_fingerprint!=='m7-statewide-finals-fb347c49') throw new Error('Approved convergence fingerprint changed');
+          NODE
+
+          code=$(curl -sS --max-time 900 -o result.json -w '%{http_code}' \
+            -H 'content-type: application/json' \
+            --data '{"approved_scope":"m7-volleyball-finalization-approved","plan_fingerprint":"m7-finalize-approved58-fb347c49"}' \
+            "$EXEC")
+          echo "M7_58_EXEC_HTTP=$code"
+          cat result.json
+          test "$code" = "200"
+
+          node <<'NODE'
+          const r=require('./result.json');
+          console.log('M7_58_RESULT='+JSON.stringify({status:r.status,executed_scope:r.executed_scope,route_fingerprint:r.route_fingerprint,convergence_fingerprint:r.convergence_fingerprint,convergence:r.convergence,touched_team_count:(r.touched_team_ids||[]).length,records:r.records,verification:r.verification}));
+          if(r.status!=='SUCCESS') throw new Error(`Unexpected status ${r.status}`);
+          if(r.route_fingerprint!=='m7-finalize-approved58-fb347c49') throw new Error('Route fingerprint mismatch');
+          if(r.convergence_fingerprint!=='m7-statewide-finals-fb347c49') throw new Error('Convergence fingerprint mismatch');
+          if(Number(r.convergence?.verified?.contests)!==58) throw new Error('Did not verify all 58 approved contests');
+          if(Number(r.verification?.candidates?.total||0)!==0) throw new Error('Safe candidates remain after execution');
+          const touched=(r.touched_team_ids||[]).length;
+          if(touched<1||touched>116) throw new Error(`Touched team count out of bounds: ${touched}`);
+          if(Number(r.records?.teams)!==touched) throw new Error(`Scoped record rebuild mismatch: ${r.records?.teams} vs ${touched}`);
+          NODE
+
+          code=$(curl -sS --max-time 900 -o audit.json -w '%{http_code}' "$AUDIT")
+          echo "M7_58_FINAL_AUDIT_HTTP=$code"
+          test "$code" = "200" || { cat audit.json; exit 1; }
+          node <<'NODE'
+          const a=require('./audit.json');
+          console.log('M7_58_FINAL_AUDIT='+JSON.stringify({summary:a.summary,deficiencies:a.deficiencies,d1:a.d1,membership_unmatched:a.membership_unmatched,membership_ambiguous:a.membership_ambiguous,convergence:a.convergence}));
+          if(Number(a.d1?.rows_written||0)!==0) throw new Error('Final audit wrote to D1');
+          if(Number(a.convergence?.d1?.rows_written||0)!==0) throw new Error('Final convergence audit wrote to D1');
+          if(Number(a.convergence?.candidates?.total||0)!==0) throw new Error(`Final audit still has safe candidates: ${a.convergence?.candidates?.total}`);
+          NODE

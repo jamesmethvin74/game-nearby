@@ -1,14 +1,17 @@
-import { rebuildStatewideRecords } from "./record-rebuild.js";
-import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
+import { planM7StatewideFinalConvergence, executeM7StatewideFinalConvergence } from "./m7-volleyball-statewide-final-convergence.js";
+import { rebuildTeamRecords } from "./record-rebuild.js";
 
 const TIME_ZONE="America/Chicago";
 const DUPLICATE_MAX_MINUTES=15;
 const ORPHAN_MAX_MINUTES=360;
-const MAX_MEMBERSHIP_CHANGES=12;
-const MAX_LOCAL_TEAMS=240;
+const APPROVED_THROUGH=new Date("2026-09-10T18:00:00Z");
+const APPROVED_CONVERGENCE_FINGERPRINT="m7-statewide-finals-fb347c49";
+const APPROVED_ROUTE_FINGERPRINT="m7-finalize-approved58-fb347c49";
+const APPROVED_TOTAL=58;
+const APPROVED_STALE=57;
+const APPROVED_MISSING=1;
+const MAX_TOUCHED_TEAMS=116;
 
-function rowsRead(result){return Number(result?.meta?.rows_read||0);}
-function rowsWritten(result){return Number(result?.meta?.rows_written||result?.meta?.changes||0);}
 function localDate(value){
   const date=new Date(value);
   if(!Number.isFinite(date.getTime())) return null;
@@ -37,8 +40,6 @@ function validGeo(latitude,longitude){
   const lat=Number(latitude),lon=Number(longitude);
   return Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&(lat!==0||lon!==0);
 }
-function fnv1a32(value){let hash=0x811c9dc5;for(const char of String(value||"")){hash^=char.codePointAt(0);hash=Math.imul(hash,0x01000193)>>>0;}return hash.toString(16).padStart(8,"0");}
-
 function chooseKeeper(events=[]){
   return [...events].sort((a,b)=>
     Number(a.selected_authority_rank??999)-Number(b.selected_authority_rank??999)
@@ -169,50 +170,67 @@ export function planCoordinateUpdates(canonicals=[],members=[]){
   return {updates,blocked};
 }
 
-async function localTeamCount(env){
-  const result=await env.DB.prepare(`
-    SELECT COUNT(*) AS team_count
-    FROM teams t JOIN schools s ON s.id=t.school_id
-    WHERE t.active=1 AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
-      AND s.level='high-school' AND s.state='AR' AND s.catalog_scope='local'
-  `).all();
-  if(rowsWritten(result)!==0) throw new Error("M7 closeout planner wrote to D1");
-  return {count:Number(result.results?.[0]?.team_count||0),meta:{rows_read:rowsRead(result),rows_written:0}};
-}
-
-function fingerprint({teamCount,membership}){
-  const changes=(membership?.plan?.changes||[]).map(row=>({team_id:row.team_id,conference_id:row.expected_conference_id})).sort((a,b)=>a.team_id.localeCompare(b.team_id));
-  return `m7-finalize-${fnv1a32(JSON.stringify({teamCount,changes}))}`;
+function approved58(plan){
+  return Boolean(plan?.safe_to_execute)
+    && plan.plan_fingerprint===APPROVED_CONVERGENCE_FINGERPRINT
+    && plan.through_local_date==="2026-09-10"
+    && Number(plan.d1?.rows_written||0)===0
+    && Number(plan.candidates?.total||0)===APPROVED_TOTAL
+    && Number(plan.candidates?.stale||0)===APPROVED_STALE
+    && Number(plan.candidates?.missing||0)===APPROVED_MISSING
+    && Number(plan.candidates?.score_fill||0)===0;
 }
 
 export async function planM7VolleyballFinalization(env,{fetchFn=fetch}={}){
-  const [teams,membership]=await Promise.all([
-    localTeamCount(env),
-    syncPublishedVolleyballConferenceMembership(env,{fetchFn,dryRun:true,maxTeamChanges:MAX_MEMBERSHIP_CHANGES,maxConferenceRows:40})
-  ]);
-  const changeCount=Number(membership?.plan?.change_count||0);
-  const failed=Array.isArray(membership?.failedConferences)?membership.failedConferences.length:0;
-  const safe=teams.count>0&&teams.count<=MAX_LOCAL_TEAMS&&changeCount<=MAX_MEMBERSHIP_CHANGES&&failed===0;
-  const plan={
-    generated_at:new Date().toISOString(),
-    safe_to_execute:safe,
-    local_team_count:teams.count,
-    d1:{statements:1,rows_read:teams.meta.rows_read,rows_written:0,per_statement:[teams.meta]},
-    membership,
-    duplicates:{merges:[],blocked:[],deferred_reason:"canonical merges require separate contest-level proof; schedule-only/future candidates are not part of this closeout"},
-    orphans:{attachments:[],blocked:[],deferred_reason:"no exact orphan attachment was proven in the live preflight"},
-    coordinates:{updates:[],blocked:[],deferred_reason:"no non-zero member location evidence was proven in the live preflight"},
-    write_scope:{
-      logical_table_rows:{conference_team_updates:changeCount,statewide_record_rows:teams.count},
-      logical_application_rows:changeCount+teams.count
+  const plan=await planM7StatewideFinalConvergence(env,{fetchFn,now:APPROVED_THROUGH});
+  const { _private, ...publicPlan }=plan;
+  return {
+    ...publicPlan,
+    safe_to_execute:approved58(plan),
+    plan_fingerprint:APPROVED_ROUTE_FINGERPRINT,
+    convergence_fingerprint:plan.plan_fingerprint,
+    approved_scope:"58-final-result-convergence",
+    approved_candidate_shape:{total:APPROVED_TOTAL,stale:APPROVED_STALE,missing:APPROVED_MISSING,score_fill:0}
+  };
+}
+
+export async function executeM7VolleyballFinalization(env,{fetchFn=fetch,expectedFingerprint=null}={}){
+  if(expectedFingerprint!==APPROVED_ROUTE_FINGERPRINT) throw new Error("Approved 58-result route fingerprint required");
+  const preflight=await planM7StatewideFinalConvergence(env,{fetchFn,now:APPROVED_THROUGH});
+  if(!approved58(preflight)) throw new Error(`Approved 58-result convergence scope changed: ${preflight.plan_fingerprint} ${JSON.stringify(preflight.candidates||{})}`);
+  const touchedTeamIds=[...new Set((preflight._private?.safeObs||[]).map(row=>row.team_id).filter(Boolean))];
+  if(!touchedTeamIds.length||touchedTeamIds.length>MAX_TOUCHED_TEAMS) throw new Error(`Touched-team fuse exceeded: ${touchedTeamIds.length}`);
+
+  const convergence=await executeM7StatewideFinalConvergence(env,{fetchFn,now:APPROVED_THROUGH});
+  if(convergence.status!=="SUCCESS"||convergence.plan_fingerprint!==APPROVED_CONVERGENCE_FINGERPRINT||Number(convergence.verified?.contests||0)!==APPROVED_TOTAL) {
+    throw new Error("Approved 58-result convergence execution did not match the authorized scope");
+  }
+
+  const rebuilt=await rebuildTeamRecords(env,touchedTeamIds,new Date().toISOString());
+  if(Number(rebuilt?.teams||0)!==touchedTeamIds.length) throw new Error(`Touched record rebuild mismatch: expected ${touchedTeamIds.length}, got ${rebuilt?.teams}`);
+
+  const verification=await planM7StatewideFinalConvergence(env,{fetchFn,now:APPROVED_THROUGH});
+  if(Number(verification.d1?.rows_written||0)!==0) throw new Error("Post-convergence verification wrote to D1");
+  if(Number(verification.candidates?.total||0)!==0) throw new Error(`Safe final-result candidates remain: ${verification.candidates?.total}`);
+
+  return {
+    status:"SUCCESS",
+    executed_scope:"58-final-result-convergence",
+    route_fingerprint:APPROVED_ROUTE_FINGERPRINT,
+    convergence_fingerprint:APPROVED_CONVERGENCE_FINGERPRINT,
+    convergence:{
+      verified:convergence.verified,
+      repair_d1:convergence.d1?.repair||null,
+      planner_d1:convergence.d1?.planner||null
+    },
+    touched_team_ids:touchedTeamIds,
+    records:rebuilt,
+    verification:{
+      convergence_fingerprint:verification.plan_fingerprint,
+      candidates:verification.candidates,
+      d1:verification.d1
     }
   };
-  plan.plan_fingerprint=fingerprint({teamCount:teams.count,membership});
-  return plan;
 }
 
-export async function executeM7VolleyballFinalization(){
-  throw new Error("M7 finalization execution is closed");
-}
-
-export const M7_FINALIZATION_LIMITS={MAX_MEMBERSHIP_CHANGES,MAX_LOCAL_TEAMS};
+export const M7_FINALIZATION_LIMITS={APPROVED_TOTAL,APPROVED_STALE,APPROVED_MISSING,MAX_TOUCHED_TEAMS};
