@@ -7,6 +7,7 @@ import { runM7VolleyballCompletenessAudit } from "./m7-volleyball-completeness-a
 import { planM7VolleyballDateFinals } from "./m7-volleyball-date-final-plan.js";
 import { planM7OneSidedIdentity } from "./m7-volleyball-one-sided-identity-plan.js";
 import { loadM7VolleyballIdentityCatalog } from "./m7-volleyball-identity-catalog.js";
+import { planM7StatewideFinalConvergence, executeM7StatewideFinalConvergence } from "./m7-volleyball-statewide-final-convergence.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -15,7 +16,9 @@ export const M7_VOLLEYBALL_AUDIT_PATH = "/api/v1/internal/m7-vb-audit-7e49c2a1bd
 export const M7_VOLLEYBALL_AUG18_PLAN_PATH = "/api/v1/internal/m7-vb-plan-aug18-891f4ea83c214327";
 export const M7_VOLLEYBALL_ONE_SIDED_IDENTITY_PATH = "/api/v1/internal/m7-vb-one-sided-identity-36ea42b0ea994312";
 export const M7_VOLLEYBALL_IDENTITY_CATALOG_PATH = "/api/v1/internal/m7-vb-identity-catalog-d2bd775959894b2d";
-export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T03:00:00Z");
+export const M7_VOLLEYBALL_STATEWIDE_FINAL_PLAN_PATH = "/api/v1/internal/m7-vb-statewide-final-plan-1f2b3ac4d5e64788";
+export const M7_VOLLEYBALL_STATEWIDE_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-vb-statewide-final-execute-6c812b9f0de34a55";
+export const M7_VOLLEYBALL_AUDIT_EXPIRES_AT = Date.parse("2026-09-11T06:00:00Z");
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -108,6 +111,30 @@ export default {
       } catch (error) {
         console.error("M7 identity catalog failed", { error:String(error?.message || error) });
         return privateJson({ error:"volleyball_identity_catalog_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "GET" && path === M7_VOLLEYBALL_STATEWIDE_FINAL_PLAN_PATH) {
+      if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try {
+        const plan=await planM7StatewideFinalConvergence(env);
+        const { _private, ...publicPlan }=plan;
+        return privateJson(publicPlan);
+      } catch (error) {
+        console.error("M7 statewide final convergence plan failed", { error:String(error?.message || error) });
+        return privateJson({ error:"volleyball_statewide_final_plan_failed", message:String(error?.message || error) }, 500);
+      }
+    }
+
+    if (request.method === "POST" && path === M7_VOLLEYBALL_STATEWIDE_FINAL_EXECUTE_PATH) {
+      if (Date.now() > M7_VOLLEYBALL_AUDIT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      const input=await options(request);
+      if(input.approved_scope!=="m7-statewide-volleyball-preapproved") return privateJson({ error:"approved_scope_required" },409);
+      try {
+        return privateJson(await executeM7StatewideFinalConvergence(env));
+      } catch (error) {
+        console.error("M7 statewide final convergence failed", { error:String(error?.message || error) });
+        return privateJson({ error:"volleyball_statewide_final_convergence_failed", message:String(error?.message || error) }, 409);
       }
     }
 
