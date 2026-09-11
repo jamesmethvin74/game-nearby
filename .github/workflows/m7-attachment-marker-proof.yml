@@ -1,0 +1,33 @@
+name: M7 attachment marker proof
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/m7-attachment-marker-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  prove-marker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify exact zero-D1 deployment marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-attachment-gap-version-6b7f48f291e34a21'
+          expected='m7-attachment-gap-v3-33f72b3c'
+          code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$URL")
+          echo "marker HTTP=$code"
+          test "$code" = "200"
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('marker.json','utf8'));
+          console.log('MARKER='+JSON.stringify(r));
+          if(r.marker!=='m7-attachment-gap-v3-33f72b3c') throw new Error(`Unexpected marker: ${r.marker}`);
+          if(r.d1_access!==false) throw new Error('Marker did not explicitly prove d1_access=false');
+          NODE
