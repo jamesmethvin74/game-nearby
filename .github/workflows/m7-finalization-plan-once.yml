@@ -21,29 +21,38 @@ jobs:
           set -euo pipefail
           URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m7-vb-finalization-plan-7bc9c3e42f6a4f8b'
           ready=0
-          for attempt in $(seq 1 40); do
+          for attempt in $(seq 1 60); do
             code=$(curl -sS --max-time 240 -o plan.json -w '%{http_code}' "$URL" || true)
             echo "M7_FINALIZATION_PLAN attempt=$attempt HTTP=$code"
-            if [ "$code" = "200" ]; then ready=1; break; fi
-            if [ "$code" != "404" ] && [ "$code" != "000" ] && [ "$code" != "500" ]; then cat plan.json || true; exit 1; fi
+            if [ "$code" = "200" ]; then
+              if node -e "const p=require('./plan.json'); if(Number(p.d1?.statements)!==1||!(p.duplicates?.deferred_reason||'').includes('schedule-only/future')) process.exit(1)"; then
+                ready=1
+                break
+              fi
+              echo "M7_FINALIZATION_PLAN old deployment response; retrying"
+            elif [ "$code" != "404" ] && [ "$code" != "000" ] && [ "$code" != "500" ]; then
+              cat plan.json || true
+              exit 1
+            fi
             sleep 5
           done
           test "$ready" = "1"
           node <<'NODE'
           const p=require('./plan.json');
-          const duplicateLosers=(p.duplicates?.merges||[]).reduce((n,row)=>n+(row.loser_ids||[]).length,0);
           const out={
             safe_to_execute:p.safe_to_execute,
             fingerprint:p.plan_fingerprint,
             d1:p.d1,
             local_team_count:p.local_team_count,
-            duplicates:{merges:p.duplicates?.merges?.length||0,losers:duplicateLosers,blocked:p.duplicates?.blocked?.length||0,rows:p.duplicates?.merges||[]},
-            orphans:{attachments:p.orphans?.attachments?.length||0,blocked:p.orphans?.blocked?.length||0,rows:p.orphans?.attachments||[]},
-            coordinates:{updates:p.coordinates?.updates?.length||0,blocked:p.coordinates?.blocked?.length||0},
-            membership:{change_count:p.membership?.plan?.change_count||0,changes:p.membership?.plan?.changes||[],unmatched:p.membership?.plan?.unmatched?.length||0,ambiguous:p.membership?.plan?.ambiguous?.length||0},
+            duplicates:{merges:p.duplicates?.merges?.length||0,deferred_reason:p.duplicates?.deferred_reason||null},
+            orphans:{attachments:p.orphans?.attachments?.length||0,deferred_reason:p.orphans?.deferred_reason||null},
+            coordinates:{updates:p.coordinates?.updates?.length||0,deferred_reason:p.coordinates?.deferred_reason||null},
+            membership:{change_count:p.membership?.plan?.change_count||0,changes:p.membership?.plan?.changes||[],unmatched:p.membership?.unmatched||0,ambiguous:Array.isArray(p.membership?.ambiguous)?p.membership.ambiguous.length:Number(p.membership?.ambiguous||0)},
             write_scope:p.write_scope
           };
           console.log('M7_FINALIZATION_PLAN='+JSON.stringify(out));
           if(Number(p.d1?.rows_written||0)!==0) throw new Error('Finalization planner wrote to D1');
+          if(Number(p.d1?.statements)!==1) throw new Error('Tightened closeout deployment not active');
+          if((p.duplicates?.merges||[]).length!==0) throw new Error('Canonical merges remain in closeout scope');
           if(!p.plan_fingerprint?.startsWith('m7-finalize-')) throw new Error('Missing finalization fingerprint');
           NODE
