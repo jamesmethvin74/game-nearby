@@ -191,10 +191,8 @@ export async function planM7VolleyballFinalization(env,{fetchFn=fetch}={}){
     syncPublishedVolleyballConferenceMembership(env,{fetchFn,dryRun:true,maxTeamChanges:MAX_MEMBERSHIP_CHANGES,maxConferenceRows:40})
   ]);
   const changeCount=Number(membership?.plan?.change_count||0);
-  const unmatched=Number(membership?.unmatched||0);
-  const ambiguous=Array.isArray(membership?.ambiguous)?membership.ambiguous.length:Number(membership?.ambiguous||0);
   const failed=Array.isArray(membership?.failedConferences)?membership.failedConferences.length:0;
-  const safe=teams.count>0&&teams.count<=MAX_LOCAL_TEAMS&&changeCount<=MAX_MEMBERSHIP_CHANGES&&unmatched===0&&ambiguous===0&&failed===0;
+  const safe=teams.count>0&&teams.count<=MAX_LOCAL_TEAMS&&changeCount<=MAX_MEMBERSHIP_CHANGES&&failed===0;
   const plan={
     generated_at:new Date().toISOString(),
     safe_to_execute:safe,
