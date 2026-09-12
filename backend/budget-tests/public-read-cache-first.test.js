@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { cacheDescriptor } from "../src/public-cors-worker.js";
+import { cacheDescriptor, COVERAGE_CACHE_VERSION } from "../src/public-cors-worker.js";
 
 const source = await readFile(
   new URL("../src/public-cors-worker.js", import.meta.url),
@@ -55,6 +55,19 @@ test("school-level schedule reads are edge-cached without extra D1 fanout", () =
   assert.equal(descriptor.freshTtl, 15 * 60);
   assert.equal(descriptor.staleTtl, 24 * 60 * 60);
   assert.equal(new URL(descriptor.freshKey.url).pathname, "/__localbleachers_cache__/fresh/api/v1/schools/uca/schedule");
+});
+
+test("truthful coverage cache is versioned away from legacy false-complete payloads", () => {
+  assert.equal(COVERAGE_CACHE_VERSION, "truthful-v2");
+  const full = cacheDescriptor(new Request("https://example.test/api/v1/coverage-report"));
+  const exceptions = cacheDescriptor(new Request("https://example.test/api/v1/coverage-report?view=exceptions"));
+  assert.ok(full);
+  assert.ok(exceptions);
+  assert.notEqual(full.freshKey.url, exceptions.freshKey.url);
+  assert.match(full.freshKey.url, /coverage-report\/truthful-v2/);
+  assert.doesNotMatch(full.freshKey.url, /fresh\/coverage-report$/);
+  assert.equal(full.freshTtl, 60 * 60);
+  assert.equal(full.staleTtl, 24 * 60 * 60);
 });
 
 test("high-churn reads use short fresh TTLs", () => {
