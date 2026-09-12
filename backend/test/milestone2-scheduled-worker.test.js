@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { collectionPlanAt } from "../src/collection-cadence.js";
-import { m2LiveStatewideKeysForPlan, m2StatewideKeysForPlan, shouldRunVolleyballLiveResults } from "../src/milestone2-scheduled-worker.js";
+import { m2LiveStatewideKeysForPlan, m2StatewideKeysForPlan, shouldRunVolleyballLiveResults, shouldRunHootensTeamPageCatchup } from "../src/milestone2-scheduled-worker.js";
 
 const ALL=["football-boys","basketball-boys","basketball-girls","soccer-boys","soccer-girls","volleyball-girls"];
 
@@ -52,6 +52,7 @@ test("Friday result cadence preserves football capacity and adds an independent 
   assert.equal(plan.activeResultMinutes,30);
   assert.equal(plan.runCollegeLive,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),true);
+  assert.equal(shouldRunHootensTeamPageCatchup(plan),false,"historical team pages must not run every 30 minutes Friday");
   assert.deepEqual(m2StatewideKeysForPlan(plan),["football-boys"]);
 
   const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
@@ -62,6 +63,16 @@ test("Friday result cadence preserves football capacity and adds an independent 
   assert.match(scoped,/maxSources: 8/);
 });
 
+test("morning results get one bounded historical Hootens team-page catchup",()=>{
+  const plan=collectionPlanAt(new Date("2026-09-12T11:00:00.000Z")); // Saturday 6 AM Central
+  assert.equal(plan.kind,"morning-results");
+  assert.equal(shouldRunHootensTeamPageCatchup(plan),true);
+
+  const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  assert.match(runner,/runHootensTeamPageCatchup/);
+  assert.match(runner,/runHootensHistoricalCatchupPass/);
+});
+
 test("Saturday college cadence keeps statewide maintenance off while hourly volleyball probe remains eligible",()=>{
   const plan=collectionPlanAt(new Date("2026-09-05T17:00:00.000Z")); // Saturday noon Central
   assert.equal(plan.kind,"saturday-college-results");
@@ -69,6 +80,7 @@ test("Saturday college cadence keeps statewide maintenance off while hourly voll
   assert.equal(plan.runCollegeLive,false);
   assert.equal(plan.runVolleyballLive,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),true);
+  assert.equal(shouldRunHootensTeamPageCatchup(plan),false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),[]);
 });
 
@@ -77,6 +89,7 @@ test("Sunday catalog maintenance refreshes all six certified feeds and published
   assert.equal(plan.kind,"weekly-catalog-maintenance");
   assert.equal(plan.runCatalogMaintenance,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),false);
+  assert.equal(shouldRunHootensTeamPageCatchup(plan),false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),ALL);
 
   const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
