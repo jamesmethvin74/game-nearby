@@ -99,10 +99,13 @@ test("Saturday college plan stays scoped while volleyball tournament probes are 
 });
 
 test("Saturday basketball probes piggyback on the existing college live window", () => {
-  const plan=collectionPlanAt(new Date("2026-11-07T18:30:00Z")); // Sat 12:30 PM CST
-  assert.equal(plan?.kind,"saturday-college-results");
-  assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls","basketball-boys","basketball-girls"]);
-  assert.equal(plan?.runCore,true);
+  const halfHour=collectionPlanAt(new Date("2026-11-07T18:30:00Z")); // Sat 12:30 PM CST
+  assert.equal(halfHour?.kind,"saturday-college-results");
+  assert.deepEqual(halfHour?.liveStatewideSports,["basketball-boys","basketball-girls"]);
+  assert.equal(halfHour?.runCore,true);
+
+  const hour=collectionPlanAt(new Date("2026-11-07T19:00:00Z")); // Sat 1 PM CST
+  assert.deepEqual(hour?.liveStatewideSports,["volleyball-girls","basketball-boys","basketball-girls"]);
 });
 
 test("weekly catalog maintenance is isolated to Sunday 4 AM Central", () => {
