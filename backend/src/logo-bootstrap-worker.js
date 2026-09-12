@@ -3,18 +3,10 @@ import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } fr
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
-import { planM7FinalTwoRepair, executeM7FinalTwoRepair } from "./m7-final-two-repair.js";
-import { readM7FinalFourTeamEvidence } from "./m7-final-four-team-evidence.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
-export const M7_FINAL_VERSION_PATH = "/api/v1/internal/m7-final-three-version-e4b7c631";
-export const M7_FINAL_EVIDENCE_PATH = "/api/v1/internal/m7-final-four-team-evidence-e4b7c631";
-export const M7_FINAL_PLAN_PATH = "/api/v1/internal/m7-final-three-plan-e4b7c631";
-export const M7_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-final-three-execute-e4b7c631";
-export const M7_FINAL_MARKER = "m7-final-three-corrections-v3-a61d8f2c";
-export const M7_FINAL_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -58,26 +50,6 @@ async function runVolleyballLiveTick(controller, env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
-    if (request.method === "GET" && path === M7_FINAL_VERSION_PATH) {
-      if (Date.now() > M7_FINAL_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      return privateJson({ marker:M7_FINAL_MARKER, d1_access:false });
-    }
-    if (request.method === "GET" && path === M7_FINAL_EVIDENCE_PATH) {
-      if (Date.now() > M7_FINAL_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      try { return privateJson(await readM7FinalFourTeamEvidence(env)); }
-      catch (error) { return privateJson({ error:"m7_final_evidence_failed", message:String(error?.message || error) }, 500); }
-    }
-    if (request.method === "GET" && path === M7_FINAL_PLAN_PATH) {
-      if (Date.now() > M7_FINAL_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      try { return privateJson(await planM7FinalTwoRepair(env)); }
-      catch (error) { return privateJson({ error:"m7_final_plan_failed", message:String(error?.message || error) }, 500); }
-    }
-    if (request.method === "POST" && path === M7_FINAL_EXECUTE_PATH) {
-      if (Date.now() > M7_FINAL_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
-      const input=await options(request);
-      try { return privateJson(await executeM7FinalTwoRepair(env,{fingerprint:input.fingerprint})); }
-      catch (error) { return privateJson({ error:"m7_final_execute_failed", message:String(error?.message || error) }, 409); }
-    }
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
     if (request.method === "POST" && logoPath) {
