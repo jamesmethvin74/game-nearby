@@ -89,6 +89,21 @@ test("Mascot Media preserves the same scored row once its scheduled time has pas
   assert.equal(game.result,"W");
 });
 
+test("suppresses the proven false Pea Ridge Harrison Aug 24 Mascot observation",()=>{
+  const rows=[{cells:["Aug 24 6:00 PM AT Harrison Harrison, AR","Harrison","L 0 - 3",""],full:"Aug 24 6:00 PM AT Harrison Harrison, AR L 0 - 3"}];
+  const peaRidge={team_id:"df-7x4sxh-volleyball-2026",season:"2026",sport:"volleyball",timezone:"America/Chicago",home_venue:"Pea Ridge High School",home_latitude:36.4537,home_longitude:-94.1152};
+  const games=normalizeMascotRows(rows,peaRidge,{now:new Date("2026-08-25T03:00:00.000Z")});
+  assert.equal(games.length,0);
+});
+
+test("does not suppress a Pea Ridge Harrison game on another date",()=>{
+  const rows=[{cells:["Sep 11 6:00 PM VS Harrison Pea Ridge, AR","Harrison","- -",""],full:"Sep 11 6:00 PM VS Harrison Pea Ridge, AR - -"}];
+  const peaRidge={team_id:"df-7x4sxh-volleyball-2026",season:"2026",sport:"volleyball",timezone:"America/Chicago",home_venue:"Pea Ridge High School",home_latitude:36.4537,home_longitude:-94.1152};
+  const games=normalizeMascotRows(rows,peaRidge,{now:new Date("2026-09-11T20:00:00.000Z")});
+  assert.equal(games.length,1);
+  assert.equal(games[0].opponent,"Harrison");
+});
+
 test("keeps a multiword Conway away opponent separate from its field",()=>{
   const rows=[{cells:["","Oct 23 / 7:00 PM AT Pulaski Academy Pulaski Academy Field Little Rock, AR","Pulaski Academy Field Little Rock, AR","- -"],full:"Oct 23 / 7:00 PM AT Pulaski Academy Pulaski Academy Field Little Rock, AR - -"}];
   const conway={season:"2026",timezone:"America/Chicago",home_venue:"John McConnell Stadium",home_latitude:35.0872,home_longitude:-92.4628};
