@@ -1,9 +1,9 @@
-import app from "./coverage-report-worker.js";
+import app from "./coverage-report-worker-v3.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
 const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v7-browser-pinned";
-const COVERAGE_CACHE_VERSION = "truthful-v2";
+const COVERAGE_CACHE_VERSION = "truthful-v3";
 const DIRECT_LOGO_OVERRIDES = new Map([
   ["df-6blldr", "https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png"],
   ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
