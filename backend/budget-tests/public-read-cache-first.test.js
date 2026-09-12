@@ -57,14 +57,15 @@ test("school-level schedule reads are edge-cached without extra D1 fanout", () =
   assert.equal(new URL(descriptor.freshKey.url).pathname, "/__localbleachers_cache__/fresh/api/v1/schools/uca/schedule");
 });
 
-test("truthful coverage cache is versioned away from legacy false-complete payloads", () => {
-  assert.equal(COVERAGE_CACHE_VERSION, "truthful-v2");
+test("truthful coverage cache is versioned away from both legacy false-complete payloads", () => {
+  assert.equal(COVERAGE_CACHE_VERSION, "truthful-v3");
   const full = cacheDescriptor(new Request("https://example.test/api/v1/coverage-report"));
   const exceptions = cacheDescriptor(new Request("https://example.test/api/v1/coverage-report?view=exceptions"));
   assert.ok(full);
   assert.ok(exceptions);
   assert.notEqual(full.freshKey.url, exceptions.freshKey.url);
-  assert.match(full.freshKey.url, /coverage-report\/truthful-v2/);
+  assert.match(full.freshKey.url, /coverage-report\/truthful-v3/);
+  assert.doesNotMatch(full.freshKey.url, /truthful-v2/);
   assert.doesNotMatch(full.freshKey.url, /fresh\/coverage-report$/);
   assert.equal(full.freshTtl, 60 * 60);
   assert.equal(full.staleTtl, 24 * 60 * 60);
