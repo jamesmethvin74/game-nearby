@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildCertifiedStatewideRows } from "../src/dragonfly-certified-statewide.js";
+import { buildCertifiedStatewideRows, certifiedStatewideSignature } from "../src/dragonfly-certified-statewide.js";
 import { statewideSportConfig } from "../src/statewide-sport-config.js";
 
 function mapping(externalTeamId,teamId,schoolId){
@@ -60,4 +60,15 @@ test("explicit exhibition remains non-counting even after the official basketbal
   const rows=buildCertifiedStatewideRows(payload,mappings,config,{checkedAt:"2026-11-10T03:00:00.000Z"});
 
   assert.deepEqual(rows.games.map(game=>game.counts_for_record),[0,0]);
+});
+
+test("only basketball opts into normalization v2 so existing basketball snapshots are refreshed once",()=>{
+  const payload={schedule:[basketballEvent({id:"snapshot",date:"2026-11-10T01:00:00.000Z"})]};
+  const basketballSignature=certifiedStatewideSignature(payload,statewideSportConfig("MBB"));
+  assert.match(basketballSignature,/^basketball-boys:v2:/);
+
+  const football={...statewideSportConfig("FB"),providerSportCode:"MBB"};
+  const footballSignature=certifiedStatewideSignature(payload,football);
+  assert.match(footballSignature,/^football-boys:/);
+  assert.doesNotMatch(footballSignature,/^football-boys:v/);
 });
