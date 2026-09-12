@@ -9,11 +9,11 @@ import { readM7FinalFourTeamEvidence } from "./m7-final-four-team-evidence.js";
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
-export const M7_FINAL_VERSION_PATH = "/api/v1/internal/m7-final-three-version-9c27e4ad";
-export const M7_FINAL_EVIDENCE_PATH = "/api/v1/internal/m7-final-four-team-evidence-9c27e4ad";
-export const M7_FINAL_PLAN_PATH = "/api/v1/internal/m7-final-three-plan-9c27e4ad";
-export const M7_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-final-three-execute-9c27e4ad";
-export const M7_FINAL_MARKER = "m7-final-three-corrections-v2-bed011f5";
+export const M7_FINAL_VERSION_PATH = "/api/v1/internal/m7-final-three-version-e4b7c631";
+export const M7_FINAL_EVIDENCE_PATH = "/api/v1/internal/m7-final-four-team-evidence-e4b7c631";
+export const M7_FINAL_PLAN_PATH = "/api/v1/internal/m7-final-three-plan-e4b7c631";
+export const M7_FINAL_EXECUTE_PATH = "/api/v1/internal/m7-final-three-execute-e4b7c631";
+export const M7_FINAL_MARKER = "m7-final-three-corrections-v3-a61d8f2c";
 export const M7_FINAL_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
