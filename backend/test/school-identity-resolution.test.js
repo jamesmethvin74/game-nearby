@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSchoolIdentityIndex, resolveSchoolIdentity } from "../src/school-identity-resolution.js";
 import { schoolIdentityAuditFindings, augmentAuditWithSchoolIdentityFindings } from "../src/school-identity-audit.js";
+import { attachDragonFlyOpponentIdentities } from "../src/dragonfly-school-identities.js";
 
 const conway = {
   id:"conway",
@@ -66,6 +67,23 @@ test("ambiguous normalized names fail closed instead of picking the first school
   assert.equal(resolution.status, "ambiguous");
   assert.deepEqual(resolution.candidateSchoolIds, ["central-a", "central-b"]);
   assert.equal(resolution.schoolId, null);
+});
+
+test("DragonFly opponent organization code survives normalization for identity resolution", () => {
+  const payload = {
+    schedule:[{
+      eventId:"event-1",
+      participants:[
+        { name:"GREENBRIER HIGH SCHOOL", orgShortCode:"SE48QJ" },
+        { name:"VILONIA HIGH SCHOOL", orgShortCode:"YF5Y8Q" }
+      ]
+    }]
+  };
+  const events = [{ nativeId:"event-1", opponent:"VILONIA HIGH SCHOOL" }];
+  const enriched = attachDragonFlyOpponentIdentities(payload, { school_name:"Greenbrier High School" }, events);
+
+  assert.equal(enriched[0].opponentProvider, "dragonfly");
+  assert.equal(enriched[0].opponentExternalSchoolId, "YF5Y8Q");
 });
 
 test("audit recognizes a deterministic alias gap instead of calling Conway unresolved", () => {
