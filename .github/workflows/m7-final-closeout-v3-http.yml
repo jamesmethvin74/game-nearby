@@ -1,0 +1,62 @@
+name: M7 final closeout v3 read-only HTTP
+
+on:
+  push:
+    branches:
+      - m7/final-closeout-v3-http
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Zero-D1 marker, exact evidence, and bounded v3 plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER="$BASE/api/v1/internal/m7-final-three-version-e4b7c631"
+          EVIDENCE="$BASE/api/v1/internal/m7-final-four-team-evidence-e4b7c631"
+          PLAN="$BASE/api/v1/internal/m7-final-three-plan-e4b7c631"
+
+          code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$MARKER")
+          echo "marker HTTP=$code"
+          cat marker.json; echo
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./marker.json');
+          if(r.marker!=='m7-final-three-corrections-v3-a61d8f2c') throw new Error(`Unexpected marker ${r.marker}`);
+          if(r.d1_access!==false) throw new Error('Marker did not prove d1_access=false');
+          console.log('MARKER_OK='+JSON.stringify(r));
+          NODE
+
+          code=$(curl -sS --max-time 60 -o evidence.json -w '%{http_code}' "$EVIDENCE")
+          echo "evidence HTTP=$code"
+          cat evidence.json; echo
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./evidence.json');
+          if(r.fingerprint!=='m7-final-four-team-evidence-v1') throw new Error(`Unexpected evidence fingerprint ${r.fingerprint}`);
+          if(Number(r.d1?.rows_written||0)!==0) throw new Error(`Evidence wrote ${r.d1?.rows_written}`);
+          if(Number(r.d1?.rows_read||0)>5000) throw new Error(`Evidence read fuse exceeded ${r.d1?.rows_read}`);
+          console.log('EVIDENCE_OK='+JSON.stringify(r));
+          NODE
+
+          code=$(curl -sS --max-time 60 -o plan.json -w '%{http_code}' "$PLAN")
+          echo "plan HTTP=$code"
+          cat plan.json; echo
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./plan.json');
+          if(r.fingerprint!=='m7-final-three-corrections-v3') throw new Error(`Unexpected plan fingerprint ${r.fingerprint}`);
+          if(r.safe!==true) throw new Error(`Plan is unsafe: ${JSON.stringify(r.reasons)}`);
+          if(Number(r.d1?.rows_written||0)!==0) throw new Error(`Plan wrote ${r.d1?.rows_written}`);
+          if(Number(r.d1?.rows_read||0)>5000) throw new Error(`Plan read fuse exceeded ${r.d1?.rows_read}`);
+          if(!['delete_false_event','already_removed'].includes(r.false_action)) throw new Error(`Unexpected false action ${r.false_action}`);
+          for (const k of ['pea_providence_action','providence_pea_action','harrison_valley_action','valley_harrison_action']) {
+            if(r[k]!=='already_attached') throw new Error(`${k}=${r[k]}`);
+          }
+          if(r.pea_providence_canonical_id!=='ce:volleyball:girls:2026:df-7x4sxh:df-k7ketx:20260824:df-69b361f98d3c020536000002') throw new Error('Unexpected Pea/Providence canonical');
+          if(r.harrison_valley_canonical_id!=='ce:volleyball:girls:2026:df-ht8yyh:df-t5drr3:20260824:df-697285d2b5fdd10017000004') throw new Error('Unexpected Harrison/Valley canonical');
+          if(!['create_secondary_observation','reconcile_existing_observation','already_attached'].includes(r.batesville_action)) throw new Error(`Unexpected Batesville action ${r.batesville_action}`);
+          console.log('PLAN_OK='+JSON.stringify(r));
+          NODE
