@@ -1,0 +1,47 @@
+name: Harrison Mountain Home postwrite verify HTTP
+
+on:
+  push:
+    branches:
+      - volleyball/harrison-mh-postwrite-verify-http
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify exact production state read only
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          PLAN="$BASE/api/v1/internal/harrison-mountain-home-plan-42f7c9b1"
+          CID='ce:volleyball:girls:2026:df-dxgr8r:df-ht8yyh:20260825:df-69b2c51d453393061a000000'
+
+          curl -fsS --max-time 60 "$PLAN" -o plan.json
+          cat plan.json; echo
+          node <<'NODE'
+          const r=require('./plan.json');
+          if(r.fingerprint!=='harrison-mountain-home-venue-fix-v1'||r.safe!==true) throw new Error(`unsafe state ${JSON.stringify(r)}`);
+          if(r.action!=='already_resolved') throw new Error(`repair not committed: ${r.action}`);
+          if(r.event?.trust_state!=='CORROBORATED'||Number(r.event?.conflict_count)!==0) throw new Error(`conflict remains ${JSON.stringify(r.event)}`);
+          if(Number(r.event?.home_score)!==1||Number(r.event?.away_score)!==3) throw new Error('score changed');
+          if(Number(r.d1?.rows_written||0)!==0||Number(r.d1?.rows_read||0)>500) throw new Error(`bad verification D1 ${JSON.stringify(r.d1)}`);
+          console.log('PLAN_VERIFY_OK='+JSON.stringify({action:r.action,event:r.event,records:r.records,d1:r.d1}));
+          NODE
+
+          for team in df-dxgr8r-volleyball-2026 df-ht8yyh-volleyball-2026; do
+            curl -fsS --max-time 60 "$BASE/api/v1/teams/$team/schedule" -o "$team.json"
+          done
+          node <<'NODE'
+          const fs=require('fs');
+          const cid='ce:volleyball:girls:2026:df-dxgr8r:df-ht8yyh:20260825:df-69b2c51d453393061a000000';
+          const mh=JSON.parse(fs.readFileSync('df-dxgr8r-volleyball-2026.json','utf8'));
+          const har=JSON.parse(fs.readFileSync('df-ht8yyh-volleyball-2026.json','utf8'));
+          const m=mh.games.find(g=>g.canonical_event_id===cid&&g.status==='FINAL');
+          const h=har.games.find(g=>g.canonical_event_id===cid&&g.status==='FINAL');
+          if(!m||Number(m.team_score)!==3||Number(m.opponent_score)!==1) throw new Error('Mountain Home public result wrong');
+          if(!h||Number(h.team_score)!==1||Number(h.opponent_score)!==3) throw new Error('Harrison public result wrong');
+          if(Number(mh.record?.wins)!==4||Number(mh.record?.losses)!==10) throw new Error(`Mountain Home record changed ${JSON.stringify(mh.record)}`);
+          if(Number(har.record?.wins)!==7||Number(har.record?.losses)!==2) throw new Error(`Harrison record changed ${JSON.stringify(har.record)}`);
+          console.log('PUBLIC_VERIFY_OK='+JSON.stringify({mountain_home:{score:[m.team_score,m.opponent_score],record:mh.record},harrison:{score:[h.team_score,h.opponent_score],record:har.record}}));
+          NODE
