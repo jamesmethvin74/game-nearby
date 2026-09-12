@@ -95,7 +95,8 @@ test("M8 groups unresolved result truth without inventing extra D1 work", () => 
   const audit = buildResultGapAudit(report);
   assert.equal(audit.audit_contract.version,"m8-result-gaps-v1");
   assert.deepEqual(audit.d1,report.d1,"classifier must only report upstream D1 telemetry");
-  assert.equal(audit.summary.supported_teams,5);
+  assert.equal(audit.summary.input_view,"full");
+  assert.equal(audit.summary.supported_rows_examined,5);
   assert.equal(audit.summary.result_gap_teams,4);
   assert.equal(audit.summary.due_gap_teams,1);
   assert.equal(audit.summary.unresolved_due_contests,2);
@@ -116,6 +117,46 @@ test("M8 groups unresolved result truth without inventing extra D1 work", () => 
   assert.equal(audit.grouped.by_exception_type.find(row=>row.value==="past_due_unresolved").teams,1);
   assert.equal(audit.grouped.by_sport.find(row=>row.value==="volleyball").teams,1);
   assert.equal(audit.grouped.by_sport.find(row=>row.value==="football").teams,1);
+});
+
+test("M8 consumes the real view=exceptions evidence shape", () => {
+  const report = {
+    generated_at:"2026-09-12T02:36:30.536Z",
+    audit_contract:{version:"truthful-coverage-v6"},
+    d1:{rows_read:900,rows_written:0},
+    exceptions:[{
+      team_id:"arkadelphia-football-boys-2026",
+      school_id:"arkadelphia",
+      school_name:"Arkadelphia High School",
+      level:"high-school",
+      sport:"football",
+      gender:"boys",
+      coverage_scope:"supported",
+      backend_team_present:true,
+      source_resolution:"ready",
+      schedule_status:"Complete",
+      results_status:"Partial",
+      records_status:"Unverified",
+      evidence:{
+        audit_source_id:"arkadelphia-football-boys-2026-dragonfly-statewide",
+        audit_source_type:"official-conference",
+        result_due_count:1,
+        resolved_result_count:0,
+        unresolved_due_count:1,
+        final_missing_score_count:0
+      },
+      issues:[{code:"missing_past_results",category:"results",count:1}]
+    }]
+  };
+
+  const audit = buildResultGapAudit(report);
+  assert.equal(audit.summary.input_view,"exceptions");
+  assert.equal(audit.summary.supported_rows_examined,1);
+  assert.equal(audit.summary.unresolved_due_contests,1);
+  assert.equal(audit.work_items[0].source_provider,"dragonfly");
+  assert.equal(audit.work_items[0].source_id,"arkadelphia-football-boys-2026-dragonfly-statewide");
+  assert.equal(audit.work_items[0].result_due_count,1);
+  assert.equal(audit.work_items[0].authority_state,"available");
 });
 
 test("M8 marks deterministic identity ambiguity as a blocking state", () => {
