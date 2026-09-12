@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { cacheDescriptor, COVERAGE_CACHE_VERSION } from "../src/public-cors-worker.js";
+import { cacheDescriptor, COVERAGE_CACHE_VERSION, SCHEDULE_CACHE_VERSION } from "../src/public-cors-worker.js";
 
 const source = await readFile(
   new URL("../src/public-cors-worker.js", import.meta.url),
@@ -49,22 +49,32 @@ test("diagnostic requests bypass the public cache", () => {
   assert.match(source, /return null/);
 });
 
-test("school-level schedule reads are edge-cached without extra D1 fanout", () => {
+test("school-level schedule cache is versioned away from retained-lineage payloads", () => {
+  assert.equal(SCHEDULE_CACHE_VERSION, "current-truth-v2");
   const descriptor = cacheDescriptor(new Request("https://example.test/api/v1/schools/uca/schedule"));
   assert.ok(descriptor);
   assert.equal(descriptor.freshTtl, 15 * 60);
   assert.equal(descriptor.staleTtl, 24 * 60 * 60);
-  assert.equal(new URL(descriptor.freshKey.url).pathname, "/__localbleachers_cache__/fresh/api/v1/schools/uca/schedule");
+  assert.match(new URL(descriptor.freshKey.url).pathname, /\/fresh\/schedule\/current-truth-v2\/api\/v1\/schools\/uca\/schedule$/);
+  assert.doesNotMatch(new URL(descriptor.freshKey.url).pathname, /\/fresh\/api\/v1\/schools\/uca\/schedule$/);
 });
 
-test("truthful coverage cache is versioned away from production-only denominator pollution", () => {
-  assert.equal(COVERAGE_CACHE_VERSION, "truthful-v5");
+test("team schedule cache is also versioned while record cache remains stable", () => {
+  const schedule = cacheDescriptor(new Request("https://example.test/api/v1/teams/t1/schedule"));
+  const record = cacheDescriptor(new Request("https://example.test/api/v1/teams/t1/record"));
+  assert.match(new URL(schedule.freshKey.url).pathname, /\/fresh\/schedule\/current-truth-v2\/api\/v1\/teams\/t1\/schedule$/);
+  assert.equal(new URL(record.freshKey.url).pathname, "/__localbleachers_cache__/fresh/api/v1/teams/t1/record");
+});
+
+test("truthful coverage cache is versioned away from retained-lineage false mismatches", () => {
+  assert.equal(COVERAGE_CACHE_VERSION, "truthful-v6");
   const full = cacheDescriptor(new Request("https://example.test/api/v1/coverage-report"));
   const exceptions = cacheDescriptor(new Request("https://example.test/api/v1/coverage-report?view=exceptions"));
   assert.ok(full);
   assert.ok(exceptions);
   assert.notEqual(full.freshKey.url, exceptions.freshKey.url);
-  assert.match(full.freshKey.url, /coverage-report\/truthful-v5/);
+  assert.match(full.freshKey.url, /coverage-report\/truthful-v6/);
+  assert.doesNotMatch(full.freshKey.url, /truthful-v5/);
   assert.doesNotMatch(full.freshKey.url, /truthful-v4/);
   assert.doesNotMatch(full.freshKey.url, /truthful-v3/);
   assert.doesNotMatch(full.freshKey.url, /truthful-v2/);
