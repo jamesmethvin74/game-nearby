@@ -13,7 +13,7 @@ test("daily collection windows are limited to 6 AM, 3 PM, and 11 PM Central outs
   assert.equal(kind("2026-09-02T11:30:00Z"), null);
 });
 
-test("fall volleyball probes every 30 minutes on weekday evenings", () => {
+test("fall volleyball probes every 30 minutes on weekday evenings and polls only due college game-day sources", () => {
   const slots = [
     "2026-09-02T21:30:00Z", // Wed 4:30 PM CDT
     "2026-09-02T22:00:00Z", // Wed 5:00 PM CDT
@@ -26,26 +26,30 @@ test("fall volleyball probes every 30 minutes on weekday evenings", () => {
   assert.equal(plan?.runVolleyballLive, true);
   assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(plan?.runStatewide, false);
-  assert.equal(plan?.runCore, false);
+  assert.equal(plan?.runCore, true);
   assert.equal(plan?.runCatalogMaintenance, false);
-  assert.equal(plan?.scope, "volleyball-statewide");
+  assert.equal(plan?.scope, "college-game-day");
+  assert.equal(plan?.activeResultMinutes,30);
 });
 
-test("winter weekday evenings use the same cheap live path for boys and girls basketball", () => {
+test("winter weekday evenings use cheap statewide basketball probes plus bounded college game-day polling", () => {
   const plan = collectionPlanAt(new Date("2027-01-06T23:00:00Z")); // Wed 5 PM CST
   assert.equal(plan?.kind,"statewide-live-results");
   assert.deepEqual(plan?.liveStatewideSports,["basketball-boys","basketball-girls"]);
   assert.equal(plan?.runVolleyballLive,false);
   assert.equal(plan?.runStatewide,false);
-  assert.equal(plan?.runCore,false);
-  assert.equal(plan?.scope,"statewide-live-results");
+  assert.equal(plan?.runCore,true);
+  assert.equal(plan?.scope,"college-game-day");
+  assert.equal(plan?.activeResultMinutes,30);
 });
 
-test("October overlap warms basketball while retaining volleyball on one generic live plan", () => {
+test("October overlap warms basketball while retaining volleyball and bounded college polling", () => {
   const plan = collectionPlanAt(new Date("2026-10-07T22:00:00Z")); // Wed 5 PM CDT
   assert.equal(plan?.kind,"statewide-live-results");
   assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls","basketball-boys","basketball-girls"]);
   assert.equal(plan?.runVolleyballLive,true);
+  assert.equal(plan?.runCore,true);
+  assert.equal(plan?.scope,"college-game-day");
 });
 
 test("basketball live cadence is disabled after the configured spring season", () => {
