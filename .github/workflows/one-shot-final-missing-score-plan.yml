@@ -11,15 +11,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Read exact production repair plan and evidence
+      - name: Confirm exact production repair preflight
         shell: bash
         run: |
           set -euo pipefail
-          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal'
-          curl --fail --silent --show-error "$BASE/final-missing-score-plan-20260912-4fd5a1c7" -o plan.json
-          curl --fail --silent --show-error "$BASE/final-missing-score-evidence-20260912-4fd5a1c7" -o evidence.json
-          echo '=== PLAN ==='
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/final-missing-score-plan-20260912-4fd5a1c7'
+          curl --fail --silent --show-error "$URL" -o plan.json
           jq . plan.json
-          echo '=== EVIDENCE ==='
-          jq . evidence.json
-          jq -e '.d1.rows_written == 0 and (.canonical_ids | length) == 2' evidence.json >/dev/null
+          jq -e '.safe == true and .d1.rows_written == 0 and (.cases | length) == 2 and ([.cases[].action] | all(. == "apply_canonical_resolution")) and .write_scope.canonical_events_max == 2 and .write_scope.game_rows_max == 0 and .write_scope.conflict_rows_max == 0' plan.json >/dev/null
