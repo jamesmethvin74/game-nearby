@@ -25,6 +25,9 @@ jobs:
           node <<'NODE'
           const fs = require('fs');
           const payload = JSON.parse(fs.readFileSync('audit.json','utf8'));
+          if (payload?.audit_contract?.version !== 'truthful-coverage-v3') {
+            throw new Error(`Unexpected audit contract version: ${JSON.stringify(payload?.audit_contract || null)}`);
+          }
           if (payload?.audit_contract?.rule !== 'Present is not Complete.') {
             throw new Error(`Unexpected audit contract: ${JSON.stringify(payload?.audit_contract || null)}`);
           }
@@ -44,11 +47,18 @@ jobs:
             for (const issue of item.issues || []) issueCounts[issue.code] = (issueCounts[issue.code] || 0) + 1;
           }
           const notable = exceptions.filter(item => /marion|central arkansas|\buca\b/i.test(`${item.school_id} ${item.school_name}`));
+          const hardExceptions = exceptions.filter(item => (item.issues || []).some(issue => [
+            'missing_expected_school','missing_expected_team','schedule_source_missing','schedule_snapshot_empty',
+            'schedule_snapshot_storage_mismatch','missing_past_results','final_missing_score','record_vs_final_mismatch',
+            'standings_row_missing','standings_overall_record_mismatch','standings_conference_record_mismatch'
+          ].includes(issue.code)));
           const output = {
             generated_at: payload.generated_at,
+            audit_contract_version: payload.audit_contract.version,
             d1: payload.d1,
             inventory: payload.inventory,
             summary: payload.summary,
+            hard_exception_teams: hardExceptions.length,
             issue_counts: Object.fromEntries(Object.entries(issueCounts).sort((a,b)=>b[1]-a[1])),
             exceptions_by_level_sport: Object.fromEntries(Object.entries(byLevelSport).sort((a,b)=>b[1]-a[1])),
             notable
@@ -60,7 +70,7 @@ jobs:
       - name: Preserve exact audit snapshot
         uses: actions/upload-artifact@v4
         with:
-          name: truthful-coverage-audit
+          name: truthful-coverage-audit-v3
           path: |
             audit.json
             audit-summary.json
