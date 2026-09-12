@@ -1,19 +1,25 @@
 import app, { summarizeCoverageRows } from "./coverage-report-worker.js";
 import { isSchoolCatalogVisible, reviewedHighSchoolIdentitySummary } from "./high-school-catalog-identity.js";
+import { blockedPrestoAuthorityTargets, pendingPrestoFallbackTargets } from "./college-source-resolution.js";
 
 const SEASON = "2026";
 const RESULT_GRACE_HOURS = 6;
 
-const AUDIT_CONTRACT_V3 = Object.freeze({
-  version:"truthful-coverage-v3",
+const AUDIT_CONTRACT_V4 = Object.freeze({
+  version:"truthful-coverage-v4",
   rule:"Present is not Complete.",
   schedule:"Complete only when a fresh successful authoritative/materialized source has a nonzero schedule snapshot, that snapshot meets its configured minimum, and D1 contains exactly the same number of rows for that source. A retained statewide source may remain valid evidence even when disabled for ordinary per-source collection.",
   results:"Complete only when the schedule is Complete and every past-due record-counting contest is terminal; FINAL contests must have both scores.",
   records:"Complete or Mismatch only when result evidence is Complete. Otherwise a stored-versus-visible-final disagreement is Unverified, never asserted as a bad record.",
   standings:"Calculated standings are Complete only when their underlying audited record is Complete and the materialized standing is current and internally consistent. Published-but-not-materialized standings remain Unverified.",
-  inventory:"Expected-team coverage uses the certified 295-school AAA/DragonFly varsity inventory plus the Arkansas college supported-team inventory, not the rows that happen to exist in D1.",
-  retained_source_rule:"Source enabled/disabled state controls collection cadence, not whether already-materialized schedule evidence exists. The audit and school read path therefore retain materialized rows from disabled statewide sources."
+  inventory:"Expected-team coverage uses the certified 295-school AAA/DragonFly varsity inventory plus the Arkansas college supported-team inventory, not the rows that happen to exist in D1. A present-but-inactive expected team is reported as Inactive, never as Missing.",
+  retained_source_rule:"Source enabled/disabled state controls collection cadence, not whether already-materialized schedule evidence exists. The audit and school read path therefore retain materialized rows from disabled statewide sources.",
+  inactive_team_rule:"College team rows deliberately materialized inactive while their authority/source is unresolved remain visible to the audit. They are classified as pending, blocked, or unclassified source-resolution exceptions instead of being synthesized as missing teams."
 });
+
+const targetKey = row => `${row.schoolId || row.school_id}|${row.sport}|${row.gender}|${row.season || SEASON}`;
+const PENDING_COLLEGE_TARGETS = new Set(pendingPrestoFallbackTargets(SEASON).map(targetKey));
+const BLOCKED_COLLEGE_TARGETS = new Set(blockedPrestoAuthorityTargets(SEASON).map(targetKey));
 
 function publicJson(request, body, status = 200) {
   const origin = request.headers.get("origin");
@@ -56,10 +62,26 @@ function replaceIssue(team, oldCode, nextIssue = null) {
   if (nextIssue) team.issues.push(nextIssue);
 }
 
+function hasIssue(team, code) {
+  return (team.issues || []).some(issue => issue.code === code);
+}
+
+function addIssueOnce(team, issue) {
+  if (!hasIssue(team, issue.code)) team.issues.push(issue);
+}
+
+function collegeSourceResolution(row) {
+  if (!row || row.level !== "college" || number(row.team_active) !== 0) return null;
+  const key = targetKey(row);
+  if (PENDING_COLLEGE_TARGETS.has(key)) return "pending";
+  if (BLOCKED_COLLEGE_TARGETS.has(key)) return "blocked";
+  return "unclassified";
+}
+
 function hardenTeam(team, row) {
   if (!team || !row) return team;
 
-  // V2's text referred to enabled sources. V3 counts all retained schedule sources;
+  // V2's text referred to enabled sources. V3+ counts all retained schedule sources;
   // enabled is a cadence control, not a materialization-validity predicate.
   if (team.schedule_basis === "enabled_source_missing") {
     team.schedule_basis = "schedule_source_missing";
@@ -68,6 +90,40 @@ function hardenTeam(team, row) {
       category:"schedule",
       detail:"No materialized schedule source is attached to this supported team."
     });
+  }
+
+  team.backend_team_active = row.team_active == null ? true : Boolean(number(row.team_active));
+  team.audit_source_enabled = row.audit_source_enabled == null ? null : Boolean(number(row.audit_source_enabled));
+  team.audit_source_collection_mode = row.audit_source_collection_mode || null;
+  team.enabled_source_count = number(row.enabled_source_count);
+
+  if (team.expected_target && team.backend_team_present && !team.backend_team_active) {
+    const resolution = collegeSourceResolution(row);
+    team.source_resolution = resolution;
+    addIssueOnce(team, {
+      code:"expected_team_inactive",
+      category:"inventory",
+      detail:"Expected supported team exists in production D1 but is inactive; it is not a missing team."
+    });
+    if (resolution === "pending") {
+      addIssueOnce(team, {
+        code:"college_source_pending",
+        category:"source",
+        detail:"Official/fallback authority is known, but the current target-season feed has not produced a certifiable schedule yet."
+      });
+    } else if (resolution === "blocked") {
+      addIssueOnce(team, {
+        code:"college_source_blocked",
+        category:"source",
+        detail:"The supported college team is materialized, but no server-fetchable certified production source is currently available."
+      });
+    } else {
+      addIssueOnce(team, {
+        code:"inactive_team_source_unclassified",
+        category:"source",
+        detail:"Expected team is inactive but does not match the reviewed pending/blocked college source-resolution inventory."
+      });
+    }
   }
 
   const visibleRecordDisagreement = team.records_status === "Mismatch";
@@ -88,23 +144,20 @@ function hardenTeam(team, row) {
   const standingsMethod = String(row.standings_method || "unavailable");
   if (standingsMethod === "calculated" && team.standings_status === "Complete" && team.records_status !== "Complete") {
     team.standings_status = "Unverified";
-    team.issues.push({
+    addIssueOnce(team, {
       code:"standings_depends_on_unverified_record",
       category:"standings",
       detail:"Calculated standings agree with the stored row, but the underlying record is not independently Complete."
     });
   } else if (standingsMethod === "published" && team.standings_status === "Complete") {
     team.standings_status = "Unverified";
-    team.issues.push({
+    addIssueOnce(team, {
       code:"published_standings_not_authority_reconciled",
       category:"standings",
       detail:"A materialized published standing exists, but this audit does not have an independent current authority snapshot to certify it Complete."
     });
   }
 
-  team.audit_source_enabled = row.audit_source_enabled == null ? null : Boolean(number(row.audit_source_enabled));
-  team.audit_source_collection_mode = row.audit_source_collection_mode || null;
-  team.enabled_source_count = number(row.enabled_source_count);
   return team;
 }
 
@@ -135,6 +188,9 @@ function rebuildReport(report, sourceRows) {
       level:team.level,
       sport:team.sport,
       gender:team.gender,
+      backend_team_present:team.backend_team_present,
+      backend_team_active:team.backend_team_active,
+      source_resolution:team.source_resolution || null,
       schedule_status:team.schedule_status,
       results_status:team.results_status,
       records_status:team.records_status,
@@ -165,10 +221,15 @@ function rebuildReport(report, sourceRows) {
     ["Complete","Partial","Missing","Mismatch","Unverified"].map(status => [status, (report.teams || []).filter(team => team[key] === status).length])
   );
 
-  report.audit_contract = AUDIT_CONTRACT_V3;
+  report.audit_contract = AUDIT_CONTRACT_V4;
   report.exceptions = exceptions;
   report.summary = {
     ...report.summary,
+    expected_targets_missing:(report.teams || []).filter(team => team.expected_target && !team.backend_team_present).length,
+    expected_targets_inactive:(report.teams || []).filter(team => team.expected_target && team.backend_team_present && team.backend_team_active === false).length,
+    college_source_pending:(report.teams || []).filter(team => team.expected_target && team.source_resolution === "pending").length,
+    college_source_blocked:(report.teams || []).filter(team => team.expected_target && team.source_resolution === "blocked").length,
+    inactive_source_unclassified:(report.teams || []).filter(team => team.expected_target && team.source_resolution === "unclassified").length,
     exception_teams:exceptions.length,
     clean_teams:(report.teams || []).length - exceptions.length,
     exception_counts:exceptionCounts,
@@ -182,13 +243,14 @@ function rebuildReport(report, sourceRows) {
   return report;
 }
 
-async function coverageSnapshotV3(env) {
+async function coverageSnapshotV4(env) {
   const queryResult = await env.DB.prepare(`
     WITH target_teams AS (
-      SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,t.conference_id
+      SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,t.conference_id,t.active AS team_active
       FROM teams t
       JOIN schools sch ON sch.id=t.school_id
-      WHERE t.active=1 AND t.season='${SEASON}' AND sch.catalog_scope='local'
+      WHERE t.season='${SEASON}' AND sch.catalog_scope='local'
+        AND (t.active=1 OR sch.level='college')
     ),
     dragonfly_ids AS (
       SELECT school_id,GROUP_CONCAT(UPPER(external_school_id),'|') AS dragonfly_school_ids
@@ -308,7 +370,7 @@ async function coverageSnapshotV3(env) {
       sch.city,sch.state,sch.level,
       COALESCE(NULLIF(brand.logo_url,''),NULLIF(sch.logo_url,'')) AS logo_url,
       df.dragonfly_school_ids,
-      tt.team_id,tt.sport,tt.gender,tt.season,tt.conference_id,
+      tt.team_id,tt.sport,tt.gender,tt.season,tt.conference_id,tt.team_active,
       c.name AS conference_name,c.standings_method,c.coverage_complete AS conference_coverage_complete,c.source_url AS conference_source_url,
       COALESCE(src.source_count,0) AS source_count,COALESCE(src.enabled_source_count,0) AS enabled_source_count,src.last_source_check_at,
       aus.id AS audit_source_id,aus.source_type AS audit_source_type,aus.authority_rank AS audit_source_authority_rank,
@@ -349,7 +411,7 @@ async function coverageSnapshotV3(env) {
   const report = rebuildReport(summarizeCoverageRows(visibleResults, { now:new Date() }), visibleResults);
   return {
     generated_at:new Date().toISOString(),
-    inventory_note:"Expected-team denominator is independent of D1 team presence. Schedule/result evidence includes retained statewide materializations even when their per-source collection row is disabled; unknown evidence is Unverified, never promoted to Complete.",
+    inventory_note:"Expected-team denominator is independent of D1 team presence. Present-but-inactive supported college teams are audited as inactive source-resolution exceptions, not synthesized as missing. Schedule/result evidence includes retained statewide materializations even when their per-source collection row is disabled; unknown evidence is Unverified, never promoted to Complete.",
     catalog_identity:reviewedHighSchoolIdentitySummary(),
     d1:{
       rows_read:number(queryResult.meta?.rows_read),
@@ -378,10 +440,10 @@ export default {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/api/v1/coverage-report") {
       try {
-        const report = await coverageSnapshotV3(env);
+        const report = await coverageSnapshotV4(env);
         return publicJson(request, url.searchParams.get("view") === "exceptions" ? exceptionView(report) : report);
       } catch (error) {
-        console.error("coverage report v3 failed", error);
+        console.error("coverage report v4 failed", error);
         return publicJson(request, { error:"coverage_report_failed", message:String(error?.message || error) }, 500);
       }
     }
@@ -392,4 +454,4 @@ export default {
   }
 };
 
-export { AUDIT_CONTRACT_V3, coverageSnapshotV3, rebuildReport };
+export { AUDIT_CONTRACT_V4, coverageSnapshotV4, rebuildReport, hardenTeam, collegeSourceResolution };
