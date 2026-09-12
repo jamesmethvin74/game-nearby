@@ -1,0 +1,68 @@
+name: One-shot truthful coverage audit
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/one-shot-truthful-coverage-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch one bounded production exception snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS --max-time 90 "$API/api/v1/coverage-report?view=exceptions" -o audit.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('audit.json','utf8'));
+          if (payload?.audit_contract?.rule !== 'Present is not Complete.') {
+            throw new Error(`Unexpected audit contract: ${JSON.stringify(payload?.audit_contract || null)}`);
+          }
+          if (Number(payload?.summary?.expected_team_targets) !== 1232) {
+            throw new Error(`Unexpected expected-team denominator: ${payload?.summary?.expected_team_targets}`);
+          }
+          if (Number(payload?.d1?.rows_written || 0) !== 0) {
+            throw new Error(`Audit wrote production D1 rows: ${payload.d1.rows_written}`);
+          }
+
+          const exceptions = Array.isArray(payload.exceptions) ? payload.exceptions : [];
+          const issueCounts = {};
+          const byLevelSport = {};
+          for (const item of exceptions) {
+            const key = `${item.level || 'unknown'}|${item.sport || 'unknown'}|${item.gender || 'unknown'}`;
+            byLevelSport[key] = (byLevelSport[key] || 0) + 1;
+            for (const issue of item.issues || []) issueCounts[issue.code] = (issueCounts[issue.code] || 0) + 1;
+          }
+          const notable = exceptions.filter(item => /marion|central arkansas|\buca\b/i.test(`${item.school_id} ${item.school_name}`));
+          const output = {
+            generated_at: payload.generated_at,
+            d1: payload.d1,
+            inventory: payload.inventory,
+            summary: payload.summary,
+            issue_counts: Object.fromEntries(Object.entries(issueCounts).sort((a,b)=>b[1]-a[1])),
+            exceptions_by_level_sport: Object.fromEntries(Object.entries(byLevelSport).sort((a,b)=>b[1]-a[1])),
+            notable
+          };
+          fs.writeFileSync('audit-summary.json', JSON.stringify(output, null, 2));
+          console.log(JSON.stringify(output, null, 2));
+          NODE
+
+      - name: Preserve exact audit snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: truthful-coverage-audit
+          path: |
+            audit.json
+            audit-summary.json
+          if-no-files-found: error
+          retention-days: 1
