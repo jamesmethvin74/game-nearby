@@ -27,6 +27,7 @@ test("fall volleyball probes every 30 minutes on weekday evenings and polls only
   assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(plan?.runStatewide, false);
   assert.equal(plan?.runCore, true);
+  assert.equal(plan?.runCollegeLive,false);
   assert.equal(plan?.runCatalogMaintenance, false);
   assert.equal(plan?.scope, "college-game-day");
   assert.equal(plan?.activeResultMinutes,30);
@@ -39,6 +40,7 @@ test("winter weekday evenings use cheap statewide basketball probes plus bounded
   assert.equal(plan?.runVolleyballLive,false);
   assert.equal(plan?.runStatewide,false);
   assert.equal(plan?.runCore,true);
+  assert.equal(plan?.runCollegeLive,false);
   assert.equal(plan?.scope,"college-game-day");
   assert.equal(plan?.activeResultMinutes,30);
 });
@@ -95,6 +97,7 @@ test("Saturday college plan stays scoped while volleyball tournament probes are 
   assert.equal(hourly?.runVolleyballLive, true);
   assert.deepEqual(hourly?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(hourly?.runCore, true);
+  assert.equal(hourly?.runCollegeLive,false);
 
   const halfHour = collectionPlanAt(new Date("2026-09-05T20:30:00Z"));
   assert.equal(halfHour?.runVolleyballLive, false);
@@ -117,6 +120,7 @@ test("weekly catalog maintenance is isolated to Sunday 4 AM Central", () => {
   assert.equal(plan?.kind, "weekly-catalog-maintenance");
   assert.equal(plan?.runCatalogMaintenance, true);
   assert.equal(plan?.runCore, false);
+  assert.equal(plan?.runCollegeLive,false);
   assert.equal(plan?.runVolleyballLive, false);
   assert.deepEqual(plan?.liveStatewideSports,[]);
 });
@@ -128,9 +132,10 @@ test("cadence remains correct after Central time returns to standard time", () =
   const friday=collectionPlanAt(new Date("2027-01-09T02:30:00Z"));
   assert.equal(friday?.runVolleyballLive, false);
   assert.deepEqual(friday?.liveStatewideSports,["basketball-boys","basketball-girls"]);
+  assert.equal(friday?.runCollegeLive,true);
 });
 
-test("Friday-night plan stays football-scoped and piggybacks the fall volleyball probe", () => {
+test("Friday-night plan stays football-scoped and gives college results an independent bounded pass", () => {
   const plan = collectionPlanAt(new Date("2026-09-05T03:00:00Z"));
   assert.equal(plan?.kind, "friday-football-results");
   assert.equal(plan?.scope, "football-game-day");
@@ -140,4 +145,5 @@ test("Friday-night plan stays football-scoped and piggybacks the fall volleyball
   assert.equal(plan?.runVolleyballLive, true);
   assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(plan?.runCore, true);
+  assert.equal(plan?.runCollegeLive,true);
 });
