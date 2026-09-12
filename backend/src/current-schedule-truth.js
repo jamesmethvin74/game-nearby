@@ -6,8 +6,12 @@ export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") =>
   AND instr(COALESCE(${gameAlias}.notes,''),'${DRAGONFLY_STATEWIDE_REMOVED_NOTE}')>0
 )`;
 
+export function hasRetiredStatewideMarker(game = {}) {
+  return String(game.notes || "").includes(DRAGONFLY_STATEWIDE_REMOVED_NOTE);
+}
+
 export function isRetiredStatewideObservation(game = {}, source = {}) {
   return source.collection_mode === "statewide"
     && source.parser_type === "dragonfly-public"
-    && String(game.notes || "").includes(DRAGONFLY_STATEWIDE_REMOVED_NOTE);
+    && hasRetiredStatewideMarker(game);
 }
