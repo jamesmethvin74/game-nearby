@@ -158,6 +158,19 @@ async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
   });
 }
 
+async function runCollegeLiveResultsPass({controller,env,ctx,plan}){
+  if (!plan?.runCollegeLive) return null;
+  return runScopedCadence({
+    core,env,ctx,controller,
+    plan:{
+      kind:`${plan.kind}-college-live`,
+      runCore:true,
+      scope:"college-game-day",
+      activeResultMinutes:Number(plan?.activeResultMinutes||30)
+    }
+  });
+}
+
 async function runHootensFinalResultsPass({env,plan}){
   if (!shouldRunHootensStatewideResults(plan)) return null;
   return runResilientHootensStatewideResults(env);
@@ -233,15 +246,16 @@ async function runScheduledPlan(controller,env,ctx){
 
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
+  const collegeLiveResults=await runCollegeLiveResultsPass({controller,env,ctx,plan});
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
+    if (scoped) return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,collegeLiveResults};
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,coreResult:result??null};
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,collegeLiveResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,collegeLiveResults};
 }
 
 export default {
