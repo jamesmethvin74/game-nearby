@@ -32,6 +32,10 @@ function plan(kind, options = {}) {
     runVolleyballLive: liveStatewideSports.includes("volleyball-girls"),
     liveStatewideSports,
     runCore: Boolean(options.runCore),
+    // Friday football owns the primary core scope. This flag adds a separate,
+    // independently bounded college game-day pass so neither queue steals the
+    // other's source capacity.
+    runCollegeLive: Boolean(options.runCollegeLive),
     runCatalogMaintenance: Boolean(options.runCatalogMaintenance),
     scope: options.scope || "all",
     activeResultMinutes: Number(options.activeResultMinutes || 0) || null
@@ -62,8 +66,9 @@ export function collectionPlanAt(value = new Date()) {
   }
 
   // Friday high-school/football result window: 8:30 PM Friday through 1:00 AM
-  // Saturday Central. Seasonal statewide probes piggyback without changing the
-  // football-scoped official-source cadence.
+  // Saturday Central. Seasonal statewide probes piggyback. College game-day
+  // polling gets a separate bounded pass so late college finals keep moving
+  // without reducing the football selector's capacity.
   const fridayEvening = weekday === "Fri" && (
     (hour === 20 && minute === 30) ||
     (hour >= 21 && hour <= 23 && (minute === 0 || minute === 30))
@@ -76,6 +81,7 @@ export function collectionPlanAt(value = new Date()) {
     return plan("friday-football-results", {
       liveStatewideSports: liveSportKeys({ volleyballSeason, basketballSeason }),
       runCore: true,
+      runCollegeLive: true,
       scope: "football-game-day",
       activeResultMinutes: 30
     });
