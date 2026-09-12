@@ -24,14 +24,32 @@ test("fall volleyball probes every 30 minutes on weekday evenings", () => {
 
   const plan = collectionPlanAt(new Date("2026-09-02T23:00:00Z")); // Wed 6 PM CDT
   assert.equal(plan?.runVolleyballLive, true);
+  assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(plan?.runStatewide, false);
   assert.equal(plan?.runCore, false);
   assert.equal(plan?.runCatalogMaintenance, false);
   assert.equal(plan?.scope, "volleyball-statewide");
 });
 
-test("volleyball live cadence is disabled outside the fall season", () => {
-  assert.equal(kind("2027-01-06T23:00:00Z"), null); // Wed 5 PM CST
+test("winter weekday evenings use the same cheap live path for boys and girls basketball", () => {
+  const plan = collectionPlanAt(new Date("2027-01-06T23:00:00Z")); // Wed 5 PM CST
+  assert.equal(plan?.kind,"statewide-live-results");
+  assert.deepEqual(plan?.liveStatewideSports,["basketball-boys","basketball-girls"]);
+  assert.equal(plan?.runVolleyballLive,false);
+  assert.equal(plan?.runStatewide,false);
+  assert.equal(plan?.runCore,false);
+  assert.equal(plan?.scope,"statewide-live-results");
+});
+
+test("October overlap warms basketball while retaining volleyball on one generic live plan", () => {
+  const plan = collectionPlanAt(new Date("2026-10-07T22:00:00Z")); // Wed 5 PM CDT
+  assert.equal(plan?.kind,"statewide-live-results");
+  assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls","basketball-boys","basketball-girls"]);
+  assert.equal(plan?.runVolleyballLive,true);
+});
+
+test("basketball live cadence is disabled after the configured spring season", () => {
+  assert.equal(kind("2027-04-07T22:00:00Z"), null); // Wed 5 PM CDT
 });
 
 test("Friday football runs every 30 minutes from 8:30 PM through 1 AM Central", () => {
@@ -71,11 +89,23 @@ test("Saturday college plan stays scoped while volleyball tournament probes are 
   assert.equal(hourly?.runCatalogMaintenance, false);
   assert.equal(hourly?.runStatewide, false);
   assert.equal(hourly?.runVolleyballLive, true);
+  assert.deepEqual(hourly?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(hourly?.runCore, true);
 
   const halfHour = collectionPlanAt(new Date("2026-09-05T20:30:00Z"));
   assert.equal(halfHour?.runVolleyballLive, false);
+  assert.deepEqual(halfHour?.liveStatewideSports,[]);
   assert.equal(halfHour?.runCore, true);
+});
+
+test("Saturday basketball probes piggyback on the existing college live window", () => {
+  const halfHour=collectionPlanAt(new Date("2026-11-07T18:30:00Z")); // Sat 12:30 PM CST
+  assert.equal(halfHour?.kind,"saturday-college-results");
+  assert.deepEqual(halfHour?.liveStatewideSports,["basketball-boys","basketball-girls"]);
+  assert.equal(halfHour?.runCore,true);
+
+  const hour=collectionPlanAt(new Date("2026-11-07T19:00:00Z")); // Sat 1 PM CST
+  assert.deepEqual(hour?.liveStatewideSports,["volleyball-girls","basketball-boys","basketball-girls"]);
 });
 
 test("weekly catalog maintenance is isolated to Sunday 4 AM Central", () => {
@@ -84,13 +114,16 @@ test("weekly catalog maintenance is isolated to Sunday 4 AM Central", () => {
   assert.equal(plan?.runCatalogMaintenance, true);
   assert.equal(plan?.runCore, false);
   assert.equal(plan?.runVolleyballLive, false);
+  assert.deepEqual(plan?.liveStatewideSports,[]);
 });
 
 test("cadence remains correct after Central time returns to standard time", () => {
   assert.equal(kind("2027-01-08T12:00:00Z"), "morning-results");
   assert.equal(kind("2027-01-09T02:30:00Z"), "friday-football-results");
   assert.equal(kind("2027-01-09T16:30:00Z"), "saturday-college-results");
-  assert.equal(collectionPlanAt(new Date("2027-01-09T02:30:00Z"))?.runVolleyballLive, false);
+  const friday=collectionPlanAt(new Date("2027-01-09T02:30:00Z"));
+  assert.equal(friday?.runVolleyballLive, false);
+  assert.deepEqual(friday?.liveStatewideSports,["basketball-boys","basketball-girls"]);
 });
 
 test("Friday-night plan stays football-scoped and piggybacks the fall volleyball probe", () => {
@@ -101,5 +134,6 @@ test("Friday-night plan stays football-scoped and piggybacks the fall volleyball
   assert.equal(plan?.runCatalogMaintenance, false);
   assert.equal(plan?.runStatewide, false);
   assert.equal(plan?.runVolleyballLive, true);
+  assert.deepEqual(plan?.liveStatewideSports,["volleyball-girls"]);
   assert.equal(plan?.runCore, true);
 });

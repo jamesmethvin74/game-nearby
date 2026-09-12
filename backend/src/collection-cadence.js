@@ -22,10 +22,15 @@ function localParts(value) {
 }
 
 function plan(kind, options = {}) {
+  const liveStatewideSports = [...new Set(Array.isArray(options.liveStatewideSports) ? options.liveStatewideSports : [])];
+  if (options.runVolleyballLive && !liveStatewideSports.includes("volleyball-girls")) liveStatewideSports.push("volleyball-girls");
   return {
     kind,
     runStatewide: Boolean(options.runStatewide),
-    runVolleyballLive: Boolean(options.runVolleyballLive),
+    // Retained for compatibility with the existing volleyball fallback path;
+    // generic live polling is driven by liveStatewideSports.
+    runVolleyballLive: liveStatewideSports.includes("volleyball-girls"),
+    liveStatewideSports,
     runCore: Boolean(options.runCore),
     runCatalogMaintenance: Boolean(options.runCatalogMaintenance),
     scope: options.scope || "all",
@@ -33,9 +38,19 @@ function plan(kind, options = {}) {
   };
 }
 
+function liveSportKeys({ volleyballSeason, basketballSeason }) {
+  const keys = [];
+  if (volleyballSeason) keys.push("volleyball-girls");
+  if (basketballSeason) keys.push("basketball-boys", "basketball-girls");
+  return keys;
+}
+
 export function collectionPlanAt(value = new Date()) {
   const { weekday, month, hour, minute } = localParts(value);
   const volleyballSeason = month >= 8 && month <= 11;
+  // Arkansas basketball can begin before November. Start cheap semantic probes
+  // in October so boys/girls result ingestion is already warm when games ramp up.
+  const basketballSeason = month >= 10 || month <= 3;
 
   // Weekly maintenance is intentionally isolated from ordinary result polling.
   if (weekday === "Sun" && hour === 4 && minute === 0) {
@@ -47,8 +62,8 @@ export function collectionPlanAt(value = new Date()) {
   }
 
   // Friday high-school/football result window: 8:30 PM Friday through 1:00 AM
-  // Saturday Central. During fall volleyball season the same cron tick also
-  // performs the cheap statewide semantic probe.
+  // Saturday Central. Seasonal statewide probes piggyback without changing the
+  // football-scoped official-source cadence.
   const fridayEvening = weekday === "Fri" && (
     (hour === 20 && minute === 30) ||
     (hour >= 21 && hour <= 23 && (minute === 0 || minute === 30))
@@ -59,31 +74,32 @@ export function collectionPlanAt(value = new Date()) {
   );
   if (fridayEvening || fridayLate) {
     return plan("friday-football-results", {
-      runVolleyballLive: volleyballSeason,
+      liveStatewideSports: liveSportKeys({ volleyballSeason, basketballSeason }),
       runCore: true,
       scope: "football-game-day",
       activeResultMinutes: 30
     });
   }
 
-  // Volleyball is in-season across the work week. Probe the one statewide
-  // DragonFly varsity feed every 30 minutes from 4:30 PM through 10:30 PM.
-  // The probe itself performs no D1 writes unless the semantic feed changes.
-  const volleyballWeekday = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday);
-  const volleyballEvening = volleyballSeason && volleyballWeekday && (
+  // In-season statewide live probes run every 30 minutes on weekday evenings.
+  // The probes are semantic/read-only when the provider payload is unchanged;
+  // only an actual feed change invokes the existing certified collector.
+  const weekdayEvening = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday) && (
     (hour === 16 && minute === 30) ||
     (hour >= 17 && hour <= 22 && (minute === 0 || minute === 30))
   );
-  if (volleyballEvening) {
-    return plan("volleyball-live-results", {
-      runVolleyballLive: true,
-      scope: "volleyball-statewide"
+  const eveningLiveKeys = liveSportKeys({ volleyballSeason, basketballSeason });
+  if (weekdayEvening && eveningLiveKeys.length) {
+    const volleyballOnly = eveningLiveKeys.length === 1 && eveningLiveKeys[0] === "volleyball-girls";
+    return plan(volleyballOnly ? "volleyball-live-results" : "statewide-live-results", {
+      liveStatewideSports: eveningLiveKeys,
+      scope: volleyballOnly ? "volleyball-statewide" : "statewide-live-results"
     });
   }
 
   // Saturday is the college-heavy live-update day. Keep the existing 30-minute
-  // college source polling, while checking statewide volleyball hourly during
-  // fall tournament season. No catalog/GIS/branding maintenance runs here.
+  // college source polling. Basketball statewide probes run every tick in season;
+  // fall volleyball remains hourly during tournament season.
   const saturdayCollege = weekday === "Sat" && (
     (hour === 10 && minute === 30) ||
     (hour >= 11 && hour <= 23 && (minute === 0 || minute === 30))
@@ -93,8 +109,11 @@ export function collectionPlanAt(value = new Date()) {
     (hour === 1 && minute === 0)
   );
   if (saturdayCollege || saturdayLate) {
+    const liveStatewideSports = [];
+    if (volleyballSeason && minute === 0) liveStatewideSports.push("volleyball-girls");
+    if (basketballSeason) liveStatewideSports.push("basketball-boys", "basketball-girls");
     return plan("saturday-college-results", {
-      runVolleyballLive: volleyballSeason && minute === 0,
+      liveStatewideSports,
       runCore: true,
       scope: "college-game-day",
       activeResultMinutes: 30
@@ -128,4 +147,4 @@ export function collectionPlanAt(value = new Date()) {
   return null;
 }
 
-export { TIME_ZONE };
+export { TIME_ZONE, liveSportKeys };
