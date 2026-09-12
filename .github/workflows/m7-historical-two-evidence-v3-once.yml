@@ -1,0 +1,44 @@
+name: M7 historical two-case evidence v3 once
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/m7-historical-two-evidence-v3-once.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prove V3 deployment then read exact historical cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER="$BASE/api/v1/internal/m7-historical-two-version-6f9c12aa"
+          EVIDENCE="$BASE/api/v1/internal/m7-historical-two-evidence-6f9c12aa"
+          code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$MARKER")
+          echo "marker HTTP=$code"
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./marker.json');
+          console.log('MARKER='+JSON.stringify(r));
+          if(r.marker!=='m7-historical-two-v3-b256a614') throw new Error(`Unexpected marker ${r.marker}`);
+          if(r.d1_access!==false) throw new Error('Marker did not prove d1_access=false');
+          NODE
+          code=$(curl -sS --max-time 120 -o evidence.json -w '%{http_code}' "$EVIDENCE")
+          echo "evidence HTTP=$code"
+          cat evidence.json
+          echo
+          test "$code" = "200"
+          node <<'NODE'
+          const r=require('./evidence.json');
+          console.log('HISTORICAL_TWO_V3='+JSON.stringify(r));
+          if(Number(r.d1?.rows_written||0)!==0) throw new Error(`Evidence wrote ${r.d1?.rows_written}`);
+          if(Number(r.d1?.rows_read||0)>20000) throw new Error(`Read fuse exceeded ${r.d1?.rows_read}`);
+          NODE
