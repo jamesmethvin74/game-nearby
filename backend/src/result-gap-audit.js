@@ -25,13 +25,19 @@ function number(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function evidenceValue(team, key) {
+  if (team?.[key] != null) return team[key];
+  if (team?.evidence?.[key] != null) return team.evidence[key];
+  return null;
+}
+
 function issueCodes(team) {
   return new Set((team?.issues || []).map(issue => issue.code).filter(Boolean));
 }
 
 function sourceProvider(team) {
-  const id = String(team?.audit_source_id || "").toLowerCase();
-  const type = String(team?.audit_source_type || "").toLowerCase();
+  const id = String(evidenceValue(team,"audit_source_id") || "").toLowerCase();
+  const type = String(evidenceValue(team,"audit_source_type") || "").toLowerCase();
   const haystack = `${id} ${type}`;
   for (const provider of ["dragonfly","hootens","maxpreps","prestosports","presto","sidearm","rankone"]) {
     if (haystack.includes(provider)) return provider === "presto" ? "prestosports" : provider;
@@ -40,11 +46,11 @@ function sourceProvider(team) {
 }
 
 function authorityState(team, codes = issueCodes(team)) {
-  if (team?.source_resolution === "blocked" || codes.has("college_source_blocked")) return "blocked";
-  if (team?.source_resolution === "pending" || codes.has("college_source_pending")) return "pending";
+  if (team?.source_resolution === "blocked" || codes.has("college_source_blocked") || codes.has("source_resolution_blocked")) return "blocked";
+  if (team?.source_resolution === "pending" || codes.has("college_source_pending") || codes.has("source_resolution_pending")) return "pending";
   if ([...IDENTITY_BLOCKING_CODES].some(code => codes.has(code))) return "identity-blocked";
-  if (!team?.backend_team_present) return "team-missing";
-  if (!team?.audit_source_id) return "source-missing";
+  if (team?.backend_team_present === false) return "team-missing";
+  if (!evidenceValue(team,"audit_source_id")) return "source-missing";
   if (codes.has("source_collection_failures") || codes.has("schedule_source_stale")) return "degraded";
   if (team?.schedule_status === "Complete") return "available";
   return "unverified";
@@ -52,8 +58,8 @@ function authorityState(team, codes = issueCodes(team)) {
 
 function exceptionTypes(team) {
   const types = [];
-  const unresolved = number(team?.unresolved_due_count);
-  const missingScore = number(team?.final_missing_score_count);
+  const unresolved = number(evidenceValue(team,"unresolved_due_count"));
+  const missingScore = number(evidenceValue(team,"final_missing_score_count"));
   if (unresolved > 0) types.push("past_due_unresolved");
   if (missingScore > 0) types.push("final_missing_score");
   if (!unresolved && !missingScore && team?.results_status !== "Complete") types.push("result_coverage_unverified");
@@ -86,17 +92,17 @@ function workItem(team) {
     season:team.season || "2026",
     priority:SPORT_PRIORITY[team.sport] || 9,
     source_provider:sourceProvider(team),
-    source_type:team.audit_source_type || null,
-    source_id:team.audit_source_id || null,
+    source_type:evidenceValue(team,"audit_source_type"),
+    source_id:evidenceValue(team,"audit_source_id"),
     source_resolution:team.source_resolution || null,
     authority_state:authorityState(team,codes),
     schedule_status:team.schedule_status,
     results_status:team.results_status,
     records_status:team.records_status,
-    result_due_count:number(team.result_due_count),
-    resolved_result_count:number(team.resolved_result_count),
-    unresolved_due_count:number(team.unresolved_due_count),
-    final_missing_score_count:number(team.final_missing_score_count),
+    result_due_count:number(evidenceValue(team,"result_due_count")),
+    resolved_result_count:number(evidenceValue(team,"resolved_result_count")),
+    unresolved_due_count:number(evidenceValue(team,"unresolved_due_count")),
+    final_missing_score_count:number(evidenceValue(team,"final_missing_score_count")),
     exception_types:exceptionTypes(team),
     causes:relevantCauses(team)
   };
@@ -125,12 +131,26 @@ function dimension(items, key, { explode = false } = {}) {
     .sort((a,b) => b.teams-a.teams || a.value.localeCompare(b.value));
 }
 
+function supportedRows(report) {
+  if (Array.isArray(report?.teams)) {
+    return report.teams.filter(team => team.coverage_scope === "supported");
+  }
+  // Saved/read-only `view=exceptions` artifacts intentionally omit the full team
+  // array. In truthful-coverage-v5+ the `exceptions` array is already scoped to
+  // supported teams; older approved artifacts predate coverage_scope but still
+  // contain only the auditable exception rows that were captured at that time.
+  if (Array.isArray(report?.exceptions)) {
+    return report.exceptions.filter(team => team.coverage_scope !== "production-only");
+  }
+  return [];
+}
+
 export function buildResultGapAudit(report = {}) {
-  const supported = (report.teams || []).filter(team => team.coverage_scope === "supported");
+  const supported = supportedRows(report);
   const items = supported
     .filter(team => team.results_status !== "Complete" || team.records_status === "Mismatch" || exceptionTypes(team).includes("identity_blocker"))
     .map(workItem)
-    .sort((a,b) => a.priority-b.priority || b.unresolved_due_count-a.unresolved_due_count || a.school_name.localeCompare(b.school_name) || a.team_id.localeCompare(b.team_id));
+    .sort((a,b) => a.priority-b.priority || b.unresolved_due_count-a.unresolved_due_count || String(a.school_name||"").localeCompare(String(b.school_name||"")) || String(a.team_id||"").localeCompare(String(b.team_id||"")));
 
   const dueGapTeams = items.filter(item => item.unresolved_due_count > 0 || item.final_missing_score_count > 0);
   const coverageUnverified = items.filter(item => item.exception_types.includes("result_coverage_unverified"));
@@ -147,7 +167,8 @@ export function buildResultGapAudit(report = {}) {
     },
     d1:report.d1 || null,
     summary:{
-      supported_teams:supported.length,
+      supported_rows_examined:supported.length,
+      input_view:Array.isArray(report?.teams)?"full":"exceptions",
       result_gap_teams:items.length,
       due_gap_teams:dueGapTeams.length,
       unresolved_due_contests:items.reduce((sum,item)=>sum+item.unresolved_due_count,0),
@@ -166,4 +187,4 @@ export function buildResultGapAudit(report = {}) {
   };
 }
 
-export { authorityState, exceptionTypes, sourceProvider };
+export { authorityState, exceptionTypes, sourceProvider, supportedRows };
