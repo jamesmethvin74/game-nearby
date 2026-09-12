@@ -3,7 +3,7 @@ name: M7 final closeout v3 one-shot execute
 on:
   push:
     branches:
-      - m7/final-closeout-v3-http
+      - m7/final-closeout-execute-http
 
 jobs:
   execute-once:
@@ -19,35 +19,22 @@ jobs:
           EXECUTE="$BASE/api/v1/internal/m7-final-three-execute-e4b7c631"
 
           code=$(curl -sS --max-time 30 -o marker.json -w '%{http_code}' "$MARKER")
-          echo "marker HTTP=$code"
-          cat marker.json; echo
           test "$code" = "200"
-          node <<'NODE'
-          const r=require('./marker.json');
-          if(r.marker!=='m7-final-three-corrections-v3-a61d8f2c') throw new Error(`Unexpected marker ${r.marker}`);
-          if(r.d1_access!==false) throw new Error('Marker did not prove d1_access=false');
-          NODE
+          node -e "const r=require('./marker.json'); if(r.marker!=='m7-final-three-corrections-v3-a61d8f2c'||r.d1_access!==false) throw new Error(JSON.stringify(r));"
 
           code=$(curl -sS --max-time 60 -o before.json -w '%{http_code}' "$PLAN")
-          echo "preflight HTTP=$code"
-          cat before.json; echo
           test "$code" = "200"
           node <<'NODE'
           const r=require('./before.json');
-          if(r.fingerprint!=='m7-final-three-corrections-v3') throw new Error(`Unexpected fingerprint ${r.fingerprint}`);
-          if(r.safe!==true) throw new Error(`Unsafe preflight: ${JSON.stringify(r.reasons)}`);
-          if(Number(r.d1?.rows_written||0)!==0 || Number(r.d1?.rows_read||0)>5000) throw new Error(`Unsafe D1 preflight ${JSON.stringify(r.d1)}`);
-          if(r.false_action!=='delete_false_event') throw new Error(`Expected false delete, got ${r.false_action}`);
-          if(r.batesville_action!=='create_secondary_observation') throw new Error(`Expected Batesville create, got ${r.batesville_action}`);
-          for (const k of ['pea_providence_action','providence_pea_action','harrison_valley_action','valley_harrison_action']) {
-            if(r[k]!=='already_attached') throw new Error(`${k}=${r[k]}`);
-          }
-          console.log('EXECUTION_PREFLIGHT_OK='+JSON.stringify(r));
+          if(r.fingerprint!=='m7-final-three-corrections-v3'||r.safe!==true) throw new Error(`Unsafe preflight ${JSON.stringify(r)}`);
+          if(Number(r.d1?.rows_written||0)!==0||Number(r.d1?.rows_read||0)>5000) throw new Error(`Bad D1 preflight ${JSON.stringify(r.d1)}`);
+          if(r.false_action!=='delete_false_event'||r.batesville_action!=='create_secondary_observation') throw new Error(`Unexpected actions ${r.false_action}/${r.batesville_action}`);
+          for(const k of ['pea_providence_action','providence_pea_action','harrison_valley_action','valley_harrison_action']) if(r[k]!=='already_attached') throw new Error(`${k}=${r[k]}`);
+          console.log('PRE_OK='+JSON.stringify(r));
           NODE
 
-          # Exactly one POST. There is deliberately no retry loop around this request.
-          code=$(curl -sS --max-time 120 -X POST \
-            -H 'content-type: application/json' \
+          # Exactly one POST; intentionally no retry loop.
+          code=$(curl -sS --max-time 120 -X POST -H 'content-type: application/json' \
             --data '{"fingerprint":"m7-final-three-corrections-v3"}' \
             -o execute.json -w '%{http_code}' "$EXECUTE")
           echo "execute HTTP=$code"
@@ -55,71 +42,40 @@ jobs:
           test "$code" = "200"
           node <<'NODE'
           const r=require('./execute.json');
-          if(r.status!=='SUCCESS') throw new Error(`Execution status ${r.status}`);
-          if(r.fingerprint!=='m7-final-three-corrections-v3') throw new Error(`Execution fingerprint ${r.fingerprint}`);
-          if(r.verification?.verified!==true || r.verification?.false_canonical_removed!==true) throw new Error('Execution verification failed');
-          if(r.verification?.pea_providence?.ok!==true) throw new Error('Pea/Providence verify failed');
-          if(r.verification?.harrison_valley?.ok!==true) throw new Error('Harrison/Valley verify failed');
-          if(r.verification?.mountain_home_batesville?.ok!==true) throw new Error('Mountain Home/Batesville verify failed');
-          if(Number(r.record_result?.teams||0)!==4) throw new Error(`Expected four record rebuilds, got ${r.record_result?.teams}`);
+          if(r.status!=='SUCCESS'||r.fingerprint!=='m7-final-three-corrections-v3') throw new Error(`Execution failed ${JSON.stringify(r)}`);
+          if(r.verification?.verified!==true||r.verification?.false_canonical_removed!==true) throw new Error('Execution verification failed');
+          for(const k of ['pea_providence','harrison_valley','mountain_home_batesville']) if(r.verification?.[k]?.ok!==true) throw new Error(`${k} verification failed`);
+          if(Number(r.record_result?.teams||0)!==4) throw new Error(`Record rebuild count ${r.record_result?.teams}`);
           console.log('EXECUTION_OK='+JSON.stringify(r));
           NODE
 
           code=$(curl -sS --max-time 60 -o after.json -w '%{http_code}' "$PLAN")
-          echo "post-plan HTTP=$code"
-          cat after.json; echo
           test "$code" = "200"
           node <<'NODE'
           const r=require('./after.json');
-          if(r.safe!==true) throw new Error(`Post-plan unsafe: ${JSON.stringify(r.reasons)}`);
-          if(Number(r.d1?.rows_written||0)!==0 || Number(r.d1?.rows_read||0)>5000) throw new Error(`Unsafe post-plan D1 ${JSON.stringify(r.d1)}`);
-          if(r.false_action!=='already_removed') throw new Error(`False canonical still actionable: ${r.false_action}`);
-          if(r.batesville_action!=='already_attached') throw new Error(`Batesville not attached: ${r.batesville_action}`);
-          for (const k of ['pea_providence_action','providence_pea_action','harrison_valley_action','valley_harrison_action']) {
-            if(r[k]!=='already_attached') throw new Error(`${k}=${r[k]}`);
-          }
-          console.log('POST_PLAN_OK='+JSON.stringify(r));
+          if(r.safe!==true||Number(r.d1?.rows_written||0)!==0||Number(r.d1?.rows_read||0)>5000) throw new Error(`Unsafe postflight ${JSON.stringify(r)}`);
+          if(r.false_action!=='already_removed'||r.batesville_action!=='already_attached') throw new Error(`Post state wrong ${JSON.stringify(r)}`);
+          for(const k of ['pea_providence_action','providence_pea_action','harrison_valley_action','valley_harrison_action']) if(r[k]!=='already_attached') throw new Error(`${k}=${r[k]}`);
+          console.log('POST_OK='+JSON.stringify(r));
           NODE
 
-          for team in \
-            df-7x4sxh-volleyball-2026 \
-            df-ht8yyh-volleyball-2026 \
-            df-dxgr8r-volleyball-2026 \
-            df-rpnt3m-volleyball-2026; do
+          for team in df-7x4sxh-volleyball-2026 df-ht8yyh-volleyball-2026 df-dxgr8r-volleyball-2026 df-rpnt3m-volleyball-2026; do
             curl -fsS --max-time 60 "$BASE/api/v1/teams/$team/schedule" -o "$team.json"
           done
-
           node <<'NODE'
-          const fs=require('fs');
-          const load=id=>JSON.parse(fs.readFileSync(`${id}.json`,'utf8'));
-          const pea=load('df-7x4sxh-volleyball-2026');
-          const har=load('df-ht8yyh-volleyball-2026');
-          const mh=load('df-dxgr8r-volleyball-2026');
-          const bat=load('df-rpnt3m-volleyball-2026');
-          const games=p=>Array.isArray(p.games)?p.games:[];
-          const final=(p,pred)=>games(p).find(g=>g.status==='FINAL'&&pred(g));
-          const cid={
-            pea:'ce:volleyball:girls:2026:df-7x4sxh:df-k7ketx:20260824:df-69b361f98d3c020536000002',
-            har:'ce:volleyball:girls:2026:df-ht8yyh:df-t5drr3:20260824:df-697285d2b5fdd10017000004',
-            mhb:'ce:volleyball:girls:2026:df-dxgr8r:df-rpnt3m:20260903:t1830',
-            bad:'ce:volleyball:girls:2026:df-7x4sxh:df-ht8yyh:20260824:t1800'
-          };
-          if(games(pea).some(g=>g.canonical_event_id===cid.bad)) throw new Error('False Pea/Harrison canonical still in Pea schedule');
-          if(games(har).some(g=>g.canonical_event_id===cid.bad)) throw new Error('False Pea/Harrison canonical still in Harrison schedule');
-          const pp=final(pea,g=>g.canonical_event_id===cid.pea && Number(g.team_score)===2 && Number(g.opponent_score)===3);
-          if(!pp) throw new Error('Pea Ridge 2-3 Providence missing');
-          const hv=final(har,g=>g.canonical_event_id===cid.har && Number(g.team_score)===3 && Number(g.opponent_score)===0);
-          if(!hv) throw new Error('Harrison 3-0 Valley Springs missing');
-          const m=final(mh,g=>g.canonical_event_id===cid.mhb && Number(g.team_score)===3 && Number(g.opponent_score)===0);
-          const b=final(bat,g=>g.canonical_event_id===cid.mhb && Number(g.team_score)===0 && Number(g.opponent_score)===3);
-          if(!m || !b) throw new Error('Mountain Home/Batesville reciprocal schedule proof failed');
-          for(const [name,p] of [['Pea Ridge',pea],['Harrison',har],['Mountain Home',mh],['Batesville',bat]]){
-            if(!p.record) throw new Error(`${name} schedule missing record`);
-          }
-          console.log('PUBLIC_VERIFY_OK='+JSON.stringify({
-            pea_providence:{scheduled_at:pp.scheduled_at,score:[pp.team_score,pp.opponent_score],canonical_event_id:pp.canonical_event_id},
-            harrison_valley:{scheduled_at:hv.scheduled_at,score:[hv.team_score,hv.opponent_score],canonical_event_id:hv.canonical_event_id},
-            mountain_home_batesville:{mountain_home:[m.team_score,m.opponent_score],batesville:[b.team_score,b.opponent_score],canonical_event_id:b.canonical_event_id},
-            records:{pea:pea.record,harrison:har.record,mountain_home:mh.record,batesville:bat.record}
-          }));
+          const fs=require('fs'), load=id=>JSON.parse(fs.readFileSync(`${id}.json`,'utf8'));
+          const pea=load('df-7x4sxh-volleyball-2026'), har=load('df-ht8yyh-volleyball-2026'), mh=load('df-dxgr8r-volleyball-2026'), bat=load('df-rpnt3m-volleyball-2026');
+          const games=p=>Array.isArray(p.games)?p.games:[], final=(p,pred)=>games(p).find(g=>g.status==='FINAL'&&pred(g));
+          const bad='ce:volleyball:girls:2026:df-7x4sxh:df-ht8yyh:20260824:t1800';
+          const pc='ce:volleyball:girls:2026:df-7x4sxh:df-k7ketx:20260824:df-69b361f98d3c020536000002';
+          const hc='ce:volleyball:girls:2026:df-ht8yyh:df-t5drr3:20260824:df-697285d2b5fdd10017000004';
+          const bc='ce:volleyball:girls:2026:df-dxgr8r:df-rpnt3m:20260903:t1830';
+          if(games(pea).some(g=>g.canonical_event_id===bad)||games(har).some(g=>g.canonical_event_id===bad)) throw new Error('False canonical remains public');
+          const pp=final(pea,g=>g.canonical_event_id===pc&&Number(g.team_score)===2&&Number(g.opponent_score)===3);
+          const hv=final(har,g=>g.canonical_event_id===hc&&Number(g.team_score)===3&&Number(g.opponent_score)===0);
+          const m=final(mh,g=>g.canonical_event_id===bc&&Number(g.team_score)===3&&Number(g.opponent_score)===0);
+          const b=final(bat,g=>g.canonical_event_id===bc&&Number(g.team_score)===0&&Number(g.opponent_score)===3);
+          if(!pp||!hv||!m||!b) throw new Error('Public schedule proof failed');
+          for(const [n,p] of [['pea',pea],['harrison',har],['mountain_home',mh],['batesville',bat]]) if(!p.record) throw new Error(`${n} record missing`);
+          console.log('PUBLIC_VERIFY_OK='+JSON.stringify({pea_providence:pp,harrison_valley:hv,mountain_home_batesville:{mountain_home:m,batesville:b},records:{pea:pea.record,harrison:har.record,mountain_home:mh.record,batesville:bat.record}}));
           NODE
