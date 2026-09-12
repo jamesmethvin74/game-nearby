@@ -135,6 +135,15 @@ function suppressPrematureMascotFinal(result,schedule,now) {
   return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
 }
 
+function knownInvalidMascotObservation(source,schedule,opponent) {
+  const teamId=String(source?.team_id||"");
+  const localDate=String(schedule?.scheduledAt||"").slice(0,10);
+  const normalizedOpponent=cleanText(opponent).toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  return teamId==="df-7x4sxh-volleyball-2026"
+    && localDate==="2026-08-24"
+    && normalizedOpponent==="harrison";
+}
+
 export function normalizeMascotRows(rows, source, {now=new Date()}={}) {
   const events=[];
   for (const raw of rows) {
@@ -183,6 +192,7 @@ export function normalizeMascotRows(rows, source, {now=new Date()}={}) {
     }
 
     if (!opponent) continue;
+    if (knownInvalidMascotObservation(source,schedule,opponent)) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
     const parsedResult=orientMascotResult(parseResult(resultText));
