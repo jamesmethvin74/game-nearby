@@ -1,8 +1,9 @@
 import app from "./coverage-report-worker.js";
 
-const RELEASE = "public-read-resilient-v3";
+const RELEASE = "public-read-resilient-v4";
 const CORS_MARKER = "public-get-v3";
 const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v7-browser-pinned";
+const COVERAGE_CACHE_VERSION = "truthful-v2";
 const DIRECT_LOGO_OVERRIDES = new Map([
   ["df-6blldr", "https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png"],
   ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
@@ -85,7 +86,11 @@ function cacheDescriptor(request) {
     const key = `/schools/${SCHOOL_CATALOG_CACHE_VERSION}`;
     return descriptor(origin, key, 5 * 60, 6 * 60 * 60, key);
   }
-  if (path === "/api/v1/coverage-report") return descriptor(origin, "/coverage-report", 6 * 60 * 60, 48 * 60 * 60);
+  if (path === "/api/v1/coverage-report") {
+    const view = encodeURIComponent(String(url.searchParams.get("view") || "full"));
+    const key = `/coverage-report/${COVERAGE_CACHE_VERSION}?view=${view}`;
+    return descriptor(origin, key, 60 * 60, 24 * 60 * 60, key);
+  }
   if (path === "/api/v1/games") {
     const lat = rounded(url.searchParams.get("lat"));
     const lon = rounded(url.searchParams.get("lon"));
@@ -182,4 +187,4 @@ export default {
   async scheduled(controller, env, ctx) { return app.scheduled(controller, env, ctx); }
 };
 
-export { DIRECT_LOGO_OVERRIDES, SCHOOL_CATALOG_CACHE_VERSION, cacheDescriptor, rewriteSchoolCatalogLogos };
+export { COVERAGE_CACHE_VERSION, DIRECT_LOGO_OVERRIDES, SCHOOL_CATALOG_CACHE_VERSION, cacheDescriptor, rewriteSchoolCatalogLogos };
