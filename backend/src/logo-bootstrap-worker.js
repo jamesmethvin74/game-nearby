@@ -7,6 +7,7 @@ import { diagnoseM7AttachmentGaps } from "./m7-attachment-gap-diagnostic.js";
 import { readM7FiveGapEvidence } from "./m7-five-gap-evidence.js";
 import { readM7HistoricalTwoEvidence } from "./m7-historical-two-evidence.js";
 import { planM7PrematureFinalRepair, executeM7PrematureFinalRepair, planM7PrematureFinalRecordRecovery, executeM7PrematureFinalRecordRecovery } from "./m7-premature-final-repair.js";
+import { planM7FinalTwoRepair, executeM7FinalTwoRepair } from "./m7-final-two-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -28,6 +29,10 @@ export const M7_PREMATURE_RECORD_MARKER = "m7-pea-ridge-record-recovery-v1-37f29
 export const M7_HISTORICAL_TWO_VERSION_PATH = "/api/v1/internal/m7-historical-two-version-6f9c12aa";
 export const M7_HISTORICAL_TWO_EVIDENCE_PATH = "/api/v1/internal/m7-historical-two-evidence-6f9c12aa";
 export const M7_HISTORICAL_TWO_MARKER = "m7-historical-two-v3-b256a614";
+export const M7_FINAL_TWO_VERSION_PATH = "/api/v1/internal/m7-final-two-version-76d5f110";
+export const M7_FINAL_TWO_PLAN_PATH = "/api/v1/internal/m7-final-two-plan-76d5f110";
+export const M7_FINAL_TWO_EXECUTE_PATH = "/api/v1/internal/m7-final-two-execute-76d5f110";
+export const M7_FINAL_TWO_MARKER = "m7-final-two-repair-v1-945b2087";
 export const M7_ATTACHMENT_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
@@ -128,6 +133,21 @@ export default {
       if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
       try { return privateJson(await readM7HistoricalTwoEvidence(env)); }
       catch (error) { return privateJson({ error:"m7_historical_two_evidence_failed", message:String(error?.message || error) }, 500); }
+    }
+    if (request.method === "GET" && path === M7_FINAL_TWO_VERSION_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      return privateJson({ marker:M7_FINAL_TWO_MARKER, d1_access:false });
+    }
+    if (request.method === "GET" && path === M7_FINAL_TWO_PLAN_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      try { return privateJson(await planM7FinalTwoRepair(env)); }
+      catch (error) { return privateJson({ error:"m7_final_two_plan_failed", message:String(error?.message || error) }, 500); }
+    }
+    if (request.method === "POST" && path === M7_FINAL_TWO_EXECUTE_PATH) {
+      if (Date.now() > M7_ATTACHMENT_EXPIRES_AT) return privateJson({ error:"not_found" }, 404);
+      const input=await options(request);
+      try { return privateJson(await executeM7FinalTwoRepair(env,{fingerprint:input.fingerprint})); }
+      catch (error) { return privateJson({ error:"m7_final_two_execute_failed", message:String(error?.message || error) }, 409); }
     }
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
     const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
