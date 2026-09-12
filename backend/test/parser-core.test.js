@@ -16,6 +16,17 @@ test("parses real UCA-style final tie and derives score",()=>{
   assert.equal(game.countsForRecord,1);
 });
 
+test("classic Sidearm basketball rolls spring academic-season dates into the next calendar year",()=>{
+  const basketball={...source,sport:"basketball",gender:"men",home_venue:"Farris Center"};
+  const rows=[
+    {date:"Nov 12 (Thu) 7:00 P.M.",opponentName:"Little Rock",opponentText:"vs Little Rock",location:"Farris Center",result:"",full:"Nov 12 (Thu) 7:00 P.M. vs Little Rock Farris Center"},
+    {date:"Jan 9 (Sat) 7:00 P.M.",opponentName:"Eastern Kentucky",opponentText:"vs Eastern Kentucky",location:"Farris Center",result:"",full:"Jan 9 (Sat) 7:00 P.M. vs Eastern Kentucky Farris Center"}
+  ];
+  const [fall,spring]=normalizeSidearmRows(rows,basketball);
+  assert.match(fall.scheduledAt,/^2026-11-13T01:00:00\.000Z$/);
+  assert.match(spring.scheduledAt,/^2027-01-10T01:00:00\.000Z$/);
+});
+
 test("exhibitions do not count toward record",()=>{
   const rows=[{date:"Aug 15 (Sat) 7 P.M.",opponentName:"Memphis",opponentText:"vs Memphis",location:"Bill Stephens Track/Soccer Complex",result:"",full:"Aug 15 (Sat) 7 P.M. vs Memphis Exhibition"}];
   const [game]=normalizeSidearmRows(rows,source);
