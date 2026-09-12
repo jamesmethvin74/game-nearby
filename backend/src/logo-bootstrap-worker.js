@@ -4,11 +4,13 @@ import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-lo
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { planFinalMissingScoreRepair, executeFinalMissingScoreRepair } from "./final-missing-score-repair.js";
+import { readFinalMissingScoreEvidence } from "./final-missing-score-evidence.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
 export const LOGO_BOOTSTRAP_READY_PATH = "/api/v1/content/logo-bootstrap/ready";
 export const FINAL_MISSING_SCORE_PLAN_PATH = "/api/v1/internal/final-missing-score-plan-20260912-4fd5a1c7";
+export const FINAL_MISSING_SCORE_EVIDENCE_PATH = "/api/v1/internal/final-missing-score-evidence-20260912-4fd5a1c7";
 export const FINAL_MISSING_SCORE_EXECUTE_PATH = "/api/v1/internal/final-missing-score-execute-20260912-4fd5a1c7";
 export const FINAL_MISSING_SCORE_EXPIRES_AT = Date.parse("2026-09-19T05:00:00Z");
 
@@ -57,6 +59,10 @@ export default {
     if (Date.now() <= FINAL_MISSING_SCORE_EXPIRES_AT && request.method === "GET" && path === FINAL_MISSING_SCORE_PLAN_PATH) {
       try { return privateJson(await planFinalMissingScoreRepair(env)); }
       catch (error) { return privateJson({ error:"final_missing_score_plan_failed", message:String(error?.message || error) }, 500); }
+    }
+    if (Date.now() <= FINAL_MISSING_SCORE_EXPIRES_AT && request.method === "GET" && path === FINAL_MISSING_SCORE_EVIDENCE_PATH) {
+      try { return privateJson(await readFinalMissingScoreEvidence(env)); }
+      catch (error) { return privateJson({ error:"final_missing_score_evidence_failed", message:String(error?.message || error) }, 500); }
     }
     if (Date.now() <= FINAL_MISSING_SCORE_EXPIRES_AT && request.method === "POST" && path === FINAL_MISSING_SCORE_EXECUTE_PATH) {
       const input = await options(request);
