@@ -1,0 +1,63 @@
+name: One-shot final missing score audit
+
+on:
+  pull_request:
+    branches: [feature/live-sports-pipeline-m1]
+
+jobs:
+  audit:
+    if: github.head_ref == 'audit/final-missing-score-targets-20260912'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch four exact team schedules and extract missing-score finals
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          mkdir -p final-score-audit
+          teams=(
+            df-7kza8c-volleyball-2026
+            df-qgka87-volleyball-2026
+            df-cqpax3-volleyball-2026
+            df-8pkud7-volleyball-2026
+          )
+          : > final-score-audit/candidates.ndjson
+          for team in "${teams[@]}"; do
+            curl --fail --silent --show-error \
+              -H 'x-localbleachers-diagnostic: final-score-target-audit' \
+              "$BASE/api/v1/teams/$team/schedule" \
+              -o "final-score-audit/$team.json"
+            jq -c --arg team "$team" '
+              .games[]
+              | select(.status == "FINAL" and ((.team_score == null) or (.opponent_score == null)))
+              | {
+                  team_id:$team,
+                  game_id:.id,
+                  canonical_event_id:(.canonical_event_id // null),
+                  opponent:(.opponent // null),
+                  opponent_school_id:(.opponent_school_id // null),
+                  scheduled_at:(.scheduled_at // null),
+                  home_away:(.home_away // null),
+                  status:.status,
+                  team_score:(.team_score // null),
+                  opponent_score:(.opponent_score // null),
+                  result:(.result // null),
+                  source_id:(.source_id // null),
+                  source_type:(.source_type // null),
+                  parser_type:(.parser_type // null),
+                  source_url:(.source_url // null),
+                  notes:(.notes // null)
+                }
+            ' "final-score-audit/$team.json" >> final-score-audit/candidates.ndjson
+          done
+          echo '=== MISSING-SCORE FINAL CANDIDATES ==='
+          cat final-score-audit/candidates.ndjson
+          test "$(wc -l < final-score-audit/candidates.ndjson)" -eq 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: final-missing-score-targets
+          path: final-score-audit/
+          retention-days: 1
