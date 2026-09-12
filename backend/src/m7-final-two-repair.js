@@ -25,9 +25,25 @@ function rw(x){return Number(x?.meta?.rows_written||0);}
 function norm(v){return String(v||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();}
 function one(rows,pred){const out=(rows||[]).filter(pred);return out.length===1?out[0]:null;}
 function matchesName(name,aliases){const n=norm(name);return aliases.some(a=>n===a||n.startsWith(`${a} `));}
+function resolveSchoolTeam(rows,aliases){const matches=rows.filter(r=>matchesName(r.name,aliases));return matches.length===1?matches[0]:null;}
+function findCandidate(rows,teamId,{teamScore,opponentScore,opponentNames}){
+  if(!teamId) return {one:null};
+  const matches=rows.filter(r=>r.team_id===teamId&&r.status==="FINAL"&&Number(r.team_score)===teamScore&&Number(r.opponent_score)===opponentScore&&opponentNames.some(n=>norm(r.opponent).includes(n)));
+  return matches.length>1?{multiple:matches}:{one:matches[0]||null};
+}
 
 async function loadState(env){
-  const [falseRows,trueRows,schoolTeams,augGames,batesDay,conflicts]=await env.DB.batch([
+  const schoolTeams=await env.DB.prepare(`SELECT s.id AS school_id,s.name,t.id AS team_id
+    FROM teams t JOIN schools s ON s.id=t.school_id
+    WHERE t.sport='volleyball' AND t.gender='girls' AND t.season='2026' AND t.active=1 AND s.state='AR'
+    ORDER BY s.name,t.id`).all();
+  const schoolRows=schoolTeams.results||[];
+  const providence=resolveSchoolTeam(schoolRows,["providence academy","providence"]);
+  const valley=resolveSchoolTeam(schoolRows,["valley springs","valley springs high school"]);
+  const providenceTeam=providence?.team_id||"__missing_providence__";
+  const valleyTeam=valley?.team_id||"__missing_valley__";
+
+  const [falseRows,trueRows,augGames,batesDay,conflicts]=await env.DB.batch([
     env.DB.prepare(`SELECT ce.id,ce.status AS canonical_status,ce.scheduled_at AS canonical_scheduled_at,
       ce.home_school_id,ce.away_school_id,ce.home_score,ce.away_score,ce.selected_source_id,
       cem.game_id,cem.reporting_team_id,g.team_id,g.source_id,g.source_event_key,g.opponent,
@@ -46,14 +62,10 @@ async function loadState(env){
       LEFT JOIN canonical_event_members cem ON cem.canonical_event_id=ce.id
       LEFT JOIN games g ON g.id=cem.game_id
       WHERE ce.id=? ORDER BY cem.game_id`).bind(TRUE_CANONICAL_ID),
-    env.DB.prepare(`SELECT s.id AS school_id,s.name,t.id AS team_id
-      FROM teams t JOIN schools s ON s.id=t.school_id
-      WHERE t.sport='volleyball' AND t.gender='girls' AND t.season='2026' AND t.active=1 AND s.state='AR'
-      ORDER BY s.name,t.id`),
     env.DB.prepare(`SELECT id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,status,
       team_score,opponent_score,result,counts_for_record,canonical_event_id,home_away
-      FROM games WHERE scheduled_at>=? AND scheduled_at<? AND team_id IN (?,?) ORDER BY team_id,scheduled_at,id`)
-      .bind(AUG_START,AUG_END,PEA_TEAM,HARRISON_TEAM),
+      FROM games WHERE scheduled_at>=? AND scheduled_at<? AND team_id IN (?,?,?,?) ORDER BY team_id,scheduled_at,id`)
+      .bind(AUG_START,AUG_END,PEA_TEAM,HARRISON_TEAM,providenceTeam,valleyTeam),
     env.DB.prepare(`SELECT id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,status,
       team_score,opponent_score,result,counts_for_record,canonical_event_id,home_away
       FROM games WHERE team_id=? AND scheduled_at>=? AND scheduled_at<? ORDER BY scheduled_at,id`)
@@ -62,29 +74,17 @@ async function loadState(env){
       WHERE canonical_event_id IN (?,?) AND resolved_at IS NULL ORDER BY canonical_event_id,id`)
       .bind(FALSE_CANONICAL_ID,TRUE_CANONICAL_ID)
   ]);
-  const results=[falseRows,trueRows,schoolTeams,augGames,batesDay,conflicts];
+  const results=[schoolTeams,falseRows,trueRows,augGames,batesDay,conflicts];
   const d1={statements:results.length,rows_read:results.reduce((s,r)=>s+rr(r),0),rows_written:results.reduce((s,r)=>s+rw(r),0),
     per_statement:results.map(r=>({rows_read:rr(r),rows_written:rw(r)}))};
-  return {falseRows:falseRows.results||[],trueRows:trueRows.results||[],schoolTeams:schoolTeams.results||[],augGames:augGames.results||[],batesDay:batesDay.results||[],conflicts:conflicts.results||[],d1};
-}
-
-function resolveSchoolTeam(rows,aliases){
-  const matches=rows.filter(r=>matchesName(r.name,aliases));
-  return matches.length===1?matches[0]:null;
-}
-
-function findCandidate(rows,teamId,{teamScore,opponentScore,opponentNames}){
-  const matches=rows.filter(r=>r.team_id===teamId&&r.status==="FINAL"&&Number(r.team_score)===teamScore&&Number(r.opponent_score)===opponentScore&&opponentNames.some(n=>norm(r.opponent).includes(n)));
-  if(matches.length>1) return {multiple:matches};
-  return {one:matches[0]||null};
+  return {falseRows:falseRows.results||[],trueRows:trueRows.results||[],schoolTeams:schoolRows,providence,valley,augGames:augGames.results||[],batesDay:batesDay.results||[],conflicts:conflicts.results||[],d1};
 }
 
 function classify(state){
   const reasons=[];
   if(state.d1.rows_written!==0) reasons.push(`preflight wrote ${state.d1.rows_written}`);
   if(state.d1.rows_read>MAX_PLAN_READS) reasons.push(`preflight read fuse exceeded ${state.d1.rows_read}`);
-  const providence=resolveSchoolTeam(state.schoolTeams,["providence academy","providence"]);
-  const valley=resolveSchoolTeam(state.schoolTeams,["valley springs","valley springs high school"]);
+  const providence=state.providence, valley=state.valley;
   if(!providence) reasons.push("could not uniquely resolve Providence Academy active 2026 volleyball team");
   if(!valley) reasons.push("could not uniquely resolve Valley Springs active 2026 volleyball team");
 
@@ -115,17 +115,19 @@ function classify(state){
   else if(batesCandidates.length===1){batesAction="reconcile_existing_observation";batesGameId=batesCandidates[0].id;}
   if(state.conflicts.length) reasons.push(`active conflicts=${state.conflicts.length}`);
 
-  const peaCandidate=findCandidate(state.augGames,PEA_TEAM,{teamScore:2,opponentScore:3,opponentNames:["providence"]});
-  const harrisonCandidate=findCandidate(state.augGames,HARRISON_TEAM,{teamScore:3,opponentScore:0,opponentNames:["valley springs"]});
-  if(peaCandidate.multiple) reasons.push(`multiple Pea Ridge Providence candidates=${peaCandidate.multiple.length}`);
-  if(harrisonCandidate.multiple) reasons.push(`multiple Harrison Valley Springs candidates=${harrisonCandidate.multiple.length}`);
+  const pea=findCandidate(state.augGames,PEA_TEAM,{teamScore:2,opponentScore:3,opponentNames:["providence"]});
+  const prov=findCandidate(state.augGames,providence?.team_id,{teamScore:3,opponentScore:2,opponentNames:["pea ridge"]});
+  const harrison=findCandidate(state.augGames,HARRISON_TEAM,{teamScore:3,opponentScore:0,opponentNames:["valley springs"]});
+  const valleySide=findCandidate(state.augGames,valley?.team_id,{teamScore:0,opponentScore:3,opponentNames:["harrison"]});
+  for(const [label,c] of [["Pea Ridge Providence",pea],["Providence Pea Ridge",prov],["Harrison Valley Springs",harrison],["Valley Springs Harrison",valleySide]]) {
+    if(c.multiple) reasons.push(`multiple ${label} candidates=${c.multiple.length}`);
+  }
 
-  return {
-    safe:reasons.length===0,reasons,providence,valley,falseAction,falseGameId,batesAction,batesGameId,
-    trueScheduledAt:trueBase?.canonical_scheduled_at||null,
-    peaAction:peaCandidate.one?"reconcile_existing_observation":"create_secondary_observation",peaGameId:peaCandidate.one?.id||null,
-    harrisonAction:harrisonCandidate.one?"reconcile_existing_observation":"create_secondary_observation",harrisonGameId:harrisonCandidate.one?.id||null
-  };
+  return {safe:reasons.length===0,reasons,providence,valley,falseAction,falseGameId,batesAction,batesGameId,trueScheduledAt:trueBase?.canonical_scheduled_at||null,
+    peaAction:pea.one?"reconcile_existing_observation":"create_secondary_observation",peaGameId:pea.one?.id||null,
+    provAction:prov.one?"reconcile_existing_observation":"create_secondary_observation",provGameId:prov.one?.id||null,
+    harrisonAction:harrison.one?"reconcile_existing_observation":"create_secondary_observation",harrisonGameId:harrison.one?.id||null,
+    valleyAction:valleySide.one?"reconcile_existing_observation":"create_secondary_observation",valleyGameId:valleySide.one?.id||null};
 }
 
 export async function planM7FinalTwoRepair(env){
@@ -134,7 +136,9 @@ export async function planM7FinalTwoRepair(env){
   return {fingerprint:FINGERPRINT,safe:c.safe,reasons:c.reasons,false_action:c.falseAction,false_game_id:c.falseGameId,
     providence:c.providence,valley_springs:c.valley,
     pea_providence_action:c.peaAction,pea_providence_game_id:c.peaGameId,
+    providence_pea_action:c.provAction,providence_pea_game_id:c.provGameId,
     harrison_valley_action:c.harrisonAction,harrison_valley_game_id:c.harrisonGameId,
+    valley_harrison_action:c.valleyAction,valley_harrison_game_id:c.valleyGameId,
     batesville_action:c.batesAction,batesville_game_id:c.batesGameId,true_scheduled_at:c.trueScheduledAt,d1:state.d1};
 }
 
@@ -190,11 +194,11 @@ export async function executeM7FinalTwoRepair(env,{fingerprint,now=new Date()}={
   const valleySchool=plan.valley_springs.school_id, valleyTeam=plan.valley_springs.team_id;
 
   const peaCanonical=await materializeSide(env,{action:plan.pea_providence_action,existingGameId:plan.pea_providence_game_id,teamId:PEA_TEAM,opponent:"Providence Academy",opponentSchoolId:providenceSchool,sourceEventKey:PROVIDENCE_PEA_KEY,scheduledAt:PROVIDENCE_PEA_AT,homeAway:"home",teamScore:2,opponentScore:3,result:"L",checkedAt});
-  const providenceCanonical=await materializeSide(env,{action:"create_secondary_observation",existingGameId:null,teamId:providenceTeam,opponent:"Pea Ridge",opponentSchoolId:"df-7x4sxh",sourceEventKey:PROVIDENCE_PEA_KEY,scheduledAt:PROVIDENCE_PEA_AT,homeAway:"away",teamScore:3,opponentScore:2,result:"W",checkedAt});
+  const providenceCanonical=await materializeSide(env,{action:plan.providence_pea_action,existingGameId:plan.providence_pea_game_id,teamId:providenceTeam,opponent:"Pea Ridge",opponentSchoolId:"df-7x4sxh",sourceEventKey:PROVIDENCE_PEA_KEY,scheduledAt:PROVIDENCE_PEA_AT,homeAway:"away",teamScore:3,opponentScore:2,result:"W",checkedAt});
   if(!peaCanonical||peaCanonical!==providenceCanonical) throw new Error(`Pea Ridge/Providence reciprocal reconciliation mismatch: ${peaCanonical} vs ${providenceCanonical}`);
 
   const harrisonCanonical=await materializeSide(env,{action:plan.harrison_valley_action,existingGameId:plan.harrison_valley_game_id,teamId:HARRISON_TEAM,opponent:"Valley Springs",opponentSchoolId:valleySchool,sourceEventKey:`native:${HARRISON_VALLEY_CONTEST_ID}`,scheduledAt:HARRISON_VALLEY_AT,homeAway:"home",teamScore:3,opponentScore:0,result:"W",checkedAt});
-  const valleyCanonical=await materializeSide(env,{action:"create_secondary_observation",existingGameId:null,teamId:valleyTeam,opponent:"Harrison",opponentSchoolId:"df-ht8yyh",sourceEventKey:`native:${HARRISON_VALLEY_CONTEST_ID}`,scheduledAt:HARRISON_VALLEY_AT,homeAway:"away",teamScore:0,opponentScore:3,result:"L",checkedAt});
+  const valleyCanonical=await materializeSide(env,{action:plan.valley_harrison_action,existingGameId:plan.valley_harrison_game_id,teamId:valleyTeam,opponent:"Harrison",opponentSchoolId:"df-ht8yyh",sourceEventKey:`native:${HARRISON_VALLEY_CONTEST_ID}`,scheduledAt:HARRISON_VALLEY_AT,homeAway:"away",teamScore:0,opponentScore:3,result:"L",checkedAt});
   if(!harrisonCanonical||harrisonCanonical!==valleyCanonical) throw new Error(`Harrison/Valley reciprocal reconciliation mismatch: ${harrisonCanonical} vs ${valleyCanonical}`);
 
   let batesCanonical=TRUE_CANONICAL_ID;
@@ -211,12 +215,10 @@ export async function executeM7FinalTwoRepair(env,{fingerprint,now=new Date()}={
   const recordResult=await rebuildTeamRecords(env,touched,checkedAt);
   if(Number(recordResult?.teams||0)!==6) throw new Error(`expected six rebuilt teams, got ${recordResult?.teams||0}`);
 
-  const [falseCheck,peaVerify,harrisonVerify,batesVerify]=await Promise.all([
-    env.DB.prepare("SELECT COUNT(*) AS n FROM canonical_events WHERE id=?").bind(FALSE_CANONICAL_ID).first(),
-    verifyCanonicalPair(env,peaCanonical,{teamA:PEA_TEAM,teamB:providenceTeam,homeSchoolId:"df-7x4sxh",awaySchoolId:providenceSchool,homeScore:2,awayScore:3}),
-    verifyCanonicalPair(env,harrisonCanonical,{teamA:HARRISON_TEAM,teamB:valleyTeam,homeSchoolId:"df-ht8yyh",awaySchoolId:valleySchool,homeScore:3,awayScore:0}),
-    verifyCanonicalPair(env,TRUE_CANONICAL_ID,{teamA:MOUNTAIN_HOME_TEAM,teamB:BATESVILLE_TEAM,homeSchoolId:"df-rpnt3m",awaySchoolId:"df-dxgr8r",homeScore:0,awayScore:3})
-  ]);
+  const falseCheck=await env.DB.prepare("SELECT COUNT(*) AS n FROM canonical_events WHERE id=?").bind(FALSE_CANONICAL_ID).first();
+  const peaVerify=await verifyCanonicalPair(env,peaCanonical,{teamA:PEA_TEAM,teamB:providenceTeam,homeSchoolId:"df-7x4sxh",awaySchoolId:providenceSchool,homeScore:2,awayScore:3});
+  const harrisonVerify=await verifyCanonicalPair(env,harrisonCanonical,{teamA:HARRISON_TEAM,teamB:valleyTeam,homeSchoolId:"df-ht8yyh",awaySchoolId:valleySchool,homeScore:3,awayScore:0});
+  const batesVerify=await verifyCanonicalPair(env,TRUE_CANONICAL_ID,{teamA:MOUNTAIN_HOME_TEAM,teamB:BATESVILLE_TEAM,homeSchoolId:"df-rpnt3m",awaySchoolId:"df-dxgr8r",homeScore:0,awayScore:3});
   const reasons=[];
   if(Number(falseCheck?.n||0)!==0) reasons.push("false Pea Ridge/Harrison canonical still exists");
   if(!peaVerify.ok) reasons.push("Pea Ridge/Providence reciprocal final verification failed");
