@@ -7,9 +7,9 @@ import { collectionPlanAt } from "./collection-cadence.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { syncCertifiedDragonFlySportCatalog } from "./dragonfly-certified-sport-catalog.js";
 import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
+import { runStatewideLiveResultProbe } from "./statewide-live-results.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
 import { runResilientHootensStatewideResults } from "./hootens-resilient-results.js";
-import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
@@ -20,15 +20,23 @@ export function m2StatewideKeysForPlan(plan){
   return [];
 }
 
+export function m2LiveStatewideKeysForPlan(plan){
+  if (!plan) return [];
+  const keys=Array.isArray(plan.liveStatewideSports)?plan.liveStatewideSports.filter(Boolean):[];
+  if (keys.length) return [...new Set(keys)];
+  // Backward-compatible fallback for older plan fixtures/callers.
+  return plan.runVolleyballLive?["volleyball-girls"]:[];
+}
+
 export function shouldRunOfficialFinalResults(plan){
   return plan?.kind==="friday-football-results"
     || plan?.kind==="morning-results"
     || plan?.kind==="evening-results"
-    || Boolean(plan?.runVolleyballLive);
+    || m2LiveStatewideKeysForPlan(plan).includes("volleyball-girls");
 }
 
 export function shouldRunVolleyballLiveResults(plan){
-  return Boolean(plan?.runVolleyballLive);
+  return m2LiveStatewideKeysForPlan(plan).includes("volleyball-girls");
 }
 
 export function officialFinalResultsScope(plan){
@@ -147,23 +155,26 @@ async function runHootensFinalResultsPass({env,plan}){
   return runResilientHootensStatewideResults(env);
 }
 
-async function runVolleyballLiveResultsPass({env,plan,when}){
-  if (!shouldRunVolleyballLiveResults(plan)) return null;
-  try {
-    const result=await runVolleyballLiveResultProbe(env,{now:when});
-    console.log("volleyball semantic live result probe",{
-      status:result.status,
-      events:result.rawEventCount,
-      touchedTeams:result.touchedTeams??null,
-      pagesFetched:result.pagesFetched,
-      d1Writes:result.d1Writes??null
-    });
-    return result;
-  } catch (error) {
-    const message=String(error?.message||error);
-    console.error("volleyball semantic live result probe failed",message);
-    return {status:"FAILURE",error:message};
+async function runStatewideLiveResultsPass({env,plan,when}){
+  const keys=m2LiveStatewideKeysForPlan(plan);
+  if (!keys.length) return [];
+  const outcomes=[];
+  for (const key of keys) {
+    try {
+      const result=await runStatewideLiveResultProbe(env,key,{
+        now:when,
+        acceptLegacySignature:key==="volleyball-girls",
+        userAgent:`LocalBleachersAR-${key}-live/1.0`
+      });
+      outcomes.push({key,status:result.status,events:result.rawEventCount,touchedTeams:result.touchedTeams??0,pagesFetched:result.pagesFetched,d1Writes:result.d1Writes??null});
+    } catch (error) {
+      const message=String(error?.message||error);
+      outcomes.push({key,status:"FAILURE",error:message});
+      console.error("statewide semantic live result probe failed",{sport:key,error:message});
+    }
   }
+  console.log("statewide semantic live result probes",outcomes);
+  return outcomes;
 }
 
 async function runMaxPrepsVolleyballFallbackPass({env,plan,when}){
@@ -208,7 +219,8 @@ async function runScheduledPlan(controller,env,ctx){
   }
   if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
 
-  const volleyballLiveResults=await runVolleyballLiveResultsPass({env,plan,when});
+  const statewideLiveResults=await runStatewideLiveResultsPass({env,plan,when});
+  const volleyballLiveResults=statewideLiveResults.find(item=>item.key==="volleyball-girls")||null;
   const maxPrepsVolleyballResults=await runMaxPrepsVolleyballFallbackPass({env,plan,when});
 
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
@@ -216,12 +228,12 @@ async function runScheduledPlan(controller,env,ctx){
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
+    if (scoped) return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,coreResult:result??null};
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults};
 }
 
 export default {
