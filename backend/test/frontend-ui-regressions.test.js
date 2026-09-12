@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const follow = await readFile(new URL("../../school-follow-logic.js", import.meta.url), "utf8");
 const live = await readFile(new URL("../../live-data.js", import.meta.url), "utf8");
 const detail = await readFile(new URL("../../team-detail.js", import.meta.url), "utf8");
+const schoolSchedule = await readFile(new URL("../../school-schedule.js", import.meta.url), "utf8");
 
 test("home only renders games involving followed schools", () => {
   assert.match(follow, /\.filter\(isFollowedSchoolEvent\)/);
@@ -32,6 +33,20 @@ test("nearby refresh and full team schedules are separate data paths", () => {
   assert.match(live, /\/api\/v1\/teams\/\$\{encodeURIComponent\(teamId\)\}\/schedule/);
   assert.match(detail, /LocalBleachersLive\?\.fetchTeamSchedule/);
   assert.match(detail, /Loading full schedule/);
+});
+
+test("team detail uses one explicit school schedule read and preserves backend sport identity", () => {
+  assert.match(schoolSchedule, /\/api\/v1\/schools\/\$\{encodeURIComponent\(school\.id\)\}\/schedule/);
+  assert.match(schoolSchedule, /const sport = String\(game\.sport \|\| ""\)/);
+  assert.match(schoolSchedule, /const gender = String\(game\.gender \|\| ""\)/);
+  assert.match(schoolSchedule, /backendTeamId:game\.reporting_team_id \|\| game\.team_id \|\| null/);
+  assert.doesNotMatch(schoolSchedule, /MAX_TEAM_ENDPOINTS_PER_OPEN/);
+  assert.doesNotMatch(schoolSchedule, /-mens-soccer-|\-womens-soccer-|\-volleyball-\$\{season\}/);
+});
+
+test("team detail schedule cache is versioned by season and abandons poisoned v1 rows", () => {
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v2:/);
+  assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
 });
 
 test("live schedule sources override the legacy MaxPreps label", () => {

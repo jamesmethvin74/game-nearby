@@ -35,12 +35,12 @@ test("standings supports persisted sport+conference favorites below the live car
   assert.match(html, /id="favoriteStandingsGrid"/);
 });
 
-test("standings preference release busts the PWA shell cache", async () => {
+test("standings preference release remains present after the schedule-integrity shell bust", async () => {
   const html = await read("standings.html");
   const sw = await read("service-worker.js");
 
   assert.match(html, /standings\.js\?v=60/);
   assert.match(html, /standings-favorites\.css\?v=60/);
-  assert.match(sw, /localbleachersar-shell-v60/);
+  assert.match(sw, /localbleachersar-shell-v61/);
   assert.match(sw, /\.\/standings-favorites\.css/);
 });

@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v60";
+const CACHE_NAME = "localbleachersar-shell-v61";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -74,7 +74,7 @@ self.addEventListener("fetch", event => {
       try {
         return await network;
       } catch {
-        return new Response("Offline", {status: 503, headers: {"Content-Type": "text/plain"}});
+        return new Response("Offline", {status: 503, headers:{"Content-Type":"text/plain"}});
       }
     })());
     return;
@@ -91,7 +91,7 @@ self.addEventListener("fetch", event => {
     } catch {
       const cached = await caches.match(event.request, {ignoreSearch:true});
       if (cached) return cached;
-      return new Response("Offline", {status: 503, headers: {"Content-Type": "text/plain"}});
+      return new Response("Offline", {status:503,headers:{"Content-Type":"text/plain"}});
     }
   })());
 });

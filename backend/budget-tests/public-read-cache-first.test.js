@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { cacheDescriptor } from "../src/public-cors-worker.js";
 
 const source = await readFile(
   new URL("../src/public-cors-worker.js", import.meta.url),
@@ -46,6 +47,14 @@ test("diagnostic requests bypass the public cache", () => {
   assert.match(source, /x-localbleachers-debug/);
   assert.match(source, /x-localbleachers-diagnostic/);
   assert.match(source, /return null/);
+});
+
+test("school-level schedule reads are edge-cached without extra D1 fanout", () => {
+  const descriptor = cacheDescriptor(new Request("https://example.test/api/v1/schools/uca/schedule"));
+  assert.ok(descriptor);
+  assert.equal(descriptor.freshTtl, 15 * 60);
+  assert.equal(descriptor.staleTtl, 24 * 60 * 60);
+  assert.equal(new URL(descriptor.freshKey.url).pathname, "/__localbleachers_cache__/fresh/api/v1/schools/uca/schedule");
 });
 
 test("high-churn reads use short fresh TTLs", () => {

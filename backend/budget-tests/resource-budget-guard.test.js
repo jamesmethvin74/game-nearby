@@ -38,16 +38,17 @@ test("manual production probes still have bounded retries", () => {
   assert.doesNotMatch(productionSmoke, /seq 1 28/);
 });
 
-test("one team-detail open cannot fan out across the full sport catalog", () => {
-  assert.match(schoolSchedule, /MAX_TEAM_ENDPOINTS_PER_OPEN = 3/);
-  assert.match(schoolSchedule, /candidatesFor\(school\)\.slice\(0, MAX_TEAM_ENDPOINTS_PER_OPEN\)/);
+test("one team-detail open uses one school-level schedule endpoint instead of client fanout", () => {
+  assert.match(schoolSchedule, /\/api\/v1\/schools\/\$\{encodeURIComponent\(school\.id\)\}\/schedule/);
+  assert.doesNotMatch(schoolSchedule, /MAX_TEAM_ENDPOINTS_PER_OPEN/);
+  assert.doesNotMatch(schoolSchedule, /candidatesFor\(school\)/);
   assert.doesNotMatch(schoolSchedule, /Promise\.allSettled/);
   assert.doesNotMatch(schoolSchedule, /Promise\.all\(/);
-  assert.match(schoolSchedule, /A 500\/429\/quota failure is not a reason to fan out/);
 });
 
-test("team schedules retain a local last-good fallback", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v1:/);
+test("team schedules retain a versioned local last-good fallback", () => {
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v2:/);
+  assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
   assert.match(schoolSchedule, /localBleachersAR:nearbyGames:v1/);
   assert.match(schoolSchedule, /saveSchedule\(schoolId, unique\)/);
   assert.match(schoolSchedule, /fallbackEvents\(schoolId\)/);

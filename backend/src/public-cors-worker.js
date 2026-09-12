@@ -96,6 +96,9 @@ function cacheDescriptor(request) {
     const legacyQuery = `lat=${lat}&lon=${lon}&radius=${radius}`;
     return descriptor(origin, `/games?${query}`, 5 * 60, 12 * 60 * 60, `/games?${legacyQuery}`);
   }
+  if (/^\/api\/v1\/schools\/[^/]+\/schedule$/.test(path)) {
+    return descriptor(origin, path, 15 * 60, 24 * 60 * 60);
+  }
   const teamMatch = path.match(/^\/api\/v1\/teams\/[^/]+(?:\/(schedule|record))?$/);
   if (teamMatch) {
     const kind = teamMatch[1] || "team";
