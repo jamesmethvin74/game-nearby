@@ -71,12 +71,12 @@ test("expected inventory is independent of current D1 team rows", () => {
   const inventory = expectedInventorySummary();
   assert.equal(inventory.high_school_schools, 295);
   assert.equal(inventory.high_school_teams, 1102);
-  assert.equal(inventory.college_teams, 132);
-  assert.equal(inventory.total_expected_teams, 1234);
+  assert.equal(inventory.college_teams, 130);
+  assert.equal(inventory.total_expected_teams, 1232);
 
   const report = summarizeCoverageRows([], { now:NOW });
-  assert.equal(report.summary.expected_team_targets, 1234);
-  assert.equal(report.summary.expected_targets_missing, 1234);
-  assert.equal(report.exceptions.length, 1234);
+  assert.equal(report.summary.expected_team_targets, 1232);
+  assert.equal(report.summary.expected_targets_missing, 1232);
+  assert.equal(report.exceptions.length, 1232);
   assert.ok(report.exceptions.every(item => item.issues.some(issue => issue.code === "missing_expected_school" || issue.code === "missing_expected_team")));
 });
