@@ -124,7 +124,7 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     FROM teams t
     JOIN schools sch ON sch.id=t.school_id
     JOIN games g ON g.team_id=t.id
-    JOIN sources src ON src.id=g.source_id AND src.enabled=1
+    JOIN sources src ON src.id=g.source_id
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
