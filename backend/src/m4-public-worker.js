@@ -31,6 +31,11 @@ function authorizedWrite(request, env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
 }
 
+function localSchoolId(pathname) {
+  const match = pathname.match(/^\/api\/v1\/schools\/([^/]+)\/schedule$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function legacyCollegeSchoolId(pathname) {
   const match = pathname.match(/^\/api\/v1\/teams\/([^/]+)\/schedule$/);
   if (!match) return null;
@@ -78,21 +83,20 @@ function resolvedGameForSchool(row, schoolId) {
   };
 }
 
-async function collegeSchoolSchedule(request, env, schoolId) {
+async function localSchoolSchedule(request, env, schoolId, { requiredLevel = null } = {}) {
   const school = await env.DB.prepare(`
     SELECT id,name,level,catalog_scope
     FROM schools
     WHERE id=?
   `).bind(schoolId).first();
 
-  // This compatibility route is intentionally college-only. Existing high-school
-  // volleyball requests continue through the proven M2 read path unchanged.
-  if (!school || school.level !== "college" || school.catalog_scope !== "local") return null;
+  if (!school || school.catalog_scope !== "local") return null;
+  if (requiredLevel && school.level !== requiredLevel) return null;
 
   const result = await env.DB.prepare(`
     SELECT
       g.*,
-      t.id AS reporting_team_id,t.sport,t.gender,t.season,
+      t.id AS reporting_team_id,t.sport,t.gender,t.season,t.conference_id,
       sch.id AS school_id,sch.name AS school_name,sch.level,
       c.name AS conference_name,
       r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at,
@@ -134,15 +138,20 @@ async function collegeSchoolSchedule(request, env, schoolId) {
     .filter(row => Number(row.authority_row) === 1)
     .map(row => resolvedGameForSchool(row, schoolId));
 
-  console.log("M4 college school schedule read", {
+  console.log("school schedule read", {
     schoolId,
+    schoolLevel: school.level,
     games: games.length,
     rowsRead: Number(result.meta?.rows_read || 0),
     rowsWritten: Number(result.meta?.rows_written || 0),
     durationMs: Number(result.meta?.duration || 0) || null
   });
 
-  return json({ schoolId, games });
+  return json({ schoolId, schoolLevel: school.level, games });
+}
+
+async function collegeSchoolSchedule(request, env, schoolId) {
+  return localSchoolSchedule(request, env, schoolId, { requiredLevel: "college" });
 }
 
 async function runCollegeBootstrap(request, env, ctx) {
@@ -172,9 +181,17 @@ export default {
       return runCollegeBootstrap(request, env, ctx);
     }
     if (request.method === "GET") {
-      const schoolId = legacyCollegeSchoolId(url.pathname);
-      if (schoolId) {
-        const response = await collegeSchoolSchedule(request, env, schoolId);
+      const directSchoolId = localSchoolId(url.pathname);
+      if (directSchoolId) {
+        const response = await localSchoolSchedule(request, env, directSchoolId);
+        if (response) return response;
+      }
+
+      // Keep the old college volleyball-shaped compatibility route until every
+      // installed client has moved to the explicit school schedule endpoint.
+      const legacySchoolId = legacyCollegeSchoolId(url.pathname);
+      if (legacySchoolId) {
+        const response = await collegeSchoolSchedule(request, env, legacySchoolId);
         if (response) return response;
       }
     }
@@ -190,6 +207,8 @@ export {
   COLLEGE_BOOTSTRAP_SEASON,
   collegeSchoolSchedule,
   legacyCollegeSchoolId,
+  localSchoolId,
+  localSchoolSchedule,
   resolvedGameForSchool,
   runCollegeBootstrap
 };
