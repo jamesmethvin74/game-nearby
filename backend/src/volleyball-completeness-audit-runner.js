@@ -9,13 +9,21 @@ import {
   buildVolleyballCompletenessAudit,
   localDate
 } from "./volleyball-completeness-audit.js";
+import { augmentAuditWithSchoolIdentityFindings } from "./school-identity-audit.js";
 
 const BROKEN_ORDER = "ORDER BY team_id,scheduled_at,COALESCE(canonical_event_id,'')";
 const FIXED_ORDER = "ORDER BY team_id,scheduled_at,canonical_event_id";
+const TEAM_IDENTITY_COLUMNS = "s.name AS raw_school_name,s.location_matched_name,s.city,s.state,";
+const TEAM_IDENTITY_COLUMNS_WITH_MASCOT = "s.name AS raw_school_name,s.location_matched_name,s.mascot,s.city,s.state,";
 
 export const FIXED_SCHEDULE_CANDIDATE_SQL = SCHEDULE_CANDIDATE_SQL.replace(BROKEN_ORDER, FIXED_ORDER);
 if (FIXED_SCHEDULE_CANDIDATE_SQL === SCHEDULE_CANDIDATE_SQL) {
   throw new Error("volleyball audit SQL fix did not match expected compound ORDER BY");
+}
+
+export const IDENTITY_AWARE_TEAM_SNAPSHOT_SQL = TEAM_SNAPSHOT_SQL.replace(TEAM_IDENTITY_COLUMNS, TEAM_IDENTITY_COLUMNS_WITH_MASCOT);
+if (IDENTITY_AWARE_TEAM_SNAPSHOT_SQL === TEAM_SNAPSHOT_SQL) {
+  throw new Error("volleyball audit identity columns did not match expected team snapshot SQL");
 }
 
 function rowsRead(result) { return Number(result?.meta?.rows_read || 0); }
@@ -23,7 +31,7 @@ function rowsWritten(result) { return Number(result?.meta?.rows_written || 0); }
 
 export async function loadFixedVolleyballAuditSnapshot(env) {
   const statements = [
-    env.DB.prepare(TEAM_SNAPSHOT_SQL),
+    env.DB.prepare(IDENTITY_AWARE_TEAM_SNAPSHOT_SQL),
     env.DB.prepare(CANONICAL_SNAPSHOT_SQL).bind(SEASON_START, SEASON_END_EXCLUSIVE),
     env.DB.prepare(FIXED_SCHEDULE_CANDIDATE_SQL).bind(
       SEASON_START,
@@ -65,14 +73,18 @@ export async function runFixedVolleyballCompletenessAudit(env, { fetchFn = fetch
     startDate: SEASON_START,
     endDate: localDate(now)
   });
+  const audit = buildVolleyballCompletenessAudit({
+    teams: snapshot.teams,
+    canonicals: snapshot.canonicals,
+    candidates: snapshot.candidates,
+    published,
+    maxPreps,
+    generatedAt: now.toISOString()
+  });
   return {
-    ...buildVolleyballCompletenessAudit({
+    ...augmentAuditWithSchoolIdentityFindings(audit, {
       teams: snapshot.teams,
-      canonicals: snapshot.canonicals,
-      candidates: snapshot.candidates,
-      published,
-      maxPreps,
-      generatedAt: now.toISOString()
+      candidates: snapshot.candidates
     }),
     d1: snapshot.d1,
     authority_fetch: {

@@ -1,10 +1,12 @@
 import { normalizeMascotRows, normalizeSidearmRows } from "./parser-core.js";
 import { normalizeDragonFlyHtml, normalizeDragonFlyPayload } from "./dragonfly-core.js";
 import { dragonFlyFeedBaseUrl, fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
+import { attachDragonFlyOpponentIdentities } from "./dragonfly-school-identities.js";
 import { normalizeArkansasRazorbackHtml } from "./arkansas-razorbacks.js";
 import { normalizeModernSidearmHtml } from "./sidearm-modern.js";
 import { fetchCollegeSourceMaterial, parseCollegeSourceBody } from "./college-source-runtime.js";
-import { collectionSafety, deriveSourceHealth, normalizeSchoolAlias, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
+import { collectionSafety, deriveSourceHealth, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
+import { createSchoolIdentityResolver } from "./school-identity-resolution.js";
 import { rebuildTeamRecord } from "./record-rebuild.js";
 
 const API_PREFIX="/api/v1";
@@ -210,10 +212,15 @@ async function runDueCollections(env,{force=false,sourceId=null,sourceIds=null,r
   const {results:sources}=await query.all();
   const outcomes=[];
   const sharedFetches=new Map();
+  let identityResolverPromise=null;
+  const getIdentityResolver=()=>{
+    if (!identityResolverPromise) identityResolverPromise=createSchoolIdentityResolver(env);
+    return identityResolverPromise;
+  };
   for (const source of sources) {
     const due=force || await sourceIsDue(env,source);
     if (!due) { outcomes.push({sourceId:source.id,status:"SKIPPED"}); continue; }
-    outcomes.push(await collectSource(env,source,reason,sharedFetches));
+    outcomes.push(await collectSource(env,source,reason,sharedFetches,getIdentityResolver));
   }
   return {ok:outcomes.every(o=>!["FAILURE"].includes(o.status)),outcomes};
 }
@@ -261,7 +268,7 @@ async function fetchSourceMaterial(source,sharedFetches){
   };
 }
 
-async function collectSource(env,source,reason,sharedFetches=new Map()){
+async function collectSource(env,source,reason,sharedFetches=new Map(),getIdentityResolver=()=>createSchoolIdentityResolver(env)){
   const startedAt=new Date().toISOString();
   const run=await env.DB.prepare(`INSERT INTO collection_runs(source_id,started_at,status,parser_version) VALUES(?,?,'RUNNING',?) RETURNING id`).bind(source.id,startedAt,source.parser_version).first();
   try {
@@ -279,8 +286,9 @@ async function collectSource(env,source,reason,sharedFetches=new Map()){
     const priorCount=Number(existing?.game_count||0);
     const safety=collectionSafety({parsedCount:parsed.length,expectedMinGames:source.expected_min_games,priorCount});
     if (!safety.safe) throw new Error(safety.reason);
+    const identityResolver=await getIdentityResolver();
     for (const game of parsed) {
-      const gameId=await upsertGame(env,source,game,checkedAt);
+      const gameId=await upsertGame(env,source,game,checkedAt,identityResolver);
       await reconcileCanonicalGame(env,gameId);
     }
     await reconcileMissingFutureGames(env,source,checkedAt);
@@ -316,7 +324,10 @@ async function parseSourceBody(body,source,contentType=""){
   if (source.parser_type==="mascot-media") return parseMascotHtml(body,source);
   if (source.parser_type==="dragonfly-public") {
     if (/application\/json/i.test(contentType) || /^[\s\r\n]*[\[{]/.test(body)) {
-      try { return dedupe(normalizeDragonFlyPayload(JSON.parse(body),source)); } catch {}
+      try {
+        const payload=JSON.parse(body);
+        return dedupe(attachDragonFlyOpponentIdentities(payload,source,normalizeDragonFlyPayload(payload,source)));
+      } catch {}
     }
     const visibleText=await extractVisibleText(body);
     return dedupe(normalizeDragonFlyHtml(body,source,{visibleText}));
@@ -373,21 +384,18 @@ async function parseMascotHtml(html,source){
 
 function dedupe(events){const seen=new Set();return events.filter(e=>{const k=e.sourceEventKey;if(seen.has(k))return false;seen.add(k);return true;});}
 
-async function resolveOpponentSchool(env,opponent){
-  const normalized=normalizeSchoolAlias(opponent);
-  if (!normalized) return null;
-  const alias=await env.DB.prepare("SELECT school_id FROM school_aliases WHERE normalized_alias=?").bind(normalized).first();
-  if (alias?.school_id) return alias.school_id;
-  const {results}=await env.DB.prepare("SELECT id,name,mascot FROM schools").all();
-  const match=results.find(s=>normalizeSchoolAlias(s.name)===normalized || normalizeSchoolAlias(`${s.name} ${s.mascot||''}`)===normalized);
-  if (!match) return null;
-  await env.DB.prepare("INSERT OR IGNORE INTO school_aliases(normalized_alias,school_id,alias_text) VALUES(?,?,?)").bind(normalized,match.id,opponent).run();
-  return match.id;
+async function resolveOpponentSchool(identityResolver,game){
+  const resolution=await identityResolver.resolveAndRemember({
+    observedName:game?.opponent,
+    provider:game?.opponentProvider,
+    externalSchoolId:game?.opponentExternalSchoolId
+  });
+  return resolution.status==="resolved"?resolution.schoolId:null;
 }
 
-async function upsertGame(env,source,game,checkedAt){
+async function upsertGame(env,source,game,checkedAt,identityResolver){
   const id=`${source.id}:${game.sourceEventKey}`;
-  const opponentSchoolId=await resolveOpponentSchool(env,game.opponent);
+  const opponentSchoolId=await resolveOpponentSchool(identityResolver,game);
   await env.DB.prepare(`
     INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
