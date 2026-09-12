@@ -126,8 +126,13 @@ export function canonicalCandidateKey(observation, timeZone="America/Chicago") {
   ].join("|");
 }
 
+const VERIFIED_VENUE_ALIASES=new Map([
+  ["goblin arena","harrison high school"]
+]);
+
 function normalizeVenue(value) {
-  return cleanAuthorityText(value).toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  const normalized=cleanAuthorityText(value).toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  return VERIFIED_VENUE_ALIASES.get(normalized) || normalized;
 }
 
 function minutesBetween(a,b) {
