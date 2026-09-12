@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { collectionPlanAt } from "../src/collection-cadence.js";
-import { m2StatewideKeysForPlan, shouldRunVolleyballLiveResults } from "../src/milestone2-scheduled-worker.js";
+import { m2LiveStatewideKeysForPlan, m2StatewideKeysForPlan, shouldRunVolleyballLiveResults } from "../src/milestone2-scheduled-worker.js";
 
 const ALL=["football-boys","basketball-boys","basketball-girls","soccer-boys","soccer-girls","volleyball-girls"];
 
@@ -18,17 +18,26 @@ test("ordinary statewide windows refresh all six high-school bulk feeds without 
   assert.match(scoped,/ORDINARY_MAX_SOURCES_PER_RUN = 4/);
 });
 
-test("weekday volleyball live window activates the semantic statewide result probe",()=>{
+test("weekday volleyball live window activates the generic semantic statewide result probe",()=>{
   const plan=collectionPlanAt(new Date("2026-09-03T23:00:00.000Z")); // Thursday 6 PM Central
   assert.equal(plan.kind,"volleyball-live-results");
   assert.equal(plan.runVolleyballLive,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),true);
+  assert.deepEqual(m2LiveStatewideKeysForPlan(plan),["volleyball-girls"]);
   // This is not a broad maintenance sweep; the dedicated semantic probe owns it.
   assert.deepEqual(m2StatewideKeysForPlan(plan),[]);
 
   const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
-  assert.match(runner,/runVolleyballLiveResultProbe/);
-  assert.match(runner,/runVolleyballLiveResultsPass/);
+  assert.match(runner,/runStatewideLiveResultProbe/);
+  assert.match(runner,/runStatewideLiveResultsPass/);
+});
+
+test("winter basketball live window uses the same generic semantic probe",()=>{
+  const plan=collectionPlanAt(new Date("2027-01-07T00:00:00.000Z")); // Wednesday 6 PM Central
+  assert.equal(plan.kind,"statewide-live-results");
+  assert.deepEqual(m2LiveStatewideKeysForPlan(plan),["basketball-boys","basketball-girls"]);
+  assert.equal(shouldRunVolleyballLiveResults(plan),false);
+  assert.deepEqual(m2StatewideKeysForPlan(plan),[]);
 });
 
 test("Friday result cadence adds one statewide football bulk refresh and preserves 30-minute core polling",()=>{
