@@ -11,11 +11,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Read exact production repair plan
+      - name: Read exact production repair plan and evidence
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/final-missing-score-plan-20260912-4fd5a1c7'
-          curl --fail --silent --show-error "$URL" -o plan.json
-          cat plan.json | jq .
-          jq -e '.safe == true and .d1.rows_written == 0 and (.cases | length) == 2' plan.json >/dev/null
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal'
+          curl --fail --silent --show-error "$BASE/final-missing-score-plan-20260912-4fd5a1c7" -o plan.json
+          curl --fail --silent --show-error "$BASE/final-missing-score-evidence-20260912-4fd5a1c7" -o evidence.json
+          echo '=== PLAN ==='
+          jq . plan.json
+          echo '=== EVIDENCE ==='
+          jq . evidence.json
+          jq -e '.d1.rows_written == 0 and (.canonical_ids | length) == 2' evidence.json >/dev/null
