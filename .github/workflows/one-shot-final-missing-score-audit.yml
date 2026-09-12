@@ -12,11 +12,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch four exact team schedules and extract missing-score finals
+      - name: Fetch exact team rows and verify two source events
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          DRAGONFLY='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0'
           mkdir -p final-score-audit
           teams=(
             df-7kza8c-volleyball-2026
@@ -56,6 +57,29 @@ jobs:
           echo '=== MISSING-SCORE FINAL CANDIDATES ==='
           cat final-score-audit/candidates.ndjson
           test "$(wc -l < final-score-audit/candidates.ndjson)" -eq 4
+
+          curl --fail --silent --show-error "$DRAGONFLY" -o final-score-audit/dragonfly-wvb-page0.json
+          jq -c '
+            .schedule[]
+            | select((.eventId // .id) == "695fcf130e0845562900001c" or (.eventId // .id) == "69babe474fd8441434000004")
+            | {
+                eventId:(.eventId // .id),
+                date:(.date // .startDateTime // .scheduledAt),
+                status:(.status.name // .status // .gameStatus),
+                participants:[(.participants // [])[] | {
+                  name:(.name // null),
+                  orgShortCode:(.orgShortCode // null),
+                  teamId:(.team.teamId // null),
+                  isHome:(.isHome // null),
+                  score:(.result.score // null),
+                  opponentScore:(.result.opponentScore // null),
+                  result:(.result.code // null)
+                }]
+              }
+          ' final-score-audit/dragonfly-wvb-page0.json > final-score-audit/authority-events.ndjson
+          echo '=== DRAGONFLY AUTHORITY EVENTS ==='
+          cat final-score-audit/authority-events.ndjson
+          test "$(wc -l < final-score-audit/authority-events.ndjson)" -eq 2
       - uses: actions/upload-artifact@v4
         with:
           name: final-missing-score-targets
