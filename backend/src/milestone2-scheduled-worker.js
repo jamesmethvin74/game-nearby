@@ -29,10 +29,8 @@ export function m2LiveStatewideKeysForPlan(plan){
 }
 
 export function shouldRunOfficialFinalResults(plan){
-  return plan?.kind==="friday-football-results"
-    || plan?.kind==="morning-results"
-    || plan?.kind==="evening-results"
-    || m2LiveStatewideKeysForPlan(plan).includes("volleyball-girls");
+  if (plan?.kind==="friday-football-results" || plan?.kind==="morning-results" || plan?.kind==="evening-results") return true;
+  return m2LiveStatewideKeysForPlan(plan).some(key=>key==="volleyball-girls" || key==="basketball-boys" || key==="basketball-girls");
 }
 
 export function shouldRunVolleyballLiveResults(plan){
@@ -43,7 +41,10 @@ export function officialFinalResultsScope(plan){
   const broad = plan?.kind==="friday-football-results"
     || plan?.kind==="morning-results"
     || plan?.kind==="evening-results";
-  return broad ? "high-school-final-results" : "high-school-volleyball-final-results";
+  if (broad) return "high-school-final-results";
+  const liveKeys=m2LiveStatewideKeysForPlan(plan);
+  if (liveKeys.some(key=>key==="basketball-boys" || key==="basketball-girls")) return "high-school-live-final-results";
+  return "high-school-volleyball-final-results";
 }
 
 export function shouldRunHootensStatewideResults(plan){
@@ -141,12 +142,19 @@ async function runStatewideSports(env,{keys,payloads=new Map(),reason="scheduled
 async function runOfficialFinalResultsPass({controller,env,ctx,plan}){
   if (!shouldRunOfficialFinalResults(plan)) return null;
   const scope=officialFinalResultsScope(plan);
-  const activeResultMinutes=scope==="high-school-volleyball-final-results"
+  const liveScope=scope==="high-school-volleyball-final-results" || scope==="high-school-live-final-results";
+  const activeResultMinutes=liveScope
     ? Number(plan?.activeResultMinutes||30)
     : plan?.kind==="friday-football-results"?30:120;
   return runScopedCadence({
     core,env,ctx,controller,
-    plan:{kind:`${plan.kind}-official-finals`,runCore:true,scope,activeResultMinutes}
+    plan:{
+      kind:`${plan.kind}-official-finals`,
+      runCore:true,
+      scope,
+      activeResultMinutes,
+      liveStatewideSports:m2LiveStatewideKeysForPlan(plan)
+    }
   });
 }
 
