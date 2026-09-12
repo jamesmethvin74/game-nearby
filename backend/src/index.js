@@ -309,7 +309,7 @@ async function collectSource(env,source,reason,sharedFetches=new Map(),getIdenti
     console.error("collector failure",source.id,message);
     await env.DB.batch([
       env.DB.prepare("UPDATE sources SET last_checked_at=?,last_failure_at=?,last_error=?,last_http_status=?,consecutive_failures=COALESCE(consecutive_failures,0)+1,suspicious_game_count=CASE WHEN ?=1 THEN 1 ELSE suspicious_game_count END,updated_at=? WHERE id=?").bind(finishedAt,finishedAt,message,httpStatus,suspicious,finishedAt,source.id),
-      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='FAILURE',http_status=?,error=? WHERE id=?").bind(finishedAt,httpStatus,message,httpStatus,run.id)
+      env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='FAILURE',http_status=?,error=? WHERE id=?").bind(finishedAt,httpStatus,message,run.id)
     ]);
     return {sourceId:source.id,status:"FAILURE",error:message,reason};
   }
