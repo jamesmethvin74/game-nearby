@@ -1,9 +1,10 @@
-import app from "./coverage-report-worker-v5.js";
+import app from "./coverage-report-worker-v6.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
 const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v7-browser-pinned";
-const COVERAGE_CACHE_VERSION = "truthful-v5";
+const COVERAGE_CACHE_VERSION = "truthful-v6";
+const SCHEDULE_CACHE_VERSION = "current-truth-v2";
 const DIRECT_LOGO_OVERRIDES = new Map([
   ["df-6blldr", "https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png"],
   ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
@@ -102,13 +103,14 @@ function cacheDescriptor(request) {
     return descriptor(origin, `/games?${query}`, 5 * 60, 12 * 60 * 60, `/games?${legacyQuery}`);
   }
   if (/^\/api\/v1\/schools\/[^/]+\/schedule$/.test(path)) {
-    return descriptor(origin, path, 15 * 60, 24 * 60 * 60);
+    return descriptor(origin, `/schedule/${SCHEDULE_CACHE_VERSION}${path}`, 15 * 60, 24 * 60 * 60);
   }
   const teamMatch = path.match(/^\/api\/v1\/teams\/[^/]+(?:\/(schedule|record))?$/);
   if (teamMatch) {
     const kind = teamMatch[1] || "team";
     const freshTtl = kind === "record" ? 5 * 60 : kind === "schedule" ? 15 * 60 : 60 * 60;
-    return descriptor(origin, path, freshTtl, 24 * 60 * 60);
+    const key = kind === "schedule" ? `/schedule/${SCHEDULE_CACHE_VERSION}${path}` : path;
+    return descriptor(origin, key, freshTtl, 24 * 60 * 60);
   }
   // The standings data route is intentionally not edge-cached. A canonical FINAL
   // can change records and ranking during the same Friday-night collection cycle.
@@ -187,4 +189,4 @@ export default {
   async scheduled(controller, env, ctx) { return app.scheduled(controller, env, ctx); }
 };
 
-export { COVERAGE_CACHE_VERSION, DIRECT_LOGO_OVERRIDES, SCHOOL_CATALOG_CACHE_VERSION, cacheDescriptor, rewriteSchoolCatalogLogos };
+export { COVERAGE_CACHE_VERSION, DIRECT_LOGO_OVERRIDES, SCHOOL_CATALOG_CACHE_VERSION, SCHEDULE_CACHE_VERSION, cacheDescriptor, rewriteSchoolCatalogLogos };
