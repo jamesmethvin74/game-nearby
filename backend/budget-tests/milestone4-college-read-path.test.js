@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { legacyCollegeSchoolId, resolvedGameForSchool } from "../src/m4-public-worker.js";
+import { legacyCollegeSchoolId, localSchoolId, resolvedGameForSchool } from "../src/m4-public-worker.js";
+
+test("school schedule route recognizes explicit school-level reads", () => {
+  assert.equal(localSchoolId("/api/v1/schools/uca/schedule"), "uca");
+  assert.equal(localSchoolId("/api/v1/schools/ua-rich-mountain/schedule"), "ua-rich-mountain");
+  assert.equal(localSchoolId("/api/v1/teams/uca-volleyball-women-2026/schedule"), null);
+  assert.equal(localSchoolId("/api/v1/schools"), null);
+});
 
 test("M4 college read compatibility only recognizes legacy volleyball schedule-shaped requests", () => {
   assert.equal(legacyCollegeSchoolId("/api/v1/teams/cbc-volleyball-2026/schedule"), "cbc");
@@ -10,7 +17,7 @@ test("M4 college read compatibility only recognizes legacy volleyball schedule-s
   assert.equal(legacyCollegeSchoolId("/api/v1/games"), null);
 });
 
-test("M4 college school schedule preserves sport/gender identity and canonical result orientation", () => {
+test("school schedule preserves sport/gender identity and canonical result orientation", () => {
   const row = {
     id:"raw-1",sport:"basketball",gender:"women",season:"2026",
     canonical_event_id:"canonical-1",
@@ -34,13 +41,14 @@ test("M4 college school schedule preserves sport/gender identity and canonical r
   assert.equal(game.latitude,35.09);
 });
 
-test("M4 college school schedule query is tightly scoped to active college production rows", () => {
+test("school schedule query is tightly scoped to active local production rows", () => {
   const source = fs.readFileSync(new URL("../src/m4-public-worker.js", import.meta.url), "utf8");
-  assert.match(source, /school\.level !== "college"/);
   assert.match(source, /school\.catalog_scope !== "local"/);
+  assert.match(source, /requiredLevel && school\.level !== requiredLevel/);
   assert.match(source, /JOIN sources src ON src\.id=g\.source_id AND src\.enabled=1/);
   assert.match(source, /WHERE t\.school_id=\? AND t\.active=1 AND t\.season='2026'/);
   assert.match(source, /PARTITION BY t\.id,COALESCE\(g\.canonical_event_id,g\.id\)/);
+  assert.match(source, /t\.id AS reporting_team_id,t\.sport,t\.gender,t\.season,t\.conference_id/);
   assert.doesNotMatch(source, /UPDATE\s+games|INSERT\s+INTO\s+games|DELETE\s+FROM\s+games/i);
 });
 
