@@ -78,7 +78,7 @@ test("unchanged basketball live probe performs one state read and zero D1 writes
   let fetchCalls=0;
   const fetchFn=async url=>{
     fetchCalls++;
-    assert.equal(url,`${config.feedUrl}/0`);
+    assert.equal(url,config.feedUrl);
     return {ok:true,status:200,json:async()=>payload};
   };
 
