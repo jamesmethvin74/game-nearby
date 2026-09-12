@@ -29,6 +29,17 @@ function candidateResolution(candidates, method, normalizedAlias = "") {
   return null;
 }
 
+function persistenceConflict(result, existingSchoolId, method) {
+  const ids = [...new Set([result.schoolId, clean(existingSchoolId)].filter(Boolean))].sort();
+  return {
+    status:"ambiguous",
+    schoolId:null,
+    method,
+    normalizedAlias:result.normalizedAlias,
+    candidateSchoolIds:ids
+  };
+}
+
 export function buildSchoolIdentityIndex({ schools = [], aliases = [], externalIdentities = [] } = {}) {
   const canonicalCandidates = new Map();
   const aliasCandidates = new Map();
@@ -120,22 +131,45 @@ export async function createSchoolIdentityResolver(env) {
       const observedName = clean(input.observedName);
       const normalizedAlias = result.normalizedAlias;
       if (observedName && aliasCanBeRemembered(index, normalizedAlias, result.schoolId) && !index.aliasCandidates.has(normalizedAlias)) {
-        await env.DB.prepare("INSERT OR IGNORE INTO school_aliases(normalized_alias,school_id,alias_text) VALUES(?,?,?)")
-          .bind(normalizedAlias, result.schoolId, observedName).run();
-        addCandidate(index.aliasCandidates, normalizedAlias, result.schoolId);
+        const inserted = await env.DB.prepare(`
+          INSERT INTO school_aliases(normalized_alias,school_id,alias_text)
+          VALUES(?,?,?)
+          ON CONFLICT(normalized_alias) DO NOTHING
+          RETURNING school_id
+        `).bind(normalizedAlias, result.schoolId, observedName).first();
+        if (inserted?.school_id) {
+          addCandidate(index.aliasCandidates, normalizedAlias, inserted.school_id);
+        } else {
+          const existing = await env.DB.prepare("SELECT school_id FROM school_aliases WHERE normalized_alias=?").bind(normalizedAlias).first();
+          if (existing?.school_id && existing.school_id !== result.schoolId) {
+            addCandidate(index.aliasCandidates, normalizedAlias, existing.school_id);
+            return persistenceConflict(result, existing.school_id, "alias-persistence-conflict");
+          }
+          if (existing?.school_id) addCandidate(index.aliasCandidates, normalizedAlias, existing.school_id);
+        }
       }
 
       const identityKey = externalKey(input.provider, input.externalSchoolId);
       if (identityKey && !index.externalCandidates.has(identityKey)) {
         const provider = clean(input.provider).toLowerCase();
         const externalSchoolId = clean(input.externalSchoolId).toUpperCase();
-        await env.DB.prepare(`
+        const inserted = await env.DB.prepare(`
           INSERT INTO school_external_identities(provider,external_school_id,school_id,observed_name,last_seen_at,updated_at)
           VALUES(?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
-          ON CONFLICT(provider,external_school_id) DO UPDATE SET
-            school_id=excluded.school_id,observed_name=excluded.observed_name,last_seen_at=excluded.last_seen_at,updated_at=excluded.updated_at
-        `).bind(provider, externalSchoolId, result.schoolId, observedName || externalSchoolId).run();
-        addCandidate(index.externalCandidates, identityKey, result.schoolId);
+          ON CONFLICT(provider,external_school_id) DO NOTHING
+          RETURNING school_id
+        `).bind(provider, externalSchoolId, result.schoolId, observedName || externalSchoolId).first();
+        if (inserted?.school_id) {
+          addCandidate(index.externalCandidates, identityKey, inserted.school_id);
+        } else {
+          const existing = await env.DB.prepare("SELECT school_id FROM school_external_identities WHERE provider=? AND external_school_id=?")
+            .bind(provider, externalSchoolId).first();
+          if (existing?.school_id && existing.school_id !== result.schoolId) {
+            addCandidate(index.externalCandidates, identityKey, existing.school_id);
+            return persistenceConflict(result, existing.school_id, "external-id-persistence-conflict");
+          }
+          if (existing?.school_id) addCandidate(index.externalCandidates, identityKey, existing.school_id);
+        }
       }
 
       return result;
