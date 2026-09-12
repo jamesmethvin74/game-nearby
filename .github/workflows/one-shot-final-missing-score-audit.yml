@@ -12,12 +12,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch exact team rows and verify two source events
+      - name: Fetch exact team rows and verify two paged DragonFly source events
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
-          DRAGONFLY='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0'
           mkdir -p final-score-audit
           teams=(
             df-7kza8c-volleyball-2026
@@ -34,52 +33,39 @@ jobs:
             jq -c --arg team "$team" '
               .games[]
               | select(.status == "FINAL" and ((.team_score == null) or (.opponent_score == null)))
-              | {
-                  team_id:$team,
-                  game_id:.id,
-                  canonical_event_id:(.canonical_event_id // null),
-                  opponent:(.opponent // null),
-                  opponent_school_id:(.opponent_school_id // null),
-                  scheduled_at:(.scheduled_at // null),
-                  home_away:(.home_away // null),
-                  status:.status,
-                  team_score:(.team_score // null),
-                  opponent_score:(.opponent_score // null),
-                  result:(.result // null),
-                  source_id:(.source_id // null),
-                  source_type:(.source_type // null),
-                  parser_type:(.parser_type // null),
-                  source_url:(.source_url // null),
-                  notes:(.notes // null)
-                }
+              | {team_id:$team,game_id:.id,canonical_event_id:(.canonical_event_id // null),opponent:(.opponent // null),opponent_school_id:(.opponent_school_id // null),scheduled_at:(.scheduled_at // null),home_away:(.home_away // null),status:.status,team_score:(.team_score // null),opponent_score:(.opponent_score // null),result:(.result // null),source_id:(.source_id // null),source_type:(.source_type // null),parser_type:(.parser_type // null),source_url:(.source_url // null),notes:(.notes // null)}
             ' "final-score-audit/$team.json" >> final-score-audit/candidates.ndjson
           done
           echo '=== MISSING-SCORE FINAL CANDIDATES ==='
           cat final-score-audit/candidates.ndjson
           test "$(wc -l < final-score-audit/candidates.ndjson)" -eq 4
 
-          curl --fail --silent --show-error "$DRAGONFLY" -o final-score-audit/dragonfly-wvb-page0.json
-          jq -c '
-            .schedule[]
-            | select((.eventId // .id) == "695fcf130e0845562900001c" or (.eventId // .id) == "69babe474fd8441434000004")
-            | {
-                eventId:(.eventId // .id),
-                date:(.date // .startDateTime // .scheduledAt),
-                status:(.status.name // .status // .gameStatus),
-                participants:[(.participants // [])[] | {
-                  name:(.name // null),
-                  orgShortCode:(.orgShortCode // null),
-                  teamId:(.team.teamId // null),
-                  isHome:(.isHome // null),
-                  score:(.result.score // null),
-                  opponentScore:(.result.opponentScore // null),
-                  result:(.result.code // null)
-                }]
-              }
-          ' final-score-audit/dragonfly-wvb-page0.json > final-score-audit/authority-events.ndjson
-          echo '=== DRAGONFLY AUTHORITY EVENTS ==='
-          cat final-score-audit/authority-events.ndjson
-          test "$(wc -l < final-score-audit/authority-events.ndjson)" -eq 2
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs';
+          import { fetchDragonFlyPagedPayload } from './backend/src/dragonfly-feed.js';
+          const url='https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0';
+          const wanted=new Set(['695fcf130e0845562900001c','69babe474fd8441434000004']);
+          const {payload,pageCount}=await fetchDragonFlyPagedPayload(url,{fetchFn:fetch,headers:{'user-agent':'LocalBleachersAR-final-score-verifier/1.0','accept':'application/json'}});
+          const matches=(payload?.schedule||[]).filter(event=>wanted.has(String(event?.eventId||event?.id||''))).map(event=>({
+            eventId:String(event?.eventId||event?.id||''),
+            date:event?.date||event?.startDateTime||event?.scheduledAt||null,
+            status:event?.status?.name||event?.status||event?.gameStatus||null,
+            participants:(event?.participants||[]).map(p=>({
+              name:p?.name||null,
+              orgShortCode:p?.orgShortCode||null,
+              teamId:p?.team?.teamId||null,
+              isHome:p?.isHome??null,
+              score:p?.result?.score??null,
+              opponentScore:p?.result?.opponentScore??null,
+              result:p?.result?.code??null
+            }))
+          }));
+          const out={pageCount,matches};
+          console.log('=== DRAGONFLY AUTHORITY EVENTS ===');
+          console.log(JSON.stringify(out,null,2));
+          writeFileSync('final-score-audit/authority-events.json',JSON.stringify(out,null,2));
+          if(matches.length!==2) process.exit(1);
+          NODE
       - uses: actions/upload-artifact@v4
         with:
           name: final-missing-score-targets
