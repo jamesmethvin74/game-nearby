@@ -83,7 +83,10 @@ export function collectionPlanAt(value = new Date()) {
 
   // In-season statewide live probes run every 30 minutes on weekday evenings.
   // The probes are semantic/read-only when the provider payload is unchanged;
-  // only an actual feed change invokes the existing certified collector.
+  // only an actual feed change invokes the existing certified collector. The
+  // same window also runs the already-bounded college game-day selector so
+  // weeknight college basketball/volleyball/soccer results do not wait behind
+  // the ordinary four-source refresh queue.
   const weekdayEvening = ["Mon", "Tue", "Wed", "Thu", "Fri"].includes(weekday) && (
     (hour === 16 && minute === 30) ||
     (hour >= 17 && hour <= 22 && (minute === 0 || minute === 30))
@@ -93,7 +96,9 @@ export function collectionPlanAt(value = new Date()) {
     const volleyballOnly = eveningLiveKeys.length === 1 && eveningLiveKeys[0] === "volleyball-girls";
     return plan(volleyballOnly ? "volleyball-live-results" : "statewide-live-results", {
       liveStatewideSports: eveningLiveKeys,
-      scope: volleyballOnly ? "volleyball-statewide" : "statewide-live-results"
+      runCore: true,
+      scope: "college-game-day",
+      activeResultMinutes: 30
     });
   }
 
