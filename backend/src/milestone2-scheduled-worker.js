@@ -10,6 +10,7 @@ import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-
 import { runStatewideLiveResultProbe } from "./statewide-live-results.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
 import { runResilientHootensStatewideResults } from "./hootens-resilient-results.js";
+import { runHootensTeamPageCatchup } from "./hootens-team-page-catchup.js";
 import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 
@@ -49,6 +50,10 @@ export function officialFinalResultsScope(plan){
 
 export function shouldRunHootensStatewideResults(plan){
   return plan?.kind==="friday-football-results" || plan?.kind==="morning-results";
+}
+
+export function shouldRunHootensTeamPageCatchup(plan){
+  return plan?.kind==="morning-results";
 }
 
 async function runCatalogMaintenance(env){
@@ -176,6 +181,23 @@ async function runHootensFinalResultsPass({env,plan}){
   return runResilientHootensStatewideResults(env);
 }
 
+async function runHootensHistoricalCatchupPass({env,plan,when}){
+  if (!shouldRunHootensTeamPageCatchup(plan)) return null;
+  try {
+    const result=await runHootensTeamPageCatchup(env,{now:when});
+    console.log("Hooten historical team-page catchup",{
+      status:result.status,candidates:result.candidates,eligibleCandidates:result.eligibleCandidates,
+      pagesAttempted:result.pagesAttempted,pagesFetched:result.pagesFetched,repaired:result.repaired,
+      touchedTeams:result.touchedTeams,rowsRead:result.rowsRead,failures:result.failures?.length||0
+    });
+    return result;
+  } catch(error) {
+    const message=String(error?.message||error).slice(0,1000);
+    console.error("Hooten historical team-page catchup failed",message);
+    return {status:"FAILURE",error:message};
+  }
+}
+
 async function runStatewideLiveResultsPass({env,plan,when}){
   const keys=m2LiveStatewideKeysForPlan(plan);
   if (!keys.length) return [];
@@ -245,17 +267,18 @@ async function runScheduledPlan(controller,env,ctx){
   const maxPrepsVolleyballResults=await runMaxPrepsVolleyballFallbackPass({env,plan,when});
 
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
+  const hootensHistoricalCatchup=await runHootensHistoricalCatchupPass({env,plan,when});
   const officialFinalResults=await runOfficialFinalResultsPass({controller,env,ctx,plan});
   const collegeLiveResults=await runCollegeLiveResultsPass({controller,env,ctx,plan});
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,collegeLiveResults};
+    if (scoped) return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults};
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,collegeLiveResults,coreResult:result??null};
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,coreResult:result??null};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,officialFinalResults,collegeLiveResults};
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults};
 }
 
 export default {
