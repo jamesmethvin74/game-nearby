@@ -27,7 +27,7 @@ export const M7_PREMATURE_RECORD_EXECUTE_PATH = "/api/v1/internal/m7-pea-ridge-r
 export const M7_PREMATURE_RECORD_MARKER = "m7-pea-ridge-record-recovery-v1-37f29e0d";
 export const M7_HISTORICAL_TWO_VERSION_PATH = "/api/v1/internal/m7-historical-two-version-6f9c12aa";
 export const M7_HISTORICAL_TWO_EVIDENCE_PATH = "/api/v1/internal/m7-historical-two-evidence-6f9c12aa";
-export const M7_HISTORICAL_TWO_MARKER = "m7-historical-two-v1-beb95ad4";
+export const M7_HISTORICAL_TWO_MARKER = "m7-historical-two-v2-16968dd3";
 export const M7_ATTACHMENT_EXPIRES_AT = Date.parse("2026-09-12T06:30:00Z");
 
 function privateJson(body, status = 200) {
