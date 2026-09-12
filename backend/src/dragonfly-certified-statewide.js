@@ -70,7 +70,9 @@ export function certifiedStatewideSignature(payload,sportConfig){
       result:clean(participant?.result?.code).toUpperCase()||null
     })).sort((a,b)=>`${a.teamId}|${a.orgShortCode}|${a.name}`.localeCompare(`${b.teamId}|${b.orgShortCode}|${b.name}`))
   })).sort((a,b)=>`${a.eventId}|${a.scheduledAt}`.localeCompare(`${b.eventId}|${b.scheduledAt}`));
-  return `${config.key}:${events.length}:${hashText(JSON.stringify(events))}`;
+  const normalizationVersion=Number(config.normalizationVersion||1);
+  const signatureKey=normalizationVersion>1?`${config.key}:v${normalizationVersion}`:config.key;
+  return `${signatureKey}:${events.length}:${hashText(JSON.stringify(events))}`;
 }
 
 function eventStatus(event,participants){
