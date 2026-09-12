@@ -1,6 +1,6 @@
 const BASE="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026";
 
-function config({key,feedCode,providerSportCode,sport,gender,teamCode,expectedTargets,minEvents}) {
+function config({key,feedCode,providerSportCode,sport,gender,teamCode,expectedTargets,minEvents,firstOfficialContestDate=null}) {
   return Object.freeze({
     key,
     feedCode,
@@ -11,6 +11,7 @@ function config({key,feedCode,providerSportCode,sport,gender,teamCode,expectedTa
     season:"2026",
     expectedTargets,
     minEvents,
+    firstOfficialContestDate,
     feedUrl:`${BASE}/${feedCode}/0`,
     stateId:`dragonfly:ArkAA:2026:${feedCode}`,
     catalogSyncId:`dragonfly-catalog:ArkAA:2026:${feedCode}`,
@@ -20,8 +21,8 @@ function config({key,feedCode,providerSportCode,sport,gender,teamCode,expectedTa
 
 export const STATEWIDE_HIGH_SCHOOL_SPORTS=Object.freeze([
   config({key:"football-boys",feedCode:"MFB_Varsity",providerSportCode:"MFB",sport:"football",gender:"boys",teamCode:"FB",expectedTargets:194,minEvents:300}),
-  config({key:"basketball-boys",feedCode:"MBB_Varsity",providerSportCode:"MBB",sport:"basketball",gender:"boys",teamCode:"MBB",expectedTargets:286,minEvents:500}),
-  config({key:"basketball-girls",feedCode:"WBB_Varsity",providerSportCode:"WBB",sport:"basketball",gender:"girls",teamCode:"WBB",expectedTargets:281,minEvents:500}),
+  config({key:"basketball-boys",feedCode:"MBB_Varsity",providerSportCode:"MBB",sport:"basketball",gender:"boys",teamCode:"MBB",expectedTargets:286,minEvents:500,firstOfficialContestDate:"2026-11-05"}),
+  config({key:"basketball-girls",feedCode:"WBB_Varsity",providerSportCode:"WBB",sport:"basketball",gender:"girls",teamCode:"WBB",expectedTargets:281,minEvents:500,firstOfficialContestDate:"2026-11-05"}),
   config({key:"soccer-boys",feedCode:"MSO_Varsity",providerSportCode:"MSO",sport:"soccer",gender:"boys",teamCode:"MSO",expectedTargets:79,minEvents:75}),
   config({key:"soccer-girls",feedCode:"WSO_Varsity",providerSportCode:"WSO",sport:"soccer",gender:"girls",teamCode:"WSO",expectedTargets:77,minEvents:60}),
   config({key:"volleyball-girls",feedCode:"WVB_Varsity",providerSportCode:"WVB",sport:"volleyball",gender:"girls",teamCode:"WVB",expectedTargets:185,minEvents:500})
