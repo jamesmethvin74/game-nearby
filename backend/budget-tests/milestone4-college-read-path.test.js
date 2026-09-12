@@ -41,11 +41,12 @@ test("school schedule preserves sport/gender identity and canonical result orien
   assert.equal(game.latitude,35.09);
 });
 
-test("school schedule query is tightly scoped to active local production rows", () => {
+test("school schedule query is tightly scoped but preserves retained materialized source rows", () => {
   const source = fs.readFileSync(new URL("../src/m4-public-worker.js", import.meta.url), "utf8");
   assert.match(source, /school\.catalog_scope !== "local"/);
   assert.match(source, /requiredLevel && school\.level !== requiredLevel/);
-  assert.match(source, /JOIN sources src ON src\.id=g\.source_id AND src\.enabled=1/);
+  assert.match(source, /JOIN sources src ON src\.id=g\.source_id\n/);
+  assert.doesNotMatch(source, /JOIN sources src ON src\.id=g\.source_id AND src\.enabled=1/);
   assert.match(source, /WHERE t\.school_id=\? AND t\.active=1 AND t\.season='2026'/);
   assert.match(source, /PARTITION BY t\.id,COALESCE\(g\.canonical_event_id,g\.id\)/);
   assert.match(source, /t\.id AS reporting_team_id,t\.sport,t\.gender,t\.season,t\.conference_id/);
