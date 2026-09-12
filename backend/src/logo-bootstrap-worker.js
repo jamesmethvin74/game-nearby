@@ -64,7 +64,7 @@ export default {
       catch (error) { return privateJson({ error:"final_missing_score_execute_failed", message:String(error?.message || error) }, 409); }
     }
     if (request.method === "HEAD" && path === LOGO_BOOTSTRAP_READY_PATH) return logoBootstrapReadiness(request, env);
-    const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_BOOTSTRAP_PATH;
+    const logoPath = path === HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH || path === COLLEGE_LOGO_BOOTSTRAP_PATH;
     if (request.method === "POST" && logoPath) {
       if (!authorizedLogoBootstrap(request, env)) return privateJson({ error:"not_found" }, 404);
       const input = await options(request);
