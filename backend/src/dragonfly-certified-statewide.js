@@ -27,6 +27,14 @@ function eventMatches(event,config){
     return code===config.providerSportCode && (!level || level.includes("varsity"));
   });
 }
+function countsForOfficialRecord(event,config,scheduledAt,timeZone){
+  const contestType=clean(event?.contestType).toLowerCase();
+  if (contestType==="exhibition") return 0;
+  const firstOfficialContestDate=clean(config?.firstOfficialContestDate);
+  if (!firstOfficialContestDate) return 1;
+  const localDate=dateKeyInZone(scheduledAt,timeZone);
+  return localDate && localDate<firstOfficialContestDate?0:1;
+}
 function hashText(value){
   let hash=2166136261;
   for (let index=0;index<value.length;index++) {
@@ -62,7 +70,9 @@ export function certifiedStatewideSignature(payload,sportConfig){
       result:clean(participant?.result?.code).toUpperCase()||null
     })).sort((a,b)=>`${a.teamId}|${a.orgShortCode}|${a.name}`.localeCompare(`${b.teamId}|${b.orgShortCode}|${b.name}`))
   })).sort((a,b)=>`${a.eventId}|${a.scheduledAt}`.localeCompare(`${b.eventId}|${b.scheduledAt}`));
-  return `${config.key}:${events.length}:${hashText(JSON.stringify(events))}`;
+  const normalizationVersion=Number(config.normalizationVersion||1);
+  const signatureKey=normalizationVersion>1?`${config.key}:v${normalizationVersion}`:config.key;
+  return `${signatureKey}:${events.length}:${hashText(JSON.stringify(events))}`;
 }
 
 function eventStatus(event,participants){
@@ -107,7 +117,7 @@ export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checke
     const mappedHome=mapped.find(item=>item.participant?.isHome===true) || null;
     const venueLatitude=mappedHome && Number.isFinite(Number(mappedHome.mapping.latitude))?Number(mappedHome.mapping.latitude):null;
     const venueLongitude=mappedHome && Number.isFinite(Number(mappedHome.mapping.longitude))?Number(mappedHome.mapping.longitude):null;
-    const contestType=clean(event?.contestType).toLowerCase();
+    const countsForRecord=countsForOfficialRecord(event,config,scheduledAt,timeZone);
     const conferenceGame=Number(Boolean(event?.conferenceGame || event?.isConference || event?.regionGame));
 
     const localBySchool=new Map();
@@ -160,7 +170,7 @@ export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checke
         longitude:venueLongitude,
         home_away:homeAway,
         conference_game:conferenceGame,
-        counts_for_record:contestType==="exhibition"?0:1,
+        counts_for_record:countsForRecord,
         status,
         team_score:teamScore,
         opponent_score:opponentScore,

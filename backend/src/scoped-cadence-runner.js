@@ -3,11 +3,52 @@ const ORDINARY_MAX_SOURCES_PER_RUN = 4;
 const COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN = 8;
 const OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 256;
 const OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 64;
+const OFFICIAL_LIVE_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 64;
 
 function safeSeason(value) {
   const season = String(value || "2026");
   if (!/^\d{4}$/.test(season)) throw new Error("Invalid college bootstrap season");
   return season;
+}
+
+const LIVE_FINAL_RESULT_RULES = Object.freeze({
+  "volleyball-girls":{
+    where:"(t.sport='volleyball' AND t.gender='girls')",
+    game:"(t.sport='volleyball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-90 minutes'))"
+  },
+  "basketball-boys":{
+    where:"(t.sport='basketball' AND t.gender='boys')",
+    game:"(t.sport='basketball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-120 minutes'))"
+  },
+  "basketball-girls":{
+    where:"(t.sport='basketball' AND t.gender='girls')",
+    game:"(t.sport='basketball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-120 minutes'))"
+  }
+});
+
+function liveFinalResultPolicy(plan = {}) {
+  const keys=[...new Set(Array.isArray(plan.liveStatewideSports)?plan.liveStatewideSports:[])]
+    .filter(key=>LIVE_FINAL_RESULT_RULES[key]);
+  if (!keys.length) return null;
+  const where=keys.map(key=>LIVE_FINAL_RESULT_RULES[key].where).join(" OR ");
+  const game=[...new Set(keys.map(key=>LIVE_FINAL_RESULT_RULES[key].game))].join(" OR ");
+  return {
+    where:`sch.level='high-school'
+      AND src.source_type='official-school'
+      AND src.parser_type IN ('mascot-media','rankone-public')
+      AND (${where})`,
+    activeMinutes:Number(plan.activeResultMinutes||30),
+    maxSources:OFFICIAL_LIVE_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
+    gameWindow:`AND EXISTS (
+      SELECT 1
+      FROM games gx
+      WHERE gx.team_id=t.id
+        AND gx.status='SCHEDULED'
+        AND gx.scheduled_time_known=1
+        AND (${game})
+    )`,
+    dueMode:"active-result"
+  };
 }
 
 export function scopePolicy(plan = {}) {
@@ -37,9 +78,8 @@ export function scopePolicy(plan = {}) {
   }
   if (plan.scope === "high-school-volleyball-final-results") {
     return {
-      // Live volleyball fallback is deliberately narrower than the statewide
-      // multi-sport reconciliation pass. Only school-operated result pages for
-      // girls volleyball with a result-ready scheduled match are eligible.
+      // Retained for compatibility with the original volleyball-only live path.
+      // New multi-sport live plans use high-school-live-final-results below.
       where: `sch.level='high-school'
         AND src.source_type='official-school'
         AND src.parser_type IN ('mascot-media','rankone-public')
@@ -57,6 +97,11 @@ export function scopePolicy(plan = {}) {
       )`,
       dueMode: "active-result"
     };
+  }
+  if (plan.scope === "high-school-live-final-results") {
+    // Fail closed if a caller asks for a live fallback without a supported,
+    // explicit sport/gender key. No free-form sport text enters SQL.
+    return liveFinalResultPolicy(plan);
   }
   if (plan.scope === "high-school-final-results") {
     return {
@@ -258,6 +303,8 @@ export {
   COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN,
   OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
   OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
+  OFFICIAL_LIVE_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
   INTERNAL_REFRESH_TOKEN,
+  liveFinalResultPolicy,
   safeSeason
 };

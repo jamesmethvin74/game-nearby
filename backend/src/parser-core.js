@@ -1,6 +1,6 @@
 export const MONTHS = {
   jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,may:5,jun:6,june:6,
-  jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,october:10,nov:11,dec:12,december:12
+  jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,nov:11,dec:12,december:12
 };
 
 export function cleanText(value) {
@@ -81,11 +81,20 @@ export function stableKeys(events) {
   });
 }
 
+function sidearmCalendarYear(text,source) {
+  const season=Number(source?.season);
+  if (!Number.isInteger(season)) return source?.season;
+  if (String(source?.sport||"").toLowerCase()!=="basketball") return String(season);
+  const parsed=parseMonthDay(text,String(season));
+  if (!parsed) return String(season);
+  return String(parsed.month<=7?season+1:season);
+}
+
 export function normalizeSidearmRows(rows, source) {
   const events=[];
   for (const raw of rows) {
     const dateText=cleanText(raw.date || raw.full);
-    const schedule=buildScheduledAt(dateText,source.season,source.timezone);
+    const schedule=buildScheduledAt(dateText,sidearmCalendarYear(dateText,source),source.timezone);
     if (!schedule) continue;
     let opponent=cleanText(raw.opponentName || raw.opponentText);
     opponent=opponent.replace(/^(vs\.?|at)\s+/i,"").replace(/^#\d+\s*/,"").trim();
