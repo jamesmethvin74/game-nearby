@@ -4,6 +4,39 @@ import { loadMaterializedCalculatedStandings, overlayCalculatedStandings } from 
 import { overlayVolleyballLiveRecords } from "./volleyball-standings-overlay.js";
 import { overlayFootballLiveRecords } from "./football-standings-overlay.js";
 
+function recordGameCount(value = "") {
+  return (String(value || "").match(/\d+/g)?.map(Number) || [])
+    .reduce((sum, part) => sum + part, 0);
+}
+
+/**
+ * A published 0-0 table can assign every team a synthetic "1st" before any
+ * conference game has been played. That is membership, not a real standing.
+ * Normalize that once in the shared truth resolver so Team Detail and the
+ * Standings endpoint cannot disagree about not-started conferences.
+ */
+export function normalizeNotStartedStandings(result) {
+  if (!result || !Array.isArray(result.standings)) return result;
+  return {
+    ...result,
+    standings: result.standings.map(row => {
+      const conferenceGames = recordGameCount(row?.conference_record);
+      if (conferenceGames > 0) {
+        return {
+          ...row,
+          standing_state: row?.rank == null ? "unavailable" : "ranked"
+        };
+      }
+      return {
+        ...row,
+        conference_record: "N/A",
+        rank: null,
+        standing_state: "not-started"
+      };
+    })
+  };
+}
+
 /**
  * Resolve one conference table through the same backend truth path for every caller.
  * This is deliberately response-agnostic so both /api/v1/standings and team-detail
@@ -25,7 +58,7 @@ export async function loadStandingsTruth(env, {
       conferenceId: normalizedConferenceId,
       season
     });
-    if (calculated?.conference?.coverage_complete) return calculated;
+    if (calculated?.conference?.coverage_complete) return normalizeNotStartedStandings(calculated);
   } catch (error) {
     console.warn("calculated standings read failed; using published fallback", {
       sport: normalizedSport,
@@ -67,9 +100,9 @@ export async function loadStandingsTruth(env, {
     }
 
     if (calculated) result = overlayCalculatedStandings(result, calculated);
-    return result;
+    return normalizeNotStartedStandings(result);
   } catch (error) {
-    if (calculated) return { ...calculated, partial_roster: true };
+    if (calculated) return normalizeNotStartedStandings({ ...calculated, partial_roster: true });
     throw error;
   }
 }
