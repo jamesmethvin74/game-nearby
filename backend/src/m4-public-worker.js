@@ -368,7 +368,7 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       ) AS authority_row
     FROM teams t
     JOIN schools sch ON sch.id=t.school_id
-    JOIN games g ON g.team_id=t.id
+    JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
     JOIN sources src ON src.id=g.source_id
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
