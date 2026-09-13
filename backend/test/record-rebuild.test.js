@@ -30,7 +30,7 @@ test("record rebuild combines canonical and school-feed finals without double co
       source_type:"official-school",parser_type:"mascot-media",data_trust:"SINGLE_SOURCE_LIVE"
     },
     {
-      id:"school-jamboree",team_id:"conway-volleyball-2026",school_id:"conway",opponent:"Jamboree",opponent_school_id:null,
+      id:"school-extra-final",team_id:"conway-volleyball-2026",school_id:"conway",opponent:"Other High School",opponent_school_id:null,
       scheduled_at:"2026-08-20T17:00:00.000Z",status:"FINAL",team_score:2,opponent_score:0,conference_game:0,counts_for_record:1,
       source_type:"official-school",parser_type:"mascot-media",data_trust:"SINGLE_SOURCE_LIVE"
     }
