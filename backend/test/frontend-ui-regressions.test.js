@@ -75,3 +75,10 @@ test("home cards consume the same unified team status and prime only followed sc
   assert.match(schoolSchedule, /await live\.fetchTeamSchedule\(schoolId\)/);
   assert.match(schoolSchedule, /localbleachers:nearby-games/);
 });
+
+test("fallback schedules never poison the authoritative team-status memory cache", () => {
+  assert.match(schoolSchedule, /memoryCache\.has\(cacheKey\) && cachedStatuses\.length/);
+  assert.match(schoolSchedule, /if \(restored\.statuses\.length\)/);
+  assert.match(schoolSchedule, /if \(unique\.length \|\| payload\.statuses\.length\)/);
+  assert.doesNotMatch(schoolSchedule, /memoryCache\.set\(cacheKey, fallback\)/);
+});
