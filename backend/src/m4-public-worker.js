@@ -341,7 +341,7 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       sch.id AS school_id,sch.name AS school_name,sch.level,
       c.name AS conference_name,
       r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at
-    FROM teams t INDEXED BY idx_teams_school_active_season
+    FROM teams t
     JOIN schools sch ON sch.id=t.school_id
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
@@ -378,9 +378,9 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
         PARTITION BY t.id,COALESCE(g.canonical_event_id,g.id)
         ORDER BY src.authority_rank,src.source_priority,src.id
       ) AS authority_row
-    FROM teams t INDEXED BY idx_teams_school_active_season
+    FROM teams t
     JOIN schools sch ON sch.id=t.school_id
-    JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
+    JOIN games g ON g.team_id=t.id
     JOIN sources src ON src.id=g.source_id
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
