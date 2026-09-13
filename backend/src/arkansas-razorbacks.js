@@ -70,6 +70,21 @@ function scheduledAt(dateText, timeText, source) {
   };
 }
 
+// Arkansas' official athletics site renders football losses as winner-first
+// score text (for example, "L, 43-10" when Arkansas lost 10-43). Normalize
+// parsed scores back to the reporting-team perspective before they enter the
+// canonical event and record pipelines.
+function orientArkansasResult(result) {
+  if (result?.status !== "FINAL" || !/^[WLT]$/.test(String(result?.result || ""))) return result;
+  const teamScore = Number(result.teamScore);
+  const opponentScore = Number(result.opponentScore);
+  if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) return result;
+  const contradictsWin = result.result === "W" && teamScore < opponentScore;
+  const contradictsLoss = result.result === "L" && teamScore > opponentScore;
+  if (!contradictsWin && !contradictsLoss) return result;
+  return { ...result, teamScore: opponentScore, opponentScore: teamScore };
+}
+
 export function normalizeArkansasRazorbackHtml(html, source) {
   const events = [];
   for (const block of eventBlocks(String(html || ""))) {
@@ -85,7 +100,7 @@ export function normalizeArkansasRazorbackHtml(html, source) {
 
     const homeAway = /away/.test(type) ? "away" : /neutral/.test(type) ? "neutral" : /home/.test(type) ? "home" : "unknown";
     const resultRaw = resultText(block);
-    const parsed = parseResult(resultRaw);
+    const parsed = orientArkansasResult(parseResult(resultRaw));
     const fullText = textFromHtml(block);
     const nonCount = /\b(exhibition|scrimmage)\b/i.test(`${opponent} ${fullText}`);
     const venue = place || (homeAway === "home" ? cleanText(source.home_venue) : "");
