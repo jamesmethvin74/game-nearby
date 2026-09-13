@@ -3,6 +3,7 @@ import core from "./index.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
+import { findPublishedConferenceMembership } from "./published-standings.js";
 import { loadStandingsTruth } from "./standings-truth.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
@@ -180,6 +181,34 @@ export function attachScheduleDerivedRecords(games = []) {
   });
 }
 
+async function discoverMissingConferenceMemberships(statuses) {
+  await Promise.all(statuses.map(async status => {
+    const sport = String(status.sport || "").toLowerCase();
+    const hasMembership = Boolean(status.conference_id || status.conference_name);
+    if (hasMembership || status.level !== "high-school" || !STANDINGS_SPORTS.has(sport) || !status.school_name) return;
+
+    try {
+      const membership = await findPublishedConferenceMembership({
+        sport,
+        schoolName: status.school_name
+      });
+      if (!membership?.conference?.id) return;
+      status.conference_id = membership.conference.id;
+      status.conference_name = membership.conference.name || null;
+      status.published_conference_id = membership.conference.id;
+      status.membership_source = "published-roster";
+      status.standing_state = "not-started";
+    } catch (error) {
+      console.warn("published conference membership discovery failed", {
+        teamId: status.team_id,
+        sport,
+        schoolName: status.school_name,
+        error: String(error?.message || error)
+      });
+    }
+  }));
+}
+
 export async function buildUnifiedTeamStatuses(env, games = []) {
   const byTeam = new Map();
   for (const game of games) {
@@ -200,6 +229,7 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       team_id: teamId,
       school_id: seed.school_id || null,
       school_name: seed.school_name || null,
+      level: seed.level || null,
       sport: seed.sport || null,
       gender: seed.gender || null,
       season: seed.season || null,
@@ -219,10 +249,12 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
     });
   }
 
+  await discoverMissingConferenceMemberships(statuses);
+
   const lookups = new Map();
   for (const status of statuses) {
     const sport = String(status.sport || "").toLowerCase();
-    if (!STANDINGS_SPORTS.has(sport)) continue;
+    if (status.level !== "high-school" || !STANDINGS_SPORTS.has(sport)) continue;
     const conferenceId = publishedConferenceId(status.conference_id, status.conference_name, sport);
     if (!conferenceId) continue;
     const key = `${sport}|${conferenceId}`;
