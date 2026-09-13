@@ -31,6 +31,7 @@ function canonicalCandidate(event, team) {
     team_id: team.id,
     sport: team.sport,
     gender: team.gender,
+    season: team.season,
     opponent: opponentName || opponentSchoolId || "Opponent",
     opponent_school_id: opponentSchoolId || null,
     scheduled_at: event.scheduled_at,
@@ -39,10 +40,11 @@ function canonicalCandidate(event, team) {
     opponent_score: isHome ? event.away_score : event.home_score,
     conference_game: Number(event.effective_conference_game ?? event.conference_game ?? 0),
     counts_for_record: Number(event.counts_for_record ?? 1),
+    notes: event.member_notes || event.notes || null,
     canonical_event_id: event.id,
     data_trust: event.trust_state || "SINGLE_SOURCE_LIVE",
-    source_type: "official-conference",
-    parser_type: "dragonfly-public"
+    source_type: event.member_source_type || "",
+    parser_type: event.member_parser_type || ""
   };
 }
 
@@ -53,6 +55,7 @@ function rawCandidate(game, team) {
     team_id: team.id,
     sport: team.sport,
     gender: team.gender,
+    season: team.season,
     opponent: game.opponent_name || game.opponent || game.opponent_school_id || "Opponent",
     opponent_school_id: game.opponent_school_id || null,
     conference_game: Number(game.effective_conference_game ?? game.conference_game ?? 0)
@@ -95,19 +98,15 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
   const teams = teamResult.results || [];
   if (!teams.length) return { teams: [], canonicals: [], raw: [] };
 
-  // IMPORTANT: when rebuilding one/few teams, keep the restriction inside SQL.
-  // The old implementation loaded every FINAL canonical/raw result statewide and
-  // filtered in JavaScript, multiplying D1 rows_read once per refreshed source.
-  // DragonFly does not currently publish a conference flag on Arkansas volleyball
-  // events. When both varsity teams already carry the same explicit conference_id,
-  // that shared local catalog membership is sufficient to classify the final for
-  // record purposes without mutating the canonical event or fetching another feed.
   let canonicalQuery = `
     SELECT DISTINCT ce.*,
       cem.reporting_team_id,
       hs.name AS home_name,
       aws.name AS away_name,
-      1 AS counts_for_record,
+      mg.counts_for_record AS counts_for_record,
+      mg.notes AS member_notes,
+      src.source_type AS member_source_type,
+      src.parser_type AS member_parser_type,
       CASE
         WHEN ce.conference_game=1 THEN 1
         WHEN rt.conference_id IS NOT NULL AND EXISTS (
@@ -122,13 +121,13 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
     FROM canonical_events ce
     JOIN canonical_event_members cem ON cem.canonical_event_id=ce.id
     JOIN games mg ON mg.id=cem.game_id AND mg.team_id=cem.reporting_team_id
+    JOIN sources src ON src.id=mg.source_id
     JOIN teams rt ON rt.id=cem.reporting_team_id
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
     LEFT JOIN schools aws ON aws.id=ce.away_school_id
     WHERE ce.status='FINAL'
       AND ce.home_score IS NOT NULL
-      AND ce.away_score IS NOT NULL
-      AND mg.counts_for_record=1`;
+      AND ce.away_score IS NOT NULL`;
   if (scopedTeamIds) canonicalQuery += " AND cem.reporting_team_id IN (SELECT value FROM json_each(?))";
   let canonicalPrepared = env.DB.prepare(canonicalQuery);
   if (scopedTeamIds) canonicalPrepared = canonicalPrepared.bind(teamIdsJson);
@@ -205,9 +204,6 @@ export async function rebuildTeamRecord(env, teamId, calculatedAt = new Date().t
   const built = buildRecordsFromInputs(inputs);
   if (!built.length) return null;
   await persistRecords(env, built, calculatedAt);
-  // The legacy per-source collector already rebuilds complete/calculated conferences
-  // immediately after this call. For every other conference method/state, materialize
-  // the touched cohort here so a fresh FINAL cannot leave standings behind the record.
   await rebuildStandingsForTeams(env, [teamId], calculatedAt, { skipCompleteCalculated: true });
   return built[0].record;
 }
