@@ -1,6 +1,7 @@
 import app from "./d1-usage-public-worker.js";
 import core from "./index.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
+import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
@@ -74,6 +75,7 @@ function resolvedGameForSchool(row, schoolId) {
     latitude: row.canonical_latitude ?? row.latitude,
     longitude: row.canonical_longitude ?? row.longitude,
     home_away: isHome ? "home" : isAway ? "away" : row.home_away,
+    conference_game: row.canonical_conference_game ?? row.conference_game,
     status,
     team_score: teamScore,
     opponent_score: opponentScore,
@@ -81,6 +83,59 @@ function resolvedGameForSchool(row, schoolId) {
     data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
     conflict_count: Number(row.conflict_count || 0)
   };
+}
+
+function recordGameCount(record = {}) {
+  return Number(record.wins || 0) + Number(record.losses || 0) + Number(record.ties || 0);
+}
+
+export function attachScheduleDerivedRecords(games = []) {
+  const byTeam = new Map();
+  for (const game of games) {
+    const teamId = game.reporting_team_id || game.team_id;
+    if (!teamId) continue;
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+    byTeam.get(teamId).push(game);
+  }
+
+  const recordByTeam = new Map();
+  for (const [teamId, rows] of byTeam) {
+    const derived = recordFromScheduleRows(rows, {
+      reportingSchoolId: rows[0]?.school_id || null,
+      maxMinutes: 15
+    });
+    if (Number(derived.scored_finals || 0) <= 0) continue;
+
+    const stored = rows[0] || {};
+    const storedCount = stored.wins == null && stored.losses == null && stored.ties == null
+      ? -1
+      : recordGameCount(stored);
+    const derivedCount = recordGameCount(derived);
+
+    // The team-detail card must never lag behind scored finals already visible in
+    // the same response. Preserve a stored record only when it represents more
+    // completed games than this schedule snapshot; otherwise the canonical rows
+    // being rendered on screen are the freshest available record authority.
+    if (storedCount > derivedCount) continue;
+    recordByTeam.set(teamId, derived);
+  }
+
+  if (!recordByTeam.size) return games;
+  return games.map(game => {
+    const teamId = game.reporting_team_id || game.team_id;
+    const record = recordByTeam.get(teamId);
+    if (!record) return game;
+    return {
+      ...game,
+      wins: record.wins,
+      losses: record.losses,
+      ties: record.ties,
+      conference_wins: record.conference_wins,
+      conference_losses: record.conference_losses,
+      conference_ties: record.conference_ties,
+      record_source: "schedule-derived"
+    };
+  });
 }
 
 async function localSchoolSchedule(request, env, schoolId, { requiredLevel = null } = {}) {
@@ -108,6 +163,7 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       ce.location_text AS canonical_location_text,
       ce.latitude AS canonical_latitude,
       ce.longitude AS canonical_longitude,
+      ce.conference_game AS canonical_conference_game,
       ce.status AS canonical_status,
       ce.home_score AS canonical_home_score,
       ce.away_score AS canonical_away_score,
@@ -134,9 +190,9 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     ORDER BY t.sport,t.gender,COALESCE(ce.scheduled_at,g.scheduled_at)
   `).bind(schoolId).all();
 
-  const games = (result.results || [])
+  const games = attachScheduleDerivedRecords((result.results || [])
     .filter(row => Number(row.authority_row) === 1)
-    .map(row => resolvedGameForSchool(row, schoolId));
+    .map(row => resolvedGameForSchool(row, schoolId)));
 
   console.log("school schedule read", {
     schoolId,
