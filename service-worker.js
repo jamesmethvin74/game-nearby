@@ -30,7 +30,7 @@ const CORE_ASSETS = [
   "./standings.js",
   "./assets/app-icon-192-v35.png",
   "./assets/app-icon-512-v35.png",
-  "./assets/splash-logo-v35.webp"
+  "./assets/app-icon-maskable-192-v36.png"
 ];
 
 self.addEventListener("install", event => {
