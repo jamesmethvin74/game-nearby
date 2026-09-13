@@ -57,7 +57,11 @@ test("conference inference uses one bounded opponent membership read and exact i
   const result = await attachEffectiveConferenceGames(env, rows);
 
   assert.equal(prepares, 1);
-  assert.match(sql, /INDEXED BY idx_teams_school_active_season/);
+  assert.match(sql, /FROM teams/);
+  assert.match(sql, /WHERE active=1/);
+  assert.match(sql, /conference_id IS NOT NULL/);
+  assert.match(sql, /school_id IN \(\?,\?\)/);
+  assert.doesNotMatch(sql, /INDEXED BY idx_teams_school_active_season/);
   assert.doesNotMatch(sql, /EXISTS\s*\(/);
   assert.deepEqual(new Set(binds), new Set(["opp-a", "opp-b"]));
   assert.deepEqual(result.map(row => row.effective_conference_game), [1,1,0,1]);
