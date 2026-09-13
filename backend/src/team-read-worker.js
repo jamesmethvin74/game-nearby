@@ -1,6 +1,7 @@
 import app from "./catalog-identity-worker.js";
 import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
+import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -112,9 +113,15 @@ async function readTeamSchedule(env, teamId) {
   const { results } = await env.DB.prepare(`
     SELECT g.*, s.source_type, s.parser_type, s.authority_rank,
       s.last_successful_fetch_at AS source_last_successful_fetch_at,
+      rt.school_id AS reporting_school_id,
+      rt.sport AS sport,
+      rt.gender AS gender,
+      rt.season AS season,
+      rt.conference_id AS conference_id,
       ce.scheduled_at AS canonical_scheduled_at,
       ce.scheduled_time_known AS canonical_time_known,
       ce.venue AS canonical_venue,
+      ce.conference_game AS canonical_conference_game,
       ce.status AS canonical_status,
       ce.home_score AS canonical_home_score,
       ce.away_score AS canonical_away_score,
@@ -124,23 +131,6 @@ async function readTeamSchedule(env, teamId) {
       ce.conflict_count,
       hs.name AS canonical_home_name,
       aws.name AS canonical_away_name,
-      CASE
-        WHEN COALESCE(ce.conference_game,g.conference_game)=1 THEN 1
-        WHEN rt.conference_id IS NOT NULL AND EXISTS (
-          SELECT 1 FROM teams ot
-          WHERE ot.active=1
-            AND ot.school_id=CASE
-              WHEN ce.id IS NOT NULL AND ce.home_school_id=rt.school_id THEN ce.away_school_id
-              WHEN ce.id IS NOT NULL AND ce.away_school_id=rt.school_id THEN ce.home_school_id
-              ELSE g.opponent_school_id
-            END
-            AND ot.sport=rt.sport
-            AND ot.gender=rt.gender
-            AND ot.season=rt.season
-            AND ot.conference_id=rt.conference_id
-        ) THEN 1
-        ELSE 0
-      END AS effective_conference_game,
       ROW_NUMBER() OVER (
         PARTITION BY COALESCE(g.canonical_event_id,g.id)
         ORDER BY s.authority_rank,s.source_priority,s.id
@@ -155,9 +145,9 @@ async function readTeamSchedule(env, teamId) {
     ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at)
   `).bind(teamId).all();
 
-  const resolved = results
-    .filter(row => Number(row.authority_row) === 1)
-    .map(row => resolvedGameForTeam(row, team));
+  const authorityRows = (results || []).filter(row => Number(row.authority_row) === 1);
+  const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: team.school_id });
+  const resolved = conferenceRows.map(row => resolvedGameForTeam(row, team));
   const games = await normalizeGames(env, resolved, team.school_id);
 
   return json({

@@ -4,7 +4,7 @@ const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
 const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v7-browser-pinned";
 const COVERAGE_CACHE_VERSION = "truthful-v6";
-const SCHEDULE_CACHE_VERSION = "current-truth-v2";
+const SCHEDULE_CACHE_VERSION = "unified-team-status-v3";
 const DIRECT_LOGO_OVERRIDES = new Map([
   ["df-6blldr", "https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png"],
   ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
@@ -103,7 +103,7 @@ function cacheDescriptor(request) {
     return descriptor(origin, `/games?${query}`, 5 * 60, 12 * 60 * 60, `/games?${legacyQuery}`);
   }
   if (/^\/api\/v1\/schools\/[^/]+\/schedule$/.test(path)) {
-    return descriptor(origin, `/schedule/${SCHEDULE_CACHE_VERSION}${path}`, 15 * 60, 24 * 60 * 60);
+    return descriptor(origin, `/schedule/${SCHEDULE_CACHE_VERSION}${path}`, 2 * 60, 24 * 60 * 60);
   }
   const teamMatch = path.match(/^\/api\/v1\/teams\/[^/]+(?:\/(schedule|record))?$/);
   if (teamMatch) {
@@ -112,9 +112,6 @@ function cacheDescriptor(request) {
     const key = kind === "schedule" ? `/schedule/${SCHEDULE_CACHE_VERSION}${path}` : path;
     return descriptor(origin, key, freshTtl, 24 * 60 * 60);
   }
-  // The standings data route is intentionally not edge-cached. A canonical FINAL
-  // can change records and ranking during the same Friday-night collection cycle.
-  // Conference/sport options are static enough to keep their existing cache.
   if (path === "/api/v1/standings/options") {
     const sport = encodeURIComponent(String(url.searchParams.get("sport") || ""));
     const conference = encodeURIComponent(String(url.searchParams.get("conference") || ""));

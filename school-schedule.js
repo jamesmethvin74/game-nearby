@@ -4,7 +4,8 @@
 
   const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const memoryCache = new Map();
-  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v2:";
+  const statusCache = new Map();
+  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v3:";
   const SCHEDULE_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
   const NEARBY_CACHE_MAX_AGE_MS = 18 * 60 * 60 * 1000;
@@ -23,6 +24,10 @@
       ...event,
       schoolIds: Array.isArray(event.schoolIds) ? [...event.schoolIds] : []
     }));
+  }
+
+  function cloneStatuses(statuses) {
+    return (statuses || []).map(status => ({ ...status }));
   }
 
   function readJson(key) {
@@ -52,17 +57,24 @@
     return `${currentSeason()}:${schoolId}`;
   }
 
-  function restoreSavedSchedule(schoolId) {
+  function restoreSavedPayload(schoolId) {
     const saved = readJson(scheduleCacheKey(schoolId));
-    if (!saved || !Array.isArray(saved.events) || !saved.events.length) return [];
+    if (!saved || !Array.isArray(saved.events) || !saved.events.length) return { events: [], statuses: [] };
     const savedAt = Number(saved.savedAt);
-    if (!Number.isFinite(savedAt) || Date.now() - savedAt > SCHEDULE_CACHE_MAX_AGE_MS) return [];
-    return cloneEvents(saved.events);
+    if (!Number.isFinite(savedAt) || Date.now() - savedAt > SCHEDULE_CACHE_MAX_AGE_MS) return { events: [], statuses: [] };
+    return {
+      events: cloneEvents(saved.events),
+      statuses: cloneStatuses(saved.statuses)
+    };
   }
 
-  function saveSchedule(schoolId, events) {
+  function saveSchedule(schoolId, events, statuses) {
     if (!Array.isArray(events) || !events.length) return;
-    writeJson(scheduleCacheKey(schoolId), { savedAt: Date.now(), events: cloneEvents(events) });
+    writeJson(scheduleCacheKey(schoolId), {
+      savedAt: Date.now(),
+      events: cloneEvents(events),
+      statuses: cloneStatuses(statuses)
+    });
   }
 
   function nearbyFallback(schoolId) {
@@ -76,8 +88,8 @@
   }
 
   function fallbackEvents(schoolId) {
-    const savedSchedule = restoreSavedSchedule(schoolId);
-    if (savedSchedule.length) return savedSchedule;
+    const saved = restoreSavedPayload(schoolId).events;
+    if (saved.length) return saved;
     return nearbyFallback(schoolId);
   }
 
@@ -104,6 +116,22 @@
       rank:record.rank == null ? null : Number(record.rank),
       calculated_at:record.calculated_at || null
     };
+  }
+
+  function normalizeStatus(status) {
+    if (!status || !status.team_id || !status.sport) return null;
+    return {
+      ...status,
+      rank: status.rank == null ? null : Number(status.rank),
+      overall_games: Number(status.overall_games || 0),
+      conference_games: Number(status.conference_games || 0)
+    };
+  }
+
+  function setStatuses(schoolId, statuses) {
+    const normalized = (statuses || []).map(normalizeStatus).filter(Boolean);
+    statusCache.set(memoryCacheKey(schoolId), normalized);
+    return normalized;
   }
 
   function mapGame(game, school) {
@@ -156,9 +184,11 @@
   async function fetchSchoolSchedule(school) {
     const payload = await fetchJson(`/api/v1/schools/${encodeURIComponent(school.id)}/schedule`);
     if (!Array.isArray(payload?.games)) throw new Error("API returned no school schedule");
-    return payload.games
+    const statuses = setStatuses(school.id, payload?.team_statuses);
+    const events = payload.games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at) && game.sport && game.gender)
       .map(game => mapGame(game, school));
+    return { events, statuses };
   }
 
   live.fetchTeamSchedule = async schoolId => {
@@ -166,20 +196,21 @@
     if (memoryCache.has(cacheKey)) return cloneEvents(memoryCache.get(cacheKey));
 
     const school = schoolFor(schoolId);
-    const restored = restoreSavedSchedule(schoolId);
-    if (restored.length) memoryCache.set(cacheKey, restored);
+    const restored = restoreSavedPayload(schoolId);
+    if (restored.events.length) memoryCache.set(cacheKey, restored.events);
+    if (restored.statuses.length) setStatuses(schoolId, restored.statuses);
 
     let lastError = null;
     try {
-      const games = await fetchSchoolSchedule(school);
-      const unique = [...new Map(games.map(game => [
+      const payload = await fetchSchoolSchedule(school);
+      const unique = [...new Map(payload.events.map(game => [
         `${game.backendTeamId || `${game.sport}|${game.gender}`}|${game.backendCanonicalEventId || game.backendGameId}`,
         game
       ])).values()].sort((a,b) => new Date(a.date) - new Date(b.date));
 
       if (unique.length) {
         memoryCache.set(cacheKey, unique);
-        saveSchedule(schoolId, unique);
+        saveSchedule(schoolId, unique, payload.statuses);
         return cloneEvents(unique);
       }
     } catch (error) {
@@ -187,7 +218,7 @@
       console.warn("School schedule API failed", schoolId, error);
     }
 
-    const fallback = restored.length ? restored : fallbackEvents(schoolId);
+    const fallback = restored.events.length ? restored.events : fallbackEvents(schoolId);
     if (fallback.length) {
       memoryCache.set(cacheKey, fallback);
       return cloneEvents(fallback);
@@ -195,5 +226,14 @@
 
     if (lastError) throw lastError;
     return [];
+  };
+
+  live.getTeamStatus = (schoolId, sport, gender = "") => {
+    const statuses = statusCache.get(memoryCacheKey(schoolId)) || [];
+    const found = statuses.find(status =>
+      String(status.sport || "") === String(sport || "")
+      && String(status.gender || "") === String(gender || "")
+    );
+    return found ? { ...found } : null;
   };
 })();
