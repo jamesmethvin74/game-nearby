@@ -1,6 +1,9 @@
 (() => {
   const state = { schoolId: null, sport: null, gender: null, logo: "", loading: false, error: "" };
   const scheduleCache = new Map();
+  const standingsCache = new Map();
+  const standingsRequests = new Map();
+  const STANDINGS_SPORTS = new Set(["football", "volleyball"]);
 
   function schoolFor(id) {
     return (typeof SCHOOL_REGISTRY !== "undefined" ? SCHOOL_REGISTRY : []).find(s => s.id === id) ||
@@ -44,6 +47,113 @@
     if (event.status !== "FINAL" || event.teamScore == null || event.opponentScore == null) return "";
     const result = event.result ? `${event.result} ` : "";
     return `${result}${event.teamScore}-${event.opponentScore}`;
+  }
+
+  function apiBase() {
+    return String(
+      window.LOCALBLEACHERS_API_BASE
+        || window.LocalBleachersLive?.apiBase
+        || window.LocalBleachersTeamsCatalog?.apiBase
+        || "https://localbleachersar-sports-api.james-methvin74.workers.dev"
+    ).replace(/\/$/, "");
+  }
+
+  function standingSchoolKey(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/\b(?:senior|sr\.?)[\s-]+high[\s-]+school\b/g, " ")
+      .replace(/\b(?:high school|high|school|hs)\b/g, " ")
+      .replace(/\barkansas\b|\bar\b/g, " ")
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function publishedConferenceId(record, conferenceName, sport) {
+    let id = String(record?.conference_id || "").trim().toLowerCase();
+    if (id) {
+      const suffix = new RegExp(`-${String(sport || "").replace(/[^a-z0-9]/gi, "")}(?:-\\d{4})?$`, "i");
+      id = id.replace(suffix, "");
+      if (/^[a-z0-9-]+$/.test(id)) return id;
+    }
+    return String(conferenceName || "")
+      .toLowerCase()
+      .replace(/\bconference\b/g, " ")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+
+  function standingContext(selectedEvents, status) {
+    if (!state.schoolId || !STANDINGS_SPORTS.has(String(state.sport || "").toLowerCase())) return null;
+    const seed = selectedEvents.find(event => event.record) || selectedEvents[0] || {};
+    const conferenceId = publishedConferenceId(seed.record, status?.conferenceName || seed.conferenceName, state.sport);
+    if (!conferenceId) return null;
+    return { seed, conferenceId, key:`${state.sport}|${conferenceId}` };
+  }
+
+  function standingRowFor(payload, seed) {
+    const rows = Array.isArray(payload?.standings) ? payload.standings : [];
+    const backendTeamId = String(seed?.backendTeamId || seed?.record?.team_id || "");
+    if (backendTeamId) {
+      const exactTeam = rows.find(row => String(row?.team_id || "") === backendTeamId);
+      if (exactTeam) return exactTeam;
+    }
+    const school = schoolFor(state.schoolId);
+    const keys = new Set([
+      school?.name,
+      school?.providerName,
+      school?.locationMatchedName,
+      seed?.team,
+      seed?.schoolName
+    ].map(standingSchoolKey).filter(Boolean));
+    if (!keys.size) return null;
+    return rows.find(row => keys.has(standingSchoolKey(row?.school_name))) || null;
+  }
+
+  function applyLiveStanding(status, selectedEvents) {
+    const context = standingContext(selectedEvents, status);
+    if (!context) return status;
+    const payload = standingsCache.get(context.key);
+    if (!payload) return status;
+    const row = standingRowFor(payload, context.seed);
+    if (!row) return status;
+    const rank = Number(row.rank);
+    return {
+      ...status,
+      overall: row.overall_record || status.overall,
+      conference: row.conference_record || status.conference,
+      standing: Number.isFinite(rank) && rank > 0 ? `#${rank}` : status.standing,
+      conferenceName: payload?.conference?.name || status.conferenceName
+    };
+  }
+
+  async function loadCurrentStanding() {
+    const all = teamEventsFor(state.schoolId);
+    const selectedEvents = all.filter(e => e.sport === state.sport && (e.gender || "") === state.gender);
+    const seed = selectedEvents.find(event => event.record) || selectedEvents[0] || {};
+    const baseStatus = typeof getTeamStatus === "function" && state.sport
+      ? getTeamStatus({ ...seed, teamId: state.schoolId, sport: state.sport, gender: state.gender })
+      : null;
+    const context = standingContext(selectedEvents, baseStatus);
+    if (!context || standingsCache.has(context.key) || standingsRequests.has(context.key)) return;
+
+    const schoolId = state.schoolId;
+    const sport = state.sport;
+    const gender = state.gender;
+    const request = fetch(`${apiBase()}/api/v1/standings?sport=${encodeURIComponent(sport)}&conference=${encodeURIComponent(context.conferenceId)}`, {
+      headers:{accept:"application/json"}, cache:"no-store"
+    }).then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.message || `HTTP ${response.status}`);
+      standingsCache.set(context.key, payload);
+    }).catch(error => {
+      console.warn("Team standing lookup failed", { schoolId, sport, conferenceId:context.conferenceId, error:String(error?.message || error) });
+    }).finally(() => {
+      standingsRequests.delete(context.key);
+      if (state.schoolId === schoolId && state.sport === sport && state.gender === gender) renderDetail();
+    });
+    standingsRequests.set(context.key, request);
+    await request;
   }
 
   function ensureDialog() {
@@ -123,9 +233,10 @@
       ? all.filter(e => e.sport === state.sport && (e.gender || "") === state.gender)
       : all;
     const statusSeed = selectedEvents.find(event => event.record) || selectedEvents[0] || {};
-    const status = typeof getTeamStatus === "function" && state.sport
+    const baseStatus = typeof getTeamStatus === "function" && state.sport
       ? getTeamStatus({ ...statusSeed, teamId: state.schoolId, sport: state.sport, gender: state.gender })
       : { overall: "—", conference: "—", standing: "Not posted", conferenceName: "Conference" };
+    const status = applyLiveStanding(baseStatus, selectedEvents);
 
     const logoEl = dialog.querySelector("#teamDetailLogo");
     logoEl.innerHTML = state.logo
@@ -180,6 +291,7 @@
     } finally {
       state.loading = false;
       renderDetail();
+      void loadCurrentStanding();
     }
   }
 
@@ -194,6 +306,7 @@
     renderDetail();
     if (!dialog.open) dialog.showModal();
     void loadFullSchedule(state.schoolId);
+    void loadCurrentStanding();
   }
 
   document.addEventListener("click", event => {
@@ -209,6 +322,7 @@
       state.sport = sport.dataset.sport;
       state.gender = sport.dataset.gender || "";
       renderDetail();
+      void loadCurrentStanding();
     }
   });
 })();
