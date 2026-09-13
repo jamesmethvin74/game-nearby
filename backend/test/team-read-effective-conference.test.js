@@ -11,7 +11,10 @@ test("schedule reads use set-based shared-conference inference",()=>{
     assert.match(source,/attachEffectiveConferenceGames/);
     assert.doesNotMatch(source,/conference_id IS NOT NULL AND EXISTS\s*\(/);
   }
-  assert.match(inferenceSource,/FROM teams INDEXED BY idx_teams_school_active_season/);
+  assert.match(inferenceSource,/FROM teams/);
+  assert.match(inferenceSource,/WHERE active=1/);
+  assert.match(inferenceSource,/conference_id IS NOT NULL/);
+  assert.doesNotMatch(inferenceSource,/INDEXED BY idx_teams_school_active_season/);
   assert.match(inferenceSource,/school_id IN \(\$\{placeholders\}\)/);
   assert.match(inferenceSource,/membershipKey\(opponentId, row\.sport, row\.gender, row\.season, row\.conference_id\)/);
   assert.match(teamReadSource,/conference_game:\s*Number\(row\.effective_conference_game \?\? row\.conference_game/);
