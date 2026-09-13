@@ -2,6 +2,7 @@ import { fetchPublishedStandings } from "./published-standings.js";
 import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
 import { loadMaterializedCalculatedStandings, overlayCalculatedStandings } from "./calculated-standings.js";
 import { overlayVolleyballLiveRecords } from "./volleyball-standings-overlay.js";
+import { overlayFootballLiveRecords } from "./football-standings-overlay.js";
 
 /**
  * Resolve one conference table through the same backend truth path for every caller.
@@ -40,6 +41,18 @@ export async function loadStandingsTruth(env, {
       conferenceId: normalizedConferenceId
     });
     result = await reconcileFootballOverallRecords(result, { sport: normalizedSport });
+
+    try {
+      result = await overlayFootballLiveRecords(env, result, {
+        sport: normalizedSport,
+        season
+      });
+    } catch (error) {
+      console.warn("live football standings overlay failed; preserving published table", {
+        conferenceId: normalizedConferenceId,
+        error: String(error?.message || error)
+      });
+    }
 
     try {
       result = await overlayVolleyballLiveRecords(env, result, {
