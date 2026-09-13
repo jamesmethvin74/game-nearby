@@ -59,8 +59,9 @@ test("live schedule sources override the legacy MaxPreps label", () => {
 test("team detail renders the unified backend record and standings contract", async () => {
   const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
-  assert.match(live, /getTeamStatus/);
-  assert.match(detail, /getTeamStatus/);
+  assert.match(schoolSchedule, /payload\?\.team_statuses/);
+  assert.match(schoolSchedule, /live\.getTeamStatus/);
+  assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
   assert.match(detail, /status\.overall_record/);
   assert.match(detail, /status\.conference_record/);
   assert.match(detail, /status\.rank/);
