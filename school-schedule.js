@@ -250,16 +250,18 @@
     }))];
     if (!schoolIds.length) return;
 
-    await Promise.allSettled(schoolIds.map(async schoolId => {
-      if (primedSchools.has(schoolId) || primingSchools.has(schoolId)) return;
+    for (const schoolId of schoolIds) {
+      if (primedSchools.has(schoolId) || primingSchools.has(schoolId)) continue;
       primingSchools.add(schoolId);
       try {
         await live.fetchTeamSchedule(schoolId);
         if ((statusCache.get(memoryCacheKey(schoolId)) || []).length) primedSchools.add(schoolId);
+      } catch (error) {
+        console.warn("Followed team status prime failed", schoolId, error);
       } finally {
         primingSchools.delete(schoolId);
       }
-    }));
+    }
 
     if (typeof render === "function") render();
   }
