@@ -13,6 +13,7 @@ import { runResilientHootensStatewideResults } from "./hootens-resilient-results
 import { runHootensTeamPageCatchup } from "./hootens-team-page-catchup.js";
 import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
+import { syncPublishedFootballConferenceMembership } from "./football-conference-membership.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -25,7 +26,6 @@ export function m2LiveStatewideKeysForPlan(plan){
   if (!plan) return [];
   const keys=Array.isArray(plan.liveStatewideSports)?plan.liveStatewideSports.filter(Boolean):[];
   if (keys.length) return [...new Set(keys)];
-  // Backward-compatible fallback for older plan fixtures/callers.
   return plan.runVolleyballLive?["volleyball-girls"]:[];
 }
 
@@ -72,6 +72,23 @@ async function runCatalogMaintenance(env){
     }
   }
   console.log("weekly certified DragonFly catalogs",catalogs);
+
+  try {
+    const membership=await syncPublishedFootballConferenceMembership(env);
+    console.log("weekly published football conference membership",{
+      status:membership.status,
+      discoveredConferences:membership.discoveredConferences,
+      fetchedConferences:membership.fetchedConferences,
+      conferenceRows:membership.conferenceRows??0,
+      assignments:membership.assignments,
+      unmatched:membership.unmatched,
+      ambiguous:Array.isArray(membership.ambiguous)?membership.ambiguous.length:0,
+      conferenceWrites:membership.conferenceWrites??0,
+      teamWrites:membership.teamWrites??0
+    });
+  } catch (error) {
+    console.error("weekly published football conference membership sync failed",String(error?.message||error));
+  }
 
   try {
     const membership=await syncPublishedVolleyballConferenceMembership(env);
