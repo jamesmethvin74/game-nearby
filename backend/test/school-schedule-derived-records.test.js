@@ -43,15 +43,69 @@ test("team detail derives a record from the scored finals already visible in its
   }
 });
 
-test("non-record exhibitions do not inflate the derived team detail record", () => {
+test("legacy bare zero flags cannot hide ordinary scored finals statewide", () => {
   const rows = [
-    game({ id:"benefit", scheduled_at:"2026-08-19T00:00:00.000Z", opponent:"Morrilton", team_score:21, opponent_score:14, counts_for_record:0 }),
-    game({ id:"capital", scheduled_at:"2026-08-29T00:00:00.000Z", opponent:"Capital High School (MO)", team_score:45, opponent_score:7 })
+    game({ id:"searcy", scheduled_at:"2026-08-29T00:00:00.000Z", opponent:"Searcy High School", team_score:13, opponent_score:54, counts_for_record:0 }),
+    game({ id:"newport", scheduled_at:"2026-09-05T00:00:00.000Z", opponent:"The Academies At Newport High School", team_score:16, opponent_score:13, counts_for_record:0 })
+  ];
+
+  const result = attachScheduleDerivedRecords(rows);
+  assert.equal(result[0].wins, 1);
+  assert.equal(result[0].losses, 1);
+  assert.equal(result[0].record_source, "schedule-derived");
+});
+
+test("named non-record games stay excluded while ordinary legacy finals count", () => {
+  const rows = [
+    game({ id:"benefit", scheduled_at:"2026-08-19T00:00:00.000Z", opponent:"Morrilton Benefit Game", notes:"Benefit Game", team_score:21, opponent_score:14, counts_for_record:0 }),
+    game({ id:"capital", scheduled_at:"2026-08-29T00:00:00.000Z", opponent:"Capital High School (MO)", team_score:45, opponent_score:7, counts_for_record:0 })
   ];
 
   const result = attachScheduleDerivedRecords(rows);
   assert.equal(result[0].wins, 1);
   assert.equal(result[0].losses, 0);
+});
+
+test("certified DragonFly zero remains an explicit non-record decision", () => {
+  const rows = [
+    game({
+      id:"df-exhibition",
+      scheduled_at:"2026-09-05T00:00:00.000Z",
+      opponent:"Opponent High School",
+      team_score:2,
+      opponent_score:1,
+      counts_for_record:0,
+      parser_type:"dragonfly-public"
+    })
+  ];
+
+  const result = attachScheduleDerivedRecords(rows);
+  assert.equal(result[0].wins, null);
+  assert.equal(result[0].losses, null);
+  assert.equal(result[0].record_source, undefined);
+});
+
+test("high-school basketball before the official 2026-27 boundary stays out of records", () => {
+  const rows = [
+    game({
+      reporting_team_id:"sample-basketball-boys-2026",
+      team_id:"sample-basketball-boys-2026",
+      school_id:"sample",
+      sport:"basketball",
+      gender:"boys",
+      id:"preseason",
+      scheduled_at:"2026-11-04T01:00:00.000Z",
+      opponent:"Opponent High School",
+      team_score:70,
+      opponent_score:60,
+      counts_for_record:0
+    })
+  ];
+
+  const result = attachScheduleDerivedRecords(rows);
+  assert.equal(result[0].wins, null);
+  assert.equal(result[0].losses, null);
+  assert.equal(result[0].record_source, undefined);
 });
 
 test("a richer stored record is preserved when the visible schedule snapshot has fewer scored finals", () => {
