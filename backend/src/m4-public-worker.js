@@ -2,17 +2,20 @@ import app from "./d1-usage-public-worker.js";
 import core from "./index.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
+import { normalizeSchoolAlias } from "./schedule-authority-core.js";
+import { loadStandingsTruth } from "./standings-truth.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
+const STANDINGS_SPORTS = new Set(["football", "volleyball"]);
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "cache-control": "public, max-age=300, stale-while-revalidate=900",
+      "cache-control": "public, max-age=120, stale-while-revalidate=300",
       "access-control-allow-origin": "*"
     }
   });
@@ -49,6 +52,7 @@ function resolvedGameForSchool(row, schoolId) {
   if (!row.canonical_event_id) {
     return {
       ...row,
+      conference_game: Number(row.effective_conference_game ?? row.conference_game ?? 0),
       data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
       conflict_count: Number(row.conflict_count || 0)
     };
@@ -75,7 +79,7 @@ function resolvedGameForSchool(row, schoolId) {
     latitude: row.canonical_latitude ?? row.latitude,
     longitude: row.canonical_longitude ?? row.longitude,
     home_away: isHome ? "home" : isAway ? "away" : row.home_away,
-    conference_game: row.canonical_conference_game ?? row.conference_game,
+    conference_game: Number(row.effective_conference_game ?? row.canonical_conference_game ?? row.conference_game ?? 0),
     status,
     team_score: teamScore,
     opponent_score: opponentScore,
@@ -87,6 +91,46 @@ function resolvedGameForSchool(row, schoolId) {
 
 function recordGameCount(record = {}) {
   return Number(record.wins || 0) + Number(record.losses || 0) + Number(record.ties || 0);
+}
+
+function conferenceGameCount(record = {}) {
+  return Number(record.conference_wins || 0) + Number(record.conference_losses || 0) + Number(record.conference_ties || 0);
+}
+
+function recordText(wins, losses, ties = 0) {
+  const w = Number(wins || 0);
+  const l = Number(losses || 0);
+  const t = Number(ties || 0);
+  return t > 0 ? `${w}-${l}-${t}` : `${w}-${l}`;
+}
+
+function recordTextGameCount(value) {
+  const parts = String(value || "").match(/\d+/g)?.map(Number) || [];
+  return parts.reduce((sum, part) => sum + part, 0);
+}
+
+export function publishedConferenceId(conferenceId, conferenceName, sport) {
+  const normalizedSport = String(sport || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  let id = String(conferenceId || "").trim().toLowerCase();
+  if (id) {
+    const suffix = new RegExp(`-${normalizedSport}(?:-\\d{4})?$`, "i");
+    id = id.replace(suffix, "");
+    if (/^[a-z0-9-]+$/.test(id)) return id;
+  }
+  return String(conferenceName || "")
+    .toLowerCase()
+    .replace(/\bconference\b/g, " ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function standingsRowForTeam(payload, team) {
+  const rows = Array.isArray(payload?.standings) ? payload.standings : [];
+  const exact = rows.find(row => row?.team_id && String(row.team_id) === String(team.team_id));
+  if (exact) return exact;
+  const schoolKey = normalizeSchoolAlias(team.school_name);
+  if (!schoolKey) return null;
+  return rows.find(row => normalizeSchoolAlias(row?.school_name) === schoolKey) || null;
 }
 
 export function attachScheduleDerivedRecords(games = []) {
@@ -112,10 +156,6 @@ export function attachScheduleDerivedRecords(games = []) {
       : recordGameCount(stored);
     const derivedCount = recordGameCount(derived);
 
-    // The team-detail card must never lag behind scored finals already visible in
-    // the same response. Preserve a stored record only when it represents more
-    // completed games than this schedule snapshot; otherwise the canonical rows
-    // being rendered on screen are the freshest available record authority.
     if (storedCount > derivedCount) continue;
     recordByTeam.set(teamId, derived);
   }
@@ -133,9 +173,109 @@ export function attachScheduleDerivedRecords(games = []) {
       conference_wins: record.conference_wins,
       conference_losses: record.conference_losses,
       conference_ties: record.conference_ties,
+      scored_finals: record.scored_finals,
+      conference_scored_finals: conferenceGameCount(record),
       record_source: "schedule-derived"
     };
   });
+}
+
+export async function buildUnifiedTeamStatuses(env, games = []) {
+  const byTeam = new Map();
+  for (const game of games) {
+    const teamId = String(game.reporting_team_id || game.team_id || "");
+    if (!teamId) continue;
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+    byTeam.get(teamId).push(game);
+  }
+
+  const statuses = [];
+  for (const [teamId, rows] of byTeam) {
+    const seed = rows[0] || {};
+    const overallGames = recordGameCount(seed);
+    const conferenceGames = conferenceGameCount(seed);
+    const conferenceId = seed.conference_id || null;
+    const conferenceName = seed.conference_name || null;
+    statuses.push({
+      team_id: teamId,
+      school_id: seed.school_id || null,
+      school_name: seed.school_name || null,
+      sport: seed.sport || null,
+      gender: seed.gender || null,
+      season: seed.season || null,
+      conference_id: conferenceId,
+      conference_name: conferenceName,
+      overall_record: seed.wins == null && seed.losses == null && seed.ties == null
+        ? null
+        : recordText(seed.wins, seed.losses, seed.ties),
+      conference_record: conferenceId && conferenceGames > 0
+        ? recordText(seed.conference_wins, seed.conference_losses, seed.conference_ties)
+        : null,
+      overall_games: overallGames,
+      conference_games: conferenceGames,
+      rank: null,
+      standing_state: conferenceId || conferenceName ? (conferenceGames > 0 ? "unavailable" : "not-started") : "no-conference",
+      source: seed.record_source || (overallGames > 0 ? "team-record" : "schedule")
+    });
+  }
+
+  const lookups = new Map();
+  for (const status of statuses) {
+    const sport = String(status.sport || "").toLowerCase();
+    if (!STANDINGS_SPORTS.has(sport)) continue;
+    const conferenceId = publishedConferenceId(status.conference_id, status.conference_name, sport);
+    if (!conferenceId) continue;
+    const key = `${sport}|${conferenceId}`;
+    if (!lookups.has(key)) {
+      lookups.set(key, loadStandingsTruth(env, {
+        sport,
+        conferenceId,
+        season: status.season || "2026"
+      }).catch(error => {
+        console.warn("team status standings lookup failed", {
+          sport,
+          conferenceId,
+          error: String(error?.message || error)
+        });
+        return null;
+      }));
+    }
+    status.published_conference_id = conferenceId;
+    status.standings_key = key;
+  }
+
+  const resolved = new Map();
+  await Promise.all([...lookups].map(async ([key, promise]) => resolved.set(key, await promise)));
+
+  for (const status of statuses) {
+    const payload = status.standings_key ? resolved.get(status.standings_key) : null;
+    if (!payload) {
+      delete status.standings_key;
+      continue;
+    }
+    const row = standingsRowForTeam(payload, status);
+    if (!row) {
+      delete status.standings_key;
+      continue;
+    }
+
+    const conferenceGames = recordTextGameCount(row.conference_record);
+    const rank = Number(row.rank);
+    status.conference_id = status.conference_id || status.published_conference_id || payload?.conference?.id || null;
+    status.conference_name = payload?.conference?.name || status.conference_name;
+    status.overall_record = row.overall_record || status.overall_record;
+    status.overall_games = recordTextGameCount(status.overall_record);
+    status.conference_games = conferenceGames;
+    status.conference_record = conferenceGames > 0 ? (row.conference_record || status.conference_record) : null;
+    status.rank = conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? rank : null;
+    status.standing_state = conferenceGames > 0
+      ? (status.rank ? "ranked" : "unavailable")
+      : "not-started";
+    status.source = row.method || payload?.conference?.standings_method || "standings";
+    delete status.standings_key;
+  }
+
+  return statuses;
 }
 
 async function localSchoolSchedule(request, env, schoolId, { requiredLevel = null } = {}) {
@@ -173,6 +313,23 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       ce.conflict_count,
       hs.name AS canonical_home_name,
       aws.name AS canonical_away_name,
+      CASE
+        WHEN COALESCE(ce.conference_game,g.conference_game)=1 THEN 1
+        WHEN t.conference_id IS NOT NULL AND EXISTS (
+          SELECT 1 FROM teams ot
+          WHERE ot.active=1
+            AND ot.school_id=CASE
+              WHEN ce.id IS NOT NULL AND ce.home_school_id=t.school_id THEN ce.away_school_id
+              WHEN ce.id IS NOT NULL AND ce.away_school_id=t.school_id THEN ce.home_school_id
+              ELSE g.opponent_school_id
+            END
+            AND ot.sport=t.sport
+            AND ot.gender=t.gender
+            AND ot.season=t.season
+            AND ot.conference_id=t.conference_id
+        ) THEN 1
+        ELSE 0
+      END AS effective_conference_game,
       ROW_NUMBER() OVER (
         PARTITION BY t.id,COALESCE(g.canonical_event_id,g.id)
         ORDER BY src.authority_rank,src.source_priority,src.id
@@ -193,17 +350,19 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
   const games = attachScheduleDerivedRecords((result.results || [])
     .filter(row => Number(row.authority_row) === 1)
     .map(row => resolvedGameForSchool(row, schoolId)));
+  const teamStatuses = await buildUnifiedTeamStatuses(env, games);
 
   console.log("school schedule read", {
     schoolId,
     schoolLevel: school.level,
     games: games.length,
+    teamStatuses: teamStatuses.length,
     rowsRead: Number(result.meta?.rows_read || 0),
     rowsWritten: Number(result.meta?.rows_written || 0),
     durationMs: Number(result.meta?.duration || 0) || null
   });
 
-  return json({ schoolId, schoolLevel: school.level, games });
+  return json({ schoolId, schoolLevel: school.level, games, team_statuses: teamStatuses });
 }
 
 async function collegeSchoolSchedule(request, env, schoolId) {
@@ -211,10 +370,6 @@ async function collegeSchoolSchedule(request, env, schoolId) {
 }
 
 async function runCollegeBootstrap(request, env, ctx) {
-  // Temporary M4 activation surface. It is intentionally not on the cron path.
-  // Each explicit invocation selects at most eight enabled/current college
-  // sources with zero game rows and routes them through the normal collector.
-  // Remove this endpoint after the initial production population is complete.
   if (!authorizedWrite(request, env)) return privateJson({ error:"not_found" }, 404);
   const result = await runScopedCadence({
     core,
@@ -243,8 +398,6 @@ export default {
         if (response) return response;
       }
 
-      // Keep the old college volleyball-shaped compatibility route until every
-      // installed client has moved to the explicit school schedule endpoint.
       const legacySchoolId = legacyCollegeSchoolId(url.pathname);
       if (legacySchoolId) {
         const response = await collegeSchoolSchedule(request, env, legacySchoolId);
