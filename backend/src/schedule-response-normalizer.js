@@ -1,7 +1,11 @@
-import { normalizeSchoolAlias } from "./schedule-authority-core.js";
+import { dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.js";
 
 const EVENT_DESCRIPTOR_RE = /\b(?:senior night|early bird|invitational|invite|tournament|tourney|classic|jamboree)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
+const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet the cats)\b/i;
+const HIGH_SCHOOL_BASKETBALL_FIRST_OFFICIAL = new Map([
+  ["2026", "2026-11-05"]
+]);
 
 function clean(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -114,6 +118,37 @@ export function dedupeScheduleRows(games, options = {}) {
   return merged.sort((a, b) => Date.parse(a.scheduled_at || a.canonical_scheduled_at) - Date.parse(b.scheduled_at || b.canonical_scheduled_at));
 }
 
+function highSchoolBasketballPreseason(row) {
+  if (clean(row.sport).toLowerCase() !== "basketball") return false;
+  const gender = clean(row.gender).toLowerCase();
+  if (gender !== "boys" && gender !== "girls") return false;
+  const season = clean(row.season);
+  const boundary = HIGH_SCHOOL_BASKETBALL_FIRST_OFFICIAL.get(season);
+  if (!boundary) return false;
+  const scheduledAt = row.scheduled_at || row.canonical_scheduled_at;
+  if (!scheduledAt) return false;
+  const localDate = dateKeyInZone(scheduledAt, "America/Chicago");
+  return Boolean(localDate && localDate < boundary);
+}
+
+export function rowCountsForRecord(row = {}) {
+  if (row.countsForRecord === false) return false;
+
+  const descriptiveText = [row.notes, row.opponent, row.venue, row.location_text]
+    .map(clean)
+    .filter(Boolean)
+    .join(" ");
+  if (NON_RECORD_TEXT_RE.test(descriptiveText)) return false;
+
+  if (highSchoolBasketballPreseason(row)) return false;
+
+  if (Number(row.counts_for_record) !== 0) return true;
+
+  if (clean(row.parser_type).toLowerCase() === "dragonfly-public") return false;
+
+  return true;
+}
+
 export function recordFromScheduleRows(games, options = {}) {
   const rows = dedupeScheduleRows(games, options);
   let wins = 0;
@@ -125,7 +160,7 @@ export function recordFromScheduleRows(games, options = {}) {
   let scoredFinals = 0;
 
   for (const row of rows) {
-    if (row.status !== "FINAL" || row.counts_for_record === 0 || row.countsForRecord === false) continue;
+    if (row.status !== "FINAL" || !rowCountsForRecord(row)) continue;
     if (row.team_score == null || row.opponent_score == null) continue;
     const teamScore = Number(row.team_score);
     const opponentScore = Number(row.opponent_score);
