@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const follow = await readFile(new URL("../../school-follow-logic.js", import.meta.url), "utf8");
 const live = await readFile(new URL("../../live-data.js", import.meta.url), "utf8");
 const detail = await readFile(new URL("../../team-detail.js", import.meta.url), "utf8");
+const schoolSchedule = await readFile(new URL("../../school-schedule.js", import.meta.url), "utf8");
 
 test("home only renders games involving followed schools", () => {
   assert.match(follow, /\.filter\(isFollowedSchoolEvent\)/);
@@ -34,6 +35,20 @@ test("nearby refresh and full team schedules are separate data paths", () => {
   assert.match(detail, /Loading full schedule/);
 });
 
+test("team detail uses one explicit school schedule read and preserves backend sport identity", () => {
+  assert.match(schoolSchedule, /\/api\/v1\/schools\/\$\{encodeURIComponent\(school\.id\)\}\/schedule/);
+  assert.match(schoolSchedule, /const sport = String\(game\.sport \|\| ""\)/);
+  assert.match(schoolSchedule, /const gender = String\(game\.gender \|\| ""\)/);
+  assert.match(schoolSchedule, /backendTeamId:game\.reporting_team_id \|\| game\.team_id \|\| null/);
+  assert.doesNotMatch(schoolSchedule, /MAX_TEAM_ENDPOINTS_PER_OPEN/);
+  assert.doesNotMatch(schoolSchedule, /-mens-soccer-|\-womens-soccer-|\-volleyball-\$\{season\}/);
+});
+
+test("team detail schedule cache is versioned by season and abandons pre-status payloads", () => {
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v3:/);
+  assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
+});
+
 test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /scheduleSourceLabel/);
   assert.match(live, /Arkansas varsity schedule/);
@@ -41,13 +56,13 @@ test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
 
-
-test("live calculated records replace the old hardcoded 0-0 status table", async () => {
+test("team detail renders the unified backend record and standings contract", async () => {
   const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
-  assert.match(polish, /event\.record/);
-  assert.match(polish, /recordLabel\(record\.wins,record\.losses,record\.ties\)/);
-  assert.match(live, /normalizeRecord/);
-  assert.match(live, /recordOverride/);
-  assert.match(detail, /selectedEvents\.find\(event => event\.record\)/);
+  assert.match(schoolSchedule, /payload\?\.team_statuses/);
+  assert.match(schoolSchedule, /live\.getTeamStatus/);
+  assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(detail, /status\.overall_record/);
+  assert.match(detail, /status\.conference_record/);
+  assert.match(detail, /status\.rank/);
 });
