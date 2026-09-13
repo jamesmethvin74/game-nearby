@@ -6,9 +6,10 @@ import { mergeTeamStatusSeeds } from "../src/m4-public-worker.js";
 const source = fs.readFileSync(new URL("../src/m4-public-worker.js", import.meta.url), "utf8");
 
 test("school status keeps active teams before their first schedule row without amplifying the game query", () => {
-  assert.match(source, /JOIN games g INDEXED BY idx_games_team_record_lookup ON g\.team_id=t\.id/);
-  assert.doesNotMatch(source, /LEFT JOIN games g INDEXED BY idx_games_team_record_lookup/);
-  assert.match(source, /FROM teams t INDEXED BY idx_teams_school_active_season[\s\S]*WHERE t\.school_id=\? AND t\.active=1 AND t\.season='2026'/);
+  assert.match(source, /JOIN games g ON g\.team_id=t\.id/);
+  assert.doesNotMatch(source, /LEFT JOIN games g/);
+  assert.match(source, /FROM teams t[\s\S]*WHERE t\.school_id=\? AND t\.active=1 AND t\.season='2026'/);
+  assert.doesNotMatch(source, /INDEXED BY idx_teams_school_active_season/);
   assert.match(source, /const statusRows = mergeTeamStatusSeeds\(resolvedRows, teamSeedResult\.results \|\| \[\]\)/);
   assert.match(source, /buildUnifiedTeamStatuses\(env, statusRows\)/);
 });
