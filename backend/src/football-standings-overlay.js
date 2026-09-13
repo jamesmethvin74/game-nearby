@@ -40,6 +40,24 @@ export function footballConferenceRecordsFromRosterFinals(finals = []) {
   return records;
 }
 
+export function uniqueFootballRecordRows(rows = []) {
+  const byTeam = new Map();
+  for (const row of rows) {
+    const teamId = String(row.team_id || "");
+    if (!teamId) continue;
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+    byTeam.get(teamId).push(row);
+  }
+
+  const unique = [];
+  for (const teamRows of byTeam.values()) {
+    const aliases = [...new Set(teamRows.map(row => String(row.normalized_alias || "")).filter(Boolean))];
+    if (aliases.length !== 1) continue;
+    unique.push(teamRows[0]);
+  }
+  return unique;
+}
+
 export function buildFootballLiveCalculatedStandings(published, recordRows = []) {
   const publishedRows = Array.isArray(published?.standings) ? published.standings : [];
   if (!publishedRows.length || !recordRows.length) return null;
@@ -125,9 +143,10 @@ export async function overlayFootballLiveRecords(env, published, {
       AND t.season=?
       AND s.level='high-school'
       AND s.catalog_scope='local'
+    ORDER BY t.id,a.normalized_alias
   `).bind(JSON.stringify(aliases), sport, season).all();
 
-  const recordRows = result.results || [];
+  const recordRows = uniqueFootballRecordRows(result.results || []);
   const teamIds = [...new Set(recordRows.map(row => row.team_id).filter(Boolean))];
   const schoolIds = [...new Set(recordRows.map(row => row.school_id).filter(Boolean))];
 
