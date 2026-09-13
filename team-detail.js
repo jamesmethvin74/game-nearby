@@ -46,6 +46,27 @@
     return `${result}${event.teamScore}-${event.opponentScore}`;
   }
 
+  function unifiedStatus() {
+    const status = window.LocalBleachersLive?.getTeamStatus?.(state.schoolId, state.sport, state.gender);
+    if (status) {
+      const conferenceKnown = Boolean(status.conference_name || status.conference_id);
+      const conferenceGames = Number(status.conference_games || 0);
+      const rank = Number(status.rank);
+      return {
+        overall: status.overall_record || "N/A",
+        conference: conferenceKnown && conferenceGames > 0 ? (status.conference_record || "N/A") : "N/A",
+        standing: conferenceKnown && conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "N/A",
+        conferenceName: status.conference_name || (conferenceKnown ? "Conference" : "Conference not available")
+      };
+    }
+
+    if (state.loading) {
+      return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };
+    }
+
+    return { overall:"N/A", conference:"N/A", standing:"N/A", conferenceName:"Conference not available" };
+  }
+
   function ensureDialog() {
     let dialog = document.getElementById("teamDetailDialog");
     if (dialog) return dialog;
@@ -122,10 +143,7 @@
     const selectedEvents = active
       ? all.filter(e => e.sport === state.sport && (e.gender || "") === state.gender)
       : all;
-    const statusSeed = selectedEvents.find(event => event.record) || selectedEvents[0] || {};
-    const status = typeof getTeamStatus === "function" && state.sport
-      ? getTeamStatus({ ...statusSeed, teamId: state.schoolId, sport: state.sport, gender: state.gender })
-      : { overall: "—", conference: "—", standing: "Not posted", conferenceName: "Conference" };
+    const status = unifiedStatus();
 
     const logoEl = dialog.querySelector("#teamDetailLogo");
     logoEl.innerHTML = state.logo
@@ -191,6 +209,7 @@
     const image = trigger.querySelector("img");
     state.logo = image && !image.hidden ? image.src : "";
     const dialog = ensureDialog();
+    state.loading = !scheduleCache.has(state.schoolId);
     renderDetail();
     if (!dialog.open) dialog.showModal();
     void loadFullSchedule(state.schoolId);
