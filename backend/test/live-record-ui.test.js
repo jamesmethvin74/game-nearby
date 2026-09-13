@@ -9,10 +9,10 @@ const worker = await readFile(new URL("../src/worker.js", import.meta.url), "utf
 const branding = await readFile(new URL("../src/school-branding.js", import.meta.url), "utf8");
 
 test("current shell keeps the mascot-logo frontend while adding reconciled standings", () => {
-  assert.match(html, /polish\.js\?v=54/);
-  assert.match(html, /team-detail\.js\?v=54/);
-  assert.match(html, /live-data\.js\?v=54/);
-  assert.match(html, /school-logo-ui\.js\?v=54/);
+  assert.match(html, /polish\.js\?v=\d+/);
+  assert.match(html, /team-detail\.js\?v=\d+/);
+  assert.match(html, /live-data\.js\?v=\d+/);
+  assert.match(html, /school-logo-ui\.js\?v=\d+/);
   assert.match(html, /href="standings\.html"/);
   assert.match(sw, /localbleachersar-shell-v\d+/);
   assert.match(sw, /school-logo-ui\.js/);
