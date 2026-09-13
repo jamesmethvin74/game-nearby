@@ -5,6 +5,7 @@ import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { findPublishedConferenceMembership } from "./published-standings.js";
 import { loadStandingsTruth } from "./standings-truth.js";
+import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
@@ -345,28 +346,11 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       ce.conflict_count,
       hs.name AS canonical_home_name,
       aws.name AS canonical_away_name,
-      CASE
-        WHEN COALESCE(ce.conference_game,g.conference_game)=1 THEN 1
-        WHEN t.conference_id IS NOT NULL AND EXISTS (
-          SELECT 1 FROM teams ot
-          WHERE ot.active=1
-            AND ot.school_id=CASE
-              WHEN ce.id IS NOT NULL AND ce.home_school_id=t.school_id THEN ce.away_school_id
-              WHEN ce.id IS NOT NULL AND ce.away_school_id=t.school_id THEN ce.home_school_id
-              ELSE g.opponent_school_id
-            END
-            AND ot.sport=t.sport
-            AND ot.gender=t.gender
-            AND ot.season=t.season
-            AND ot.conference_id=t.conference_id
-        ) THEN 1
-        ELSE 0
-      END AS effective_conference_game,
       ROW_NUMBER() OVER (
         PARTITION BY t.id,COALESCE(g.canonical_event_id,g.id)
         ORDER BY src.authority_rank,src.source_priority,src.id
       ) AS authority_row
-    FROM teams t
+    FROM teams t INDEXED BY idx_teams_school_active_season
     JOIN schools sch ON sch.id=t.school_id
     JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
     JOIN sources src ON src.id=g.source_id
@@ -379,9 +363,9 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     ORDER BY t.sport,t.gender,COALESCE(ce.scheduled_at,g.scheduled_at)
   `).bind(schoolId).all();
 
-  const games = attachScheduleDerivedRecords((result.results || [])
-    .filter(row => Number(row.authority_row) === 1)
-    .map(row => resolvedGameForSchool(row, schoolId)));
+  const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
+  const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: schoolId });
+  const games = attachScheduleDerivedRecords(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)));
   const teamStatuses = await buildUnifiedTeamStatuses(env, games);
 
   console.log("school schedule read", {
