@@ -3,7 +3,7 @@
   "name": "LocalBleachersAR",
   "short_name": "LocalBleachersAR",
   "description": "Find the game. Join the crowd. Arkansas high school and college sports nearby.",
-  "start_url": "/game-nearby/?source=pwa-v46",
+  "start_url": "/game-nearby/?source=pwa-v47",
   "scope": "/game-nearby/",
   "display": "standalone",
   "orientation": "portrait-primary",
@@ -13,10 +13,22 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "assets/app-icon-maskable-webapk-v37.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "src": "assets/app-icon-192-v35.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/app-icon-512-v35.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/app-icon-maskable-192-v39.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

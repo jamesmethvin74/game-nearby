@@ -33,6 +33,19 @@ function recordLabel(w=0,l=0,t=0){return Number(t)?`${Number(w)||0}-${Number(l)|
 
 function getTeamStatus(event){
   const key=`${event.teamId}|${event.sport}|${event.gender}`;
+  const unified=window.LocalBleachersLive?.getTeamStatus?.(event.teamId,event.sport,event.gender);
+  if (unified) {
+    const conferenceKnown=Boolean(unified.conference_id || unified.conference_name);
+    const conferenceGames=Number(unified.conference_games || 0);
+    const rank=Number(unified.rank);
+    return {
+      overall:unified.overall_record || "—",
+      conference:conferenceKnown && conferenceGames>0 ? (unified.conference_record || "—") : "—",
+      standing:conferenceKnown && conferenceGames>0 && Number.isFinite(rank) && rank>0 ? `#${rank}` : "Not posted",
+      conferenceName:unified.conference_name || TEAM_CONFERENCE_FALLBACKS[key] || "Conference"
+    };
+  }
+
   const record=event.record || null;
   const conferenceName=record?.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key] || "Conference";
   if (!record) return {overall:"—",conference:"—",standing:"Not posted",conferenceName};
@@ -44,7 +57,6 @@ function getTeamStatus(event){
     conferenceName
   };
 }
-
 
 function polishedSourceLabel(event){
   if(event.source!=="official") return "MaxPreps schedule";

@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const follow = await readFile(new URL("../../school-follow-logic.js", import.meta.url), "utf8");
 const live = await readFile(new URL("../../live-data.js", import.meta.url), "utf8");
 const detail = await readFile(new URL("../../team-detail.js", import.meta.url), "utf8");
+const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
 const schoolSchedule = await readFile(new URL("../../school-schedule.js", import.meta.url), "utf8");
 
 test("home only renders games involving followed schools", () => {
@@ -57,7 +58,6 @@ test("live schedule sources override the legacy MaxPreps label", () => {
 });
 
 test("team detail renders the unified backend record and standings contract", async () => {
-  const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
   assert.match(schoolSchedule, /live\.getTeamStatus/);
@@ -65,4 +65,13 @@ test("team detail renders the unified backend record and standings contract", as
   assert.match(detail, /status\.overall_record/);
   assert.match(detail, /status\.conference_record/);
   assert.match(detail, /status\.rank/);
+});
+
+test("home cards consume the same unified team status and prime only followed schools that are nearby", () => {
+  assert.match(polish, /LocalBleachersLive\?\.getTeamStatus\?\.\(event\.teamId,event\.sport,event\.gender\)/);
+  assert.match(polish, /unified\.rank/);
+  assert.match(schoolSchedule, /function primeVisibleFollowedStatuses/);
+  assert.match(schoolSchedule, /followedIds\.has\(id\)/);
+  assert.match(schoolSchedule, /await live\.fetchTeamSchedule\(schoolId\)/);
+  assert.match(schoolSchedule, /localbleachers:nearby-games/);
 });

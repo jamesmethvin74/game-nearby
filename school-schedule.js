@@ -236,4 +236,34 @@
     );
     return found ? { ...found } : null;
   };
+
+  const primedSchools = new Set();
+  const primingSchools = new Set();
+
+  async function primeVisibleFollowedStatuses() {
+    const followedIds = new Set(typeof followed !== "undefined" && Array.isArray(followed) ? followed : []);
+    if (!followedIds.size) return;
+    const nearby = live.getNearbyEvents?.() || [];
+    const schoolIds = [...new Set(nearby.flatMap(event => {
+      const ids = Array.isArray(event.schoolIds) && event.schoolIds.length ? event.schoolIds : [event.teamId];
+      return ids.filter(id => followedIds.has(id));
+    }))];
+    if (!schoolIds.length) return;
+
+    await Promise.allSettled(schoolIds.map(async schoolId => {
+      if (primedSchools.has(schoolId) || primingSchools.has(schoolId)) return;
+      primingSchools.add(schoolId);
+      try {
+        await live.fetchTeamSchedule(schoolId);
+        if ((statusCache.get(memoryCacheKey(schoolId)) || []).length) primedSchools.add(schoolId);
+      } finally {
+        primingSchools.delete(schoolId);
+      }
+    }));
+
+    if (typeof render === "function") render();
+  }
+
+  document.addEventListener("localbleachers:nearby-games", () => { void primeVisibleFollowedStatuses(); });
+  queueMicrotask(() => { void primeVisibleFollowedStatuses(); });
 })();
