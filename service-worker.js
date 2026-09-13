@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v62";
+const CACHE_NAME = "localbleachersar-shell-v63";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -49,9 +49,6 @@ self.addEventListener("activate", event => {
 self.addEventListener("fetch", event => {
   if (event.request.method !== "GET") return;
 
-  // Do not proxy requests to the sports API (or any other external origin)
-  // through the PWA service worker. Let the browser perform the normal CORS
-  // request directly. The service worker only owns the LocalBleachersAR shell.
   const requestUrl = new URL(event.request.url);
   if (requestUrl.origin !== self.location.origin) return;
 
