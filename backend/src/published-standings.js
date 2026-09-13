@@ -1,5 +1,12 @@
+import { normalizeSchoolAlias } from "./schedule-authority-core.js";
+
 const DEFAULT_STATE = "ar";
 const DEFAULT_SEASON_PATH = "26-27";
+const MEMBERSHIP_INDEX_TTL_MS = 6 * 60 * 60 * 1000;
+const MEMBERSHIP_DISCOVERY_CONCURRENCY = 4;
+const MEMBERSHIP_DISCOVERY_MAX_CONFERENCES = 48;
+const membershipIndexCache = new Map();
+const membershipIndexRequests = new Map();
 
 const SPORTS = [
   { id: "volleyball", label: "Volleyball", seasonPath: DEFAULT_SEASON_PATH },
@@ -211,6 +218,21 @@ export async function listPublishedStandingsOptions({ sport = "volleyball", fetc
   return { sports: SPORTS, conferences };
 }
 
+async function fetchConferenceOption(option, { sport, fetchFn = fetch } = {}) {
+  const config = sportConfig(sport);
+  if (!config) throw new Error(`unsupported sport ${sport}`);
+  const sourceUrl = option?.source_url || conferenceUrl(sport, option?.id, DEFAULT_STATE, config.seasonPath);
+  const { html, finalUrl } = await fetchText(sourceUrl, fetchFn);
+  const parsed = parsePublishedStandings(html, {
+    sport,
+    conferenceId: option.id,
+    conferenceName: option.name,
+    sourceUrl: finalUrl
+  });
+  if (!parsed.standings.length) throw new Error(`published standings unavailable for ${sport}/${option.id}`);
+  return parsed;
+}
+
 export async function fetchPublishedStandings({ sport = "volleyball", conferenceId, fetchFn = fetch } = {}) {
   const config = sportConfig(sport);
   if (!config) throw new Error(`unsupported sport ${sport}`);
@@ -222,16 +244,82 @@ export async function fetchPublishedStandings({ sport = "volleyball", conference
     sport,
     source_url: conferenceUrl(sport, conferenceId, DEFAULT_STATE, config.seasonPath)
   };
-  const sourceUrl = conference.source_url || conferenceUrl(sport, conferenceId, DEFAULT_STATE, config.seasonPath);
-  const { html, finalUrl } = await fetchText(sourceUrl, fetchFn);
-  const parsed = parsePublishedStandings(html, {
-    sport,
-    conferenceId,
-    conferenceName: conference.name,
-    sourceUrl: finalUrl
-  });
-  if (!parsed.standings.length) throw new Error(`published standings unavailable for ${sport}/${conferenceId}`);
-  return parsed;
+  return fetchConferenceOption(conference, { sport, fetchFn });
 }
 
-export { SPORTS };
+async function buildPublishedMembershipIndex({ sport, fetchFn = fetch } = {}) {
+  const options = await listPublishedStandingsOptions({ sport, fetchFn });
+  const conferences = (options.conferences || []).slice(0, MEMBERSHIP_DISCOVERY_MAX_CONFERENCES);
+  const bySchool = new Map();
+
+  for (let start = 0; start < conferences.length; start += MEMBERSHIP_DISCOVERY_CONCURRENCY) {
+    const batch = conferences.slice(start, start + MEMBERSHIP_DISCOVERY_CONCURRENCY);
+    const payloads = await Promise.all(batch.map(async conference => {
+      try {
+        return await fetchConferenceOption(conference, { sport, fetchFn });
+      } catch (error) {
+        console.warn("published conference membership page failed", {
+          sport,
+          conferenceId: conference.id,
+          error: String(error?.message || error)
+        });
+        return null;
+      }
+    }));
+
+    for (const payload of payloads.filter(Boolean)) {
+      for (const row of payload.standings || []) {
+        const key = normalizeSchoolAlias(row.school_name);
+        if (!key) continue;
+        if (!bySchool.has(key)) bySchool.set(key, []);
+        bySchool.get(key).push({
+          conference: payload.conference,
+          row,
+          payload
+        });
+      }
+    }
+  }
+
+  return { builtAt: Date.now(), bySchool, conferenceCount: conferences.length };
+}
+
+async function membershipIndex({ sport, fetchFn = fetch } = {}) {
+  const cacheable = fetchFn === fetch;
+  const cached = cacheable ? membershipIndexCache.get(sport) : null;
+  if (cached && Date.now() - cached.builtAt < MEMBERSHIP_INDEX_TTL_MS) return cached;
+
+  if (cacheable && membershipIndexRequests.has(sport)) return membershipIndexRequests.get(sport);
+  const request = buildPublishedMembershipIndex({ sport, fetchFn });
+  if (cacheable) membershipIndexRequests.set(sport, request);
+  try {
+    const built = await request;
+    if (cacheable) membershipIndexCache.set(sport, built);
+    return built;
+  } finally {
+    if (cacheable) membershipIndexRequests.delete(sport);
+  }
+}
+
+export async function findPublishedConferenceMembership({ sport, schoolName, fetchFn = fetch } = {}) {
+  const normalizedSport = String(sport || "").toLowerCase();
+  if (!sportConfig(normalizedSport)) return null;
+  const schoolKey = normalizeSchoolAlias(schoolName);
+  if (!schoolKey) return null;
+
+  const index = await membershipIndex({ sport: normalizedSport, fetchFn });
+  const matches = index.bySchool.get(schoolKey) || [];
+  if (matches.length !== 1) {
+    if (matches.length > 1) {
+      console.warn("published conference membership ambiguous; failing closed", {
+        sport: normalizedSport,
+        schoolName,
+        conferences: matches.map(match => match.conference?.id).filter(Boolean)
+      });
+    }
+    return null;
+  }
+  return matches[0];
+}
+
+export { MEMBERSHIP_DISCOVERY_MAX_CONFERENCES, SPORTS };
