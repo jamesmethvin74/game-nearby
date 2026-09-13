@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildFootballLiveCalculatedStandings,
-  footballConferenceRecordsFromRosterFinals
+  footballConferenceRecordsFromRosterFinals,
+  uniqueFootballRecordRows
 } from "../src/football-standings-overlay.js";
 
 test("football roster finals build symmetric conference records", () => {
@@ -53,4 +54,16 @@ test("football live overlay refuses ambiguous multi-game conference jumps", () =
   ]);
   assert.equal(calculated.standings[0].overall_record, "3-1");
   assert.equal(calculated.standings[0].conference_record, "0-0");
+});
+
+test("football alias rows dedupe identical aliases and fail closed on conflicting aliases", () => {
+  const rows = uniqueFootballRecordRows([
+    { team_id:"a", normalized_alias:"conway", wins:2 },
+    { team_id:"a", normalized_alias:"conway", wins:2 },
+    { team_id:"b", normalized_alias:"southside", wins:1 },
+    { team_id:"b", normalized_alias:"fortsmithsouthside", wins:1 },
+    { team_id:"c", normalized_alias:"cabot", wins:3 }
+  ]);
+
+  assert.deepEqual(rows.map(row => row.team_id), ["a", "c"]);
 });
