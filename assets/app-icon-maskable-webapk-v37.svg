@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="LocalBleachersAR maskable app icon">
+  <defs>
+    <linearGradient id="seat" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#dff6ff"/><stop offset="1" stop-color="#6fb9c8"/></linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f5db92"/><stop offset="1" stop-color="#b9872f"/></linearGradient>
+  </defs>
+  <!-- Full-bleed background deliberately matches manifest background_color so Android 12+ cannot expose a white legacy-icon tile on the system splash. -->
+  <rect width="512" height="512" fill="#071426"/>
+  <g transform="translate(46 42) scale(.82)">
+    <path d="M92 86h230l15 14h75l10 15v45l21 16-10 31 24 19-15 26 17 23-20 26 11 29-22 17 4 35-27 8-7 42H93z" fill="none" stroke="url(#gold)" stroke-width="11" stroke-linejoin="round"/>
+    <path d="M116 329L263 171h100" fill="none" stroke="#dff6ff" stroke-width="15" stroke-linecap="round"/>
+    <g fill="none" stroke="url(#seat)" stroke-width="16" stroke-linecap="square"><path d="M139 309h158"/><path d="M158 282h160"/><path d="M177 255h161"/><path d="M197 228h161"/><path d="M218 201h142"/></g>
+    <path d="M110 353c63 4 118 13 171 31 38 12 79 29 120 51" fill="none" stroke="url(#gold)" stroke-width="20" stroke-linecap="round"/>
+    <path d="M344 61l10 24 26 2-20 17 6 25-22-13-22 13 6-25-20-17 26-2z" fill="url(#gold)"/>
+  </g>
+</svg>
