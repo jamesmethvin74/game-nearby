@@ -352,8 +352,8 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       ) AS authority_row
     FROM teams t INDEXED BY idx_teams_school_active_season
     JOIN schools sch ON sch.id=t.school_id
-    JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
-    JOIN sources src ON src.id=g.source_id
+    LEFT JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
+    LEFT JOIN sources src ON src.id=g.source_id
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
@@ -365,8 +365,9 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
 
   const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
   const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: schoolId });
-  const games = attachScheduleDerivedRecords(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)));
-  const teamStatuses = await buildUnifiedTeamStatuses(env, games);
+  const resolvedRows = attachScheduleDerivedRecords(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)));
+  const teamStatuses = await buildUnifiedTeamStatuses(env, resolvedRows);
+  const games = resolvedRows.filter(row => Boolean(row.id) && Boolean(row.scheduled_at || row.canonical_scheduled_at));
 
   console.log("school schedule read", {
     schoolId,
