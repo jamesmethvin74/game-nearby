@@ -29,7 +29,7 @@ export async function attachEffectiveConferenceGames(env, rows = [], { reporting
     const placeholders = opponentIds.map(() => "?").join(",");
     const { results = [] } = await env.DB.prepare(`
       SELECT school_id,sport,gender,season,conference_id
-      FROM teams INDEXED BY idx_teams_school_active_season
+      FROM teams
       WHERE active=1
         AND conference_id IS NOT NULL
         AND school_id IN (${placeholders})
