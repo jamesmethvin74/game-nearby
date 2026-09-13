@@ -193,12 +193,15 @@
 
   live.fetchTeamSchedule = async schoolId => {
     const cacheKey = memoryCacheKey(schoolId);
-    if (memoryCache.has(cacheKey)) return cloneEvents(memoryCache.get(cacheKey));
+    const cachedStatuses = statusCache.get(cacheKey) || [];
+    if (memoryCache.has(cacheKey) && cachedStatuses.length) return cloneEvents(memoryCache.get(cacheKey));
 
     const school = schoolFor(schoolId);
     const restored = restoreSavedPayload(schoolId);
-    if (restored.events.length) memoryCache.set(cacheKey, restored.events);
-    if (restored.statuses.length) setStatuses(schoolId, restored.statuses);
+    if (restored.statuses.length) {
+      setStatuses(schoolId, restored.statuses);
+      if (restored.events.length) memoryCache.set(cacheKey, restored.events);
+    }
 
     let lastError = null;
     try {
@@ -208,9 +211,9 @@
         game
       ])).values()].sort((a,b) => new Date(a.date) - new Date(b.date));
 
-      if (unique.length) {
+      if (unique.length || payload.statuses.length) {
         memoryCache.set(cacheKey, unique);
-        saveSchedule(schoolId, unique, payload.statuses);
+        if (unique.length) saveSchedule(schoolId, unique, payload.statuses);
         return cloneEvents(unique);
       }
     } catch (error) {
@@ -219,10 +222,7 @@
     }
 
     const fallback = restored.events.length ? restored.events : fallbackEvents(schoolId);
-    if (fallback.length) {
-      memoryCache.set(cacheKey, fallback);
-      return cloneEvents(fallback);
-    }
+    if (fallback.length) return cloneEvents(fallback);
 
     if (lastError) throw lastError;
     return [];
