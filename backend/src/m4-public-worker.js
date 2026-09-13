@@ -182,6 +182,20 @@ export function attachScheduleDerivedRecords(games = []) {
   });
 }
 
+export function mergeTeamStatusSeeds(games = [], teamSeeds = []) {
+  const seen = new Set(games
+    .map(row => String(row.reporting_team_id || row.team_id || ""))
+    .filter(Boolean));
+  const merged = [...games];
+  for (const seed of teamSeeds) {
+    const teamId = String(seed.reporting_team_id || seed.team_id || "");
+    if (!teamId || seen.has(teamId)) continue;
+    merged.push(seed);
+    seen.add(teamId);
+  }
+  return merged;
+}
+
 async function discoverMissingConferenceMemberships(statuses) {
   await Promise.all(statuses.map(async status => {
     const sport = String(status.sport || "").toLowerCase();
@@ -321,6 +335,20 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
   if (!school || school.catalog_scope !== "local") return null;
   if (requiredLevel && school.level !== requiredLevel) return null;
 
+  const teamSeedResult = await env.DB.prepare(`
+    SELECT
+      t.id AS reporting_team_id,t.sport,t.gender,t.season,t.conference_id,
+      sch.id AS school_id,sch.name AS school_name,sch.level,
+      c.name AS conference_name,
+      r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at
+    FROM teams t INDEXED BY idx_teams_school_active_season
+    JOIN schools sch ON sch.id=t.school_id
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    LEFT JOIN team_records r ON r.team_id=t.id
+    WHERE t.school_id=? AND t.active=1 AND t.season='2026'
+    ORDER BY t.sport,t.gender,t.id
+  `).bind(schoolId).all();
+
   const result = await env.DB.prepare(`
     SELECT
       g.*,
@@ -352,8 +380,8 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
       ) AS authority_row
     FROM teams t INDEXED BY idx_teams_school_active_season
     JOIN schools sch ON sch.id=t.school_id
-    LEFT JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
-    LEFT JOIN sources src ON src.id=g.source_id
+    JOIN games g INDEXED BY idx_games_team_record_lookup ON g.team_id=t.id
+    JOIN sources src ON src.id=g.source_id
     LEFT JOIN conferences c ON c.id=t.conference_id
     LEFT JOIN team_records r ON r.team_id=t.id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
@@ -366,17 +394,18 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
   const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
   const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: schoolId });
   const resolvedRows = attachScheduleDerivedRecords(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)));
-  const teamStatuses = await buildUnifiedTeamStatuses(env, resolvedRows);
-  const games = resolvedRows.filter(row => Boolean(row.id) && Boolean(row.scheduled_at || row.canonical_scheduled_at));
+  const statusRows = mergeTeamStatusSeeds(resolvedRows, teamSeedResult.results || []);
+  const teamStatuses = await buildUnifiedTeamStatuses(env, statusRows);
+  const games = resolvedRows;
 
   console.log("school schedule read", {
     schoolId,
     schoolLevel: school.level,
     games: games.length,
     teamStatuses: teamStatuses.length,
-    rowsRead: Number(result.meta?.rows_read || 0),
-    rowsWritten: Number(result.meta?.rows_written || 0),
-    durationMs: Number(result.meta?.duration || 0) || null
+    rowsRead: Number(result.meta?.rows_read || 0) + Number(teamSeedResult.meta?.rows_read || 0),
+    rowsWritten: Number(result.meta?.rows_written || 0) + Number(teamSeedResult.meta?.rows_written || 0),
+    durationMs: (Number(result.meta?.duration || 0) || 0) + (Number(teamSeedResult.meta?.duration || 0) || 0) || null
   });
 
   return json({ schoolId, schoolLevel: school.level, games, team_statuses: teamStatuses });
