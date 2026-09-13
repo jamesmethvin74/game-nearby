@@ -44,8 +44,8 @@ test("team detail uses one explicit school schedule read and preserves backend s
   assert.doesNotMatch(schoolSchedule, /-mens-soccer-|\-womens-soccer-|\-volleyball-\$\{season\}/);
 });
 
-test("team detail schedule cache is versioned by season and abandons poisoned v1 rows", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v2:/);
+test("team detail schedule cache is versioned by season and abandons pre-status payloads", () => {
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v3:/);
   assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
 });
 
@@ -56,13 +56,13 @@ test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
 
-
-test("live calculated records replace the old hardcoded 0-0 status table", async () => {
+test("team detail renders the unified backend record and standings contract", async () => {
   const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
-  assert.match(polish, /event\.record/);
-  assert.match(polish, /recordLabel\(record\.wins,record\.losses,record\.ties\)/);
-  assert.match(live, /normalizeRecord/);
-  assert.match(live, /recordOverride/);
-  assert.match(detail, /selectedEvents\.find\(event => event\.record\)/);
+  assert.match(schoolSchedule, /payload\?\.team_statuses/);
+  assert.match(schoolSchedule, /live\.getTeamStatus/);
+  assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(detail, /status\.overall_record/);
+  assert.match(detail, /status\.conference_record/);
+  assert.match(detail, /status\.rank/);
 });

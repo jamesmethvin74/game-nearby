@@ -29,12 +29,12 @@ test("Standings page keeps live conference and overall records visible on phones
   assert.match(css, /\.standings-table \.pct-col\s*\{\s*display:\s*none/);
 });
 
-test("Standings UI loads options and standings from the public API", () => {
+test("Standings UI loads options and standings from the shared public truth API", () => {
   assert.match(js, /\/api\/v1\/standings\/options\?sport=/);
   assert.match(js, /\/api\/v1\/standings\?sport=/);
   assert.match(wrapper, /\/api\/v1\/standings\/options/);
   assert.match(wrapper, /\/api\/v1\/standings/);
-  assert.match(wrapper, /reconcileFootballOverallRecords/);
+  assert.match(wrapper, /loadStandingsTruth/);
 });
 
 test("Home navigation and PWA shell include reconciled Standings", () => {

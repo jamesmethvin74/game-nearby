@@ -11,7 +11,7 @@ function numeric(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function conferenceRecordsFromRosterFinals(finals = []) {
+export function footballConferenceRecordsFromRosterFinals(finals = []) {
   const records = new Map();
   const ensure = schoolId => {
     if (!records.has(schoolId)) records.set(schoolId, { wins:0, losses:0, ties:0 });
@@ -40,7 +40,25 @@ export function conferenceRecordsFromRosterFinals(finals = []) {
   return records;
 }
 
-export function buildVolleyballLiveCalculatedStandings(published, recordRows = []) {
+export function uniqueFootballRecordRows(rows = []) {
+  const byTeam = new Map();
+  for (const row of rows) {
+    const teamId = String(row.team_id || "");
+    if (!teamId) continue;
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+    byTeam.get(teamId).push(row);
+  }
+
+  const unique = [];
+  for (const teamRows of byTeam.values()) {
+    const aliases = [...new Set(teamRows.map(row => String(row.normalized_alias || "")).filter(Boolean))];
+    if (aliases.length !== 1) continue;
+    unique.push(teamRows[0]);
+  }
+  return unique;
+}
+
+export function buildFootballLiveCalculatedStandings(published, recordRows = []) {
   const publishedRows = Array.isArray(published?.standings) ? published.standings : [];
   if (!publishedRows.length || !recordRows.length) return null;
 
@@ -67,10 +85,9 @@ export function buildVolleyballLiveCalculatedStandings(published, recordRows = [
     const publishedConferenceGames = recordGames(publishedRow.conference_record);
 
     const useOverall = localOverallGames > 0 && localOverallGames >= publishedOverallGames;
-    // Same-conference opponents can also meet in tournaments. Without a reliable
-    // provider conference-game flag, only advance the published conference record
-    // when LocalBleachersAR is exactly one final ahead. Larger gaps are ambiguous
-    // and safely remain published until that authority catches up.
+    // Published roster membership is authoritative. Advance a conference record
+    // only one final beyond the published table; larger gaps remain published so
+    // postseason/rematch ambiguity cannot silently become conference truth.
     const useConference = localConferenceGames === publishedConferenceGames + 1;
     if (!useOverall && !useConference) continue;
 
@@ -93,7 +110,7 @@ export function buildVolleyballLiveCalculatedStandings(published, recordRows = [
     conference: {
       id: published?.conference?.id || null,
       name: published?.conference?.name || "",
-      sport: "volleyball",
+      sport: "football",
       standings_method: "calculated",
       coverage_complete: false
     },
@@ -101,20 +118,17 @@ export function buildVolleyballLiveCalculatedStandings(published, recordRows = [
   };
 }
 
-export async function overlayVolleyballLiveRecords(env, published, {
-  sport = "volleyball",
+export async function overlayFootballLiveRecords(env, published, {
+  sport = "football",
   season = "2026"
 } = {}) {
-  if (String(sport).toLowerCase() !== "volleyball") return published;
+  if (String(sport).toLowerCase() !== "football") return published;
   const publishedRows = Array.isArray(published?.standings) ? published.standings : [];
   const aliases = [...new Set(publishedRows
     .map(row => normalizeSchoolAlias(row.school_name))
     .filter(Boolean))];
   if (!aliases.length) return published;
 
-  // The published conference page supplies membership. This first set-based lookup
-  // resolves only those roster schools to LocalBleachersAR teams and overall records,
-  // so statewide teams do not need conference_id populated before they can contribute.
   const result = await env.DB.prepare(`
     SELECT a.normalized_alias,s.id AS school_id,t.id AS team_id,
       r.wins,r.losses,r.ties,r.calculated_at
@@ -125,36 +139,36 @@ export async function overlayVolleyballLiveRecords(env, published, {
     WHERE a.normalized_alias IN (SELECT value FROM json_each(?))
       AND t.active=1
       AND t.sport=?
-      AND t.gender='girls'
+      AND t.gender='boys'
       AND t.season=?
       AND s.level='high-school'
       AND s.catalog_scope='local'
+    ORDER BY t.id,a.normalized_alias
   `).bind(JSON.stringify(aliases), sport, season).all();
 
-  const recordRows = result.results || [];
+  const recordRows = uniqueFootballRecordRows(result.results || []);
   const teamIds = [...new Set(recordRows.map(row => row.team_id).filter(Boolean))];
   const schoolIds = [...new Set(recordRows.map(row => row.school_id).filter(Boolean))];
 
   if (teamIds.length >= 2 && schoolIds.length >= 2) {
-    // DragonFly does not consistently expose an explicit conference-game flag.
-    // The published roster is already our conference-membership authority, so a
-    // scored canonical final between two roster members is a conference-result
-    // candidate. Restrict through reporting_team_id so the existing D1 index keeps
-    // this read bounded to the teams on the displayed conference page.
     const finals = await env.DB.prepare(`
       SELECT DISTINCT ce.id,ce.home_school_id,ce.away_school_id,ce.home_score,ce.away_score
       FROM canonical_event_members cem INDEXED BY idx_canonical_members_reporting_team
-      JOIN games mg ON mg.id=cem.game_id AND mg.counts_for_record=1
+      JOIN games mg ON mg.id=cem.game_id
       JOIN canonical_events ce ON ce.id=cem.canonical_event_id
       WHERE cem.reporting_team_id IN (SELECT value FROM json_each(?))
         AND ce.sport=?
-        AND ce.gender='girls'
+        AND ce.gender='boys'
         AND ce.season=?
         AND ce.status='FINAL'
         AND ce.home_score IS NOT NULL
         AND ce.away_score IS NOT NULL
         AND ce.home_school_id IN (SELECT value FROM json_each(?))
         AND ce.away_school_id IN (SELECT value FROM json_each(?))
+        AND COALESCE(mg.notes,'') NOT LIKE '%scrimmage%'
+        AND COALESCE(mg.notes,'') NOT LIKE '%jamboree%'
+        AND COALESCE(mg.notes,'') NOT LIKE '%exhibition%'
+        AND COALESCE(mg.notes,'') NOT LIKE '%benefit%'
     `).bind(
       JSON.stringify(teamIds),
       sport,
@@ -163,15 +177,15 @@ export async function overlayVolleyballLiveRecords(env, published, {
       JSON.stringify(schoolIds)
     ).all();
 
-    const conferenceBySchool = conferenceRecordsFromRosterFinals(finals.results || []);
+    const conferenceBySchool = footballConferenceRecordsFromRosterFinals(finals.results || []);
     for (const row of recordRows) {
-      const record = conferenceBySchool.get(row.school_id) || { wins:0, losses:0, ties:0 };
+      const record = conferenceBySchool.get(String(row.school_id)) || { wins:0, losses:0, ties:0 };
       row.conference_wins = record.wins;
       row.conference_losses = record.losses;
       row.conference_ties = record.ties;
     }
   }
 
-  const calculated = buildVolleyballLiveCalculatedStandings(published, recordRows);
+  const calculated = buildFootballLiveCalculatedStandings(published, recordRows);
   return calculated ? overlayCalculatedStandings(published, calculated) : published;
 }
