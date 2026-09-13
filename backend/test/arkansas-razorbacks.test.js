@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { arkansasRazorbackScheduleUrl, normalizeArkansasRazorbackHtml } from "../src/arkansas-razorbacks.js";
+import { recordFromScheduleRows } from "../src/schedule-response-normalizer.js";
 
 const footballSource = {
   season:"2026", sport:"football", gender:"men", timezone:"America/Chicago",
@@ -26,15 +27,40 @@ test("Arkansas parser reads the captured official home-game markup", () => {
   assert.equal(game.longitude,-94.1789);
 });
 
-test("Arkansas parser reads away finals and strips the display relation", () => {
-  const [game] = normalizeArkansasRazorbackHtml(`<section class="events">${item({type:"Away",date:"Sat. Sep. 12",time:"9:15 PM",place:"Salt Lake City, Utah",opponent:"at Utah",result:"L, 31-24"})}</section>`, footballSource);
+test("Arkansas parser orients winner-first away loss scores to the Razorbacks perspective", () => {
+  const [game] = normalizeArkansasRazorbackHtml(`<section class="events">${item({type:"Away",date:"Sat. Sep. 12",time:"9:15 PM",place:"Salt Lake City, Utah",opponent:"at Utah",result:"L, 43-10"})}</section>`, footballSource);
   assert.equal(game.opponent,"Utah");
   assert.equal(game.homeAway,"away");
   assert.equal(game.status,"FINAL");
   assert.equal(game.result,"L");
-  assert.equal(game.teamScore,31);
-  assert.equal(game.opponentScore,24);
+  assert.equal(game.teamScore,10);
+  assert.equal(game.opponentScore,43);
   assert.equal(game.latitude,null);
+});
+
+test("Arkansas schedule-derived record agrees with one win and the Utah loss", () => {
+  const games = normalizeArkansasRazorbackHtml(`<section class="events">
+    ${item({result:"W, 31-14"})}
+    ${item({type:"Away",date:"Sat. Sep. 12",time:"9:15 PM",place:"Salt Lake City, Utah",opponent:"at Utah",result:"L, 43-10"})}
+  </section>`, footballSource).map(game => ({
+    ...game,
+    status:game.status,
+    team_score:game.teamScore,
+    opponent_score:game.opponentScore,
+    scheduled_at:game.scheduledAt,
+    sport:"football",
+    gender:"men",
+    conference_game:0
+  }));
+  assert.deepEqual(recordFromScheduleRows(games), {
+    wins:1,
+    losses:1,
+    ties:0,
+    conference_wins:0,
+    conference_losses:0,
+    conference_ties:0,
+    scored_finals:2
+  });
 });
 
 test("Arkansas parser keeps TBA games while marking the clock unknown", () => {
