@@ -120,7 +120,7 @@ export async function overlayVolleyballLiveRecords(env, published, {
       r.wins,r.losses,r.ties,r.calculated_at
     FROM school_aliases a
     JOIN schools s ON s.id=a.school_id
-    JOIN teams t ON t.school_id=s.id
+    JOIN teams t INDEXED BY idx_teams_school_active_season ON t.school_id=s.id
     JOIN team_records r ON r.team_id=t.id
     WHERE a.normalized_alias IN (SELECT value FROM json_each(?))
       AND t.active=1
@@ -143,7 +143,7 @@ export async function overlayVolleyballLiveRecords(env, published, {
     // this read bounded to the teams on the displayed conference page.
     const finals = await env.DB.prepare(`
       SELECT DISTINCT ce.id,ce.home_school_id,ce.away_school_id,ce.home_score,ce.away_score
-      FROM canonical_event_members cem
+      FROM canonical_event_members cem INDEXED BY idx_canonical_members_reporting_team
       JOIN games mg ON mg.id=cem.game_id AND mg.counts_for_record=1
       JOIN canonical_events ce ON ce.id=cem.canonical_event_id
       WHERE cem.reporting_team_id IN (SELECT value FROM json_each(?))
