@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v68";
+const CACHE_NAME = "localbleachersar-shell-v69";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -32,7 +32,9 @@ const CORE_ASSETS = [
   "./standings.js",
   "./standings-drag-reorder.js",
   "./live-scores.js",
-  "./assets/app-icon-maskable-webapk-v37.svg"
+  "./assets/app-icon-192-v35.png",
+  "./assets/app-icon-512-v35.png",
+  "./assets/app-icon-maskable-192-v39.png"
 ];
 
 self.addEventListener("install", event => {
