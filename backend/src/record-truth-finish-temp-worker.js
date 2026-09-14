@@ -16,7 +16,7 @@ export default {
   async fetch(request,env,ctx){
     const url=new URL(request.url);
     if(request.method==="GET"&&url.pathname===MARKER_PATH){
-      return json({marker:"record-truth-finish-temp-ab1d996b",d1_access:false,rows_written:0});
+      return json({marker:"record-truth-finish-temp-v2-8a90e172",repair_version:"record-truth-six-games-v2",d1_access:false,rows_written:0});
     }
     if(request.method==="GET"&&url.pathname===PLAN_PATH){
       try{return json(await planRecordTruthProductionRepair(env));}
