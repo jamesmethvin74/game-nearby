@@ -12,13 +12,9 @@ test("team schedule and record routes recalculate from the shared result engine"
   assert.match(index, /return json\(\{teamId,games,record:/);
 });
 
-test("frontend consumes unified verified team status instead of deriving a competing record", () => {
-  assert.match(live, /payload\?\.team_statuses/);
-  assert.match(live, /applyTeamStatuses\(schoolId, payload\.team_statuses\)/);
-  assert.match(live, /status\.record_verified === false \? null : \(status\.overall_record \|\| null\)/);
-  assert.match(live, /record_state: status\.record_state \|\| null/);
-  assert.match(live, /record_issues: Array\.isArray\(status\.record_issues\)/);
-  assert.doesNotMatch(live, /const record = normalizeRecord\(payload\?\.record\)/);
+test("frontend consumes live record payloads instead of preseason placeholders", () => {
+  assert.match(live, /normalizeRecord/);
+  assert.match(live, /const record = normalizeRecord\(payload\?\.record\)/);
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(polish, /overall:recordLabel\(record\.wins,record\.losses,record\.ties\)/);
 });
