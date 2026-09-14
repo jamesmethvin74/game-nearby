@@ -1,3 +1,5 @@
+import { normalizeFinalResultTruth } from "./final-result-truth.js";
+
 export const MONTHS = {
   jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,may:5,jun:6,june:6,
   jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,nov:11,dec:12,december:12
@@ -17,11 +19,18 @@ export function parseResult(text) {
   if (/cancel(?:ed|led)/i.test(value)) return {status:"CANCELED",teamScore:null,opponentScore:null,result:null};
   if (/postpon/i.test(value)) return {status:"POSTPONED",teamScore:null,opponentScore:null,result:null};
   const match = value.match(/\b([WLT])\s*,?\s*(\d+)\s*[-–]\s*(\d+)/i) || value.match(/\b([WLT])\b[^0-9]*(\d+)\s*[-–]\s*(\d+)/i);
-  if (match) return {status:"FINAL",teamScore:Number(match[2]),opponentScore:Number(match[3]),result:match[1].toUpperCase()};
+  if (match) {
+    return normalizeFinalResultTruth({
+      status:"FINAL",
+      teamScore:Number(match[2]),
+      opponentScore:Number(match[3]),
+      result:match[1].toUpperCase()
+    });
+  }
   const score = value.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
   if (score && /final/i.test(value)) {
     const teamScore=Number(score[1]), opponentScore=Number(score[2]);
-    return {status:"FINAL",teamScore,opponentScore,result:teamScore===opponentScore?"T":teamScore>opponentScore?"W":"L"};
+    return normalizeFinalResultTruth({status:"FINAL",teamScore,opponentScore,result:null});
   }
   return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
 }
@@ -127,13 +136,7 @@ function mascotCalendarYear(text, source) {
 }
 
 export function orientMascotResult(result) {
-  if (result?.status!=="FINAL" || !/^[WLT]$/.test(String(result?.result||""))) return result;
-  let teamScore=Number(result.teamScore), opponentScore=Number(result.opponentScore);
-  if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) return result;
-  const contradictsWin=result.result==="W" && teamScore<opponentScore;
-  const contradictsLoss=result.result==="L" && teamScore>opponentScore;
-  if (!contradictsWin && !contradictsLoss) return result;
-  return {...result,teamScore:opponentScore,opponentScore:teamScore};
+  return normalizeFinalResultTruth(result);
 }
 
 function suppressPrematureMascotFinal(result,schedule,now) {
