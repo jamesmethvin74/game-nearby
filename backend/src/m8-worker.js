@@ -4,6 +4,7 @@ import { buildStatewideRecordTruthAudit } from "./record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./record-truth-audit-output.js";
 
 const RESULT_GAP_VIEW = "result-gaps";
+const TEMP_RECORD_TRUTH_MARKER_PATH = "/api/v1/internal/record-truth-audit-marker-ef53054a";
 const TEMP_RECORD_TRUTH_PATH = "/api/v1/internal/record-truth-audit-ef53054a";
 
 function jsonFrom(upstream, body) {
@@ -32,6 +33,9 @@ function auditJson(body,status=200) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === TEMP_RECORD_TRUTH_MARKER_PATH) {
+      return auditJson({marker:"record-truth-audit-temp-ef53054a",d1_access:false,rows_written:0});
+    }
     if (request.method === "GET" && url.pathname === TEMP_RECORD_TRUTH_PATH) {
       try {
         const audit=finalizeRecordTruthAudit(await buildStatewideRecordTruthAudit(env,{season:"2026"}));
@@ -68,4 +72,4 @@ export default {
   }
 };
 
-export { RESULT_GAP_VIEW, TEMP_RECORD_TRUTH_PATH };
+export { RESULT_GAP_VIEW, TEMP_RECORD_TRUTH_MARKER_PATH, TEMP_RECORD_TRUTH_PATH };
