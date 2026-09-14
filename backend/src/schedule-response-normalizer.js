@@ -276,39 +276,47 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
   const publishedGames = published ? recordGameCount(published) : null;
 
   let state = unresolvedFinals > 0 ? "UNRESOLVED" : "VERIFIED";
+  let auditClass = unresolvedFinals > 0 ? "UNRESOLVED" : "VERIFIED";
 
   if (stored && storedGames > evidenceGames) {
     state = "INCOMPLETE";
+    auditClass = "INCOMPLETE";
     pushIssue(issues, "STORED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`);
   } else if (stored && storedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(stored, derived)) {
-    state = "CONTRADICTORY";
-    pushIssue(issues, "STORED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Stored ${stored.wins}-${stored.losses}-${stored.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`);
+    auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STALE_STORED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Stored ${stored.wins}-${stored.losses}-${stored.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`, { informational: true });
   } else if (stored && storedGames < evidenceGames) {
+    auditClass = "CONTRADICTORY";
     pushIssue(issues, "STALE_STORED_RECORD", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`, { informational: true });
   }
 
   if (stored && storedConferenceGames > evidenceConferenceGames) {
     state = "INCOMPLETE";
+    auditClass = "INCOMPLETE";
     pushIssue(issues, "STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored conference record covers ${storedConferenceGames} games; normalized conference final evidence covers ${evidenceConferenceGames}.`);
   } else if (stored && storedConferenceGames === evidenceConferenceGames && evidenceConferenceGames > 0 && !sameConferenceRecord(stored, derived)) {
-    state = "CONTRADICTORY";
-    pushIssue(issues, "STORED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE", "Stored conference record disagrees with normalized conference finals.");
+    if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STALE_STORED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE", "Stored conference record disagrees with normalized conference finals.", { informational: true });
   }
 
   if (published && publishedGames > evidenceGames) {
     state = "INCOMPLETE";
+    auditClass = "INCOMPLETE";
     pushIssue(issues, "PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Published record covers ${publishedGames} games; normalized final evidence covers ${evidenceGames}.`);
   } else if (published && publishedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(published, derived)) {
-    state = "CONTRADICTORY";
-    pushIssue(issues, "PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Published ${published.wins}-${published.losses}-${published.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`);
+    if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Published ${published.wins}-${published.losses}-${published.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`, { informational: true });
   } else if (published && publishedGames < evidenceGames) {
+    if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
     pushIssue(issues, "PUBLISHED_RECORD_BEHIND_FINAL_EVIDENCE", `Published record covers ${publishedGames} games; normalized final evidence covers ${evidenceGames}.`, { informational: true });
   }
 
+  const verified = state === "VERIFIED";
   return {
     state,
-    verified: state === "VERIFIED",
-    trusted_record: state === "VERIFIED" ? derived : null,
+    audit_class: auditClass,
+    verified,
+    trusted_record: verified ? derived : null,
     derived_record: derived,
     evidence_games: evidenceGames,
     evidence_conference_games: evidenceConferenceGames,
