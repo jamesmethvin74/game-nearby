@@ -1,7 +1,8 @@
 import app from "./d1-usage-public-worker.js";
 import core from "./index.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
-import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
+import { conferenceGameCount, evaluateScheduleRecordTruth, parseRecordText, sameOverallRecord } from "./schedule-response-normalizer.js";
+import { normalizeFinalResultTruth } from "./final-result-truth.js";
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { findPublishedConferenceMembership } from "./published-standings.js";
 import { loadStandingsTruth } from "./standings-truth.js";
@@ -52,12 +53,12 @@ function legacyCollegeSchoolId(pathname) {
 
 function resolvedGameForSchool(row, schoolId) {
   if (!row.canonical_event_id) {
-    return {
+    return normalizeFinalResultTruth({
       ...row,
       conference_game: Number(row.effective_conference_game ?? row.conference_game ?? 0),
       data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
       conflict_count: Number(row.conflict_count || 0)
-    };
+    });
   }
 
   const isHome = row.canonical_home_school_id === schoolId;
@@ -65,11 +66,8 @@ function resolvedGameForSchool(row, schoolId) {
   const teamScore = isHome ? row.canonical_home_score : isAway ? row.canonical_away_score : row.team_score;
   const opponentScore = isHome ? row.canonical_away_score : isAway ? row.canonical_home_score : row.opponent_score;
   const status = row.canonical_status || row.status;
-  const result = status === "FINAL" && teamScore != null && opponentScore != null
-    ? (Number(teamScore) === Number(opponentScore) ? "T" : Number(teamScore) > Number(opponentScore) ? "W" : "L")
-    : null;
 
-  return {
+  return normalizeFinalResultTruth({
     ...row,
     id: row.canonical_event_id,
     canonical_event_id: row.canonical_event_id,
@@ -85,18 +83,14 @@ function resolvedGameForSchool(row, schoolId) {
     status,
     team_score: teamScore,
     opponent_score: opponentScore,
-    result,
+    result: row.result || null,
     data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
     conflict_count: Number(row.conflict_count || 0)
-  };
+  });
 }
 
 function recordGameCount(record = {}) {
   return Number(record.wins || 0) + Number(record.losses || 0) + Number(record.ties || 0);
-}
-
-function conferenceGameCount(record = {}) {
-  return Number(record.conference_wins || 0) + Number(record.conference_losses || 0) + Number(record.conference_ties || 0);
 }
 
 function recordText(wins, losses, ties = 0) {
@@ -109,6 +103,11 @@ function recordText(wins, losses, ties = 0) {
 function recordTextGameCount(value) {
   const parts = String(value || "").match(/\d+/g)?.map(Number) || [];
   return parts.reduce((sum, part) => sum + part, 0);
+}
+
+function recordIssue(status, issue) {
+  status.record_issues ||= [];
+  if (!status.record_issues.some(existing => existing.code === issue.code)) status.record_issues.push(issue);
 }
 
 export function publishedConferenceId(conferenceId, conferenceName, sport) {
@@ -144,40 +143,36 @@ export function attachScheduleDerivedRecords(games = []) {
     byTeam.get(teamId).push(game);
   }
 
-  const recordByTeam = new Map();
+  const truthByTeam = new Map();
   for (const [teamId, rows] of byTeam) {
-    const derived = recordFromScheduleRows(rows, {
-      reportingSchoolId: rows[0]?.school_id || null,
-      maxMinutes: 15
-    });
-    if (Number(derived.scored_finals || 0) <= 0) continue;
-
     const stored = rows[0] || {};
-    const storedCount = stored.wins == null && stored.losses == null && stored.ties == null
-      ? -1
-      : recordGameCount(stored);
-    const derivedCount = recordGameCount(derived);
-
-    if (storedCount > derivedCount) continue;
-    recordByTeam.set(teamId, derived);
+    const truth = evaluateScheduleRecordTruth(rows, {
+      reportingSchoolId: stored.school_id || null,
+      maxMinutes: 15,
+      storedRecord: stored
+    });
+    truthByTeam.set(teamId, truth);
   }
 
-  if (!recordByTeam.size) return games;
   return games.map(game => {
     const teamId = game.reporting_team_id || game.team_id;
-    const record = recordByTeam.get(teamId);
-    if (!record) return game;
+    const truth = truthByTeam.get(teamId);
+    if (!truth) return game;
+    const record = truth.trusted_record;
     return {
-      ...game,
-      wins: record.wins,
-      losses: record.losses,
-      ties: record.ties,
-      conference_wins: record.conference_wins,
-      conference_losses: record.conference_losses,
-      conference_ties: record.conference_ties,
-      scored_finals: record.scored_finals,
-      conference_scored_finals: conferenceGameCount(record),
-      record_source: "schedule-derived"
+      ...normalizeFinalResultTruth(game),
+      wins: record ? record.wins : null,
+      losses: record ? record.losses : null,
+      ties: record ? record.ties : null,
+      conference_wins: record ? record.conference_wins : null,
+      conference_losses: record ? record.conference_losses : null,
+      conference_ties: record ? record.conference_ties : null,
+      scored_finals: truth.evidence_games,
+      conference_scored_finals: truth.evidence_conference_games,
+      record_source: truth.verified ? "normalized-final-games" : "unverified",
+      record_state: truth.state,
+      record_verified: truth.verified,
+      record_issues: truth.issues
     };
   });
 }
@@ -190,7 +185,19 @@ export function mergeTeamStatusSeeds(games = [], teamSeeds = []) {
   for (const seed of teamSeeds) {
     const teamId = String(seed.reporting_team_id || seed.team_id || "");
     if (!teamId || seen.has(teamId)) continue;
-    merged.push(seed);
+    const storedGames = recordGameCount(seed);
+    merged.push({
+      ...seed,
+      wins:null,losses:null,ties:null,
+      conference_wins:null,conference_losses:null,conference_ties:null,
+      record_source:"unverified",
+      record_state:storedGames > 0 ? "INCOMPLETE" : "UNRESOLVED",
+      record_verified:false,
+      record_issues:storedGames > 0 ? [{
+        code:"STORED_RECORD_WITHOUT_FINAL_EVIDENCE",
+        detail:`Stored record covers ${storedGames} games but this public schedule response contains no normalized final evidence.`
+      }] : []
+    });
     seen.add(teamId);
   }
   return merged;
@@ -236,8 +243,8 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
   const statuses = [];
   for (const [teamId, rows] of byTeam) {
     const seed = rows[0] || {};
-    const overallGames = recordGameCount(seed);
-    const conferenceGames = conferenceGameCount(seed);
+    const overallGames = seed.record_verified === false ? 0 : recordGameCount(seed);
+    const conferenceGames = seed.record_verified === false ? 0 : conferenceGameCount(seed);
     const conferenceId = seed.conference_id || null;
     const conferenceName = seed.conference_name || null;
     statuses.push({
@@ -250,17 +257,20 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       season: seed.season || null,
       conference_id: conferenceId,
       conference_name: conferenceName,
-      overall_record: seed.wins == null && seed.losses == null && seed.ties == null
+      overall_record: seed.record_verified === false || seed.wins == null || seed.losses == null || seed.ties == null
         ? null
         : recordText(seed.wins, seed.losses, seed.ties),
-      conference_record: conferenceId && conferenceGames > 0
+      conference_record: seed.record_verified !== false && conferenceId && conferenceGames > 0
         ? recordText(seed.conference_wins, seed.conference_losses, seed.conference_ties)
         : null,
       overall_games: overallGames,
       conference_games: conferenceGames,
       rank: null,
       standing_state: conferenceId || conferenceName ? (conferenceGames > 0 ? "unavailable" : "not-started") : "no-conference",
-      source: seed.record_source || (overallGames > 0 ? "team-record" : "schedule")
+      source: seed.record_source || "unverified",
+      record_state: seed.record_state || (seed.record_verified === false ? "UNRESOLVED" : "VERIFIED"),
+      record_verified: seed.record_verified !== false && Boolean(seed.record_source),
+      record_issues: Array.isArray(seed.record_issues) ? [...seed.record_issues] : []
     });
   }
 
@@ -306,19 +316,52 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       continue;
     }
 
-    const conferenceGames = recordTextGameCount(row.conference_record);
+    const publishedOverall = parseRecordText(row.overall_record);
+    const publishedOverallGames = recordTextGameCount(row.overall_record);
+    const publishedConferenceGames = recordTextGameCount(row.conference_record);
     const rank = Number(row.rank);
     status.conference_id = status.conference_id || status.published_conference_id || payload?.conference?.id || null;
     status.conference_name = payload?.conference?.name || status.conference_name;
-    status.overall_record = row.overall_record || status.overall_record;
-    status.overall_games = recordTextGameCount(status.overall_record);
-    status.conference_games = conferenceGames;
-    status.conference_record = conferenceGames > 0 ? (row.conference_record || status.conference_record) : null;
-    status.rank = conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? rank : null;
-    status.standing_state = conferenceGames > 0
-      ? (status.rank ? "ranked" : "unavailable")
-      : "not-started";
-    status.source = row.method || payload?.conference?.standings_method || "standings";
+
+    if (publishedOverallGames > status.overall_games) {
+      status.overall_record = null;
+      status.record_verified = false;
+      status.record_state = "INCOMPLETE";
+      recordIssue(status, {
+        code:"PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE",
+        detail:`Published record covers ${publishedOverallGames} games; normalized final evidence covers ${status.overall_games}.`
+      });
+    } else if (publishedOverallGames === status.overall_games && publishedOverallGames > 0 && status.overall_record) {
+      const localOverall = parseRecordText(status.overall_record);
+      if (publishedOverall && localOverall && !sameOverallRecord(publishedOverall, localOverall)) {
+        status.overall_record = null;
+        status.record_verified = false;
+        status.record_state = "CONTRADICTORY";
+        recordIssue(status, {
+          code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+          detail:"Published overall record disagrees with normalized final-game truth."
+        });
+      }
+    }
+
+    if (publishedConferenceGames > status.conference_games) {
+      status.conference_record = null;
+      status.rank = null;
+      status.standing_state = "unavailable";
+      status.record_verified = false;
+      if (status.record_state === "VERIFIED") status.record_state = "INCOMPLETE";
+      recordIssue(status, {
+        code:"PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
+        detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${status.conference_games}.`
+      });
+    } else {
+      status.rank = status.conference_games > 0 && Number.isFinite(rank) && rank > 0 ? rank : null;
+      status.standing_state = status.conference_games > 0
+        ? (status.rank ? "ranked" : "unavailable")
+        : "not-started";
+    }
+
+    status.source = status.record_verified ? "normalized-final-games" : "unverified";
     delete status.standings_key;
   }
 
