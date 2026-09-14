@@ -61,6 +61,9 @@ test("team detail renders the unified backend record and standings contract", as
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
   assert.match(schoolSchedule, /live\.getTeamStatus/);
+  assert.match(schoolSchedule, /const recordVerified = status\.record_verified === true/);
+  assert.match(schoolSchedule, /overall_record: recordVerified \? \(status\.overall_record \|\| null\) : null/);
+  assert.match(schoolSchedule, /conference_record: recordVerified \? \(status\.conference_record \|\| null\) : null/);
   assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
   assert.match(detail, /status\.overall_record/);
   assert.match(detail, /status\.conference_record/);

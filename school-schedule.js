@@ -120,11 +120,18 @@
 
   function normalizeStatus(status) {
     if (!status || !status.team_id || !status.sport) return null;
+    const recordVerified = status.record_verified === true;
     return {
       ...status,
+      overall_record: recordVerified ? (status.overall_record || null) : null,
+      conference_record: recordVerified ? (status.conference_record || null) : null,
       rank: status.rank == null ? null : Number(status.rank),
       overall_games: Number(status.overall_games || 0),
-      conference_games: Number(status.conference_games || 0)
+      conference_games: Number(status.conference_games || 0),
+      record_verified: recordVerified,
+      record_state: status.record_state || (recordVerified ? "VERIFIED" : "UNVERIFIED"),
+      record_audit_state: status.record_audit_state || null,
+      record_issues: Array.isArray(status.record_issues) ? status.record_issues.map(issue => ({ ...issue })) : []
     };
   }
 
@@ -234,7 +241,7 @@
       String(status.sport || "") === String(sport || "")
       && String(status.gender || "") === String(gender || "")
     );
-    return found ? { ...found } : null;
+    return found ? { ...found, record_issues: (found.record_issues || []).map(issue => ({ ...issue })) } : null;
   };
 
   const primedSchools = new Set();
