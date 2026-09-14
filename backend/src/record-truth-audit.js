@@ -73,6 +73,8 @@ function effectiveCandidate(row) {
     counts_for_record:n(row.counts_for_record),
     conference_game:conferenceGame,
     notes:row.notes || null,
+    venue:row.canonical_venue || row.venue || null,
+    location_text:row.location_text || null,
     canonical_event_id:row.canonical_event_id || null,
     source_id:row.source_id || null,
     source_type:row.source_type || null,
@@ -249,38 +251,39 @@ function classifyTeam(rows,{now=new Date()}={}) {
   for (const row of rows.filter(row=>row.game_id)) {
     const raw=rawCandidate(row);
     const effective=effectiveCandidate(row);
+    const countable=rowCountsForRecord(effective);
     const rawEval=evaluateFinalResultTruth(raw);
     const effectiveEval=evaluateFinalResultTruth(effective);
 
-    if (String(raw.status||"").toUpperCase()==="FINAL" && rawEval.corrected) {
+    if (countable && String(raw.status||"").toUpperCase()==="FINAL" && rawEval.corrected) {
       addIssue(issues,issue(
         "EXPLICIT_RESULT_SCORE_ORIENTATION_CONTRADICTION",
         `${raw.result} ${row.raw_team_score}-${row.raw_opponent_score} required normalization to ${rawEval.row.team_score}-${rawEval.row.opponent_score} for the reporting team.`,
         {severity:"warning",resolved:true,gameId:row.game_id,sourceId:row.source_id,canonicalEventId:row.canonical_event_id}
       ));
     }
-    if (String(effective.status||"").toUpperCase()==="FINAL" && effectiveEval.state === "UNRESOLVED") {
+    if (countable && String(effective.status||"").toUpperCase()==="FINAL" && effectiveEval.state === "UNRESOLVED") {
       addIssue(issues,issue(
         "FINAL_MISSING_SCORE",
         `${effective.opponent}: FINAL row does not contain both scores.`,
         {severity:"blocking",gameId:row.game_id,sourceId:row.source_id,canonicalEventId:row.canonical_event_id}
       ));
     }
-    if (String(effective.status||"").toUpperCase()==="FINAL" && effectiveEval.state === "CONTRADICTORY") {
+    if (countable && String(effective.status||"").toUpperCase()==="FINAL" && effectiveEval.state === "CONTRADICTORY") {
       addIssue(issues,issue(
         effectiveEval.reason || "FINAL_RESULT_CONTRADICTION",
         `${effective.opponent}: explicit result cannot be reconciled safely with final score evidence.`,
         {severity:"blocking",gameId:row.game_id,sourceId:row.source_id,canonicalEventId:row.canonical_event_id}
       ));
     }
-    if (String(effective.status||"").toUpperCase()==="FINAL" && !row.raw_result && nullableNumber(effective.team_score)!=null && nullableNumber(effective.opponent_score)!=null) {
+    if (countable && String(effective.status||"").toUpperCase()==="FINAL" && !row.raw_result && nullableNumber(effective.team_score)!=null && nullableNumber(effective.opponent_score)!=null) {
       addIssue(issues,issue(
         "NUMERIC_ONLY_FINAL_ORIENTATION",
         `${effective.opponent}: final result is inferred from team-oriented numeric score because the source supplied no explicit W/L/T.`,
         {severity:"info",resolved:true,gameId:row.game_id,sourceId:row.source_id,canonicalEventId:row.canonical_event_id}
       ));
     }
-    if (row.canonical_event_id && row.raw_result && nullableNumber(row.canonical_home_score)!=null && nullableNumber(row.canonical_away_score)!=null) {
+    if (countable && row.canonical_event_id && row.raw_result && nullableNumber(row.canonical_home_score)!=null && nullableNumber(row.canonical_away_score)!=null) {
       const canonicalNumeric=resultFromTeamScores(effective.team_score,effective.opponent_score);
       if (canonicalNumeric && canonicalNumeric !== String(row.raw_result).toUpperCase()) {
         addIssue(issues,issue(
@@ -294,7 +297,7 @@ function classifyTeam(rows,{now=new Date()}={}) {
     const scheduled=Date.parse(effective.scheduled_at);
     const graceBoundary=now.getTime()-RESULT_GRACE_HOURS*3600000;
     const terminal=new Set(["FINAL","CANCELED","POSTPONED"]);
-    if (n(row.counts_for_record)!==0 && Number.isFinite(scheduled) && scheduled<graceBoundary && !terminal.has(String(effective.status||"").toUpperCase())) {
+    if (countable && Number.isFinite(scheduled) && scheduled<graceBoundary && !terminal.has(String(effective.status||"").toUpperCase())) {
       addIssue(issues,issue(
         "PAST_DUE_NONTERMINAL",
         `${effective.opponent}: record-counting game is past due but is not FINAL/CANCELED/POSTPONED.`,
@@ -458,14 +461,14 @@ export async function buildStatewideRecordTruthAudit(env,{
       GROUP BY team_id,conference_id
     )
     SELECT at.*,
-      g.id AS game_id,g.source_id,g.source_event_key,g.opponent,g.opponent_school_id,
+      g.id AS game_id,g.source_id,g.source_event_key,g.opponent,g.opponent_school_id,g.venue,g.location_text,
       g.scheduled_at AS raw_scheduled_at,g.status AS raw_status,g.team_score AS raw_team_score,g.opponent_score AS raw_opponent_score,
       g.result AS raw_result,g.counts_for_record,g.conference_game AS raw_conference_game,g.notes,
       g.source_updated_at,g.last_checked_at,g.updated_at AS game_updated_at,g.canonical_event_id,
       src.source_type,src.parser_type,src.authority_rank,src.source_priority,
       src.last_successful_fetch_at,src.last_game_count AS source_snapshot_count,
       sc.source_stored_game_count,
-      ce.scheduled_at AS canonical_scheduled_at,ce.status AS canonical_status,
+      ce.scheduled_at AS canonical_scheduled_at,ce.status AS canonical_status,ce.venue AS canonical_venue,
       ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
       ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
       ce.conference_game AS canonical_conference_game,ce.trust_state AS canonical_trust_state,ce.conflict_count AS canonical_conflict_count,
