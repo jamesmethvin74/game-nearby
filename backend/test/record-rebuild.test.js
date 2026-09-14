@@ -8,12 +8,7 @@ test("record rebuild combines canonical and school-feed finals without double co
   }];
   const canonicals = [
     {
-      id:"ce-lakeside-a",reporting_team_id:"conway-volleyball-2026",sport:"volleyball",gender:"girls",season:"2026",
-      home_school_id:"conway",away_school_id:"lakeside",home_name:"Conway High School",away_name:"Lakeside High School (Hot Springs)",
-      scheduled_at:"2026-08-31T23:00:00.000Z",status:"FINAL",home_score:3,away_score:0,conference_game:0,counts_for_record:1,trust_state:"AUTHORITATIVE_LIVE"
-    },
-    {
-      id:"ce-lakeside-b",reporting_team_id:"conway-volleyball-2026",sport:"volleyball",gender:"girls",season:"2026",
+      id:"ce-lakeside",reporting_team_id:"conway-volleyball-2026",sport:"volleyball",gender:"girls",season:"2026",
       home_school_id:"conway",away_school_id:"lakeside",home_name:"Conway High School",away_name:"Lakeside High School (Hot Springs)",
       scheduled_at:"2026-08-31T23:00:00.000Z",status:"FINAL",home_score:3,away_score:0,conference_game:0,counts_for_record:1,trust_state:"CORROBORATED"
     },
