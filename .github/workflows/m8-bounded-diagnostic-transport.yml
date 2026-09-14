@@ -14,25 +14,19 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
-      - name: Read exact remaining football blocker
+      - name: Confirm exact football canonical orientation
         shell: bash
         run: |
           set -euo pipefail
-          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools'
-          for school in df-jys3ef df-vm7v8n; do
-            curl --fail-with-body --silent --show-error "$BASE/$school/schedule" -o "$school.json"
-          done
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools/df-jys3ef/schedule'
+          curl --fail-with-body --silent --show-error "$URL" -o schedule.json
           python - <<'PY'
           import json
-          for sid in ['df-jys3ef','df-vm7v8n']:
-            p=json.load(open(sid+'.json'))
-            rows=p if isinstance(p,list) else p.get('games',p.get('schedule',[]))
-            out=[]
-            for r in rows or []:
-              date=str(r.get('scheduled_at',''))[:10]
-              sport=str(r.get('sport','')).lower()
-              opp=str(r.get('opponent','')).lower()
-              if sport=='football' and (date in ('2026-09-10','2026-09-11','2026-09-12','2026-09-13') or 'harrisburg' in opp or 'trumann' in opp):
-                out.append({k:r.get(k) for k in ['id','canonical_event_id','reporting_team_id','team_id','sport','opponent','opponent_school_id','scheduled_at','status','team_score','opponent_score','result','source_id','source_type','parser_type','data_trust','conflict_count','counts_for_record']})
-            print(json.dumps({'school_id':sid,'football_matches':out},separators=(',',':')))
+          p=json.load(open('schedule.json'))
+          rows=p if isinstance(p,list) else p.get('games',p.get('schedule',[]))
+          cid='ce:football:boys:2026:df-jys3ef:df-vm7v8n:20260911:df-69d51fb3f977a82d28000000'
+          for r in rows or []:
+            if r.get('canonical_event_id')==cid:
+              keys=['id','canonical_event_id','reporting_team_id','opponent','scheduled_at','status','team_score','opponent_score','result','canonical_home_school_id','canonical_away_school_id','canonical_home_name','canonical_away_name','canonical_home_score','canonical_away_score','canonical_status','conflict_count','counts_for_record']
+              print(json.dumps({k:r.get(k) for k in keys},separators=(',',':')))
           PY
