@@ -1,8 +1,10 @@
 import { observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
+import { normalizeFinalResultTruth, sanitizeFinalForCanonical } from "./final-result-truth.js";
 
 export async function upsertResolvedObservation(env,source,game,checkedAt,{opponentSchoolId}={}) {
   if(!opponentSchoolId) throw new Error("Resolved observation requires opponentSchoolId");
-  const id=`${source.id}:${game.sourceEventKey}`;
+  const normalizedGame=normalizeFinalResultTruth(game);
+  const id=`${source.id}:${normalizedGame.sourceEventKey}`;
   await env.DB.prepare(`
     INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
@@ -13,9 +15,9 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
       conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
       team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,
       source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at`)
-    .bind(id,source.team_id,source.id,game.sourceEventKey,game.opponent,opponentSchoolId,game.scheduledAt,game.scheduledTimeKnown?1:0,game.venue||null,game.locationText||null,
-      game.latitude??null,game.longitude??null,game.homeAway,game.conferenceGame?1:0,game.countsForRecord?1:0,game.status,game.teamScore??null,game.opponentScore??null,
-      game.result||null,game.notes||null,source.source_url,game.sourceUpdatedAt||checkedAt,checkedAt,checkedAt).run();
+    .bind(id,source.team_id,source.id,normalizedGame.sourceEventKey,normalizedGame.opponent,opponentSchoolId,normalizedGame.scheduledAt,normalizedGame.scheduledTimeKnown?1:0,normalizedGame.venue||null,normalizedGame.locationText||null,
+      normalizedGame.latitude??null,normalizedGame.longitude??null,normalizedGame.homeAway,normalizedGame.conferenceGame?1:0,normalizedGame.countsForRecord?1:0,normalizedGame.status,normalizedGame.teamScore??null,normalizedGame.opponentScore??null,
+      normalizedGame.result||null,normalizedGame.notes||null,source.source_url,normalizedGame.sourceUpdatedAt||checkedAt,checkedAt,checkedAt).run();
   return id;
 }
 
@@ -43,14 +45,15 @@ export async function reconcileResolvedObservation(env,gameId) {
       seed.reporting_school_id,seed.opponent_school_id,seed.opponent_school_id,seed.reporting_school_id,seed.scheduled_at,seed.scheduled_at).all();
   const related=candidates.filter(candidate=>candidate.id===seed.id || observationsLikelySameEvent(seed,candidate,{timeZone}));
   if(!related.length) return null;
+  const canonicalEvidence=related.map(sanitizeFinalForCanonical);
   let resolved;
-  try { resolved=resolveCanonicalEvent(related,{timeZone}); }
+  try { resolved=resolveCanonicalEvent(canonicalEvidence,{timeZone}); }
   catch { return null; }
 
   const now=new Date().toISOString();
-  const selected=related.find(o=>o.id===resolved.resolutionEvidence.selectedObservationId)||related[0];
-  const venueObservation=related.find(o=>o.id===resolved.resolutionEvidence.venueObservationId)||selected;
-  const geoObservation=related.find(o=>o.latitude!=null&&o.longitude!=null)||selected;
+  const selected=canonicalEvidence.find(o=>o.id===resolved.resolutionEvidence.selectedObservationId)||canonicalEvidence[0];
+  const venueObservation=related.find(o=>o.id===resolved.resolutionEvidence.venueObservationId)||related[0];
+  const geoObservation=related.find(o=>o.latitude!=null&&o.longitude!=null)||related[0];
   const conferenceGame=Number(selected?.conference_game||0);
 
   await env.DB.prepare(`
