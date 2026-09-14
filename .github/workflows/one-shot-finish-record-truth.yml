@@ -27,10 +27,11 @@ jobs:
           AUDIT="$BASE/api/v1/internal/record-truth-finish-audit-ab1d996b"
 
           rm -f marker.json plan.json repair.json audit.json finish-summary.json
-          for attempt in $(seq 1 45); do
+          for attempt in $(seq 1 90); do
             code=$(curl -sS --max-time 20 -o marker.tmp -w '%{http_code}' "$MARKER" || true)
             if [ "$code" = "200" ] && jq -e '
-              .marker == "record-truth-finish-temp-ab1d996b" and
+              .marker == "record-truth-finish-temp-v2-8a90e172" and
+              .repair_version == "record-truth-six-games-v2" and
               .d1_access == false and
               (.rows_written | tonumber) == 0
             ' marker.tmp >/dev/null 2>&1; then
@@ -41,17 +42,18 @@ jobs:
           done
           test -f marker.json
 
-          # One bounded four-statement production preflight. Zero writes are allowed here.
+          # One bounded indexed four-statement production preflight. Zero writes.
           curl -fsS --max-time 60 "$PLAN" -o plan.json
           jq . plan.json
           jq -e '
-            .version == "record-truth-six-games-v1" and
+            .version == "record-truth-six-games-v2" and
             .safe == true and
             (.d1.statements | tonumber) == 4 and
             (.d1.rows_written | tonumber) == 0 and
             (.d1.rows_read | tonumber) <= 300 and
             (.cases | length) == 4 and
-            ([.cases[].action] | all(. == "already_complete" or . == "repair_canonical" or . == "split_rematch"))
+            ([.cases[].action] | all(. == "already_complete" or . == "repair_canonical")) and
+            ([.cases[] | select(.action == "repair_canonical")] | length) <= 1
           ' plan.json >/dev/null
           fingerprint=$(jq -r '.fingerprint' plan.json)
           test -n "$fingerprint"
@@ -64,20 +66,21 @@ jobs:
           jq . repair.json
           jq -e '
             .status == "SUCCESS" and
-            .version == "record-truth-six-games-v1" and
+            .version == "record-truth-six-games-v2" and
             (.verification.safe == true) and
             (.verification.d1.rows_written | tonumber) == 0 and
+            (.verification.d1.rows_read | tonumber) <= 300 and
             ([.verification.cases[].action] | all(. == "already_complete")) and
-            (.record_result.teams | tonumber) == 10 and
-            (.canonical_writes.expected_primary | tonumber) <= 4 and
-            (.canonical_writes.expected_new | tonumber) <= 2 and
-            (.observation_writes.placeholder_rows_written | tonumber) <= 4 and
-            (.observation_writes.result_rows_written | tonumber) <= 4 and
-            (.member_writes.logical_member_moves | tonumber) <= 8 and
-            (.conflict_writes.conflicts_resolved | tonumber) <= 16
+            (.corrected_cases | length) <= 1 and
+            (.touched_team_ids | length) <= 2 and
+            (.record_result.teams | tonumber) == (.touched_team_ids | length) and
+            (.writes.canonical_rows_written | tonumber) <= 1 and
+            (.writes.placeholder_rows_written | tonumber) <= 1 and
+            (.writes.conflict_rows_resolved | tonumber) <= 2 and
+            (.writes.canonical_conflict_count_rows_written | tonumber) <= 1
           ' repair.json >/dev/null
 
-          # EXACTLY ONE statewide post-repair audit request.
+          # EXACTLY ONE statewide post-repair read-only audit request.
           curl -fsS --max-time 240 "$AUDIT" -o audit.json
 
           node <<'NODE'
@@ -102,9 +105,8 @@ jobs:
           }));
           const arkansas=teams.find(t=>t.school_id==='uark'&&t.sport==='football')||null;
           const out={
-            repair:{status:repair.status,corrected_cases:repair.corrected_cases,already_completed_cases:repair.already_completed_cases,
-              canonical_writes:repair.canonical_writes,observation_writes:repair.observation_writes,member_writes:repair.member_writes,
-              conflict_writes:repair.conflict_writes,record_result:repair.record_result},
+            repair:{status:repair.status,version:repair.version,corrected_cases:repair.corrected_cases,already_completed_cases:repair.already_completed_cases,
+              touched_team_ids:repair.touched_team_ids,writes:repair.writes,record_result:repair.record_result,verification_d1:repair.verification?.d1},
             audit:{generated_at:audit.generated_at,d1:audit.d1,summary,arkansas,repaired_teams:repaired}
           };
           fs.writeFileSync('finish-summary.json',JSON.stringify(out,null,2));
@@ -115,7 +117,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: record-truth-finish-ab1d996b
+          name: record-truth-finish-v2-8a90e172
           path: |
             marker.json
             plan.json
