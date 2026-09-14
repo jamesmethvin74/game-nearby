@@ -177,8 +177,13 @@ function duplicateAndCrossSourceIssues(candidates) {
       if (!aCountableFinal || !bCountableFinal) continue;
       if (!scheduleRowsLikelyDuplicate(a,b,{reportingSchoolId:a.school_id,maxMinutes:15})) continue;
       const aEval=evaluateFinalResultTruth(a), bEval=evaluateFinalResultTruth(b);
-      const sameNormalized = aEval.state === "VERIFIED" && bEval.state === "VERIFIED"
-        && aEval.row.result === bEval.row.result
+
+      // Missing-score or otherwise unresolved finals are incomplete evidence, not
+      // proof that two sources contradict each other. Their own unresolved issues
+      // remain blocking; only two independently verifiable finals can disagree.
+      if (aEval.state !== "VERIFIED" || bEval.state !== "VERIFIED") continue;
+
+      const sameNormalized = aEval.row.result === bEval.row.result
         && Number(aEval.row.team_score) === Number(bEval.row.team_score)
         && Number(aEval.row.opponent_score) === Number(bEval.row.opponent_score);
       if (sameNormalized) {
@@ -188,9 +193,11 @@ function duplicateAndCrossSourceIssues(candidates) {
           {severity:"info",resolved:true,canonicalEventId:a.canonical_event_id||b.canonical_event_id||null}
         ));
       } else {
+        const aTruth=`${aEval.row.result} ${aEval.row.team_score}-${aEval.row.opponent_score}`;
+        const bTruth=`${bEval.row.result} ${bEval.row.team_score}-${bEval.row.opponent_score}`;
         addIssue(issues,issue(
           "SAME_GAME_SOURCE_CONTRADICTION",
-          `Multiple sources represent the same countable final with different normalized result/score truth.`,
+          `Verifiable final observations disagree: ${a.source_id||a.id||"source A"}=${aTruth}; ${b.source_id||b.id||"source B"}=${bTruth}.`,
           {severity:"blocking",canonicalEventId:a.canonical_event_id||b.canonical_event_id||null}
         ));
       }
@@ -486,4 +493,4 @@ export async function buildStatewideRecordTruthAudit(env,{
   return audit;
 }
 
-export { DEFAULT_SEASON, RESULT_GRACE_HOURS, classifyTeam, effectiveCandidate };
+export { DEFAULT_SEASON, RESULT_GRACE_HOURS, classifyTeam, effectiveCandidate, duplicateAndCrossSourceIssues };
