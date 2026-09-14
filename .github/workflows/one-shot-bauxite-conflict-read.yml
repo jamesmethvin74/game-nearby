@@ -1,0 +1,32 @@
+name: One-shot Bauxite conflict read
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/one-shot-bauxite-conflict-read.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch active conflicts once and isolate Bauxite event
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          TARGET='ce:volleyball:girls:2026:df-2tr733:df-vvme46:20260818:df-6967ec73e5f4933500000000'
+          curl -fsS --max-time 60 "$API/api/v1/conflicts" -o conflicts.json
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('conflicts.json','utf8'));
+          const target='ce:volleyball:girls:2026:df-2tr733:df-vvme46:20260818:df-6967ec73e5f4933500000000';
+          const rows=(r.conflicts||[]).filter(x=>x.canonical_event_id===target);
+          console.log('BAUXITE_CONFLICTS='+JSON.stringify(rows,null,2));
+          console.log('ACTIVE_CONFLICT_COUNT='+String((r.conflicts||[]).length));
+          NODE
