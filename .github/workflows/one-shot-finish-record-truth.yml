@@ -14,28 +14,61 @@ jobs:
   finish:
     if: github.head_ref == 'audit/finish-record-truth-20260914'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Inspect post-failure state read-only
+      - name: Execute approved minimal repair and final statewide audit
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
           MARKER="$BASE/api/v1/internal/record-truth-finish-marker-ab1d996b"
           PLAN="$BASE/api/v1/internal/record-truth-finish-plan-ab1d996b"
-          rm -f marker.json plan.json
+          EXECUTE="$BASE/api/v1/internal/record-truth-finish-execute-ab1d996b"
+          AUDIT="$BASE/api/v1/internal/record-truth-finish-audit-ab1d996b"
+
+          rm -f marker.json plan.json repair.json audit.json audit-summary.json
+
           curl -fsS --max-time 20 "$MARKER" -o marker.json
-          jq -e '.marker == "record-truth-finish-temp-v2-8a90e172" and .repair_version == "record-truth-six-games-v2" and .d1_access == false' marker.json >/dev/null
+          jq -e '.marker == "record-truth-finish-temp-v2-8a90e172" and .repair_version == "record-truth-six-games-v2" and .d1_access == false and (.rows_written|tonumber)==0' marker.json >/dev/null
+
           curl -fsS --max-time 60 "$PLAN" -o plan.json
-          jq . plan.json
-          jq -e '.version == "record-truth-six-games-v2" and (.d1.rows_written|tonumber)==0 and (.d1.rows_read|tonumber)<=300' plan.json >/dev/null
-      - name: Preserve post-failure state
+          jq -e '.version == "record-truth-six-games-v2" and .safe == true and (.d1.rows_written|tonumber)==0 and (.d1.rows_read|tonumber)<=300 and (.fingerprint|length)>10' plan.json >/dev/null
+          FINGERPRINT=$(jq -r '.fingerprint' plan.json)
+
+          jq -n --arg fingerprint "$FINGERPRINT" '{fingerprint:$fingerprint}' > repair-body.json
+          curl -fsS --max-time 120 -X POST -H 'content-type: application/json' --data @repair-body.json "$EXECUTE" -o repair.json
+          jq -e '.status == "SUCCESS" and .version == "record-truth-six-games-v2" and .verification.safe == true and (.verification.d1.rows_written|tonumber)==0 and ([.verification.cases[].action] | all(. == "already_complete"))' repair.json >/dev/null
+
+          # Exactly one final statewide read-only audit after the bounded repair succeeds.
+          curl -fsS --max-time 180 "$AUDIT" -o audit.json
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('audit.json','utf8'));
+          if(r?.audit_contract?.version!=='record-truth-v1') throw new Error(`Unexpected audit contract ${r?.audit_contract?.version}`);
+          if(Number(r?.d1?.rows_written||0)!==0) throw new Error(`Audit wrote rows: ${r?.d1?.rows_written}`);
+          const s=r.summary||{};
+          const teams=Array.isArray(r.teams)?r.teams:[];
+          const contradictions=teams.filter(t=>Number(t.unexplained_contradiction_count||0)>0).map(t=>({team_id:t.team_id,school_name:t.school_name,sport:t.sport,classification:t.classification,unexplained_contradiction_count:t.unexplained_contradiction_count,issues:(t.issues||[]).filter(i=>i.severity!=='info'&&i.resolved!==true)}));
+          const arkansas=teams.find(t=>t.school_id==='uark'&&t.sport==='football')||null;
+          const out={generated_at:r.generated_at,d1:r.d1,summary:s,arkansas,contradictions};
+          fs.writeFileSync('audit-summary.json',JSON.stringify(out,null,2));
+          console.log(JSON.stringify(out,null,2));
+          if(Number(s.unexplained_record_contradictions)!==0) throw new Error(`Merge gate failed: ${s.unexplained_record_contradictions} unexplained record contradictions`);
+          NODE
+
+          echo 'REPAIR_RESULT'
+          jq '{status,version,corrected_cases,touched_team_ids,writes,record_result,verification:{d1:.verification.d1,cases:[.verification.cases[]|{key,action}]}}' repair.json
+
+      - name: Preserve exact repair and audit evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: record-truth-post-failure-state
+          name: record-truth-finish-v2
           path: |
             marker.json
             plan.json
+            repair.json
+            audit.json
+            audit-summary.json
           if-no-files-found: warn
           retention-days: 1
