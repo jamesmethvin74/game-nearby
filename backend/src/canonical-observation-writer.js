@@ -84,6 +84,38 @@ async function observationById(env,gameId) {
     WHERE g.id=?`).bind(gameId).first();
 }
 
+export const CANONICAL_EVENT_UPSERT_SQL=`
+  INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
+  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  ON CONFLICT(id) DO UPDATE SET
+    home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,
+    scheduled_time_known=excluded.scheduled_time_known,venue=excluded.venue,location_text=excluded.location_text,latitude=excluded.latitude,longitude=excluded.longitude,
+    conference_game=excluded.conference_game,status=excluded.status,
+    home_score=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND excluded.status='FINAL'
+        AND (excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.home_score
+      ELSE excluded.home_score
+    END,
+    away_score=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND excluded.status='FINAL'
+        AND (excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.away_score
+      ELSE excluded.away_score
+    END,
+    selected_source_id=excluded.selected_source_id,trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,
+    resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`;
+
 export async function reconcileResolvedObservation(env,gameId) {
   const seed=await observationById(env,gameId);
   if(!seed?.opponent_school_id) return null;
@@ -111,13 +143,7 @@ export async function reconcileResolvedObservation(env,gameId) {
   const geoObservation=related.find(o=>o.latitude!=null&&o.longitude!=null)||related[0];
   const conferenceGame=Number(selected?.conference_game||0);
 
-  await env.DB.prepare(`
-    INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,
-      scheduled_time_known=excluded.scheduled_time_known,venue=excluded.venue,location_text=excluded.location_text,latitude=excluded.latitude,longitude=excluded.longitude,
-      conference_game=excluded.conference_game,status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
-      trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`)
+  await env.DB.prepare(CANONICAL_EVENT_UPSERT_SQL)
     .bind(resolved.id,resolved.sport,resolved.gender,resolved.season,resolved.participantA,resolved.participantB,resolved.homeSchoolId,resolved.awaySchoolId,
       resolved.scheduledAt,resolved.scheduledTimeKnown?1:0,resolved.venue||null,venueObservation?.location_text||resolved.venue||null,geoObservation?.latitude??null,geoObservation?.longitude??null,
       conferenceGame,resolved.status,resolved.homeScore??null,resolved.awayScore??null,resolved.selectedSourceId,resolved.trustState,resolved.conflicts.length,
