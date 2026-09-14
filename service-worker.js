@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v63";
+const CACHE_NAME = "localbleachersar-shell-v64";
 const CORE_ASSETS = [
   "./",
   "./index.html",
