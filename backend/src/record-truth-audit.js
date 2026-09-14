@@ -1,7 +1,9 @@
 import {
+  conferenceGameCount,
   evaluateScheduleRecordTruth,
   parseRecordText,
   recordGameCount,
+  sameConferenceRecord,
   sameOverallRecord,
   scheduleRowsLikelyDuplicate
 } from "./schedule-response-normalizer.js";
@@ -122,14 +124,27 @@ function teamMeta(row) {
   };
 }
 
+function firstValue(rows, primaryField, fallbackMethod, fallbackField) {
+  const direct=rows.find(row=>row?.[primaryField])?.[primaryField];
+  if (direct) return direct;
+  const fallback=rows.find(row=>row.standing_method===fallbackMethod && row?.[fallbackField])?.[fallbackField];
+  return fallback || null;
+}
+
 function publishedRecordFromRows(rows) {
-  const published = rows.find(row => row.standing_method === "published" && row.standing_overall_record)?.standing_overall_record;
-  return published || null;
+  return firstValue(rows,"published_standing_overall_record","published","standing_overall_record");
+}
+
+function publishedConferenceRecordFromRows(rows) {
+  return firstValue(rows,"published_standing_conference_record","published","standing_conference_record");
 }
 
 function calculatedStandingRecordFromRows(rows) {
-  const calculated = rows.find(row => row.standing_method === "calculated" && row.standing_overall_record)?.standing_overall_record;
-  return calculated || null;
+  return firstValue(rows,"calculated_standing_overall_record","calculated","standing_overall_record");
+}
+
+function calculatedStandingConferenceRecordFromRows(rows) {
+  return firstValue(rows,"calculated_standing_conference_record","calculated","standing_conference_record");
 }
 
 function sourceCompletenessIssues(rows) {
@@ -182,9 +197,24 @@ function duplicateAndCrossSourceIssues(candidates) {
 
 function classificationFrom({truth,issues}) {
   if (truth.state === "UNRESOLVED" || issues.some(item => item.severity === "blocking" && /MISSING_SCORE|ORIENTATION_UNRESOLVED|TIE_SCORE/.test(item.code))) return "UNRESOLVED";
-  if (truth.state === "INCOMPLETE" || issues.some(item => item.code === "SOURCE_COMPLETENESS_GAP" || item.code === "PAST_DUE_NONTERMINAL")) return "INCOMPLETE";
+  if (truth.state === "INCOMPLETE" || issues.some(item => item.code === "SOURCE_COMPLETENESS_GAP" || item.code === "PAST_DUE_NONTERMINAL" || item.code.includes("EXCEEDS_FINAL_EVIDENCE"))) return "INCOMPLETE";
   if (truth.audit_class === "CONTRADICTORY" || issues.some(item => item.severity === "blocking" && item.code.includes("CONTRADICTION"))) return "CONTRADICTORY";
   return "VERIFIED";
+}
+
+function parsedRecordGameCount(value) {
+  const parsed=parseRecordText(value);
+  return parsed ? recordGameCount(parsed) : 0;
+}
+
+function conferenceTextMatchesDerived(value,derived) {
+  const parsed=parseRecordText(value);
+  if (!parsed || !derived) return false;
+  return sameConferenceRecord({
+    conference_wins:parsed.wins,
+    conference_losses:parsed.losses,
+    conference_ties:parsed.ties
+  },derived);
 }
 
 function classifyTeam(rows,{now=new Date()}={}) {
@@ -192,6 +222,7 @@ function classifyTeam(rows,{now=new Date()}={}) {
   const meta=teamMeta(seed);
   const storedRecord=recordFromRow(seed,"stored");
   const publishedRecord=publishedRecordFromRows(rows);
+  const publishedConferenceRecord=publishedConferenceRecordFromRows(rows);
   const candidates=rows.filter(row=>row.game_id).map(effectiveCandidate);
   const truth=evaluateScheduleRecordTruth(candidates,{
     reportingSchoolId:seed.school_id,
@@ -264,6 +295,21 @@ function classifyTeam(rows,{now=new Date()}={}) {
   for (const next of sourceCompletenessIssues(rows)) addIssue(issues,next);
   for (const next of duplicateAndCrossSourceIssues(candidates)) addIssue(issues,next);
 
+  const publishedConferenceGames=parsedRecordGameCount(publishedConferenceRecord);
+  if (publishedConferenceGames > truth.evidence_conference_games) {
+    addIssue(issues,issue(
+      "PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
+      `Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${truth.evidence_conference_games}.`,
+      {severity:"blocking"}
+    ));
+  } else if (publishedConferenceGames > 0 && publishedConferenceGames === truth.evidence_conference_games && !conferenceTextMatchesDerived(publishedConferenceRecord,truth.derived_record)) {
+    addIssue(issues,issue(
+      "PUBLISHED_CONFERENCE_RECORD_CONTRADICTION",
+      `Published conference record ${publishedConferenceRecord} disagrees with normalized conference final-game truth.`,
+      {severity:"blocking"}
+    ));
+  }
+
   const calculatedStanding=calculatedStandingRecordFromRows(rows);
   if (calculatedStanding) {
     const calculated=parseRecordText(calculatedStanding);
@@ -276,6 +322,15 @@ function classifyTeam(rows,{now=new Date()}={}) {
     }
   }
 
+  const calculatedConference=calculatedStandingConferenceRecordFromRows(rows);
+  if (calculatedConference && parsedRecordGameCount(calculatedConference) === truth.evidence_conference_games && truth.evidence_conference_games > 0 && !conferenceTextMatchesDerived(calculatedConference,truth.derived_record)) {
+    addIssue(issues,issue(
+      "MATERIALIZED_CONFERENCE_RECORD_CONTRADICTION",
+      `Materialized conference record ${calculatedConference} disagrees with normalized conference final-game truth.`,
+      {severity:"blocking"}
+    ));
+  }
+
   const latestEvidenceAt=rows.reduce((latest,row)=>{
     const value=Date.parse(row.source_updated_at||row.game_updated_at||row.last_checked_at||"");
     return Number.isFinite(value)?Math.max(latest,value):latest;
@@ -285,7 +340,7 @@ function classifyTeam(rows,{now=new Date()}={}) {
     addIssue(issues,issue(
       "STALE_RECORD_ROW",
       `Stored team_records was calculated before newer final-game evidence and no longer matches normalized truth.`,
-      {severity:"warning",resolved:false}
+      {severity:"info",resolved:true}
     ));
   }
 
@@ -300,6 +355,7 @@ function classifyTeam(rows,{now=new Date()}={}) {
     derived_record:truth.derived_record,
     trusted_record:truth.trusted_record,
     published_record:publishedRecord,
+    published_conference_record:publishedConferenceRecord,
     evidence_games:truth.evidence_games,
     evidence_conference_games:truth.evidence_conference_games,
     orientation_corrections:truth.orientation_corrections,
@@ -307,6 +363,18 @@ function classifyTeam(rows,{now=new Date()}={}) {
     unexplained_issue_count:unexplained.length,
     issues
   };
+}
+
+function teamRequiresRecordAudit(team) {
+  const storedGames=team.stored_record ? recordGameCount(team.stored_record) : 0;
+  const publishedGames=parsedRecordGameCount(team.published_record);
+  const publishedConferenceGames=parsedRecordGameCount(team.published_conference_record);
+  return team.evidence_games>0
+    || team.unresolved_finals>0
+    || storedGames>0
+    || publishedGames>0
+    || publishedConferenceGames>0
+    || team.issues.some(item=>item.severity==="blocking");
 }
 
 export function classifyRecordTruthRows(rows=[],options={}) {
@@ -318,8 +386,9 @@ export function classifyRecordTruthRows(rows=[],options={}) {
   }
   const teams=[...byTeam.values()].map(teamRows=>classifyTeam(teamRows,options));
   const withFinals=teams.filter(team=>team.evidence_games>0 || team.unresolved_finals>0);
-  const counts=Object.fromEntries(["VERIFIED","INCOMPLETE","CONTRADICTORY","UNRESOLVED"].map(value=>[value,withFinals.filter(team=>team.classification===value).length]));
-  const nonVerified=withFinals.filter(team=>team.classification!=="VERIFIED");
+  const audited=teams.filter(teamRequiresRecordAudit);
+  const counts=Object.fromEntries(["VERIFIED","INCOMPLETE","CONTRADICTORY","UNRESOLVED"].map(value=>[value,audited.filter(team=>team.classification===value).length]));
+  const nonVerified=audited.filter(team=>team.classification!=="VERIFIED");
   return {
     generated_at:(options.now instanceof Date?options.now:new Date()).toISOString(),
     audit_contract:{
@@ -331,13 +400,14 @@ export function classifyRecordTruthRows(rows=[],options={}) {
     summary:{
       total_active_teams_examined:teams.length,
       total_active_teams_with_finals:withFinals.length,
+      total_active_teams_requiring_record_audit:audited.length,
       verified:counts.VERIFIED,
       incomplete:counts.INCOMPLETE,
       contradictory:counts.CONTRADICTORY,
       unresolved:counts.UNRESOLVED,
       non_verified:nonVerified.length,
-      orientation_corrections:withFinals.reduce((sum,team)=>sum+team.orientation_corrections,0),
-      unexplained_record_contradictions:withFinals.filter(team=>team.classification==="CONTRADICTORY" && team.unexplained_issue_count>0).length
+      orientation_corrections:audited.reduce((sum,team)=>sum+team.orientation_corrections,0),
+      unexplained_record_contradictions:audited.filter(team=>team.classification==="CONTRADICTORY" && team.unexplained_issue_count>0).length
     },
     non_verified_teams:nonVerified,
     teams
@@ -365,6 +435,16 @@ export async function buildStatewideRecordTruthAudit(env,{
       FROM games g INDEXED BY idx_games_team_time
       JOIN active_teams at ON at.team_id=g.team_id
       GROUP BY g.source_id
+    ),
+    standings_summary AS (
+      SELECT team_id,conference_id,
+        MAX(CASE WHEN method='published' THEN overall_record END) AS published_standing_overall_record,
+        MAX(CASE WHEN method='published' THEN conference_record END) AS published_standing_conference_record,
+        MAX(CASE WHEN method='calculated' THEN overall_record END) AS calculated_standing_overall_record,
+        MAX(CASE WHEN method='calculated' THEN conference_record END) AS calculated_standing_conference_record,
+        MAX(calculated_at) AS standing_calculated_at
+      FROM standings
+      GROUP BY team_id,conference_id
     )
     SELECT at.*,
       g.id AS game_id,g.source_id,g.source_event_key,g.opponent,g.opponent_school_id,
@@ -378,8 +458,8 @@ export async function buildStatewideRecordTruthAudit(env,{
       ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
       ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
       ce.conference_game AS canonical_conference_game,ce.trust_state AS canonical_trust_state,ce.conflict_count AS canonical_conflict_count,
-      st.overall_record AS standing_overall_record,st.conference_record AS standing_conference_record,
-      st.method AS standing_method,st.calculated_at AS standing_calculated_at
+      ss.published_standing_overall_record,ss.published_standing_conference_record,
+      ss.calculated_standing_overall_record,ss.calculated_standing_conference_record,ss.standing_calculated_at
     FROM active_teams at
     LEFT JOIN games g INDEXED BY idx_games_team_time ON g.team_id=at.team_id
       AND (
@@ -389,7 +469,7 @@ export async function buildStatewideRecordTruthAudit(env,{
     LEFT JOIN sources src ON src.id=g.source_id
     LEFT JOIN source_counts sc ON sc.source_id=g.source_id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
-    LEFT JOIN standings st ON st.team_id=at.team_id AND st.conference_id=at.conference_id
+    LEFT JOIN standings_summary ss ON ss.team_id=at.team_id AND ss.conference_id=at.conference_id
     ORDER BY at.team_id,COALESCE(ce.scheduled_at,g.scheduled_at),g.id
   `).bind(season,now.toISOString()).all();
 
