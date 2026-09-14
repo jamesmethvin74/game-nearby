@@ -6,7 +6,7 @@ import {
   orientFinalScoreToExplicitResult,
   previewHtml,
   rewritePublicRead
-} from "../src/verified-public-worker.js";
+} from "../src/m8-worker.js";
 
 function arkansasGame(overrides = {}) {
   return {
@@ -104,10 +104,14 @@ test("branch preview explicitly exposes the user-visible pass conditions", () =>
   assert.match(html, /BRANCH PREVIEW/);
   assert.match(html, /Arkansas football shows <strong>1-1<\/strong>/);
   assert.match(html, /Utah renders <strong>L 10-43<\/strong>/);
-  assert.match(html, /35 colleges|colleges/);
+  assert.match(html, /colleges/);
 });
 
-test("Cloudflare entrypoint uses the verified public wrapper", async () => {
+test("Cloudflare entrypoint remains M8 while M8 owns the final read corrections", async () => {
   const wrangler = await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8");
-  assert.match(wrangler, /"main": "src\/verified-public-worker\.js"/);
+  const m8 = await readFile(new URL("../src/m8-worker.js", import.meta.url), "utf8");
+  assert.match(wrangler, /"main": "src\/m8-worker\.js"/);
+  assert.match(m8, /return rewritePublicRead\(request, upstream, env\)/);
+  assert.match(m8, /applyLogoRelays/);
+  assert.match(m8, /orientFinalScoreToExplicitResult/);
 });
