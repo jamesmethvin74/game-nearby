@@ -23,10 +23,13 @@ function auditJson(body,status=200) {
     headers:{
       "content-type":"application/json; charset=utf-8",
       "cache-control":"no-store",
-      "access-control-allow-origin":"*",
       "x-localbleachers-record-truth-audit":"record-truth-v1"
     }
   });
+}
+
+function authorizedAudit(request,env) {
+  return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
 }
 
 export default {
@@ -37,6 +40,7 @@ export default {
       : null;
 
     if (coverageView === RECORD_TRUTH_VIEW) {
+      if (!authorizedAudit(request,env)) return auditJson({error:"not_found"},404);
       try {
         return auditJson(await buildStatewideRecordTruthAudit(env,{season:"2026"}));
       } catch (error) {
@@ -67,4 +71,4 @@ export default {
   }
 };
 
-export { RECORD_TRUTH_VIEW, RESULT_GAP_VIEW };
+export { RECORD_TRUTH_VIEW, RESULT_GAP_VIEW, authorizedAudit };
