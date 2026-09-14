@@ -1,0 +1,48 @@
+name: M8 final read-only statewide audit
+
+on:
+  push:
+    branches:
+      - m8/results-completeness-20260914
+    paths:
+      - .github/workflows/m8-final-statewide-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run the approved statewide audit exactly once
+        env:
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+          AUDIT_URL: https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/coverage-report?view=record-truth
+        run: |
+          set -euo pipefail
+          test -n "$REFRESH_TOKEN"
+          curl --fail --silent --show-error --max-time 180 \
+            -H "x-refresh-token: $REFRESH_TOKEN" \
+            "$AUDIT_URL" \
+            -o audit.json
+          jq '.summary' audit.json > audit-summary.json
+          jq '.completeness_report.overall' audit.json > completeness-overall.json
+          jq '{generated_at,d1,summary,completeness_report:{overall:.completeness_report.overall,incomplete_accounting:.completeness_report.incomplete_accounting,by_failure_category:.completeness_report.by_failure_category,unresolved_final_details:.completeness_report.unresolved_final_details}}' audit.json > marker.json
+          cat marker.json
+
+      - name: Preserve final audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m8-final-statewide-audit
+          path: |
+            audit.json
+            audit-summary.json
+            completeness-overall.json
+            marker.json
+          retention-days: 1
+
+      - name: Enforce read-only audit contract
+        run: |
+          set -euo pipefail
+          jq -e '.d1.rows_written == 0' audit.json >/dev/null
