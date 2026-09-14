@@ -2,24 +2,9 @@ import app from "./coverage-report-worker-v6.js";
 
 const RELEASE = "public-read-resilient-v3";
 const CORS_MARKER = "public-get-v3";
-const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v7-browser-pinned";
+const SCHOOL_CATALOG_CACHE_VERSION = "logo-render-v8-relay-authoritative";
 const COVERAGE_CACHE_VERSION = "truthful-v6";
-const SCHEDULE_CACHE_VERSION = "unified-team-status-v3";
-const DIRECT_LOGO_OVERRIDES = new Map([
-  ["df-6blldr", "https://friendshipaspire.org/wp-content/uploads/2023/06/Mask-group-5.png"],
-  ["aaa-ptzw9n", "https://upload.wikimedia.org/wikipedia/commons/f/f0/St._Paul_High_School_in_St._Paul%2C_Arkansas.jpg"],
-  ["asu-mid-south", "https://pbs.twimg.com/profile_images/1935045051224080384/8pfQBpjq.jpg"],
-  ["asu-mountain-home", "https://static.visionamp.co/rubix/20190724/orig_69bdfc3ccd60f02e75760a7b0d8f1b2ea54cf8b9.png"],
-  ["asu-newport", "https://cdn.myportfolio.com/65823678412a233843d41599a6a3284e/1e06e1e2-20cb-449b-95c5-fb30fa90c545_rw_1200.png?h=589f1b4f20dec9c3741e832e5e8521f4"],
-  ["cbc", "https://static.wixstatic.com/media/c13f88_4bfbbeb6499d408e86dfae8d386843fd~mv2.png/v1/fill/w_1844%2Ch_1391%2Cal_c/CBC%20MustangHeadRGB.png"],
-  ["champion-christian", "https://thenccaa.org/common/controls/image_handler.aspx?image_path=%2Fimages%2F2018%2F6%2F21%2FOfficial_Tiger.png&thumb_id=0"],
-  ["philander-smith", "https://media.hbcuac.org/wp-content/uploads/2024/06/Philander-Smith-Panthers-version-1.png"],
-  ["shorter", "https://static.hudl.com/users/prod/20931878_73506e113f79441383faba859b82bf3a.jpg"],
-  ["south-arkansas", "https://www.goeldorado.com/wp-content/uploads/2024/09/stars-basketball-two-tone26.png"],
-  ["sau-tech", "https://nyc3.digitaloceanspaces.com/m1.pb365/skybox.playbook365.com/images/colleges/63a4d91a7d693-63a4d91a7da7a.png"],
-  ["uark", "https://content.sportslogos.net/logos/30/606/full/arkansas_razorbacks_logo_primary_20147998.png"],
-  ["ua-cossatot", "https://s3-us-west-2.amazonaws.com/scorestream-team-profile-pictures/311510/20230327203154_510_mascot720Near.png"]
-]);
+const SCHEDULE_CACHE_VERSION = "unified-team-status-v4";
 
 function applyPublicReadCors(request, response) {
   const requestedMethod = String(request.headers.get("access-control-request-method") || "").toUpperCase();
@@ -35,21 +20,9 @@ function applyPublicReadCors(request, response) {
 
 async function rewriteSchoolCatalogLogos(request, response) {
   if (request.method !== "GET" || !response.ok || new URL(request.url).pathname !== "/api/v1/schools") return response;
-  let body;
-  try { body = await response.clone().json(); } catch { return response; }
-  if (!Array.isArray(body?.schools)) return response;
-  let changed = 0;
-  body.schools = body.schools.map(school => {
-    const direct = DIRECT_LOGO_OVERRIDES.get(String(school?.id || ""));
-    if (!direct) return school;
-    changed += 1;
-    return { ...school, logo_url: direct };
-  });
-  if (!changed) return response;
   const headers = new Headers(response.headers);
-  headers.set("content-type", "application/json; charset=utf-8");
-  headers.set("x-localbleachers-logo-delivery", "direct-v3-browser-pinned");
-  return new Response(JSON.stringify(body), { status: response.status, statusText: response.statusText, headers });
+  headers.set("x-localbleachers-logo-delivery", "same-origin-relay-v4");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function edgeCache() {
@@ -186,4 +159,4 @@ export default {
   async scheduled(controller, env, ctx) { return app.scheduled(controller, env, ctx); }
 };
 
-export { COVERAGE_CACHE_VERSION, DIRECT_LOGO_OVERRIDES, SCHOOL_CATALOG_CACHE_VERSION, SCHEDULE_CACHE_VERSION, cacheDescriptor, rewriteSchoolCatalogLogos };
+export { COVERAGE_CACHE_VERSION, SCHOOL_CATALOG_CACHE_VERSION, SCHEDULE_CACHE_VERSION, cacheDescriptor, rewriteSchoolCatalogLogos };
