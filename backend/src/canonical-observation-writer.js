@@ -1,6 +1,61 @@
 import { observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { normalizeFinalResultTruth, sanitizeFinalForCanonical } from "./final-result-truth.js";
 
+function localDateKey(iso,timeZone="America/Chicago") {
+  if (!iso) return "";
+  const date=new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA",{timeZone,year:"numeric",month:"2-digit",day:"2-digit"}).format(date);
+}
+
+function nativeObservationIdentity(observation={}) {
+  const key=String(observation.source_event_key||observation.sourceEventKey||"").trim().toLowerCase();
+  if (!key.startsWith("native:")) return null;
+  const parser=String(observation.parser_type||"").trim().toLowerCase();
+  if (parser!=="dragonfly-public" && parser!=="maxpreps-scores") return null;
+  return {parser,key};
+}
+
+function hasSameDayNativeRematch(seed,candidates,timeZone) {
+  const date=localDateKey(seed?.scheduled_at,timeZone);
+  if (!date) return false;
+  const byParser=new Map();
+  for (const candidate of candidates||[]) {
+    if (localDateKey(candidate?.scheduled_at,timeZone)!==date) continue;
+    const native=nativeObservationIdentity(candidate);
+    if (!native) continue;
+    if (!byParser.has(native.parser)) byParser.set(native.parser,new Set());
+    byParser.get(native.parser).add(native.key);
+  }
+  return [...byParser.values()].some(keys=>keys.size>1);
+}
+
+export function relatedObservationsForReconciliation(seed,candidates,{timeZone="America/Chicago"}={}) {
+  const rows=Array.isArray(candidates)?candidates:[];
+  const ambiguousSameDayRematch=hasSameDayNativeRematch(seed,rows,timeZone);
+  const seedNative=nativeObservationIdentity(seed);
+
+  // If authoritative native evidence proves the same participants met more than once
+  // on the same day, an untimed generic observation cannot safely choose a game.
+  if (ambiguousSameDayRematch && !seedNative && !seed?.scheduled_time_known) return [];
+
+  return rows.filter(candidate=>{
+    if (candidate.id===seed?.id) return true;
+    if (!observationsLikelySameEvent(seed,candidate,{timeZone})) return false;
+    if (!ambiguousSameDayRematch) return true;
+
+    const candidateNative=nativeObservationIdentity(candidate);
+    if (seedNative && candidateNative && seedNative.parser===candidateNative.parser) {
+      return seedNative.key===candidateNative.key;
+    }
+
+    // With a same-day rematch, only a real clock on both observations can bridge
+    // different source families. An untimed row must remain unattached rather than
+    // being guessed onto the wrong tournament match.
+    return Boolean(seed?.scheduled_time_known && candidate?.scheduled_time_known);
+  });
+}
+
 export async function upsertResolvedObservation(env,source,game,checkedAt,{opponentSchoolId}={}) {
   if(!opponentSchoolId) throw new Error("Resolved observation requires opponentSchoolId");
   const normalizedGame=normalizeFinalResultTruth(game);
@@ -43,7 +98,7 @@ export async function reconcileResolvedObservation(env,gameId) {
     ORDER BY src.authority_rank,src.source_priority,src.id`)
     .bind(seed.sport,seed.gender,seed.season,
       seed.reporting_school_id,seed.opponent_school_id,seed.opponent_school_id,seed.reporting_school_id,seed.scheduled_at,seed.scheduled_at).all();
-  const related=candidates.filter(candidate=>candidate.id===seed.id || observationsLikelySameEvent(seed,candidate,{timeZone}));
+  const related=relatedObservationsForReconciliation(seed,candidates,{timeZone});
   if(!related.length) return null;
   const canonicalEvidence=related.map(sanitizeFinalForCanonical);
   let resolved;
