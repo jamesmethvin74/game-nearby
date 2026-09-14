@@ -1,3 +1,4 @@
+# Diagnostic trigger: verify live sports API reachability for Teams catalog
 name: Production statewide smoke
 
 on:
