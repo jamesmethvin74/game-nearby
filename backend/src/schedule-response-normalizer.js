@@ -275,12 +275,16 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
   const storedConferenceGames = stored ? conferenceGameCount(stored) : null;
   const publishedGames = published ? recordGameCount(published) : null;
 
-  let state = unresolvedFinals > 0 ? "UNRESOLVED" : "VERIFIED";
+  let state = unresolvedFinals > 0
+    ? "UNRESOLVED"
+    : evidenceGames > 0
+      ? "VERIFIED"
+      : "NO_RECORD_EVIDENCE";
   let auditClass = unresolvedFinals > 0 ? "UNRESOLVED" : "VERIFIED";
 
   if (stored && storedGames > evidenceGames) {
-    state = "INCOMPLETE";
-    auditClass = "INCOMPLETE";
+    if (state !== "UNRESOLVED") state = "INCOMPLETE";
+    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
     pushIssue(issues, "STORED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`);
   } else if (stored && storedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(stored, derived)) {
     auditClass = "CONTRADICTORY";
@@ -291,8 +295,8 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
   }
 
   if (stored && storedConferenceGames > evidenceConferenceGames) {
-    state = "INCOMPLETE";
-    auditClass = "INCOMPLETE";
+    if (state !== "UNRESOLVED") state = "INCOMPLETE";
+    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
     pushIssue(issues, "STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored conference record covers ${storedConferenceGames} games; normalized conference final evidence covers ${evidenceConferenceGames}.`);
   } else if (stored && storedConferenceGames === evidenceConferenceGames && evidenceConferenceGames > 0 && !sameConferenceRecord(stored, derived)) {
     if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
@@ -300,8 +304,8 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
   }
 
   if (published && publishedGames > evidenceGames) {
-    state = "INCOMPLETE";
-    auditClass = "INCOMPLETE";
+    if (state !== "UNRESOLVED") state = "INCOMPLETE";
+    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
     pushIssue(issues, "PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Published record covers ${publishedGames} games; normalized final evidence covers ${evidenceGames}.`);
   } else if (published && publishedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(published, derived)) {
     if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
@@ -311,7 +315,7 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
     pushIssue(issues, "PUBLISHED_RECORD_BEHIND_FINAL_EVIDENCE", `Published record covers ${publishedGames} games; normalized final evidence covers ${evidenceGames}.`, { informational: true });
   }
 
-  const verified = state === "VERIFIED";
+  const verified = state === "VERIFIED" && evidenceGames > 0;
   return {
     state,
     audit_class: auditClass,
