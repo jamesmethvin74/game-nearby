@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 
 import { parseMascotResultCell } from "../src/parser-core.js";
 import { relatedObservationsForReconciliation } from "../src/canonical-observation-writer.js";
@@ -105,6 +106,14 @@ test("single native match still accepts an untimed corroborating observation",()
     relatedObservationsForReconciliation(native,[native,generic]).map(row=>row.id),
     ["native","generic"]
   );
+});
+
+test("MaxPreps fallback persists the full rematch set before canonical reconciliation",()=>{
+  const source=fs.readFileSync(new URL("../src/maxpreps-volleyball-result-collector.js",import.meta.url),"utf8");
+  const persist=source.indexOf("pendingReconciliations.push(gameId)");
+  const reconcile=source.indexOf("for(const gameId of pendingReconciliations)");
+  assert.ok(persist>=0,"collector must queue persisted observations");
+  assert.ok(reconcile>persist,"collector must reconcile only after all candidate observations are persisted");
 });
 
 test("duplicate unresolved finals are incomplete evidence, not a source contradiction",()=>{
