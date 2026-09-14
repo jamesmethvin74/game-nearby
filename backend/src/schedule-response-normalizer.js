@@ -46,6 +46,14 @@ export function scheduleRowsLikelyDuplicate(a, b, { reportingSchoolId = null, ma
   if (clean(a.sport).toLowerCase() !== clean(b.sport).toLowerCase()) return false;
   if (clean(a.gender).toLowerCase() !== clean(b.gender).toLowerCase()) return false;
   if (!reportingSchoolId && a.school_id && b.school_id && a.school_id !== b.school_id) return false;
+
+  // Once reconciliation has proven two observations belong to distinct canonical
+  // events, never collapse them again just because a tournament/rematch source gave
+  // both games the same date-only timestamp and opponent pair.
+  const aCanonical=clean(a.canonical_event_id);
+  const bCanonical=clean(b.canonical_event_id);
+  if (aCanonical && bCanonical && aCanonical !== bCanonical) return false;
+
   const aTime = a.scheduled_at || a.canonical_scheduled_at;
   const bTime = b.scheduled_at || b.canonical_scheduled_at;
   if (minutesBetween(aTime, bTime) > maxMinutes) return false;
