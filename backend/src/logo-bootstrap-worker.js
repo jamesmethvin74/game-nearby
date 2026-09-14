@@ -5,6 +5,7 @@ import { collectionPlanAt } from "./collection-cadence.js";
 import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { planFinalMissingScoreRepair, executeFinalMissingScoreRepair } from "./final-missing-score-repair.js";
 import { readFinalMissingScoreEvidence } from "./final-missing-score-evidence.js";
+import { planHarrisburgTrumannRepair, executeHarrisburgTrumannRepair } from "./m8-harrisburg-trumann-repair.js";
 
 export const HIGH_SCHOOL_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/high-school";
 export const COLLEGE_LOGO_BOOTSTRAP_PATH = "/api/v1/content/logo-bootstrap/college";
@@ -13,6 +14,9 @@ export const FINAL_MISSING_SCORE_PLAN_PATH = "/api/v1/internal/final-missing-sco
 export const FINAL_MISSING_SCORE_EVIDENCE_PATH = "/api/v1/internal/final-missing-score-evidence-20260912-4fd5a1c7";
 export const FINAL_MISSING_SCORE_EXECUTE_PATH = "/api/v1/internal/final-missing-score-execute-20260912-4fd5a1c7";
 export const FINAL_MISSING_SCORE_EXPIRES_AT = Date.parse("2026-09-19T05:00:00Z");
+export const HARRISBURG_TRUMANN_PLAN_PATH = "/api/v1/internal/m8-harrisburg-trumann-plan-20260914-27c4f9a1";
+export const HARRISBURG_TRUMANN_EXECUTE_PATH = "/api/v1/internal/m8-harrisburg-trumann-execute-20260914-27c4f9a1";
+export const HARRISBURG_TRUMANN_EXPIRES_AT = Date.parse("2026-09-15T06:00:00Z");
 
 function privateJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -56,6 +60,15 @@ async function runVolleyballLiveTick(controller, env) {
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
+    if (Date.now() <= HARRISBURG_TRUMANN_EXPIRES_AT && request.method === "GET" && path === HARRISBURG_TRUMANN_PLAN_PATH) {
+      try { return privateJson(await planHarrisburgTrumannRepair(env)); }
+      catch (error) { return privateJson({ error:"harrisburg_trumann_plan_failed", message:String(error?.message || error) }, 500); }
+    }
+    if (Date.now() <= HARRISBURG_TRUMANN_EXPIRES_AT && request.method === "POST" && path === HARRISBURG_TRUMANN_EXECUTE_PATH) {
+      const input = await options(request);
+      try { return privateJson(await executeHarrisburgTrumannRepair(env, { fingerprint:input.fingerprint })); }
+      catch (error) { return privateJson({ error:"harrisburg_trumann_execute_failed", message:String(error?.message || error) }, 409); }
+    }
     if (Date.now() <= FINAL_MISSING_SCORE_EXPIRES_AT && request.method === "GET" && path === FINAL_MISSING_SCORE_PLAN_PATH) {
       try { return privateJson(await planFinalMissingScoreRepair(env)); }
       catch (error) { return privateJson({ error:"final_missing_score_plan_failed", message:String(error?.message || error) }, 500); }
