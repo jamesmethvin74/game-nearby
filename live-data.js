@@ -8,6 +8,7 @@
   const DRAGONFLY_VOLLEYBALL_URL = "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
 
   const nearbyEvents = [];
+  const teamStatuses = new Map();
   const state = {
     apiBase: API_BASE,
     catalogLoadedAt: null,
@@ -123,6 +124,55 @@
     };
   }
 
+  function statusKey(schoolId, sport, gender = "") {
+    return `${String(schoolId || "")}|${String(sport || "")}|${String(gender || "")}`;
+  }
+
+  function normalizeTeamStatus(status = {}) {
+    return {
+      team_id: status.team_id || null,
+      school_id: status.school_id || null,
+      school_name: status.school_name || null,
+      level: status.level || null,
+      sport: status.sport || null,
+      gender: status.gender || "",
+      season: status.season || null,
+      conference_id: status.conference_id || null,
+      conference_name: status.conference_name || null,
+      overall_record: status.record_verified === false ? null : (status.overall_record || null),
+      conference_record: status.record_verified === false ? null : (status.conference_record || null),
+      overall_games: Number(status.overall_games || 0),
+      conference_games: Number(status.conference_games || 0),
+      rank: status.rank == null ? null : Number(status.rank),
+      standing_state: status.standing_state || null,
+      source: status.source || "unverified",
+      record_state: status.record_state || null,
+      record_audit_state: status.record_audit_state || null,
+      record_verified: status.record_verified === true,
+      record_issues: Array.isArray(status.record_issues) ? status.record_issues.map(issue => ({ ...issue })) : []
+    };
+  }
+
+  function applyTeamStatuses(schoolId, statuses) {
+    const prefix = `${String(schoolId || "")}|`;
+    for (const key of [...teamStatuses.keys()]) {
+      if (key.startsWith(prefix)) teamStatuses.delete(key);
+    }
+    for (const raw of Array.isArray(statuses) ? statuses : []) {
+      const status = normalizeTeamStatus(raw);
+      if (!status.sport) continue;
+      teamStatuses.set(statusKey(schoolId, status.sport, status.gender), status);
+    }
+  }
+
+  function getTeamStatus(schoolId, sport, gender = "") {
+    const exact = teamStatuses.get(statusKey(schoolId, sport, gender));
+    if (exact) return { ...exact, record_issues: exact.record_issues.map(issue => ({ ...issue })) };
+    const prefix = `${String(schoolId || "")}|${String(sport || "")}|`;
+    const fallback = [...teamStatuses.entries()].find(([key]) => key.startsWith(prefix))?.[1] || null;
+    return fallback ? { ...fallback, record_issues: fallback.record_issues.map(issue => ({ ...issue })) } : null;
+  }
+
   function mapApiGame(game, school = null, recordOverride = null) {
     const schoolId = school?.id || game.school_id;
     const schoolName = school?.name || game.school_name || "Arkansas school";
@@ -220,20 +270,16 @@
     }
   }
 
-  function teamIdForSchool(schoolId) {
-    return `${schoolId}-volleyball-2026`;
-  }
-
   async function fetchTeamSchedule(schoolId) {
     const school = (typeof SCHOOL_REGISTRY !== "undefined" ? SCHOOL_REGISTRY : []).find(item => item.id === schoolId)
       || { id: schoolId, name: schoolId, level: "high-school" };
-    const teamId = teamIdForSchool(schoolId);
-    const payload = await fetchJson(`/api/v1/teams/${encodeURIComponent(teamId)}/schedule`, 15000);
-    if (!Array.isArray(payload?.games)) throw new Error("API returned no team schedule");
-    const record = normalizeRecord(payload?.record);
+    const payload = await fetchJson(`/api/v1/schools/${encodeURIComponent(schoolId)}/schedule`, 15000);
+    if (!Array.isArray(payload?.games)) throw new Error("API returned no school schedule");
+    if (!Array.isArray(payload?.team_statuses)) throw new Error("API returned no team status contract");
+    applyTeamStatuses(schoolId, payload.team_statuses);
     return payload.games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
-      .map(game => mapApiGame(game, school, record))
+      .map(game => mapApiGame(game, school))
       .sort((a, b) => new Date(a.date) - new Date(b.date));
   }
 
@@ -263,6 +309,7 @@
     refreshCatalog,
     refreshNearby,
     fetchTeamSchedule,
+    getTeamStatus,
     getNearbyEvents: () => nearbyEvents.map(event => ({ ...event, schoolIds: [...event.schoolIds] })),
     getState: () => ({ ...state, failures: { ...state.failures } })
   };
