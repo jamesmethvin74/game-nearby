@@ -1,0 +1,74 @@
+name: One-shot record truth audit
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/one-shot-record-truth-audit.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wait for exact zero-D1 marker, then run audit once
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER="$BASE/api/v1/internal/record-truth-audit-marker-ef53054a"
+          AUDIT="$BASE/api/v1/internal/record-truth-audit-ef53054a"
+
+          rm -f marker.json audit.json audit-summary.json
+          for attempt in $(seq 1 30); do
+            code=$(curl -sS --max-time 20 -o marker.tmp -w '%{http_code}' "$MARKER" || true)
+            if [ "$code" = "200" ] && node <<'NODE'
+          const fs=require('fs');
+          try {
+            const r=JSON.parse(fs.readFileSync('marker.tmp','utf8'));
+            process.exit(r.marker==='record-truth-audit-temp-ef53054a' && r.d1_access===false && Number(r.rows_written||0)===0 ? 0 : 1);
+          } catch { process.exit(1); }
+          NODE
+            then
+              mv marker.tmp marker.json
+              break
+            fi
+            sleep 2
+          done
+          test -f marker.json
+
+          # EXACTLY ONE statewide audit request after the zero-D1 marker proves deployment.
+          curl -fsS --max-time 180 "$AUDIT" -o audit.json
+
+          node <<'NODE'
+          const fs=require('fs');
+          const r=JSON.parse(fs.readFileSync('audit.json','utf8'));
+          if(r?.audit_contract?.version!=='record-truth-v1') throw new Error(`Unexpected audit contract: ${JSON.stringify(r?.audit_contract||null)}`);
+          if(Number(r?.d1?.rows_written||0)!==0) throw new Error(`Audit wrote D1 rows: ${r?.d1?.rows_written}`);
+          const s=r.summary||{};
+          for(const key of ['total_active_teams_examined','total_active_teams_with_finals','total_active_teams_requiring_record_audit','verified','incomplete','contradictory','unresolved','non_verified','orientation_corrections','unexplained_record_contradictions']) {
+            if(!Number.isFinite(Number(s[key]))) throw new Error(`Missing/invalid summary field ${key}: ${s[key]}`);
+          }
+          const nonVerified=Array.isArray(r.non_verified_teams)?r.non_verified_teams:[];
+          const issueCounts={};
+          for(const team of nonVerified) for(const issue of team.issues||[]) issueCounts[issue.code]=(issueCounts[issue.code]||0)+1;
+          const arkansas=(Array.isArray(r.teams)?r.teams:[]).find(t=>/university of arkansas/i.test(String(t.school_name||'')) && t.sport==='football');
+          const out={generated_at:r.generated_at,d1:r.d1,summary:s,arkansas:arkansas||null,issue_counts:Object.fromEntries(Object.entries(issueCounts).sort((a,b)=>b[1]-a[1]))};
+          fs.writeFileSync('audit-summary.json',JSON.stringify(out,null,2));
+          console.log('RECORD_TRUTH_AUDIT_SUMMARY='+JSON.stringify(out,null,2));
+          NODE
+
+      - name: Preserve exact audit snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: record-truth-audit-ef53054a
+          path: |
+            marker.json
+            audit.json
+            audit-summary.json
+          if-no-files-found: error
+          retention-days: 1
