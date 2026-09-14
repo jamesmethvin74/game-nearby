@@ -38,10 +38,11 @@ function storedDriftIsExplained(team, issue) {
 }
 
 function unresolvedContradiction(issue) {
-  return Boolean(issue)
-    && issue.severity !== "info"
-    && issue.resolved !== true
-    && /CONTRADICTION/.test(String(issue.code || ""));
+  if (!issue || issue.severity === "info" || issue.resolved === true) return false;
+  const code=String(issue.code || "");
+  return /CONTRADICTION/.test(code)
+    || PUBLISHED_CONTRADICTION_CODES.has(code)
+    || STORED_DRIFT_CODES.has(code);
 }
 
 export function finalizeRecordTruthAudit(audit = {}) {
