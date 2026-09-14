@@ -114,6 +114,40 @@ test("duplicate matching finals are detected but count once", () => {
   assert.ok(team.issues.some(item=>item.code==="DUPLICATE_FINAL_OBSERVATIONS"));
 });
 
+test("duplicate scheduled non-record rows cannot become a record-truth contradiction", () => {
+  const canonical="ce:volleyball:girls:2026:bryant:bauxite:20260818:event";
+  const common={
+    teamId:"bauxite-volleyball-2026",schoolId:"bauxite",schoolName:"Bauxite High School",level:"high-school",
+    sport:"volleyball",gender:"girls",opponent:"Bryant High School",date:"2026-08-18T22:30:00.000Z",
+    status:"SCHEDULED",teamScore:null,opponentScore:null,result:null,countsForRecord:0,
+    storedWins:0,storedLosses:0,sourceSnapshotCount:1,sourceStoredCount:1,
+    canonicalEventId:canonical,canonicalHomeSchoolId:"bryant",canonicalAwaySchoolId:"bauxite",
+    canonicalHomeScore:null,canonicalAwayScore:null
+  };
+  const audit=classifyRecordTruthRows([
+    row({...common,gameId:"bauxite-school",sourceId:"bauxite-school-source"}),
+    row({...common,gameId:"bauxite-statewide",sourceId:"bauxite-statewide-source"})
+  ],{now:new Date("2026-09-13T20:00:00.000Z")});
+  const team=audit.teams[0];
+  assert.equal(team.derived_record.scored_finals,0);
+  assert.equal(team.issues.some(item=>item.code==="SAME_GAME_SOURCE_CONTRADICTION"),false);
+  assert.equal(team.issues.some(item=>item.code==="DUPLICATE_FINAL_OBSERVATIONS"),false);
+});
+
+test("different countable FINAL truth from duplicate sources remains a blocking contradiction", () => {
+  const common={
+    teamId:"sample-volleyball-2026",schoolId:"sample",schoolName:"Sample High School",level:"high-school",
+    sport:"volleyball",gender:"girls",opponent:"Rival High School",date:"2026-09-01T23:00:00.000Z",
+    storedWins:1,storedLosses:0,sourceSnapshotCount:1,sourceStoredCount:1
+  };
+  const audit=classifyRecordTruthRows([
+    row({...common,gameId:"school-final",sourceId:"school",result:"W",teamScore:3,opponentScore:0}),
+    row({...common,gameId:"conference-final",sourceId:"conference",result:"L",teamScore:0,opponentScore:3})
+  ],{now:new Date("2026-09-13T20:00:00.000Z")});
+  const team=audit.teams[0];
+  assert.ok(team.issues.some(item=>item.code==="SAME_GAME_SOURCE_CONTRADICTION" && item.severity==="blocking"));
+});
+
 test("non-counting high-school scrimmage does not enter statewide record truth", () => {
   const audit=classifyRecordTruthRows([
     row({
