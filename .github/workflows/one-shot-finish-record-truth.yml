@@ -16,25 +16,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Finish exact Beebe materialization and run final statewide audit
+      - name: Run exactly one final statewide read-only audit
         shell: bash
         run: |
           set -euo pipefail
           BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
           MARKER="$BASE/api/v1/internal/record-truth-finish-marker-ab1d996b"
-          MATERIALIZE="$BASE/api/v1/internal/record-truth-finish-materialize-ab1d996b"
           AUDIT="$BASE/api/v1/internal/record-truth-finish-audit-ab1d996b"
-          rm -f marker.json materialize.json audit.json audit-summary.json
+          rm -f marker.json audit.json audit-summary.json
 
           curl -fsS --max-time 20 "$MARKER" -o marker.json
-          jq -e '.marker == "record-truth-finish-temp-v2-8a90e172" and .repair_version == "record-truth-six-games-v2" and .d1_access == false' marker.json >/dev/null
+          jq -e '.marker == "record-truth-finish-temp-v2-8a90e172" and .repair_version == "record-truth-six-games-v2" and .d1_access == false and (.rows_written|tonumber)==0' marker.json >/dev/null
 
-          code=$(curl -sS --max-time 120 -o materialize.json -w '%{http_code}' -X POST "$MATERIALIZE")
-          cat materialize.json
-          test "$code" = "200"
-          jq -e '.status == "SUCCESS" and .repair_version == "record-truth-six-games-v2" and (.conflict_count_rows_written|tonumber)<=1 and (.record_result.teams|tonumber)==2 and .verification.cases != null and ([.verification.cases[].action] | all(. == "already_complete"))' materialize.json >/dev/null
-
-          # Exactly one statewide read-only audit after the two-team materialization succeeds.
+          # Exactly one statewide D1 audit call. No repair, materialization, collection, or migration endpoint is invoked.
           curl -fsS --max-time 180 "$AUDIT" -o audit.json
           node <<'NODE'
           const fs=require('fs');
@@ -51,14 +45,13 @@ jobs:
           if(Number(s.unexplained_record_contradictions)!==0) throw new Error(`Merge gate failed: ${s.unexplained_record_contradictions} unexplained record contradictions`);
           NODE
 
-      - name: Preserve exact final evidence
+      - name: Preserve exact final audit evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: record-truth-final-v2
+          name: record-truth-final-read-only-v3
           path: |
             marker.json
-            materialize.json
             audit.json
             audit-summary.json
           if-no-files-found: warn
