@@ -37,6 +37,13 @@ function storedDriftIsExplained(team, issue) {
   return false;
 }
 
+function unresolvedContradiction(issue) {
+  return Boolean(issue)
+    && issue.severity !== "info"
+    && issue.resolved !== true
+    && /CONTRADICTION/.test(String(issue.code || ""));
+}
+
 export function finalizeRecordTruthAudit(audit = {}) {
   const teams = Array.isArray(audit.teams) ? audit.teams : [];
 
@@ -52,20 +59,19 @@ export function finalizeRecordTruthAudit(audit = {}) {
       }
     }
     team.unexplained_issue_count = (team.issues || []).filter(issue => issue.severity !== "info" && !issue.resolved).length;
+    team.unexplained_contradiction_count = (team.issues || []).filter(unresolvedContradiction).length;
   }
 
   const nonVerified = teams.filter(team => team.classification !== "VERIFIED");
   const summary = audit.summary || {};
-  summary.unexplained_record_contradictions = teams.filter(team =>
-    team.classification === "CONTRADICTORY" && Number(team.unexplained_issue_count || 0) > 0
-  ).length;
+  summary.unexplained_record_contradictions = teams.filter(team => Number(team.unexplained_contradiction_count || 0) > 0).length;
   summary.non_verified = nonVerified.length;
 
   audit.summary = summary;
   audit.non_verified_teams = nonVerified;
   audit.audit_contract = {
     ...(audit.audit_contract || {}),
-    unexplained_rule:"Published/materialized record contradictions remain unexplained until reconciled. Stored same-count/conference drift is explained only by score-orientation repair or newer evidence; a lower stored game count is treated as stale materialization only when the normalized trusted record is verified and covers the complete audited FINAL evidence set."
+    unexplained_rule:"Published/materialized record contradictions remain unexplained until reconciled. Stored same-count/conference drift is explained only by score-orientation repair or newer evidence; a lower stored game count is treated as stale materialization only when the normalized trusted record is verified and covers the complete audited FINAL evidence set. Contradictions are counted independently of the team's primary VERIFIED/INCOMPLETE/CONTRADICTORY/UNRESOLVED classification so incompleteness cannot hide a contradictory result claim."
   };
   return audit;
 }
