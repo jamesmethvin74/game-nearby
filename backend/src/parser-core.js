@@ -139,6 +139,30 @@ export function orientMascotResult(result) {
   return normalizeFinalResultTruth(result);
 }
 
+export function parseMascotResultCell(text, source={}) {
+  const value=cleanText(text);
+  const sport=String(source?.sport||"").trim().toLowerCase();
+  const parsed=parseResult(value);
+
+  // Mascot frequently publishes a placeholder "T 0 - 0" while a volleyball result
+  // is still unknown. Volleyball cannot legitimately finish 0-0, so do not promote
+  // that placeholder to FINAL or let it poison canonical reconciliation.
+  if (sport==="volleyball" && parsed.status==="FINAL"
+      && Number(parsed.teamScore)===0 && Number(parsed.opponentScore)===0) {
+    return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
+  }
+
+  if (parsed.status!=="SCHEDULED" || sport!=="volleyball") return parsed;
+
+  // Mascot score cells often contain only "0 - 3" / "3 - 1" without an explicit
+  // W/L or the word FINAL. For volleyball a non-zero match score is decisive.
+  const score=value.match(/^\s*(\d+)\s*[-–]\s*(\d+)\s*$/);
+  if (!score) return parsed;
+  const teamScore=Number(score[1]), opponentScore=Number(score[2]);
+  if (teamScore===0 && opponentScore===0) return parsed;
+  return normalizeFinalResultTruth({status:"FINAL",teamScore,opponentScore,result:null});
+}
+
 function suppressPrematureMascotFinal(result,schedule,now) {
   if (result?.status!=="FINAL" || !schedule?.timeKnown) return result;
   const nowMs=now instanceof Date?now.getTime():Date.parse(now);
@@ -207,7 +231,7 @@ export function normalizeMascotRows(rows, source, {now=new Date()}={}) {
     if (knownInvalidMascotObservation(source,schedule,opponent)) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
-    const parsedResult=orientMascotResult(parseResult(resultText));
+    const parsedResult=orientMascotResult(parseMascotResultCell(resultText,source));
     const result=suppressPrematureMascotFinal(parsedResult,schedule,now);
     const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition|jamboree)\b/i.test(full);
     events.push({
