@@ -3,6 +3,7 @@ import {
   evaluateScheduleRecordTruth,
   parseRecordText,
   recordGameCount,
+  rowCountsForRecord,
   sameConferenceRecord,
   sameOverallRecord,
   scheduleRowsLikelyDuplicate
@@ -171,6 +172,9 @@ function duplicateAndCrossSourceIssues(candidates) {
   for (let i=0;i<candidates.length;i++) {
     for (let j=i+1;j<candidates.length;j++) {
       const a=candidates[i], b=candidates[j];
+      const aCountableFinal=String(a.status||"").toUpperCase()==="FINAL" && rowCountsForRecord(a);
+      const bCountableFinal=String(b.status||"").toUpperCase()==="FINAL" && rowCountsForRecord(b);
+      if (!aCountableFinal || !bCountableFinal) continue;
       if (!scheduleRowsLikelyDuplicate(a,b,{reportingSchoolId:a.school_id,maxMinutes:15})) continue;
       const aEval=evaluateFinalResultTruth(a), bEval=evaluateFinalResultTruth(b);
       const sameNormalized = aEval.state === "VERIFIED" && bEval.state === "VERIFIED"
@@ -186,7 +190,7 @@ function duplicateAndCrossSourceIssues(candidates) {
       } else {
         addIssue(issues,issue(
           "SAME_GAME_SOURCE_CONTRADICTION",
-          `Multiple sources represent the same game with different normalized result/score truth.`,
+          `Multiple sources represent the same countable final with different normalized result/score truth.`,
           {severity:"blocking",canonicalEventId:a.canonical_event_id||b.canonical_event_id||null}
         ));
       }
