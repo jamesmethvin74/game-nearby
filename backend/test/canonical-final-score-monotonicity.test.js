@@ -42,10 +42,14 @@ test("partial refresh cannot erase a complete FINAL score for unchanged home/awa
   upsert.run(...values());
   upsert.run(...values({homeScore:null,awayScore:null,selectedSource:"source-b",updatedAt:"2026-09-14T22:00:00.000Z"}));
 
-  assert.deepEqual(row(db),{
-    home_school_id:"home",away_school_id:"away",status:"FINAL",home_score:0,away_score:3,
-    selected_source_id:"source-b",trust_state:"CORROBORATED"
-  });
+  const current=row(db);
+  assert.equal(current.home_school_id,"home");
+  assert.equal(current.away_school_id,"away");
+  assert.equal(current.status,"FINAL");
+  assert.equal(current.home_score,0);
+  assert.equal(current.away_score,3);
+  assert.equal(current.selected_source_id,"source-b");
+  assert.equal(current.trust_state,"CORROBORATED");
 });
 
 test("a new complete FINAL score still replaces the old score",()=>{
