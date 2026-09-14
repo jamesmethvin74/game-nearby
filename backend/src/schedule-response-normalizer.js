@@ -252,7 +252,10 @@ function pushIssue(issues, code, detail, extra = {}) {
 }
 
 export function evaluateScheduleRecordTruth(games, options = {}) {
-  const rawRows = Array.isArray(games) ? games : [];
+  // Collapse proven duplicate observations before unresolved-final accounting.
+  // This lets verified canonical truth supersede a stale source placeholder while
+  // the distinct-canonical-id guard above still preserves legitimate rematches.
+  const rawRows = dedupeScheduleRows(Array.isArray(games) ? games : [], options);
   const evaluations = rawRows.map(row => ({ original: row, ...evaluateFinalResultTruth(row) }));
   const normalizedRows = dedupeScheduleRows(evaluations.map(item => item.row), options);
   const derived = recordFromScheduleRows(normalizedRows, options);

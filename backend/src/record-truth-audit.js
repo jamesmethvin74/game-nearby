@@ -76,6 +76,8 @@ function effectiveCandidate(row) {
     venue:row.canonical_venue || row.venue || null,
     location_text:row.location_text || null,
     canonical_event_id:row.canonical_event_id || null,
+    source_event_key:row.source_event_key || null,
+    source_url:row.source_url || null,
     source_id:row.source_id || null,
     source_type:row.source_type || null,
     parser_type:row.parser_type || null,
@@ -208,9 +210,19 @@ function duplicateAndCrossSourceIssues(candidates) {
   return issues;
 }
 
+function verifiedCanonicalDuplicate(candidate,candidates) {
+  if (!candidate || candidate.canonical_event_id) return false;
+  return (candidates || []).some(other => {
+    if (!other || !other.canonical_event_id) return false;
+    if (!scheduleRowsLikelyDuplicate(candidate,other,{reportingSchoolId:candidate.school_id,maxMinutes:15})) return false;
+    if (String(other.status||"").toUpperCase()!=="FINAL" || !rowCountsForRecord(other)) return false;
+    return evaluateFinalResultTruth(other).state === "VERIFIED";
+  });
+}
+
 function classificationFrom({truth,issues}) {
   if (truth.state === "UNRESOLVED" || issues.some(item => item.severity === "blocking" && /MISSING_SCORE|ORIENTATION_UNRESOLVED|TIE_SCORE/.test(item.code))) return "UNRESOLVED";
-  if (truth.state === "INCOMPLETE" || issues.some(item => item.code === "SOURCE_COMPLETENESS_GAP" || item.code === "PAST_DUE_NONTERMINAL" || item.code.includes("EXCEEDS_FINAL_EVIDENCE"))) return "INCOMPLETE";
+  if (truth.state === "INCOMPLETE" || issues.some(item => item.code === "SOURCE_RESULT_AMBIGUITY" || item.code === "SOURCE_COMPLETENESS_GAP" || item.code === "PAST_DUE_NONTERMINAL" || item.code.includes("EXCEEDS_FINAL_EVIDENCE"))) return "INCOMPLETE";
   if (truth.audit_class === "CONTRADICTORY" || issues.some(item => item.severity === "blocking" && item.code.includes("CONTRADICTION"))) return "CONTRADICTORY";
   return "VERIFIED";
 }
@@ -263,9 +275,19 @@ function classifyTeam(rows,{now=new Date()}={}) {
       ));
     }
     if (countable && String(effective.status||"").toUpperCase()==="FINAL" && effectiveEval.state === "UNRESOLVED") {
+      const superseded=verifiedCanonicalDuplicate(effective,candidates);
       addIssue(issues,issue(
-        "FINAL_MISSING_SCORE",
-        `${effective.opponent}: FINAL row does not contain both scores.`,
+        superseded ? "SUPERSEDED_UNRESOLVED_FINAL_OBSERVATION" : "FINAL_MISSING_SCORE",
+        superseded
+          ? `${effective.opponent}: stale unresolved source observation is superseded by verified canonical final truth.`
+          : `${effective.opponent}: FINAL row does not contain both scores.`,
+        {severity:superseded?"info":"blocking",resolved:superseded,gameId:row.game_id,sourceId:row.source_id,canonicalEventId:row.canonical_event_id}
+      ));
+    }
+    if (countable && String(effective.status||"").toUpperCase()==="FINAL" && effectiveEval.state === "QUARANTINED") {
+      addIssue(issues,issue(
+        "SOURCE_RESULT_AMBIGUITY",
+        `${effective.opponent}: provider result is quarantined because the provider's own result surfaces disagree.`,
         {severity:"blocking",gameId:row.game_id,sourceId:row.source_id,canonicalEventId:row.canonical_event_id}
       ));
     }

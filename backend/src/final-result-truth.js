@@ -1,3 +1,5 @@
+import { resultSourceQuarantine } from "./result-source-quarantine.js";
+
 function cleanResult(value) {
   const result = String(value ?? "").trim().toUpperCase();
   return /^[WLT]$/.test(result) ? result : null;
@@ -46,6 +48,21 @@ export function evaluateFinalResultTruth(row = {}) {
       explicit_result: explicitResult,
       numeric_result: resultFromTeamScores(teamScore, opponentScore),
       orientation_source: explicitResult ? "explicit-result" : "none"
+    };
+  }
+
+  const quarantine = resultSourceQuarantine(row);
+  if (quarantine) {
+    normalized.result = null;
+    return {
+      row: normalized,
+      state: "QUARANTINED",
+      reason: "SOURCE_RESULT_AMBIGUITY",
+      corrected: false,
+      explicit_result: explicitResult,
+      numeric_result: resultFromTeamScores(teamScore, opponentScore),
+      orientation_source: "source-quarantine",
+      quarantine
     };
   }
 

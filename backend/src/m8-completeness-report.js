@@ -1,5 +1,14 @@
 const CATEGORY_RULES = [
   {
+    id:"source_result_ambiguity",
+    label:"provider result surfaces disagree",
+    codes:new Set(["SOURCE_RESULT_AMBIGUITY"]),
+    actionable:true,
+    systemic_fix_available:"provider_resolution_required",
+    requires_source_recovery:true,
+    legitimate_expected_gap:true
+  },
+  {
     id:"source_completeness_gap",
     label:"source snapshot exceeds stored rows",
     codes:new Set(["SOURCE_COMPLETENESS_GAP"]),
