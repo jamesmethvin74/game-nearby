@@ -17,6 +17,10 @@ function scoreKeys(row = {}) {
     : { team: "teamScore", opponent: "opponentScore" };
 }
 
+function isVolleyball(row = {}) {
+  return String(row.sport || "").trim().toLowerCase() === "volleyball";
+}
+
 export function resultFromTeamScores(teamScore, opponentScore) {
   const team = finiteScore(teamScore);
   const opponent = finiteScore(opponentScore);
@@ -58,6 +62,35 @@ export function evaluateFinalResultTruth(row = {}) {
   }
 
   const numericResult = resultFromTeamScores(teamScore, opponentScore);
+
+  // Volleyball has no tied match result. Older Mascot rows used T 0-0 as an
+  // unknown-result placeholder, and some of those rows predate the parser fix.
+  // Treat a tied volleyball score as unresolved, and ignore a stale explicit T
+  // when independently oriented numeric/canonical scores prove a W or L.
+  if (isVolleyball(row) && explicitResult === "T") {
+    if (numericResult === "T") {
+      normalized.result = null;
+      return {
+        row: normalized,
+        state: "UNRESOLVED",
+        reason: "VOLLEYBALL_TIE_PLACEHOLDER",
+        corrected: false,
+        explicit_result: explicitResult,
+        numeric_result: numericResult,
+        orientation_source: "invalid-volleyball-tie-placeholder"
+      };
+    }
+    normalized.result = numericResult;
+    return {
+      row: normalized,
+      state: "VERIFIED",
+      reason: "VOLLEYBALL_TIE_PLACEHOLDER_IGNORED",
+      corrected: false,
+      explicit_result: explicitResult,
+      numeric_result: numericResult,
+      orientation_source: "team-oriented-score"
+    };
+  }
 
   if (!explicitResult) {
     normalized.result = numericResult;
