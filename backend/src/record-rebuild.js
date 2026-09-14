@@ -38,6 +38,7 @@ function canonicalCandidate(event, team) {
     status: event.status,
     team_score: isHome ? event.home_score : event.away_score,
     opponent_score: isHome ? event.away_score : event.home_score,
+    result: event.member_result || null,
     conference_game: Number(event.effective_conference_game ?? event.conference_game ?? 0),
     counts_for_record: Number(event.counts_for_record ?? 1),
     notes: event.member_notes || event.notes || null,
@@ -105,6 +106,7 @@ async function loadRecordInputs(env, { teamIds = null } = {}) {
       aws.name AS away_name,
       mg.counts_for_record AS counts_for_record,
       mg.notes AS member_notes,
+      mg.result AS member_result,
       src.source_type AS member_source_type,
       src.parser_type AS member_parser_type,
       CASE
