@@ -1,6 +1,7 @@
 import app from "./logo-bootstrap-worker.js";
 import { buildResultGapAudit } from "./result-gap-audit.js";
 import { buildStatewideRecordTruthAudit } from "./record-truth-audit.js";
+import { finalizeRecordTruthAudit } from "./record-truth-audit-output.js";
 
 const RESULT_GAP_VIEW = "result-gaps";
 const RECORD_TRUTH_VIEW = "record-truth";
@@ -42,7 +43,8 @@ export default {
     if (coverageView === RECORD_TRUTH_VIEW) {
       if (!authorizedAudit(request,env)) return auditJson({error:"not_found"},404);
       try {
-        return auditJson(await buildStatewideRecordTruthAudit(env,{season:"2026"}));
+        const audit=finalizeRecordTruthAudit(await buildStatewideRecordTruthAudit(env,{season:"2026"}));
+        return auditJson(audit);
       } catch (error) {
         console.error("record truth audit failed",error);
         return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500);
