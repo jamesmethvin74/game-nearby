@@ -12,10 +12,6 @@ const STORED_DRIFT_CODES = new Set([
   "STALE_STORED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE"
 ]);
 
-function recordCount(record = {}) {
-  return Number(record?.wins || 0) + Number(record?.losses || 0) + Number(record?.ties || 0);
-}
-
 function hasNewerEvidenceProof(team) {
   return (team.issues || []).some(issue => issue.code === "STALE_RECORD_ROW");
 }
@@ -23,16 +19,12 @@ function hasNewerEvidenceProof(team) {
 function storedDriftIsExplained(team, issue) {
   if (Number(team.orientation_corrections || 0) > 0 || hasNewerEvidenceProof(team)) return true;
 
-  // A stored row that simply trails a larger, fully verified normalized FINAL set is
-  // stale materialization, not an unexplained record contradiction. This is only
-  // safe for the explicit lower-count lag code: same-count W/L disagreement and
-  // conference disagreement still require independent evidence.
-  if (issue?.code === "STALE_STORED_RECORD" && team.public_record_verified === true) {
-    const storedGames = recordCount(team.stored_record);
-    const trustedGames = recordCount(team.trusted_record);
-    const evidenceGames = Number(team.evidence_games || 0);
-    return trustedGames > storedGames && trustedGames === evidenceGames;
-  }
+  // A lower-count stored record is, by definition, lagging materialization rather
+  // than an opposing result claim. It remains useful as an audit issue, but it must
+  // not count as an unexplained contradiction even when unrelated schedule gaps
+  // make the team's public record INCOMPLETE. Same-count W/L disagreement and
+  // conference-record disagreement still require independent proof.
+  if (issue?.code === "STALE_STORED_RECORD") return true;
 
   return false;
 }
@@ -72,7 +64,7 @@ export function finalizeRecordTruthAudit(audit = {}) {
   audit.non_verified_teams = nonVerified;
   audit.audit_contract = {
     ...(audit.audit_contract || {}),
-    unexplained_rule:"Published/materialized record contradictions remain unexplained until reconciled. Stored same-count/conference drift is explained only by score-orientation repair or newer evidence; a lower stored game count is treated as stale materialization only when the normalized trusted record is verified and covers the complete audited FINAL evidence set. Contradictions are counted independently of the team's primary VERIFIED/INCOMPLETE/CONTRADICTORY/UNRESOLVED classification so incompleteness cannot hide a contradictory result claim."
+    unexplained_rule:"Published/materialized record contradictions remain unexplained until reconciled. A lower-count stored overall record is stale materialization, not a contradictory result claim. Stored same-count and conference-record disagreements are explained only by score-orientation repair or newer evidence. Contradictions are counted independently of the team's primary VERIFIED/INCOMPLETE/CONTRADICTORY/UNRESOLVED classification so incompleteness cannot hide a contradictory result claim."
   };
   return audit;
 }
