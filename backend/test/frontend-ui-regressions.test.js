@@ -31,10 +31,7 @@ test("nearby refresh and full team schedules are separate data paths", () => {
   assert.match(live, /const nearbyEvents = \[\]/);
   assert.doesNotMatch(live, /events\.splice\(0, events\.length, \.\.\.mapped\)/);
   assert.match(live, /fetchTeamSchedule/);
-  assert.match(live, /\/api\/v1\/schools\/\$\{encodeURIComponent\(schoolId\)\}\/schedule/);
-  assert.match(live, /payload\?\.team_statuses/);
-  assert.match(live, /getTeamStatus/);
-  assert.doesNotMatch(live, /\/api\/v1\/teams\/\$\{encodeURIComponent\(teamId\)\}\/schedule/);
+  assert.match(live, /\/api\/v1\/teams\/\$\{encodeURIComponent\(teamId\)\}\/schedule/);
   assert.match(detail, /LocalBleachersLive\?\.fetchTeamSchedule/);
   assert.match(detail, /Loading full schedule/);
 });
@@ -64,7 +61,9 @@ test("team detail renders the unified backend record and standings contract", as
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
   assert.match(schoolSchedule, /live\.getTeamStatus/);
-  assert.match(live, /status\.record_verified === false \? null : \(status\.overall_record \|\| null\)/);
+  assert.match(schoolSchedule, /const recordVerified = status\.record_verified === true/);
+  assert.match(schoolSchedule, /overall_record: recordVerified \? \(status\.overall_record \|\| null\) : null/);
+  assert.match(schoolSchedule, /conference_record: recordVerified \? \(status\.conference_record \|\| null\) : null/);
   assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
   assert.match(detail, /status\.overall_record/);
   assert.match(detail, /status\.conference_record/);
