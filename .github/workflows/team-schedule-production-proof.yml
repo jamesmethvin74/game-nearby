@@ -1,0 +1,50 @@
+name: Team schedule production proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/team-schedule-production-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Capture or verify Conway team schedule
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          URL="$API/api/v1/teams/conway-volleyball-2026/schedule"
+
+          for attempt in $(seq 1 24); do
+            echo "Diagnostic attempt ${attempt}/24"
+            rm -f headers.tmp body.tmp
+            code=$(curl -sS --max-time 60 -D headers.tmp -o body.tmp -w '%{http_code}' \
+              -H 'x-localbleachers-debug: team-detail' "$URL" || true)
+            tr -d '\r' < headers.tmp > headers.norm 2>/dev/null || true
+            echo "HTTP $code"
+            grep -Ei '^(x-localbleachers-api-release|x-localbleachers-api-cors|x-localbleachers-api-stale|x-localbleachers-cache-source):' headers.norm || true
+            cat body.tmp 2>/dev/null || true
+            echo
+
+            if [ "$code" = "200" ] && node -e 'const p=require("./body.tmp"); process.exit(Array.isArray(p.games)&&p.games.length?0:1)'; then
+              node -e 'const p=require("./body.tmp"); console.log(`Conway schedule healthy: ${p.games.length} games`)'
+              exit 0
+            fi
+
+            if node -e 'const p=require("./body.tmp"); process.exit(typeof p.detail==="string"&&p.detail.length?0:1)' 2>/dev/null; then
+              echo "GATED_DETAIL_FOUND"
+              node -e 'const p=require("./body.tmp"); console.log(p.detail)'
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          echo "Diagnostic detail did not reach production in time."
+          exit 1
