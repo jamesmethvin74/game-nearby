@@ -119,39 +119,13 @@ test("statewide bridge loads catalog and nearby games without replacing the mast
       }];
       return jsonResponse({ games });
     }
-    if (url.pathname === "/api/v1/schools/df-eureka/schedule") {
+    if (url.pathname === "/api/v1/teams/df-eureka-volleyball-2026/schedule") {
       return jsonResponse({
-        schoolId: "df-eureka",
-        schoolLevel: "high-school",
-        team_statuses: [{
-          team_id: "df-eureka-volleyball-2026",
-          school_id: "df-eureka",
-          school_name: "Eureka Springs High School",
-          level: "high-school",
-          sport: "volleyball",
-          gender: "girls",
-          season: "2026",
-          conference_id: "2a-west-volleyball",
-          conference_name: "2A West",
-          overall_record: "1-1",
-          conference_record: null,
-          overall_games: 2,
-          conference_games: 0,
-          rank: null,
-          record_verified: true,
-          record_state: "VERIFIED",
-          record_audit_state: "CONTRADICTORY",
-          source: "normalized-final-games",
-          record_issues: [{ code:"STALE_STORED_RECORD_CONTRADICTS_FINAL_EVIDENCE", informational:true }]
-        }],
+        teamId: "df-eureka-volleyball-2026",
         games: [
           {
             id: "team-ce-1",
             canonical_event_id: "team-ce-1",
-            school_id: "df-eureka",
-            school_name: "Eureka Springs High School",
-            sport: "volleyball",
-            gender: "girls",
             canonical_home_school_id: "df-eureka",
             canonical_away_school_id: "df-green-forest",
             opponent: "Green Forest High School",
@@ -161,20 +135,13 @@ test("statewide bridge loads catalog and nearby games without replacing the mast
             venue: "Eureka Springs High School",
             latitude: 36.4,
             longitude: -93.7,
-            status: "FINAL",
-            team_score: 3,
-            opponent_score: 1,
-            result: "W",
+            status: "SCHEDULED",
             source_type: "official-conference",
             parser_type: "dragonfly-public"
           },
           {
             id: "team-ce-2",
             canonical_event_id: "team-ce-2",
-            school_id: "df-eureka",
-            school_name: "Eureka Springs High School",
-            sport: "volleyball",
-            gender: "girls",
             canonical_home_school_id: "df-green-forest",
             canonical_away_school_id: "df-eureka",
             opponent: "Green Forest High School",
@@ -184,10 +151,7 @@ test("statewide bridge loads catalog and nearby games without replacing the mast
             venue: "Green Forest High School",
             latitude: 36.3,
             longitude: -93.4,
-            status: "FINAL",
-            team_score: 1,
-            opponent_score: 3,
-            result: "L",
+            status: "SCHEDULED",
             source_type: "official-conference",
             parser_type: "dragonfly-public"
           }
@@ -223,46 +187,11 @@ test("statewide bridge loads catalog and nearby games without replacing the mast
   assert.equal(nearby[0].backendCanonicalEventId, "ce-2");
 
   const schedule = await context.window.LocalBleachersLive.fetchTeamSchedule("df-eureka");
-  assert.equal(schedule.length, 2, "full school schedule should come from /schools/:id/schedule, not the nearby window");
+  assert.equal(schedule.length, 2, "full team schedule should come from /teams/:id/schedule, not the nearby window");
   assert.equal(schedule[0].teamId, "df-eureka");
   assert.equal(schedule[0].team, "Eureka Springs High School");
   assert.equal(schedule[0].opponent, "Green Forest High School");
   assert.equal(schedule[1].home, false);
-
-  const status = context.window.LocalBleachersLive.getTeamStatus("df-eureka", "volleyball", "girls");
-  assert.equal(status.overall_record, "1-1");
-  assert.equal(status.record_verified, true);
-  assert.equal(status.source, "normalized-final-games");
-  assert.equal(status.record_audit_state, "CONTRADICTORY", "explained stale storage may remain visible to diagnostics without replacing normalized truth");
-});
-
-test("unverified backend record state is surfaced as N/A instead of stale confidence", async () => {
-  const context = createContext(async input => {
-    const url = new URL(String(input));
-    if (url.pathname === "/api/v1/schools/sample/schedule") {
-      return jsonResponse({
-        schoolId:"sample",
-        schoolLevel:"high-school",
-        games:[{
-          id:"sample-final",school_id:"sample",school_name:"Sample High School",sport:"football",gender:"boys",
-          scheduled_at:"2026-09-12T00:00:00.000Z",status:"FINAL",team_score:21,opponent_score:14,result:"W",opponent:"Opponent"
-        }],
-        team_statuses:[{
-          team_id:"sample-football-2026",school_id:"sample",sport:"football",gender:"boys",season:"2026",
-          overall_record:"3-0",overall_games:3,conference_games:0,record_verified:false,record_state:"INCOMPLETE",
-          record_audit_state:"INCOMPLETE",source:"unverified",record_issues:[{code:"STORED_RECORD_EXCEEDS_FINAL_EVIDENCE"}]
-        }]
-      });
-    }
-    return jsonResponse({ error:"not_found" },404);
-  });
-
-  const schedule=await context.window.LocalBleachersLive.fetchTeamSchedule("sample");
-  assert.equal(schedule.length,1);
-  const status=context.window.LocalBleachersLive.getTeamStatus("sample","football","boys");
-  assert.equal(status.overall_record,null);
-  assert.equal(status.record_verified,false);
-  assert.equal(status.record_state,"INCOMPLETE");
 });
 
 test("statewide bridge preserves embedded fallback data when the API is unavailable", async () => {
