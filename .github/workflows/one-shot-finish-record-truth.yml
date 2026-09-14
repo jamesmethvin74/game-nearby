@@ -1,0 +1,126 @@
+name: One-shot finish record truth
+
+on:
+  pull_request:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - '.github/workflows/one-shot-finish-record-truth.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  finish:
+    if: github.head_ref == 'audit/finish-record-truth-20260914'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Run approved bounded repair and final audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          MARKER="$BASE/api/v1/internal/record-truth-finish-marker-ab1d996b"
+          PLAN="$BASE/api/v1/internal/record-truth-finish-plan-ab1d996b"
+          EXECUTE="$BASE/api/v1/internal/record-truth-finish-execute-ab1d996b"
+          AUDIT="$BASE/api/v1/internal/record-truth-finish-audit-ab1d996b"
+
+          rm -f marker.json plan.json repair.json audit.json finish-summary.json
+          for attempt in $(seq 1 45); do
+            code=$(curl -sS --max-time 20 -o marker.tmp -w '%{http_code}' "$MARKER" || true)
+            if [ "$code" = "200" ] && jq -e '
+              .marker == "record-truth-finish-temp-ab1d996b" and
+              .d1_access == false and
+              (.rows_written | tonumber) == 0
+            ' marker.tmp >/dev/null 2>&1; then
+              mv marker.tmp marker.json
+              break
+            fi
+            sleep 2
+          done
+          test -f marker.json
+
+          # One bounded four-statement production preflight. Zero writes are allowed here.
+          curl -fsS --max-time 60 "$PLAN" -o plan.json
+          jq . plan.json
+          jq -e '
+            .version == "record-truth-six-games-v1" and
+            .safe == true and
+            (.d1.statements | tonumber) == 4 and
+            (.d1.rows_written | tonumber) == 0 and
+            (.d1.rows_read | tonumber) <= 300 and
+            (.cases | length) == 4 and
+            ([.cases[].action] | all(. == "already_complete" or . == "repair_canonical" or . == "split_rematch"))
+          ' plan.json >/dev/null
+          fingerprint=$(jq -r '.fingerprint' plan.json)
+          test -n "$fingerprint"
+          test "$fingerprint" != "null"
+
+          # EXACTLY ONE approved write request. The endpoint re-runs the fingerprinted
+          # preflight and aborts if production state changed between plan and execute.
+          body=$(jq -cn --arg fingerprint "$fingerprint" '{fingerprint:$fingerprint}')
+          curl -fsS --max-time 240 -X POST -H 'content-type: application/json' --data "$body" "$EXECUTE" -o repair.json
+          jq . repair.json
+          jq -e '
+            .status == "SUCCESS" and
+            .version == "record-truth-six-games-v1" and
+            (.verification.safe == true) and
+            (.verification.d1.rows_written | tonumber) == 0 and
+            ([.verification.cases[].action] | all(. == "already_complete")) and
+            (.record_result.teams | tonumber) == 10 and
+            (.canonical_writes.expected_primary | tonumber) <= 4 and
+            (.canonical_writes.expected_new | tonumber) <= 2 and
+            (.observation_writes.placeholder_rows_written | tonumber) <= 4 and
+            (.observation_writes.result_rows_written | tonumber) <= 4 and
+            (.member_writes.logical_member_moves | tonumber) <= 8 and
+            (.conflict_writes.conflicts_resolved | tonumber) <= 16
+          ' repair.json >/dev/null
+
+          # EXACTLY ONE statewide post-repair audit request.
+          curl -fsS --max-time 240 "$AUDIT" -o audit.json
+
+          node <<'NODE'
+          const fs=require('fs');
+          const repair=JSON.parse(fs.readFileSync('repair.json','utf8'));
+          const audit=JSON.parse(fs.readFileSync('audit.json','utf8'));
+          if(audit?.audit_contract?.version!=='record-truth-v1') throw new Error(`Unexpected audit contract: ${JSON.stringify(audit?.audit_contract||null)}`);
+          if(Number(audit?.d1?.rows_written||0)!==0) throw new Error(`Statewide audit wrote rows: ${audit?.d1?.rows_written}`);
+          const summary=audit.summary||{};
+          if(Number(summary.unexplained_record_contradictions)!==0) throw new Error(`Record-truth gate still has ${summary.unexplained_record_contradictions} unexplained contradictions`);
+          const teamIds=new Set([
+            'df-7kza8c-volleyball-2026','df-cqpax3-volleyball-2026','df-8pkud7-volleyball-2026','df-qgka87-volleyball-2026',
+            'df-hrdb8f-volleyball-2026','df-jufft8-volleyball-2026','df-vt4unv-volleyball-2026','df-ht8yyh-volleyball-2026',
+            'df-sz3b5e-volleyball-2026','df-kq5hlr-volleyball-2026'
+          ]);
+          const teams=Array.isArray(audit.teams)?audit.teams:[];
+          const repaired=teams.filter(t=>teamIds.has(t.team_id)).map(t=>({
+            team_id:t.team_id,school_name:t.school_name,classification:t.classification,public_record_state:t.public_record_state,
+            public_record_verified:t.public_record_verified,stored_record:t.stored_record,derived_record:t.derived_record,trusted_record:t.trusted_record,
+            unexplained_issue_count:t.unexplained_issue_count,unexplained_contradiction_count:t.unexplained_contradiction_count,
+            issues:(t.issues||[]).filter(i=>i.severity!=='info'&&i.resolved!==true)
+          }));
+          const arkansas=teams.find(t=>t.school_id==='uark'&&t.sport==='football')||null;
+          const out={
+            repair:{status:repair.status,corrected_cases:repair.corrected_cases,already_completed_cases:repair.already_completed_cases,
+              canonical_writes:repair.canonical_writes,observation_writes:repair.observation_writes,member_writes:repair.member_writes,
+              conflict_writes:repair.conflict_writes,record_result:repair.record_result},
+            audit:{generated_at:audit.generated_at,d1:audit.d1,summary,arkansas,repaired_teams:repaired}
+          };
+          fs.writeFileSync('finish-summary.json',JSON.stringify(out,null,2));
+          console.log('RECORD_TRUTH_FINISH='+JSON.stringify(out,null,2));
+          NODE
+
+      - name: Preserve exact repair and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: record-truth-finish-ab1d996b
+          path: |
+            marker.json
+            plan.json
+            repair.json
+            audit.json
+            finish-summary.json
+          if-no-files-found: warn
+          retention-days: 1
