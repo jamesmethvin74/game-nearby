@@ -80,27 +80,27 @@ test("verified normalized evidence ahead of stored count is explained stale mate
   assert.equal(audit.summary.unexplained_record_contradictions,0);
 });
 
-test("lower-count storage without a complete trusted record still blocks the gate", () => {
+test("lower-count storage remains stale materialization even when unrelated gaps make team incomplete", () => {
   const team={
     team_id:"sample-volleyball-2026",
-    classification:"CONTRADICTORY",
+    classification:"INCOMPLETE",
     public_record_verified:false,
     orientation_corrections:0,
     evidence_games:11,
     stored_record:{wins:1,losses:9,ties:0},
     trusted_record:null,
-    unexplained_issue_count:0,
-    issues:[{
-      code:"STALE_STORED_RECORD",
-      severity:"info",
-      resolved:true
-    }]
+    unexplained_issue_count:2,
+    issues:[
+      {code:"STALE_STORED_RECORD",severity:"warning",resolved:false},
+      {code:"PAST_DUE_NONTERMINAL",severity:"blocking",resolved:false}
+    ]
   };
   const audit=finalizeRecordTruthAudit(auditFor(team));
-  assert.equal(team.issues[0].severity,"warning");
-  assert.equal(team.issues[0].resolved,false);
-  assert.equal(team.unexplained_contradiction_count,1);
-  assert.equal(audit.summary.unexplained_record_contradictions,1);
+  assert.equal(team.issues[0].severity,"info");
+  assert.equal(team.issues[0].resolved,true);
+  assert.equal(team.unexplained_contradiction_count,0);
+  assert.equal(team.unexplained_issue_count,1);
+  assert.equal(audit.summary.unexplained_record_contradictions,0);
 });
 
 test("unexplained stale same-count storage without newer evidence blocks zero-contradiction gate", () => {
