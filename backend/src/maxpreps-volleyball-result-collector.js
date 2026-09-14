@@ -334,7 +334,12 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
   const sources=new Map();
   const touched=new Set();
   const persistedOpponents=new Map();
+  const pendingReconciliations=[];
   let observations=0,reconciled=0,opponentSchoolsMaterialized=0,opponentIdentitiesLinked=0;
+
+  // Persist every targeted final before reconciling any of them. MaxPreps fallback
+  // observations intentionally use date-only noon timestamps, so same-day rematches
+  // must both exist before canonical matching decides whether they are one event or two.
   for(const final of candidateFinals) {
     if(final.opponentPlan) {
       const key=final.opponentPlan.externalId;
@@ -357,10 +362,14 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
       const game=observationFor(final,reporting,opponent,checkedAt);
       const gameId=await upsertResolvedObservation(env,source,game,checkedAt,{opponentSchoolId:opponent.school_id});
       observations++;
-      const canonicalId=await reconcileResolvedObservation(env,gameId);
-      if(canonicalId) reconciled++;
+      pendingReconciliations.push(gameId);
       touched.add(reporting.team_id);
     }
+  }
+
+  for(const gameId of pendingReconciliations) {
+    const canonicalId=await reconcileResolvedObservation(env,gameId);
+    if(canonicalId) reconciled++;
   }
 
   const recordResult=await rebuildTeamRecords(env,[...touched],checkedAt);
