@@ -28,6 +28,7 @@ test("published contradiction remains unexplained in merge-gate summary", () => 
   assert.equal(team.issues[0].severity,"warning");
   assert.equal(team.issues[0].resolved,false);
   assert.equal(team.unexplained_issue_count,1);
+  assert.equal(team.unexplained_contradiction_count,1);
   assert.equal(audit.summary.unexplained_record_contradictions,1);
 });
 
@@ -51,6 +52,7 @@ test("orientation-corrected stale storage remains explained", () => {
   assert.equal(team.issues[0].severity,"info");
   assert.equal(team.issues[0].resolved,true);
   assert.equal(team.unexplained_issue_count,0);
+  assert.equal(team.unexplained_contradiction_count,0);
   assert.equal(audit.summary.unexplained_record_contradictions,0);
 });
 
@@ -74,6 +76,7 @@ test("verified normalized evidence ahead of stored count is explained stale mate
   assert.equal(team.issues[0].severity,"info");
   assert.equal(team.issues[0].resolved,true);
   assert.equal(team.unexplained_issue_count,0);
+  assert.equal(team.unexplained_contradiction_count,0);
   assert.equal(audit.summary.unexplained_record_contradictions,0);
 });
 
@@ -96,6 +99,7 @@ test("lower-count storage without a complete trusted record still blocks the gat
   const audit=finalizeRecordTruthAudit(auditFor(team));
   assert.equal(team.issues[0].severity,"warning");
   assert.equal(team.issues[0].resolved,false);
+  assert.equal(team.unexplained_contradiction_count,1);
   assert.equal(audit.summary.unexplained_record_contradictions,1);
 });
 
@@ -118,6 +122,28 @@ test("unexplained stale same-count storage without newer evidence blocks zero-co
   const audit=finalizeRecordTruthAudit(auditFor(team));
   assert.equal(team.issues[0].severity,"warning");
   assert.equal(team.issues[0].resolved,false);
+  assert.equal(team.unexplained_contradiction_count,1);
+  assert.equal(audit.summary.unexplained_record_contradictions,1);
+});
+
+test("an INCOMPLETE team cannot hide a blocking result contradiction from the gate", () => {
+  const team={
+    team_id:"incomplete-with-conflict-2026",
+    classification:"INCOMPLETE",
+    public_record_verified:false,
+    orientation_corrections:0,
+    evidence_games:1,
+    stored_record:{wins:2,losses:0,ties:0},
+    trusted_record:null,
+    unexplained_issue_count:2,
+    issues:[
+      {code:"STORED_RECORD_EXCEEDS_FINAL_EVIDENCE",severity:"blocking",resolved:false},
+      {code:"SAME_GAME_SOURCE_CONTRADICTION",severity:"blocking",resolved:false}
+    ]
+  };
+  const audit=finalizeRecordTruthAudit(auditFor(team));
+  assert.equal(team.classification,"INCOMPLETE");
+  assert.equal(team.unexplained_contradiction_count,1);
   assert.equal(audit.summary.unexplained_record_contradictions,1);
 });
 
