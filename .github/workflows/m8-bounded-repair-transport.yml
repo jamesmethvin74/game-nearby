@@ -1,0 +1,76 @@
+name: M8 bounded repair transport
+
+on:
+  push:
+    branches:
+      - ops/m8-bounded-repair-20260914
+    paths:
+      - .github/workflows/m8-bounded-repair-transport.yml
+
+permissions:
+  contents: read
+
+jobs:
+  execute:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Approved bounded production repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          PLAN="$BASE/api/v1/internal/final-missing-score-plan-20260912-4fd5a1c7"
+          EXEC="$BASE/api/v1/internal/final-missing-score-execute-20260912-4fd5a1c7"
+
+          curl --fail-with-body --silent --show-error "$PLAN" -o plan.json
+          python - <<'PY'
+          import json
+          p=json.load(open('plan.json'))
+          print(json.dumps({
+            'safe':p.get('safe'),
+            'fingerprint':p.get('fingerprint'),
+            'cases':[{'key':x.get('key'),'action':x.get('action')} for x in p.get('cases',[])],
+            'd1':p.get('d1'),
+            'write_scope':p.get('write_scope')
+          },separators=(',',':')))
+          if p.get('safe') is not True:
+            raise SystemExit('preflight not safe')
+          open('fingerprint.txt','w').write(p['fingerprint'])
+          PY
+
+          FP=$(cat fingerprint.txt)
+          python - <<'PY' > payload.json
+          import json
+          print(json.dumps({'fingerprint':open('fingerprint.txt').read().strip()}))
+          PY
+          curl --fail-with-body --silent --show-error -X POST \
+            -H 'content-type: application/json' \
+            --data-binary @payload.json "$EXEC" -o execute.json
+          python - <<'PY'
+          import json
+          r=json.load(open('execute.json'))
+          print(json.dumps({
+            'status':r.get('status'),
+            'fingerprint':r.get('fingerprint'),
+            'corrected_cases':r.get('corrected_cases'),
+            'direct_write_telemetry':r.get('direct_write_telemetry'),
+            'record_result':r.get('record_result')
+          },separators=(',',':')))
+          if r.get('status') not in ('SUCCESS','ALREADY_COMPLETE'):
+            raise SystemExit('repair did not complete')
+          PY
+
+          curl --fail-with-body --silent --show-error "$PLAN" -o verify.json
+          python - <<'PY'
+          import json
+          p=json.load(open('verify.json'))
+          compact={
+            'safe':p.get('safe'),
+            'cases':[{'key':x.get('key'),'action':x.get('action'),'current':x.get('current'),'target':x.get('target')} for x in p.get('cases',[])],
+            'records_before':p.get('records_before'),
+            'd1':p.get('d1')
+          }
+          print(json.dumps(compact,separators=(',',':')))
+          if p.get('safe') is not True or any(x.get('action')!='already_complete' for x in p.get('cases',[])):
+            raise SystemExit('post-write exact verification failed')
+          PY
