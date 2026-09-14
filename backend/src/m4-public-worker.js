@@ -110,6 +110,12 @@ function recordIssue(status, issue) {
   if (!status.record_issues.some(existing => existing.code === issue.code)) status.record_issues.push(issue);
 }
 
+function recordsTextAgree(left, right) {
+  const a = parseRecordText(left);
+  const b = parseRecordText(right);
+  return Boolean(a && b && sameOverallRecord(a, b));
+}
+
 export function publishedConferenceId(conferenceId, conferenceName, sport) {
   const normalizedSport = String(sport || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   let id = String(conferenceId || "").trim().toLowerCase();
@@ -171,6 +177,7 @@ export function attachScheduleDerivedRecords(games = []) {
       conference_scored_finals: truth.evidence_conference_games,
       record_source: truth.verified ? "normalized-final-games" : "unverified",
       record_state: truth.state,
+      record_audit_state: truth.audit_class,
       record_verified: truth.verified,
       record_issues: truth.issues
     };
@@ -192,6 +199,7 @@ export function mergeTeamStatusSeeds(games = [], teamSeeds = []) {
       conference_wins:null,conference_losses:null,conference_ties:null,
       record_source:"unverified",
       record_state:storedGames > 0 ? "INCOMPLETE" : "UNRESOLVED",
+      record_audit_state:storedGames > 0 ? "INCOMPLETE" : "UNRESOLVED",
       record_verified:false,
       record_issues:storedGames > 0 ? [{
         code:"STORED_RECORD_WITHOUT_FINAL_EVIDENCE",
@@ -269,6 +277,7 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       standing_state: conferenceId || conferenceName ? (conferenceGames > 0 ? "unavailable" : "not-started") : "no-conference",
       source: seed.record_source || "unverified",
       record_state: seed.record_state || (seed.record_verified === false ? "UNRESOLVED" : "VERIFIED"),
+      record_audit_state: seed.record_audit_state || seed.record_state || (seed.record_verified === false ? "UNRESOLVED" : "VERIFIED"),
       record_verified: seed.record_verified !== false && Boolean(seed.record_source),
       record_issues: Array.isArray(seed.record_issues) ? [...seed.record_issues] : []
     });
@@ -327,6 +336,7 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       status.overall_record = null;
       status.record_verified = false;
       status.record_state = "INCOMPLETE";
+      status.record_audit_state = "INCOMPLETE";
       recordIssue(status, {
         code:"PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE",
         detail:`Published record covers ${publishedOverallGames} games; normalized final evidence covers ${status.overall_games}.`
@@ -334,12 +344,11 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
     } else if (publishedOverallGames === status.overall_games && publishedOverallGames > 0 && status.overall_record) {
       const localOverall = parseRecordText(status.overall_record);
       if (publishedOverall && localOverall && !sameOverallRecord(publishedOverall, localOverall)) {
-        status.overall_record = null;
-        status.record_verified = false;
-        status.record_state = "CONTRADICTORY";
+        status.record_audit_state = "CONTRADICTORY";
         recordIssue(status, {
           code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",
-          detail:"Published overall record disagrees with normalized final-game truth."
+          detail:"Published overall record disagrees with normalized final-game truth; normalized individual games remain authoritative.",
+          informational:true
         });
       }
     }
@@ -349,10 +358,20 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       status.rank = null;
       status.standing_state = "unavailable";
       status.record_verified = false;
-      if (status.record_state === "VERIFIED") status.record_state = "INCOMPLETE";
+      status.record_state = "INCOMPLETE";
+      status.record_audit_state = "INCOMPLETE";
       recordIssue(status, {
         code:"PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
         detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${status.conference_games}.`
+      });
+    } else if (publishedConferenceGames === status.conference_games && publishedConferenceGames > 0 && status.conference_record && !recordsTextAgree(row.conference_record,status.conference_record)) {
+      status.rank = null;
+      status.standing_state = "unavailable";
+      if (status.record_audit_state === "VERIFIED") status.record_audit_state = "CONTRADICTORY";
+      recordIssue(status, {
+        code:"PUBLISHED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+        detail:"Published conference record disagrees with normalized conference final-game truth; normalized individual games remain authoritative.",
+        informational:true
       });
     } else {
       status.rank = status.conference_games > 0 && Number.isFinite(rank) && rank > 0 ? rank : null;
