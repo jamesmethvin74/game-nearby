@@ -109,15 +109,16 @@ test("non-counting finals never enter the record", () => {
   assert.equal(record.scored_finals,1);
 });
 
-test("Arkansas schedule derives 1-1 and renders Utah as L 10-43", () => {
+test("Arkansas schedule derives 1-1 and renders Utah as L 10-43 despite stale stored 2-0", () => {
   const rows = [
     final("W",31,14,{opponent:"North Alabama",scheduled_at:"2026-09-05T23:00:00.000Z"}),
     final("L",43,10,{opponent:"Utah",scheduled_at:"2026-09-12T23:00:00.000Z"})
   ];
   const truth = evaluateScheduleRecordTruth(rows,{storedRecord:{wins:2,losses:0,ties:0}});
-  assert.equal(truth.state,"CONTRADICTORY","same game count but stale 2-0 storage must not remain confident");
-  assert.equal(truth.trusted_record,null);
-  assert.deepEqual(truth.derived_record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored_finals:2});
+  assert.equal(truth.state,"VERIFIED","normalized individual game truth must remain public truth");
+  assert.equal(truth.audit_class,"CONTRADICTORY","stale storage must still be visible to the audit");
+  assert.deepEqual(truth.trusted_record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored_finals:2});
+  assert.ok(truth.issues.some(issue => issue.code === "STALE_STORED_RECORD_CONTRADICTS_FINAL_EVIDENCE"));
   const utah = truth.normalized_rows.find(row => row.opponent === "Utah");
   assert.equal(utah.result,"L");
   assert.equal(utah.team_score,10);
@@ -130,6 +131,18 @@ test("published record with more completed games marks evidence incomplete", () 
   assert.equal(truth.state,"INCOMPLETE");
   assert.equal(truth.trusted_record,null);
   assert.ok(truth.issues.some(issue => issue.code === "PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE"));
+});
+
+test("published same-game-count contradiction is audited but cannot replace normalized game truth", () => {
+  const rows = [
+    final("W",31,14,{scheduled_at:"2026-09-05T23:00:00.000Z",opponent:"A"}),
+    final("L",10,43,{scheduled_at:"2026-09-12T23:00:00.000Z",opponent:"B"})
+  ];
+  const truth = evaluateScheduleRecordTruth(rows,{publishedRecord:"2-0"});
+  assert.equal(truth.state,"VERIFIED");
+  assert.equal(truth.audit_class,"CONTRADICTORY");
+  assert.equal(truth.trusted_record.wins,1);
+  assert.equal(truth.trusted_record.losses,1);
 });
 
 test("fresher normalized evidence wins over a lower stale stored count", () => {
