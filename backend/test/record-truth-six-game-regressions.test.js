@@ -5,6 +5,8 @@ import fs from "node:fs";
 import { parseMascotResultCell } from "../src/parser-core.js";
 import { relatedObservationsForReconciliation } from "../src/canonical-observation-writer.js";
 import { duplicateAndCrossSourceIssues } from "../src/record-truth-audit.js";
+import { evaluateFinalResultTruth } from "../src/final-result-truth.js";
+import { scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";
 
 function observation(overrides={}) {
   return {
@@ -51,6 +53,19 @@ test("Mascot volleyball placeholder T 0-0 stays non-final",()=>{
   });
 });
 
+test("legacy stored volleyball T 0-0 is unresolved rather than authoritative tie truth",()=>{
+  const evaluated=evaluateFinalResultTruth({sport:"volleyball",status:"FINAL",team_score:0,opponent_score:0,result:"T"});
+  assert.equal(evaluated.state,"UNRESOLVED");
+  assert.equal(evaluated.reason,"VOLLEYBALL_TIE_PLACEHOLDER");
+});
+
+test("legacy volleyball T attached to non-tied canonical score yields numeric W/L truth",()=>{
+  const evaluated=evaluateFinalResultTruth({sport:"volleyball",status:"FINAL",team_score:1,opponent_score:3,result:"T"});
+  assert.equal(evaluated.state,"VERIFIED");
+  assert.equal(evaluated.row.result,"L");
+  assert.equal(evaluated.reason,"VOLLEYBALL_TIE_PLACEHOLDER_IGNORED");
+});
+
 test("Mascot volleyball bare numeric scores become final team-oriented truth",()=>{
   assert.deepEqual(parseMascotResultCell("0 - 3",{sport:"volleyball"}),{
     status:"FINAL",teamScore:0,opponentScore:3,result:"L"
@@ -91,6 +106,17 @@ test("same-day native rematches do not absorb untimed generic observations",()=>
     relatedObservationsForReconciliation(generic,candidates),
     []
   );
+});
+
+test("distinct canonical ids keep same-day rematches separate in record/audit dedupe",()=>{
+  const first=auditCandidate({
+    id:"first",source_id:"maxpreps",canonical_event_id:"ce:first",scheduled_at:"2026-08-29T17:00:00.000Z",team_score:2,opponent_score:0,result:"W"
+  });
+  const second=auditCandidate({
+    id:"second",source_id:"maxpreps",canonical_event_id:"ce:second",scheduled_at:"2026-08-29T17:00:00.000Z",team_score:3,opponent_score:1,result:"W"
+  });
+  assert.equal(scheduleRowsLikelyDuplicate(first,second,{reportingSchoolId:"school-a",maxMinutes:15}),false);
+  assert.equal(duplicateAndCrossSourceIssues([first,second]).some(issue=>issue.code==="SAME_GAME_SOURCE_CONTRADICTION"),false);
 });
 
 test("single native match still accepts an untimed corroborating observation",()=>{
