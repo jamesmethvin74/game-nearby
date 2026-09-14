@@ -35,6 +35,7 @@ test("shared invariant preserves explicit L with team-first score", () => {
   assert.equal(evaluated.corrected,false);
   assert.equal(evaluated.row.team_score,10);
   assert.equal(evaluated.row.opponent_score,43);
+  assert.equal(evaluated.row.result,"L");
 });
 
 test("shared invariant flips winner-first loss score into reporting-team orientation", () => {
@@ -89,8 +90,8 @@ test("generic parser proves Arkansas winner-first loss regression", () => {
 
 test("duplicate finals count once after normalization", () => {
   const rows = [
-    final("L",43,10,{opponent:"Utah",scheduled_at:"2026-09-12T23:00:00.000Z",canonical_event_id:"ce-utah-a"}),
-    final("L",10,43,{opponent:"Utah",scheduled_at:"2026-09-12T23:00:00.000Z",canonical_event_id:"ce-utah-b"})
+    final("L",43,10,{opponent:"Utah",scheduled_at:"2026-09-12T23:00:00.000Z",canonical_event_id:"ce-utah"}),
+    final("L",10,43,{opponent:"Utah",scheduled_at:"2026-09-12T23:00:00.000Z",canonical_event_id:"ce-utah"})
   ];
   const record = recordFromScheduleRows(rows,{reportingSchoolId:"test-school"});
   assert.equal(record.wins,0);
