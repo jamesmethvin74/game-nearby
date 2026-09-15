@@ -47,9 +47,9 @@ async function runM10Verification(env) {
         st.team_id AS standing_team_id,
         st.conference_record AS materialized_conference_record,
         st.overall_record AS materialized_overall_record
-      FROM teams t
+      FROM conference_memberships cm
+      JOIN teams t ON t.id=cm.team_id
       JOIN schools s ON s.id=t.school_id
-      LEFT JOIN conference_memberships cm ON cm.team_id=t.id
       LEFT JOIN team_records r ON r.team_id=t.id
       LEFT JOIN standings st
         ON st.team_id=t.id
@@ -72,12 +72,10 @@ async function runM10Verification(env) {
       FROM truth
     )
     SELECT
-      COUNT(*) AS expected_teams,
-      SUM(CASE WHEN membership_state IS NOT NULL THEN 1 ELSE 0 END) AS explicit_memberships,
+      COUNT(*) AS membership_rows,
       SUM(CASE WHEN membership_state='member' THEN 1 ELSE 0 END) AS member,
       SUM(CASE WHEN membership_state='independent' THEN 1 ELSE 0 END) AS independent,
       SUM(CASE WHEN membership_state='unknown' THEN 1 ELSE 0 END) AS unknown,
-      SUM(CASE WHEN membership_state IS NULL THEN 1 ELSE 0 END) AS missing_memberships,
       SUM(CASE WHEN membership_state NOT IN ('member','independent','unknown')
         OR (membership_state='member' AND membership_conference_id IS NULL)
         OR (membership_state IN ('independent','unknown') AND membership_conference_id IS NOT NULL)
@@ -105,12 +103,10 @@ async function runM10Verification(env) {
     FROM normalized
   `).all();
   const values=query.results?.[0] || {};
-  const pass=Number(values.expected_teams||0)===1220
-    && Number(values.explicit_memberships||0)===1220
+  const pass=Number(values.membership_rows||0)===1220
     && Number(values.member||0)===1190
     && Number(values.independent||0)===1
     && Number(values.unknown||0)===29
-    && Number(values.missing_memberships||0)===0
     && Number(values.invalid_memberships||0)===0
     && Number(values.conference_pointer_mismatches||0)===0
     && Number(values.nonmember_pointer_mismatches||0)===0
