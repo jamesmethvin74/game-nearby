@@ -1,0 +1,62 @@
+name: M9 unknown team metadata probe
+
+on:
+  push:
+    branches:
+      - m9/statewide-conference-membership-20260915
+    paths:
+      - .github/workflows/m9-unknown-team-metadata.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read exact residual school metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p m9-unknown
+          ids=(
+            aaa-kkngn2 aaa-qtg924 aaa-rp6yzq aaa-y7mrh7 aaa-zbqf4u
+            df-28tzpd df-354bu3 df-5xyspt df-6blldr df-76naez df-7wy9aj
+            df-7x4sxh df-8ak58a df-epraq7 df-ht8yyh df-jpcbnr df-k7ketx
+            df-ktr7yd df-pucby7 df-qlkhe2 df-qrvx97 df-qtvk53 df-qx6b5u
+            df-qyakr5 df-srqlt7 df-suqu5r df-t2mq54 df-vvme46 df-w9t9gr
+          )
+          printf '[\n' > m9-unknown/schools.json
+          first=1
+          for id in "${ids[@]}"; do
+            tmp=$(mktemp)
+            code=$(curl --silent --show-error --max-time 60 -w '%{http_code}' \
+              "https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools/${id}/schedule" \
+              -o "$tmp")
+            if [ "$code" != "200" ]; then
+              echo "metadata probe failed for $id HTTP $code" >&2
+              cat "$tmp" >&2
+              exit 1
+            fi
+            node - "$id" "$tmp" > row.json <<'NODE'
+          const fs=require('fs');
+          const schoolId=process.argv[2];
+          const body=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
+          const statuses=Array.isArray(body.team_statuses)?body.team_statuses:[];
+          const names=[...new Set(statuses.map(x=>x.school_name).filter(Boolean))];
+          console.log(JSON.stringify({school_id:schoolId,school_names:names,teams:statuses.map(x=>({team_id:x.team_id,school_name:x.school_name,sport:x.sport,gender:x.gender,level:x.level}))}));
+          NODE
+            if [ $first -eq 0 ]; then printf ',\n' >> m9-unknown/schools.json; fi
+            cat row.json >> m9-unknown/schools.json
+            first=0
+          done
+          printf '\n]\n' >> m9-unknown/schools.json
+          cat m9-unknown/schools.json
+
+      - name: Upload metadata evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: m9-unknown-team-metadata
+          path: m9-unknown/schools.json
+          retention-days: 3
