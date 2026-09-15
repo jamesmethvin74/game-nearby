@@ -154,11 +154,12 @@ function teamConferencePointerStatement(env, rows, now) {
           THEN json_extract(value,'$.conference_id') ELSE NULL END AS conference_id
       FROM json_each(?)
     )
-    UPDATE teams
-    SET conference_id=(SELECT p.conference_id FROM payload p WHERE p.team_id=teams.id),
+    UPDATE teams AS t
+    SET conference_id=p.conference_id,
         updated_at=?
-    WHERE id IN (SELECT team_id FROM payload)
-      AND COALESCE(conference_id,'')<>COALESCE((SELECT p.conference_id FROM payload p WHERE p.team_id=teams.id),'')
+    FROM payload AS p
+    WHERE t.id=p.team_id
+      AND COALESCE(t.conference_id,'')<>COALESCE(p.conference_id,'')
   `).bind(JSON.stringify(rows), now);
 }
 
