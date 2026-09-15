@@ -61,7 +61,7 @@ test("configured Worker preserves M4 underneath the final-audit, M8, and protect
   const source = fs.readFileSync(new URL("../src/m4-public-worker.js", import.meta.url), "utf8");
   assert.match(wrangler, /"main"\s*:\s*"src\/m8-final-audit-worker\.js"/);
   assert.match(finalAuditWrapper, /import app from "\.\/m8-worker\.js"/);
-  assert.match(finalAuditWrapper, /return app\.scheduled\(controller, env, ctx\)/);
+  assert.match(finalAuditWrapper, /return app\.scheduled\(controller,\s*env,\s*ctx\)/);
   assert.match(m8Wrapper, /import app from "\.\/logo-bootstrap-worker\.js"/);
   assert.match(m8Wrapper, /return app\.scheduled\(controller, env, ctx\)/);
   assert.match(logoWrapper, /import app from "\.\/m4-public-worker\.js"/);
