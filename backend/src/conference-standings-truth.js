@@ -45,11 +45,6 @@ function rankSort(a,b) {
     || String(a.team_id||"").localeCompare(String(b.team_id||""));
 }
 
-/**
- * Competition ranking: equal W-L-T records share a rank and the following rank
- * skips the occupied places (1, 1, 3). Ranking is deliberately withheld unless
- * both membership and result evidence are complete for the cohort.
- */
 export function rankCanonicalConferenceRows(rows = [], {
   membershipComplete = true,
   resultEvidenceComplete = true
@@ -100,9 +95,6 @@ function recordsEqual(a,b) {
   return left.wins===right.wins && left.losses===right.losses && left.ties===right.ties;
 }
 
-/** Published data is evidence only. It can confirm or contradict canonical rows,
- * but it never overwrites canonical conference/overall records or calculated rank.
- */
 export function crossCheckPublishedStandings(canonicalRows = [], publishedRows = []) {
   const publishedBySchool=publishedMap(publishedRows);
   return canonicalRows.map(row => {
@@ -131,12 +123,6 @@ export function crossCheckPublishedStandings(canonicalRows = [], publishedRows =
   });
 }
 
-/**
- * Reconcile a conference response while keeping canonical local evidence in the
- * truth position. A source-published table may be exposed when local evidence is
- * absent, but its values stay under published_* fields and canonical rank/records
- * remain unavailable.
- */
 export function reconcileConferenceStandings({
   calculated = null,
   published = null,
@@ -183,6 +169,7 @@ export function reconcileConferenceStandings({
         standing_state:"source-published",
         standings_verified:false,
         method:"source-published",
+        published_cross_check:"source-only",
         published_rank:row.rank == null ? null : Number(row.rank),
         published_conference_record:row.conference_record ?? null,
         published_overall_record:row.overall_record ?? null,
