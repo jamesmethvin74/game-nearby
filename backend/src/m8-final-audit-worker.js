@@ -2,24 +2,12 @@ import app from "./m8-worker.js";
 import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
-import { rebuildStandingsForTeams } from "./calculated-standings.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
-const M10_MISSING_STANDINGS_PATH="/api/v1/internal/m10-missing-standings-20260915-b76f4a91";
-const M10_MISSING_STANDINGS_EXPIRES_AT=Date.parse("2026-09-16T03:00:00Z");
-const M10_REPAIR_PATH="/api/v1/internal/m10-materialize-seven-20260915-cf2a9d40";
-const M10_REPAIR_EXPIRES_AT=Date.parse("2026-09-16T03:00:00Z");
-const M10_REPAIR_TEAM_IDS=Object.freeze([
-  "harding-football-men-2026",
-  "henderson-state-football-men-2026",
-  "harding-volleyball-women-2026",
-  "henderson-state-volleyball-women-2026",
-  "lyon-basketball-men-2026",
-  "lyon-basketball-women-2026",
-  "uca-football-2026"
-]);
+const M10_FINAL_VERIFY_PATH="/api/v1/internal/m10-final-verify-20260915-6d4c9e21";
+const M10_FINAL_VERIFY_EXPIRES_AT=Date.parse("2026-09-16T03:00:00Z");
 
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token")===env.REFRESH_TOKEN;
@@ -42,142 +30,109 @@ async function runAudit(env) {
   return auditJson(audit);
 }
 
-async function loadM10MissingStandings(env) {
-  return env.DB.prepare(`
-    SELECT
-      cm.team_id,
-      s.name AS school_name,
-      t.sport,
-      t.gender,
-      t.season,
-      cm.conference_id,
-      c.name AS conference_name,
-      COALESCE(r.wins,0) AS wins,
-      COALESCE(r.losses,0) AS losses,
-      COALESCE(r.ties,0) AS ties,
-      COALESCE(r.conference_wins,0) AS conference_wins,
-      COALESCE(r.conference_losses,0) AS conference_losses,
-      COALESCE(r.conference_ties,0) AS conference_ties
-    FROM conference_memberships cm
-    JOIN teams t ON t.id=cm.team_id
-    JOIN schools s ON s.id=t.school_id
-    LEFT JOIN conferences c ON c.id=cm.conference_id
-    JOIN team_records r ON r.team_id=t.id
-    LEFT JOIN standings st
-      ON st.conference_id=cm.conference_id
-     AND st.team_id=cm.team_id
-     AND st.method='calculated'
-    WHERE cm.membership_state='member'
-      AND t.active=1
-      AND t.season='2026'
-      AND s.catalog_scope='local'
-      AND (COALESCE(r.conference_wins,0)+COALESCE(r.conference_losses,0)+COALESCE(r.conference_ties,0))>0
-      AND st.team_id IS NULL
-    ORDER BY cm.conference_id,t.sport,t.gender,s.name,cm.team_id
-    LIMIT 20
-  `).all();
-}
-
-async function runM10MissingStandingsProbe(env) {
-  const result=await loadM10MissingStandings(env);
-  const rows=result.results||[];
-  return auditJson({
-    status:rows.length===7?"PASS":"CHECK",
-    missing_count:rows.length,
-    rows,
-    d1:{rows_read:Number(result.meta?.rows_read||0),rows_written:Number(result.meta?.rows_written||0)}
-  });
-}
-
-function sameTargetIds(rows) {
-  const actual=(rows||[]).map(row=>row.team_id).sort();
-  const expected=[...M10_REPAIR_TEAM_IDS].sort();
-  return actual.length===expected.length && actual.every((value,index)=>value===expected[index]);
-}
-
-async function runM10Repair(env) {
-  const before=await loadM10MissingStandings(env);
-  const missing=before.results||[];
-  if (!missing.length) {
-    return auditJson({status:"ALREADY_COMPLETE",missing_before:0,missing_after:0,write:{cohorts:0,standingsRows:0}});
-  }
-  if (missing.length!==7 || !sameTargetIds(missing)) {
-    return auditJson({
-      error:"target_mismatch",
-      missing_count:missing.length,
-      team_ids:missing.map(row=>row.team_id)
-    },409);
-  }
-
-  const targetIdsJson=JSON.stringify(M10_REPAIR_TEAM_IDS);
-  const fuse=await env.DB.prepare(`
-    WITH target_cohorts AS (
-      SELECT DISTINCT t.conference_id,t.sport,t.gender,t.season
-      FROM teams t
-      WHERE t.id IN (SELECT value FROM json_each(?))
-        AND t.active=1
-        AND t.conference_id IS NOT NULL
+async function runM10FinalVerification(env) {
+  const query=await env.DB.prepare(`
+    WITH truth AS (
+      SELECT
+        cm.team_id,
+        t.conference_id AS team_conference_id,
+        cm.membership_state,
+        cm.conference_id AS membership_conference_id,
+        COALESCE(r.wins,0) AS wins,
+        COALESCE(r.losses,0) AS losses,
+        COALESCE(r.ties,0) AS ties,
+        COALESCE(r.conference_wins,0) AS conference_wins,
+        COALESCE(r.conference_losses,0) AS conference_losses,
+        COALESCE(r.conference_ties,0) AS conference_ties,
+        st.team_id AS standing_team_id,
+        st.conference_record AS materialized_conference_record,
+        st.overall_record AS materialized_overall_record
+      FROM conference_memberships cm
+      JOIN teams t ON t.id=cm.team_id
+      JOIN schools s ON s.id=t.school_id
+      LEFT JOIN team_records r ON r.team_id=t.id
+      LEFT JOIN standings st
+        ON st.team_id=cm.team_id
+       AND st.conference_id=cm.conference_id
+       AND st.method='calculated'
+      WHERE t.active=1
+        AND t.season='2026'
+        AND s.catalog_scope='local'
+    ), normalized AS (
+      SELECT truth.*,
+        (conference_wins+conference_losses+conference_ties) AS conference_games,
+        CASE WHEN ties>0
+          THEN printf('%d-%d-%d',wins,losses,ties)
+          ELSE printf('%d-%d',wins,losses)
+        END AS expected_overall_record,
+        CASE WHEN conference_ties>0
+          THEN printf('%d-%d-%d',conference_wins,conference_losses,conference_ties)
+          ELSE printf('%d-%d',conference_wins,conference_losses)
+        END AS expected_conference_record
+      FROM truth
     )
     SELECT
-      (SELECT COUNT(*) FROM target_cohorts) AS cohort_count,
-      COUNT(*) AS candidate_rows
-    FROM teams t
-    JOIN schools s ON s.id=t.school_id
-    JOIN target_cohorts tc
-      ON tc.conference_id=t.conference_id
-     AND tc.sport=t.sport
-     AND tc.gender=t.gender
-     AND tc.season=t.season
-    WHERE t.active=1 AND s.catalog_scope='local'
-  `).bind(targetIdsJson).first();
-  const cohortCount=Number(fuse?.cohort_count||0);
-  const candidateRows=Number(fuse?.candidate_rows||0);
-  if (cohortCount!==5 || candidateRows<7 || candidateRows>50) {
-    return auditJson({error:"repair_fuse",cohort_count:cohortCount,candidate_rows:candidateRows},409);
-  }
-
-  const calculatedAt=new Date().toISOString();
-  const write=await rebuildStandingsForTeams(env,M10_REPAIR_TEAM_IDS,calculatedAt);
-  if (Number(write?.cohorts||0)!==5 || Number(write?.standingsRows||0)!==candidateRows) {
-    return auditJson({error:"repair_result_mismatch",cohort_count:cohortCount,candidate_rows:candidateRows,write},500);
-  }
-
-  const after=await loadM10MissingStandings(env);
-  const remaining=after.results||[];
-  const pass=remaining.length===0;
+      COUNT(*) AS membership_rows,
+      SUM(CASE WHEN membership_state='member' THEN 1 ELSE 0 END) AS member,
+      SUM(CASE WHEN membership_state='independent' THEN 1 ELSE 0 END) AS independent,
+      SUM(CASE WHEN membership_state='unknown' THEN 1 ELSE 0 END) AS unknown,
+      SUM(CASE WHEN membership_state NOT IN ('member','independent','unknown')
+        OR (membership_state='member' AND membership_conference_id IS NULL)
+        OR (membership_state IN ('independent','unknown') AND membership_conference_id IS NOT NULL)
+        THEN 1 ELSE 0 END) AS invalid_memberships,
+      SUM(CASE WHEN membership_state='member'
+        AND COALESCE(team_conference_id,'')<>COALESCE(membership_conference_id,'')
+        THEN 1 ELSE 0 END) AS conference_pointer_mismatches,
+      SUM(CASE WHEN membership_state IN ('independent','unknown')
+        AND team_conference_id IS NOT NULL THEN 1 ELSE 0 END) AS nonmember_pointer_mismatches,
+      SUM(CASE WHEN membership_state='member' AND standing_team_id IS NOT NULL THEN 1 ELSE 0 END) AS materialized_calculated_rows,
+      SUM(CASE WHEN membership_state='member' AND conference_games>0 AND standing_team_id IS NULL THEN 1 ELSE 0 END) AS started_members_missing_materialized_standings,
+      SUM(CASE WHEN standing_team_id IS NOT NULL
+        AND COALESCE(materialized_overall_record,'')<>expected_overall_record
+        THEN 1 ELSE 0 END) AS overall_record_contradictions,
+      SUM(CASE WHEN standing_team_id IS NOT NULL
+        AND conference_games>0
+        AND COALESCE(materialized_conference_record,'')<>expected_conference_record
+        THEN 1 ELSE 0 END) AS conference_record_contradictions,
+      SUM(CASE WHEN standing_team_id IS NOT NULL
+        AND (
+          COALESCE(materialized_overall_record,'')<>expected_overall_record
+          OR (conference_games>0 AND COALESCE(materialized_conference_record,'')<>expected_conference_record)
+        ) THEN 1 ELSE 0 END) AS unexplained_record_contradictions
+    FROM normalized
+  `).all();
+  const values=query.results?.[0]||{};
+  const pass=Number(values.membership_rows||0)===1220
+    && Number(values.member||0)===1190
+    && Number(values.independent||0)===1
+    && Number(values.unknown||0)===29
+    && Number(values.invalid_memberships||0)===0
+    && Number(values.conference_pointer_mismatches||0)===0
+    && Number(values.nonmember_pointer_mismatches||0)===0
+    && Number(values.started_members_missing_materialized_standings||0)===0
+    && Number(values.unexplained_record_contradictions||0)===0
+    && Number(query.meta?.rows_written||0)===0;
   return auditJson({
     status:pass?"PASS":"FAIL",
-    missing_before:missing.length,
-    target_team_ids:M10_REPAIR_TEAM_IDS,
-    fuse:{cohort_count:cohortCount,candidate_rows:candidateRows},
-    write,
-    missing_after:remaining.length,
-    remaining_team_ids:remaining.map(row=>row.team_id)
+    verification:values,
+    d1:{
+      rows_read:Number(query.meta?.rows_read||0),
+      rows_written:Number(query.meta?.rows_written||0)
+    }
   },pass?200:500);
 }
 
 export default {
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
-    const m10MissingStandings=request.method==="GET"
-      && url.pathname===M10_MISSING_STANDINGS_PATH
-      && Date.now()<=M10_MISSING_STANDINGS_EXPIRES_AT;
-    if (m10MissingStandings) {
-      try { return await runM10MissingStandingsProbe(env); }
+    const m10FinalVerify=request.method==="GET"
+      && url.pathname===M10_FINAL_VERIFY_PATH
+      && Date.now()<=M10_FINAL_VERIFY_EXPIRES_AT;
+    if (m10FinalVerify) {
+      try { return await runM10FinalVerification(env); }
       catch (error) {
-        console.error("bounded M10 missing-standings probe failed",error);
-        return auditJson({error:"m10_missing_standings_probe_failed",message:String(error?.message||error)},500);
-      }
-    }
-
-    const m10Repair=request.method==="POST"
-      && url.pathname===M10_REPAIR_PATH
-      && Date.now()<=M10_REPAIR_EXPIRES_AT;
-    if (m10Repair) {
-      try { return await runM10Repair(env); }
-      catch (error) {
-        console.error("bounded M10 standings materialization failed",error);
-        return auditJson({error:"m10_standings_materialization_failed",message:String(error?.message||error)},500);
+        console.error("bounded M10 final verification failed",error);
+        return auditJson({error:"m10_final_verification_failed",message:String(error?.message||error)},500);
       }
     }
 
@@ -205,9 +160,6 @@ export default {
 export {
   FINAL_AUDIT_EXPIRES_AT,
   FINAL_AUDIT_PATH,
-  M10_MISSING_STANDINGS_EXPIRES_AT,
-  M10_MISSING_STANDINGS_PATH,
-  M10_REPAIR_EXPIRES_AT,
-  M10_REPAIR_PATH,
-  M10_REPAIR_TEAM_IDS
+  M10_FINAL_VERIFY_EXPIRES_AT,
+  M10_FINAL_VERIFY_PATH
 };
