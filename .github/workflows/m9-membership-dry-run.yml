@@ -1,5 +1,6 @@
 name: M9 membership dry run
 
+# one-shot rerun after exact identity tightening
 on:
   push:
     branches:
