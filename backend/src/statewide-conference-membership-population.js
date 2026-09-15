@@ -2,25 +2,17 @@ import { buildSchoolIdentityIndex, resolveSchoolIdentity } from "./school-identi
 import { STATEWIDE_MEMBERSHIP_SOURCES, fetchAllStatewideConferenceRosters } from "./statewide-conference-membership-source.js";
 import { buildCollegeConferenceMembership } from "./college-conference-membership.js";
 import { membershipCoverageReport, normalizeConferenceMembership } from "./conference-membership-truth.js";
+import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
+import {
+  HIGH_SCHOOL_IDENTITY_OVERRIDES,
+  highSchoolMembershipIdentityOverride,
+  isKnownMembershipSourceGap
+} from "./m9-high-school-membership-identity.js";
 
 const SEASON="2026";
 const MAX_MEMBERSHIPS=1500;
 const MAX_CONFERENCES=180;
 const MAX_TEAM_POINTER_CHANGES=1500;
-
-const HIGH_SCHOOL_IDENTITY_OVERRIDES=new Map([
-  ["*|*|arkansas","aaa-nwwk4z"],
-  ["football-boys|4a-region-3|southside","df-s3xu7u"],
-  ["football-boys|6a-west|southside","df-jh2s9b"],
-  ["volleyball-girls|4a-4|southside","df-s3xu7u"],
-  ["volleyball-girls|6a-west|southside","df-jh2s9b"],
-  ["basketball-boys|4a-region-2|southside","df-s3xu7u"],
-  ["basketball-boys|6a-west|southside","df-jh2s9b"],
-  ["basketball-girls|4a-region-2|southside","df-s3xu7u"],
-  ["basketball-girls|6a-west|southside","df-jh2s9b"],
-  ["soccer-girls|4a-north|southside","df-s3xu7u"],
-  ["soccer-girls|6a-west|southside","df-jh2s9b"]
-]);
 
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function safe(value){return clean(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
@@ -29,13 +21,8 @@ function teamKey(schoolId,sport,gender){return `${schoolId}|${sport}|${gender}`;
 function collegeGender(value){const gender=clean(value).toLowerCase();if(gender==="boys"||gender==="men"||gender==="male")return "men";if(gender==="girls"||gender==="women"||gender==="female")return "women";return gender;}
 function collegeInventoryKey(schoolId,sport,gender){return `${clean(schoolId)}|${clean(sport).toLowerCase()}|${collegeGender(gender)}`;}
 function isIndependentConference(conference){return /^(?:freelance|independent)$/i.test(clean(conference?.name)) || /^(?:freelance|independent)$/i.test(clean(conference?.id));}
-
-function identityOverride(source,conference,observedName){
-  const observed=safe(observedName);
-  return HIGH_SCHOOL_IDENTITY_OVERRIDES.get(`${source.key}|${conference.id}|${observed}`)
-    || HIGH_SCHOOL_IDENTITY_OVERRIDES.get(`*|*|${observed}`)
-    || null;
-}
+function sourceSupportedTeam(team){return STATEWIDE_MEMBERSHIP_SOURCES.some(source=>source.sport===team.sport&&source.gender===team.gender);}
+function visibleHighSchoolTeam(team){return team.level==="high-school" && isSchoolCatalogVisible(team);}
 
 function classificationParts(name="") {
   const text=clean(name);
@@ -59,24 +46,24 @@ async function loadSnapshot(env,{season=SEASON}={}) {
   const [teamResult,identityResult,conferenceResult]=await Promise.all([
     env.DB.prepare(`
       SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,t.conference_id,
-        s.id AS identity_school_id,s.name AS school_name,s.mascot,s.level,s.catalog_scope,s.location_matched_name
+        s.id AS identity_school_id,s.name AS school_name,s.mascot,s.level,s.catalog_scope
       FROM teams t
       JOIN schools s ON s.id=t.school_id
       WHERE t.active=1 AND t.season=? AND s.catalog_scope='local'
       ORDER BY s.level,t.sport,t.gender,t.id
     `).bind(season).all(),
     env.DB.prepare(`
-      SELECT 'school' AS identity_kind,id AS school_id,name AS observed_name,mascot,NULL AS normalized_alias,location_matched_name AS alternate_name
+      SELECT 'school' AS identity_kind,id AS school_id,name AS observed_name,mascot,NULL AS normalized_alias
       FROM schools WHERE catalog_scope='local'
       UNION ALL
-      SELECT 'alias',school_id,alias_text,NULL,normalized_alias,NULL FROM school_aliases
+      SELECT 'alias',school_id,alias_text,NULL,normalized_alias FROM school_aliases
     `).all(),
     env.DB.prepare(`SELECT id,name,classification,standings_method,coverage_complete,source_url FROM conferences ORDER BY id`).all()
   ]);
   const schools=[];
   const aliases=[];
   for(const row of identityResult.results||[]) {
-    if(row.identity_kind==="school") schools.push({id:row.school_id,name:row.observed_name,mascot:row.mascot,alternate_names:[row.alternate_name].filter(Boolean)});
+    if(row.identity_kind==="school") schools.push({id:row.school_id,name:row.observed_name,mascot:row.mascot});
     else aliases.push({school_id:row.school_id,alias_text:row.observed_name,normalized_alias:row.normalized_alias});
   }
   return {
@@ -92,14 +79,18 @@ async function loadSnapshot(env,{season=SEASON}={}) {
 }
 
 export function buildHighSchoolMembershipPopulation({snapshot,sourceResults,verifiedAt}) {
-  const localTeams=(snapshot.teams||[]).filter(row=>row.level==="high-school");
+  const localTeams=(snapshot.teams||[]).filter(visibleHighSchoolTeam);
+  const visibleSchoolIds=new Set(localTeams.map(row=>row.school_id));
   const localByKey=new Map();
   for(const team of localTeams) {
     const key=teamKey(team.school_id,team.sport,team.gender);
     if(!localByKey.has(key)) localByKey.set(key,[]);
     localByKey.get(key).push(team);
   }
-  const identityIndex=buildSchoolIdentityIndex({schools:snapshot.schools,aliases:snapshot.aliases});
+  const identityIndex=buildSchoolIdentityIndex({
+    schools:(snapshot.schools||[]).filter(row=>visibleSchoolIds.has(row.id)),
+    aliases:(snapshot.aliases||[]).filter(row=>visibleSchoolIds.has(row.school_id))
+  });
   const candidates=new Map();
   const conferences=new Map();
   const problems=[];
@@ -107,12 +98,18 @@ export function buildHighSchoolMembershipPopulation({snapshot,sourceResults,veri
 
   for(const result of sourceResults) {
     const source=result.source;
+    const failures=(result.failures||[]).map(row=>({
+      ...row,
+      known_source_gap:isKnownMembershipSourceGap(source.key,row.conference_id)
+    }));
     sourceStats.push({
       key:source.key,
       discovered_conferences:result.discovered_conferences,
       fetched_conferences:result.fetched_conferences,
-      failed_conferences:result.failures.length,
-      failures:result.failures
+      failed_conferences:failures.length,
+      known_source_gaps:failures.filter(row=>row.known_source_gap).length,
+      unexpected_failed_conferences:failures.filter(row=>!row.known_source_gap).length,
+      failures
     });
     for(const roster of result.rosters||[]) {
       const conference=roster.conference;
@@ -124,7 +121,7 @@ export function buildHighSchoolMembershipPopulation({snapshot,sourceResults,veri
         standings_method:"calculated",coverage_complete:0,source_url:conference.source_url
       });
       for(const observedName of roster.schools||[]) {
-        const overrideSchoolId=identityOverride(source,conference,observedName);
+        const overrideSchoolId=highSchoolMembershipIdentityOverride(source,conference,observedName);
         const identity=overrideSchoolId
           ? {status:"resolved",schoolId:overrideSchoolId,method:"curated-source-conference-override",candidateSchoolIds:[overrideSchoolId]}
           : resolveSchoolIdentity({observedName},identityIndex);
@@ -262,17 +259,28 @@ export async function planStatewideConferenceMembershipPopulation(env,{
   const comparison=comparePlan(snapshot,memberships,conferences);
   assertFuses({memberships,conferences,comparison});
   const coverage=membershipCoverageReport(memberships);
-  const activeEligibleTeams=snapshot.teams.filter(row=>row.level==="college" || STATEWIDE_MEMBERSHIP_SOURCES.some(source=>source.sport===row.sport&&source.gender===row.gender)).length;
-  const payload=JSON.stringify({conferences,memberships});
+  const eligibleHighSchoolTeams=snapshot.teams.filter(row=>visibleHighSchoolTeam(row)&&sourceSupportedTeam(row));
+  const excludedHighSchoolTeams=snapshot.teams.filter(row=>row.level==="high-school"&&sourceSupportedTeam(row)&&!isSchoolCatalogVisible(row));
+  const activeCollegeTeams=snapshot.teams.filter(row=>row.level==="college");
+  const activeEligibleTeams=eligibleHighSchoolTeams.length+activeCollegeTeams.length;
+  const fingerprintPayload={
+    conferences,
+    memberships:memberships.map(({verified_at,...row})=>row)
+  };
+  const knownSourceGaps=highSchool.sourceStats.flatMap(row=>row.failures.filter(failure=>failure.known_source_gap).map(failure=>({source_key:row.key,...failure})));
   return {
     status:"DRY_RUN",
-    safe:highSchool.sourceStats.every(row=>row.failed_conferences===0) && coverage.invalid===0 && highSchool.problems.filter(row=>row.type==="multiple_conferences").length===0,
+    safe:highSchool.sourceStats.every(row=>row.unexpected_failed_conferences===0)
+      && coverage.invalid===0
+      && highSchool.problems.filter(row=>row.type==="multiple_conferences").length===0,
     season:SEASON,
-    fingerprint:`m9-statewide-membership-${memberships.length}-${conferences.length}-${hashText(payload)}`,
+    fingerprint:`m9-statewide-membership-${memberships.length}-${conferences.length}-${hashText(JSON.stringify(fingerprintPayload))}`,
     active_eligible_teams:activeEligibleTeams,
+    excluded_high_school_teams:excludedHighSchoolTeams.map(row=>({team_id:row.team_id,school_id:row.school_id,school_name:row.school_name,sport:row.sport,gender:row.gender})),
     memberships,
     conferences,
     coverage,
+    known_source_gaps:knownSourceGaps,
     high_school:{memberships:highSchool.memberships.length,problems:highSchool.problems,source_stats:highSchool.sourceStats},
     college:{memberships:college.memberships.length,unresolved:college.unresolved,missing_inventory:college.missingInventory,missing_production:college.missingProduction},
     planned:{
