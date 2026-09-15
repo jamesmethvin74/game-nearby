@@ -53,16 +53,19 @@ test("school schedule query is tightly scoped but preserves retained materialize
   assert.doesNotMatch(source, /UPDATE\s+games|INSERT\s+INTO\s+games|DELETE\s+FROM\s+games/i);
 });
 
-test("configured Worker preserves M4 underneath the M8 and protected logo wrappers", () => {
+test("configured Worker preserves M4 underneath M9 membership truth, M8, and protected logo wrappers", () => {
   const wrangler = fs.readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");
   const m8Wrapper = fs.readFileSync(new URL("../src/m8-worker.js", import.meta.url), "utf8");
   const logoWrapper = fs.readFileSync(new URL("../src/logo-bootstrap-worker.js", import.meta.url), "utf8");
+  const membershipWrapper = fs.readFileSync(new URL("../src/conference-membership-public-worker.js", import.meta.url), "utf8");
   const source = fs.readFileSync(new URL("../src/m4-public-worker.js", import.meta.url), "utf8");
   assert.match(wrangler, /"main"\s*:\s*"src\/m8-worker\.js"/);
   assert.match(m8Wrapper, /import app from "\.\/logo-bootstrap-worker\.js"/);
   assert.match(m8Wrapper, /return app\.scheduled\(controller, env, ctx\)/);
-  assert.match(logoWrapper, /import app from "\.\/m4-public-worker\.js"/);
+  assert.match(logoWrapper, /import app from "\.\/conference-membership-public-worker\.js"/);
   assert.match(logoWrapper, /return app\.scheduled\(controller, env, ctx\)/);
+  assert.match(membershipWrapper, /import app from "\.\/m4-public-worker\.js"/);
+  assert.match(membershipWrapper, /return app\.scheduled\(controller, env, ctx\)/);
   assert.match(source, /import app from "\.\/d1-usage-public-worker\.js"/);
   assert.match(source, /return app\.scheduled\(controller, env, ctx\)/);
 });
