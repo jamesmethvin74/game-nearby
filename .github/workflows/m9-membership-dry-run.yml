@@ -1,0 +1,94 @@
+name: M9 membership dry run
+
+on:
+  push:
+    branches:
+      - m9/statewide-conference-membership-20260915
+    paths:
+      - .github/workflows/m9-membership-dry-run.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Query read-only production planner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p m9-dry-run
+          BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m9-membership-dry-run-20260915-a3f91c2e'
+          for source in football-boys volleyball-girls basketball-boys basketball-girls soccer-boys soccer-girls college; do
+            echo "dry-run: ${source}"
+            curl --fail-with-body --silent --show-error --max-time 180 \
+              "${BASE}?source=${source}" \
+              -o "m9-dry-run/${source}.json"
+            SOURCE="$source" FILE="m9-dry-run/${source}.json" node <<'NODE'
+          const fs=require('fs');
+          const file=process.env.FILE;
+          const source=process.env.SOURCE;
+          const body=JSON.parse(fs.readFileSync(file,'utf8'));
+          if(body.status!=='DRY_RUN') throw new Error(`${source}: expected DRY_RUN, got ${body.status || body.error || 'unknown'}`);
+          if(Number(body?.d1?.rows_written||0)!==0) throw new Error(`${source}: dry-run wrote D1 rows`);
+          console.log(JSON.stringify({source,active:body.active_teams,member:body.member,independent:body.independent,unknown:body.unknown,d1:body.d1,planned:body.planned}));
+          NODE
+          done
+
+      - name: Build combined bounded-write summary
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs=require('fs');
+          const path='m9-dry-run';
+          const names=['football-boys','volleyball-girls','basketball-boys','basketball-girls','soccer-boys','soccer-girls','college'];
+          const rows=names.map(name=>({name,...JSON.parse(fs.readFileSync(`${path}/${name}.json`,'utf8'))}));
+          const sum=key=>rows.reduce((n,row)=>n+Number(row[key]||0),0);
+          const planned=key=>rows.reduce((n,row)=>n+Number(row?.planned?.[key]||0),0);
+          const d1=key=>rows.reduce((n,row)=>n+Number(row?.d1?.[key]||0),0);
+          const summary={
+            status:'DRY_RUN',
+            sources:rows.map(row=>({
+              source:row.name,
+              active_teams:row.active_teams,
+              member:row.member,
+              independent:row.independent,
+              unknown:row.unknown,
+              discovered_conferences:row.discovered_conferences ?? null,
+              fetched_conferences:row.fetched_conferences ?? null,
+              failed_conferences:row.failed_conferences ?? [],
+              identity_problem_count:Array.isArray(row.identity_problems)?row.identity_problems.length:0,
+              fingerprint:row.fingerprint,
+              d1:row.d1,
+              planned:row.planned
+            })),
+            totals:{
+              active_teams:sum('active_teams'),
+              member:sum('member'),
+              independent:sum('independent'),
+              unknown:sum('unknown'),
+              conference_upserts:planned('conference_upserts'),
+              membership_upserts:planned('membership_upserts'),
+              team_pointer_changes:planned('team_pointer_changes'),
+              data_write_upper_bound:planned('data_write_upper_bound'),
+              d1_rows_read:d1('rows_read'),
+              d1_rows_written:d1('rows_written')
+            },
+            unknown_teams:rows.flatMap(row=>(row.unknown_teams||[]).map(item=>({source:row.name,...item}))),
+            identity_problems:rows.flatMap(row=>(row.identity_problems||[]).map(item=>({source:row.name,...item}))),
+            source_failures:rows.flatMap(row=>(row.failed_conferences||[]).map(item=>({source:row.name,...item})))
+          };
+          if(summary.totals.d1_rows_written!==0) throw new Error('combined dry-run wrote D1 rows');
+          fs.writeFileSync(`${path}/summary.json`,JSON.stringify(summary,null,2));
+          console.log(JSON.stringify(summary.totals,null,2));
+          NODE
+
+      - name: Upload dry-run evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: m9-membership-dry-run
+          path: m9-dry-run
+          if-no-files-found: error
+          retention-days: 7
