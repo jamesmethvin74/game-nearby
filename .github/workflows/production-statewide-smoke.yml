@@ -11,16 +11,16 @@ permissions:
   contents: read
 
 jobs:
-  m10-missing-standings-probe:
+  m10-seven-team-materialization:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Fetch missing M10 standings members
+      - name: Materialize the five bounded M10 conference cohorts
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m10-missing-standings-20260915-b76f4a91'
-          code=$(curl -sS --max-time 60 -w '%{http_code}' "$URL" -o result.json)
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m10-materialize-seven-20260915-cf2a9d40'
+          code=$(curl -sS --max-time 60 -X POST -w '%{http_code}' "$URL" -o result.json)
           cat result.json
           echo
           echo "HTTP $code"
@@ -28,7 +28,11 @@ jobs:
           node <<'NODE'
           const fs=require('fs');
           const body=JSON.parse(fs.readFileSync('result.json','utf8'));
-          if(Number(body.missing_count)!==7) throw new Error(`expected 7 missing rows, got ${body.missing_count}`);
-          if(Number(body.d1?.rows_written||0)!==0) throw new Error('probe wrote D1 rows');
-          console.log('M10 missing-standings probe identified all 7 rows');
+          if(body.status!=='PASS') throw new Error(`unexpected repair status ${body.status}`);
+          if(Number(body.missing_before)!==7) throw new Error(`expected missing_before=7, got ${body.missing_before}`);
+          if(Number(body.missing_after)!==0) throw new Error(`expected missing_after=0, got ${body.missing_after}`);
+          if(Number(body.fuse?.cohort_count)!==5) throw new Error(`expected five cohorts, got ${body.fuse?.cohort_count}`);
+          if(Number(body.fuse?.candidate_rows)<7 || Number(body.fuse?.candidate_rows)>50) throw new Error(`candidate row fuse failed: ${body.fuse?.candidate_rows}`);
+          if(Number(body.write?.cohorts)!==5) throw new Error(`expected five rebuilt cohorts, got ${body.write?.cohorts}`);
+          console.log('M10 bounded standings materialization PASS');
           NODE
