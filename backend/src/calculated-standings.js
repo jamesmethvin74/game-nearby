@@ -231,18 +231,15 @@ async function persistCalculatedStandings(env, cohort, standings, calculatedAt) 
 export async function rebuildStandingsForTeams(
   env,
   teamIds,
-  calculatedAt = new Date().toISOString(),
-  { skipCompleteCalculated = false } = {}
+  calculatedAt = new Date().toISOString()
 ) {
   const cohorts = await touchedCohorts(env, teamIds);
   let rebuiltCohorts = 0;
   let standingsRows = 0;
   for (const cohort of cohorts) {
-    if (skipCompleteCalculated
-      && cohort.standings_method === "calculated"
-      && Number(cohort.coverage_complete || 0) === 1) {
-      continue;
-    }
+    // A touched record can change a cohort even if legacy coverage_complete is 1.
+    // Always rematerialize this bounded conference cohort; unchanged rows are
+    // suppressed by the upsert WHERE clause in persistCalculatedStandings.
     const rows = await cohortRows(env, cohort);
     const standings = buildCalculatedStandings(rows);
     await persistCalculatedStandings(env, cohort, standings, calculatedAt);
