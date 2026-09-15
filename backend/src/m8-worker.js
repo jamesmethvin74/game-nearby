@@ -2,6 +2,7 @@ import app from "./logo-bootstrap-worker.js";
 import { buildResultGapAudit } from "./result-gap-audit.js";
 import { buildStatewideRecordTruthAudit } from "./record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./record-truth-audit-output.js";
+import { buildM8CompletenessReport } from "./m8-completeness-report.js";
 
 const RESULT_GAP_VIEW = "result-gaps";
 const RECORD_TRUTH_VIEW = "record-truth";
@@ -44,6 +45,7 @@ export default {
       if (!authorizedAudit(request,env)) return auditJson({error:"not_found"},404);
       try {
         const audit=finalizeRecordTruthAudit(await buildStatewideRecordTruthAudit(env,{season:"2026"}));
+        audit.completeness_report=buildM8CompletenessReport(audit);
         return auditJson(audit);
       } catch (error) {
         console.error("record truth audit failed",error);
