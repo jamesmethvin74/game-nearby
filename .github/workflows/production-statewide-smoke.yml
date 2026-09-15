@@ -1,37 +1,211 @@
 name: Production statewide smoke
 
 on:
-  push:
-    branches:
-      - feature/live-sports-pipeline-m1
-    paths:
-      - .github/workflows/production-statewide-smoke.yml
+  workflow_dispatch:
+    inputs:
+      full_statewide_record_audit:
+        description: "Run the expensive all-team schedule/record audit"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
+# Production D1 reads are a shared daily budget. This workflow is deliberately
+# manual-only. Local/in-memory tests are the default; live production audits are
+# explicit diagnostic actions, never automatic CI.
+concurrency:
+  group: production-statewide-smoke
+  cancel-in-progress: true
+
 jobs:
-  m10-final-verification:
+  smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 12
     steps:
-      - name: Verify final M10 production truth
+      - name: Verify statewide production catalog
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m10-final-verify-20260915-6d4c9e21'
-          code=$(curl -sS --max-time 60 -w '%{http_code}' "$URL" -o result.json)
-          cat result.json
-          echo
-          echo "HTTP $code"
-          test "$code" = "200"
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          rm -f schools.json
+
+          for attempt in $(seq 1 3); do
+            echo "Catalog attempt ${attempt}/3"
+            code=$(curl -sS --max-time 45 -o schools.tmp -w '%{http_code}' "$API/api/v1/schools" || true)
+            if [ "$code" = "200" ]; then
+              count=$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("schools.tmp","utf8")); console.log(Array.isArray(p.schools)?p.schools.length:0)')
+              echo "Visible schools: $count"
+              if [ "$count" -ge 100 ]; then
+                mv schools.tmp schools.json
+                break
+              fi
+            else
+              echo "HTTP $code"
+              head -c 300 schools.tmp 2>/dev/null || true
+              echo
+            fi
+            sleep 3
+          done
+
+          test -f schools.json
           node <<'NODE'
-          const fs=require('fs');
-          const body=JSON.parse(fs.readFileSync('result.json','utf8'));
-          if(body.status!=='PASS') throw new Error(`verification status ${body.status}`);
-          const v=body.verification||{};
-          if(Number(v.started_members_missing_materialized_standings)!==0) throw new Error(`started_members_missing_materialized_standings=${v.started_members_missing_materialized_standings}`);
-          if(Number(v.unexplained_record_contradictions)!==0) throw new Error(`unexplained_record_contradictions=${v.unexplained_record_contradictions}`);
-          if(Number(body.d1?.rows_written||0)!==0) throw new Error(`rows_written=${body.d1?.rows_written}`);
-          console.log('M10 final production verification PASS');
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('schools.json','utf8'));
+          const schools = Array.isArray(payload.schools) ? payload.schools : [];
+          const canonicalName = school => String(school.location_matched_name || school.name || '').trim();
+          if (schools.length < 100) throw new Error(`Expected at least 100 visible statewide schools, got ${schools.length}`);
+          for (const name of ['Green Forest High School','Eureka Springs High School','Valley Springs High School']) {
+            if (!schools.some(s => canonicalName(s).toLowerCase() === name.toLowerCase())) throw new Error(`Missing production school: ${name}`);
+          }
+          const valley = schools.find(s => canonicalName(s).toLowerCase() === 'valley springs high school');
+          if (!valley) throw new Error('Valley Springs High School is missing from production');
+          if (valley.catalog_scope !== 'local') throw new Error(`Valley Springs catalog_scope is ${valley.catalog_scope}`);
+          if (!(Number(valley.team_count || 0) > 0)) throw new Error(`Valley Springs team_count is ${valley.team_count}`);
+          console.log(`Production statewide catalog verified with ${schools.length} visible schools.`);
           NODE
+
+      - name: Prove one real non-pilot nearby game
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS --max-time 45 \
+            "$API/api/v1/games?lat=36.329374987912615&lon=-93.43432233996029&radius=5&since=2026-08-20T00%3A00%3A00.000Z&until=2026-08-22T00%3A00%3A00.000Z" \
+            -o nearby.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('nearby.json','utf8'));
+          const games = Array.isArray(payload.games) ? payload.games : [];
+          const expected = new Set(['Green Forest High School','Eureka Springs High School']);
+          const match = games.find(game => {
+            const names = new Set([game.school_name, game.opponent]);
+            return [...expected].every(name => names.has(name));
+          });
+          if (!match) throw new Error(`Green Forest/Eureka Springs was not returned. Returned ${games.length} games.`);
+          if (!(Number(match.distance_miles) <= 0.1)) throw new Error(`Expected venue-point proof, got ${match.distance_miles} miles.`);
+          console.log(`Nearby proof: ${match.school_name} vs ${match.opponent}, ${match.distance_miles} miles.`);
+          NODE
+
+      - name: Verify normalized production schedules
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          rm -f conway.json valley.json
+
+          for attempt in $(seq 1 3); do
+            echo "Schedule normalization attempt ${attempt}/3"
+            curl -fsS --max-time 45 "$API/api/v1/teams/conway-volleyball-2026/schedule" -o conway.tmp || true
+            curl -fsS --max-time 45 "$API/api/v1/teams/df-t5drr3-volleyball-2026/schedule" -o valley.tmp || true
+            if node <<'NODE'
+          const fs=require('fs');
+          try {
+            const conwayPayload=JSON.parse(fs.readFileSync('conway.tmp','utf8'));
+            const valleyPayload=JSON.parse(fs.readFileSync('valley.tmp','utf8'));
+            const conway=conwayPayload.games||[];
+            const valley=valleyPayload.games||[];
+            const lakeside=conway.filter(g=>/lakeside/i.test(String(g.opponent||'')) && String(g.scheduled_at||'').startsWith('2026-08-31T23:00'));
+            const melbourne=valley.find(g=>/melbourne/i.test(String(g.opponent||'')));
+            process.exit(lakeside.length===1 && lakeside[0].canonical_event_id && melbourne?.opponent==='Melbourne High School' && conwayPayload.record && valleyPayload.record ? 0 : 1);
+          } catch { process.exit(1); }
+          NODE
+            then
+              mv conway.tmp conway.json
+              mv valley.tmp valley.json
+              break
+            fi
+            sleep 3
+          done
+
+          test -f conway.json
+          test -f valley.json
+          node -e 'const c=require("./conway.json"),v=require("./valley.json"); console.log(`Manual schedule proof: Conway ${c.games.length}; Valley Springs ${v.games.length}`)'
+
+      - name: Verify every available statewide result feeds team records
+        if: inputs.full_statewide_record_audit == true
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "WARNING: running explicit full statewide D1 audit"
+          node <<'NODE'
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const fetchJson=async url=>{
+            const response=await fetch(url,{headers:{accept:'application/json'}});
+            if(!response.ok) return {status:response.status,payload:null};
+            return {status:response.status,payload:await response.json()};
+          };
+          const schoolsResult=await fetchJson(`${API}/api/v1/schools`);
+          if(schoolsResult.status!==200) throw new Error(`Schools request failed: ${schoolsResult.status}`);
+          const schools=schoolsResult.payload.schools||[];
+          const checked=[];
+          const skipped=[];
+          const failures=[];
+          function expectedRecord(games){
+            const record={wins:0,losses:0,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored:0};
+            for(const game of games||[]){
+              if(game.status!=='FINAL' || Number(game.counts_for_record||0)===0 || game.team_score==null || game.opponent_score==null) continue;
+              const team=Number(game.team_score),opp=Number(game.opponent_score);
+              if(!Number.isFinite(team)||!Number.isFinite(opp)) continue;
+              record.scored++;
+              const suffix=team===opp?'ties':team>opp?'wins':'losses';
+              record[suffix]++;
+              if(Number(game.conference_game||0)===1) record[`conference_${suffix}`]++;
+            }
+            return record;
+          }
+
+          // Deliberately sequential. This is a diagnostic, not a load test.
+          for(const school of schools){
+            const teamId=`${school.id}-volleyball-2026`;
+            const scheduleResult=await fetchJson(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/schedule`);
+            if(scheduleResult.status===404){skipped.push(teamId);continue;}
+            if(scheduleResult.status!==200){failures.push({teamId,error:`schedule HTTP ${scheduleResult.status}`});break;}
+            const recordResult=await fetchJson(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/record`);
+            if(recordResult.status!==200){failures.push({teamId,error:`record HTTP ${recordResult.status}`});break;}
+            const expected=expectedRecord(scheduleResult.payload.games||[]);
+            const routeRecord=recordResult.payload.record||{};
+            for(const field of ['wins','losses','ties','conference_wins','conference_losses','conference_ties']){
+              if(Number(routeRecord[field]||0)!==Number(expected[field]||0)) failures.push({teamId,field,expected:expected[field],actual:routeRecord[field]});
+            }
+            checked.push({teamId,scored:expected.scored});
+            if(failures.length) break;
+          }
+          if(failures.length) throw new Error(`Result/record audit stopped: ${JSON.stringify(failures.slice(0,5))}`);
+          console.log(`Manual statewide audit checked ${checked.length} teams; skipped ${skipped.length}.`);
+          NODE
+
+      - name: Verify GitHub Pages serves live-record frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="https://jamesmethvin74.github.io/game-nearby"
+          rm -f live-data.js school-follow-logic.js polish.js team-detail.js
+
+          for attempt in $(seq 1 5); do
+            echo "Pages attempt ${attempt}/5"
+            curl -fsS --max-time 20 "$APP/live-data.js" -o live-data.tmp || true
+            curl -fsS --max-time 20 "$APP/school-follow-logic.js" -o follow.tmp || true
+            curl -fsS --max-time 20 "$APP/polish.js" -o polish.tmp || true
+            curl -fsS --max-time 20 "$APP/team-detail.js" -o detail.tmp || true
+            if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
+              && grep -q 'normalizeRecord' live-data.tmp 2>/dev/null \
+              && grep -q 'orientEventToFollowedSchool' follow.tmp 2>/dev/null \
+              && grep -q 'event.record' polish.tmp 2>/dev/null \
+              && grep -q 'selectedEvents.find(event => event.record)' detail.tmp 2>/dev/null; then
+              mv live-data.tmp live-data.js
+              mv follow.tmp school-follow-logic.js
+              mv polish.tmp polish.js
+              mv detail.tmp team-detail.js
+              break
+            fi
+            sleep 4
+          done
+
+          test -f live-data.js
+          test -f school-follow-logic.js
+          test -f polish.js
+          test -f team-detail.js
+          echo "GitHub Pages live-record frontend verified."
