@@ -5,6 +5,10 @@ import {
   applyStandingsTruthToStatuses,
   conferenceStandingsId
 } from "../src/conference-membership-public-worker.js";
+import {
+  calculatedResultEvidenceState,
+  loadDurableConferenceCohortState
+} from "../src/standings-truth.js";
 
 function status(overrides={}) {
   return {
@@ -84,6 +88,50 @@ test("not-started conference remains N/A unless published cross-check proves mis
   assert.equal(result.rank,null);
   assert.equal(result.record_state,"INCOMPLETE");
   assert.equal(result.published_conference_record,"2-0");
+});
+
+test("M10 membership completeness comes from durable M9 truth, not conferences.coverage_complete", async () => {
+  const env={
+    DB:{
+      prepare(sql){
+        assert.match(sql,/conference_memberships/);
+        assert.doesNotMatch(sql,/coverage_complete/);
+        return {
+          bind(){ return this; },
+          async first(){
+            return {expected_members:8,explicit_members:8,unknown_members:0,invalid_memberships:0};
+          }
+        };
+      }
+    }
+  };
+  const state=await loadDurableConferenceCohortState(env,{
+    sport:"football",conferenceId:"7a-central-football",season:"2026"
+  });
+  assert.equal(state.expected_members,8);
+  assert.equal(state.explicit_members,8);
+  assert.equal(state.membership_complete,true);
+  assert.equal(state.coverage_complete,true);
+});
+
+test("M10 result evidence exposes contradictions without letting published rows overwrite canonical truth", () => {
+  const calculated={standings:[
+    {school_name:"Alpha",conference_record:"2-0",overall_record:"4-0"},
+    {school_name:"Beta",conference_record:"1-1",overall_record:"3-1"}
+  ]};
+  const verified=calculatedResultEvidenceState(calculated,{standings:[
+    {school_name:"Alpha High School",conference_record:"2-0",overall_record:"4-0"},
+    {school_name:"Beta High School",conference_record:"1-1",overall_record:"3-1"}
+  ]},{expectedMembers:2});
+  assert.equal(verified.result_evidence_complete,true);
+  assert.equal(verified.unexplained_record_contradictions,0);
+
+  const contradictory=calculatedResultEvidenceState(calculated,{standings:[
+    {school_name:"Alpha",conference_record:"1-1",overall_record:"3-1"},
+    {school_name:"Beta",conference_record:"1-1",overall_record:"3-1"}
+  ]},{expectedMembers:2});
+  assert.equal(contradictory.result_evidence_complete,false);
+  assert.equal(contradictory.unexplained_record_contradictions,1);
 });
 
 test("conference standings route parser is exact", () => {
