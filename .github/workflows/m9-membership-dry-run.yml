@@ -1,6 +1,6 @@
 name: M9 membership dry run
 
-# one-shot rerun after exact identity tightening
+# one-shot rerun after explicit source/conference identity mapping
 on:
   push:
     branches:
@@ -60,6 +60,7 @@ jobs:
               discovered_conferences:row.discovered_conferences ?? null,
               fetched_conferences:row.fetched_conferences ?? null,
               failed_conferences:row.failed_conferences ?? [],
+              source_fallbacks:row.source_fallbacks ?? [],
               identity_problem_count:Array.isArray(row.identity_problems)?row.identity_problems.length:0,
               fingerprint:row.fingerprint,
               d1:row.d1,
@@ -79,7 +80,8 @@ jobs:
             },
             unknown_teams:rows.flatMap(row=>(row.unknown_teams||[]).map(item=>({source:row.name,...item}))),
             identity_problems:rows.flatMap(row=>(row.identity_problems||[]).map(item=>({source:row.name,...item}))),
-            source_failures:rows.flatMap(row=>(row.failed_conferences||[]).map(item=>({source:row.name,...item})))
+            source_failures:rows.flatMap(row=>(row.failed_conferences||[]).map(item=>({source:row.name,...item}))),
+            source_fallbacks:rows.flatMap(row=>(row.source_fallbacks||[]).map(item=>({source:row.name,...item})))
           };
           if(summary.totals.d1_rows_written!==0) throw new Error('combined dry-run wrote D1 rows');
           fs.writeFileSync(`${path}/summary.json`,JSON.stringify(summary,null,2));
