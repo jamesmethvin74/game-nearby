@@ -1,8 +1,6 @@
 import { fetchPublishedStandings } from "./published-standings.js";
-import { reconcileFootballOverallRecords } from "./football-record-reconciliation.js";
-import { loadMaterializedCalculatedStandings, overlayCalculatedStandings } from "./calculated-standings.js";
-import { overlayVolleyballLiveRecords } from "./volleyball-standings-overlay.js";
-import { overlayFootballLiveRecords } from "./football-standings-overlay.js";
+import { loadMaterializedCalculatedStandings } from "./calculated-standings.js";
+import { reconcileConferenceStandings } from "./conference-standings-truth.js";
 
 function recordGameCount(value = "") {
   return (String(value || "").match(/\d+/g)?.map(Number) || [])
@@ -10,16 +8,17 @@ function recordGameCount(value = "") {
 }
 
 /**
- * A published 0-0 table can assign every team a synthetic "1st" before any
- * conference game has been played. That is membership, not a real standing.
- * Normalize that once in the shared truth resolver so Team Detail and the
- * Standings endpoint cannot disagree about not-started conferences.
+ * Keep the historical helper export for callers/tests, but normalize only
+ * canonical/calculated rows. Source-published evidence is intentionally kept
+ * under published_* fields by reconcileConferenceStandings and is never promoted
+ * into canonical rank or record truth here.
  */
 export function normalizeNotStartedStandings(result) {
   if (!result || !Array.isArray(result.standings)) return result;
   return {
     ...result,
     standings: result.standings.map(row => {
+      if (row?.method === "source-published" || row?.standing_state === "source-published") return row;
       const conferenceGames = recordGameCount(row?.conference_record);
       if (conferenceGames > 0) {
         return {
@@ -37,10 +36,30 @@ export function normalizeNotStartedStandings(result) {
   };
 }
 
+async function tryPublishedStandings({ sport, conferenceId }) {
+  try {
+    return await fetchPublishedStandings({ sport, conferenceId });
+  } catch (error) {
+    console.warn("published standings cross-check unavailable", {
+      sport,
+      conferenceId,
+      error:String(error?.message || error)
+    });
+    return null;
+  }
+}
+
 /**
- * Resolve one conference table through the same backend truth path for every caller.
- * This is deliberately response-agnostic so both /api/v1/standings and team-detail
- * status can consume the exact same standings result without client-side stitching.
+ * Resolve one conference through one truth contract for Team Detail and the
+ * standings surface.
+ *
+ * Canonical policy:
+ * - materialized local records are the only candidates for calculated truth;
+ * - rank is exposed only for a coverage-certified local cohort;
+ * - published tables are cross-check evidence only and never overwrite local
+ *   conference/overall records or calculated rank;
+ * - when local truth is absent, source-published rows may be exposed explicitly
+ *   as unverified evidence with canonical rank/records left null.
  */
 export async function loadStandingsTruth(env, {
   sport,
@@ -58,51 +77,33 @@ export async function loadStandingsTruth(env, {
       conferenceId: normalizedConferenceId,
       season
     });
-    if (calculated?.conference?.coverage_complete) return normalizeNotStartedStandings(calculated);
   } catch (error) {
-    console.warn("calculated standings read failed; using published fallback", {
-      sport: normalizedSport,
-      conferenceId: normalizedConferenceId,
-      error: String(error?.message || error)
+    console.warn("calculated standings read failed", {
+      sport:normalizedSport,
+      conferenceId:normalizedConferenceId,
+      error:String(error?.message || error)
     });
-    calculated = null;
   }
 
-  try {
-    let result = await fetchPublishedStandings({
-      sport: normalizedSport,
-      conferenceId: normalizedConferenceId
-    });
-    result = await reconcileFootballOverallRecords(result, { sport: normalizedSport });
+  const published = await tryPublishedStandings({
+    sport:normalizedSport,
+    conferenceId:normalizedConferenceId
+  });
 
-    try {
-      result = await overlayFootballLiveRecords(env, result, {
-        sport: normalizedSport,
-        season
-      });
-    } catch (error) {
-      console.warn("live football standings overlay failed; preserving published table", {
-        conferenceId: normalizedConferenceId,
-        error: String(error?.message || error)
-      });
-    }
+  const certified = Boolean(calculated?.conference?.coverage_complete);
+  const result = reconcileConferenceStandings({
+    calculated,
+    published,
+    // coverage_complete remains the explicit certification gate until the M9
+    // durable statewide membership population is itself certified in production.
+    membershipComplete:certified,
+    resultEvidenceComplete:certified
+  });
 
-    try {
-      result = await overlayVolleyballLiveRecords(env, result, {
-        sport: normalizedSport,
-        season
-      });
-    } catch (error) {
-      console.warn("live volleyball standings overlay failed; preserving published table", {
-        conferenceId: normalizedConferenceId,
-        error: String(error?.message || error)
-      });
-    }
-
-    if (calculated) result = overlayCalculatedStandings(result, calculated);
-    return normalizeNotStartedStandings(result);
-  } catch (error) {
-    if (calculated) return normalizeNotStartedStandings({ ...calculated, partial_roster: true });
+  if (!result) {
+    const error = new Error("standings_unavailable");
+    error.code = "standings_unavailable";
     throw error;
   }
+  return normalizeNotStartedStandings(result);
 }
