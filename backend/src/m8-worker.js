@@ -1,6 +1,6 @@
 import app from "./logo-bootstrap-worker.js";
 import { buildResultGapAudit } from "./result-gap-audit.js";
-import { dryRunHighSchoolMembership,dryRunCollegeMembership,M9_DRY_RUN_SOURCES } from "./m9-membership-dry-run.js";
+import { dryRunHighSchoolMembership,dryRunCollegeMembership,M9_DRY_RUN_SOURCES } from "./m9-membership-dry-run-v3.js";
 
 const RESULT_GAP_VIEW = "result-gaps";
 const M9_DRY_RUN_PATH = "/api/v1/internal/m9-membership-dry-run-20260915-a3f91c2e";
