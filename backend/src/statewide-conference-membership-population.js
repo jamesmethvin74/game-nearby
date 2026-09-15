@@ -8,11 +8,34 @@ const MAX_MEMBERSHIPS=1500;
 const MAX_CONFERENCES=180;
 const MAX_TEAM_POINTER_CHANGES=1500;
 
+const HIGH_SCHOOL_IDENTITY_OVERRIDES=new Map([
+  ["*|*|arkansas","aaa-nwwk4z"],
+  ["football-boys|4a-region-3|southside","df-s3xu7u"],
+  ["football-boys|6a-west|southside","df-jh2s9b"],
+  ["volleyball-girls|4a-4|southside","df-s3xu7u"],
+  ["volleyball-girls|6a-west|southside","df-jh2s9b"],
+  ["basketball-boys|4a-region-2|southside","df-s3xu7u"],
+  ["basketball-boys|6a-west|southside","df-jh2s9b"],
+  ["basketball-girls|4a-region-2|southside","df-s3xu7u"],
+  ["basketball-girls|6a-west|southside","df-jh2s9b"],
+  ["soccer-girls|4a-north|southside","df-s3xu7u"],
+  ["soccer-girls|6a-west|southside","df-jh2s9b"]
+]);
+
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function safe(value){return clean(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
 function sourceKey(sport,gender){return `${sport}|${gender}`;}
 function teamKey(schoolId,sport,gender){return `${schoolId}|${sport}|${gender}`;}
+function collegeGender(value){const gender=clean(value).toLowerCase();if(gender==="boys"||gender==="men"||gender==="male")return "men";if(gender==="girls"||gender==="women"||gender==="female")return "women";return gender;}
+function collegeInventoryKey(schoolId,sport,gender){return `${clean(schoolId)}|${clean(sport).toLowerCase()}|${collegeGender(gender)}`;}
 function isIndependentConference(conference){return /^(?:freelance|independent)$/i.test(clean(conference?.name)) || /^(?:freelance|independent)$/i.test(clean(conference?.id));}
+
+function identityOverride(source,conference,observedName){
+  const observed=safe(observedName);
+  return HIGH_SCHOOL_IDENTITY_OVERRIDES.get(`${source.key}|${conference.id}|${observed}`)
+    || HIGH_SCHOOL_IDENTITY_OVERRIDES.get(`*|*|${observed}`)
+    || null;
+}
 
 function classificationParts(name="") {
   const text=clean(name);
@@ -36,24 +59,24 @@ async function loadSnapshot(env,{season=SEASON}={}) {
   const [teamResult,identityResult,conferenceResult]=await Promise.all([
     env.DB.prepare(`
       SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,t.conference_id,
-        s.id AS identity_school_id,s.name AS school_name,s.mascot,s.level,s.catalog_scope
+        s.id AS identity_school_id,s.name AS school_name,s.mascot,s.level,s.catalog_scope,s.location_matched_name
       FROM teams t
       JOIN schools s ON s.id=t.school_id
       WHERE t.active=1 AND t.season=? AND s.catalog_scope='local'
       ORDER BY s.level,t.sport,t.gender,t.id
     `).bind(season).all(),
     env.DB.prepare(`
-      SELECT 'school' AS identity_kind,id AS school_id,name AS observed_name,mascot,NULL AS normalized_alias
+      SELECT 'school' AS identity_kind,id AS school_id,name AS observed_name,mascot,NULL AS normalized_alias,location_matched_name AS alternate_name
       FROM schools WHERE catalog_scope='local'
       UNION ALL
-      SELECT 'alias',school_id,alias_text,NULL,normalized_alias FROM school_aliases
+      SELECT 'alias',school_id,alias_text,NULL,normalized_alias,NULL FROM school_aliases
     `).all(),
     env.DB.prepare(`SELECT id,name,classification,standings_method,coverage_complete,source_url FROM conferences ORDER BY id`).all()
   ]);
   const schools=[];
   const aliases=[];
   for(const row of identityResult.results||[]) {
-    if(row.identity_kind==="school") schools.push({id:row.school_id,name:row.observed_name,mascot:row.mascot});
+    if(row.identity_kind==="school") schools.push({id:row.school_id,name:row.observed_name,mascot:row.mascot,alternate_names:[row.alternate_name].filter(Boolean)});
     else aliases.push({school_id:row.school_id,alias_text:row.observed_name,normalized_alias:row.normalized_alias});
   }
   return {
@@ -101,7 +124,10 @@ export function buildHighSchoolMembershipPopulation({snapshot,sourceResults,veri
         standings_method:"calculated",coverage_complete:0,source_url:conference.source_url
       });
       for(const observedName of roster.schools||[]) {
-        const identity=resolveSchoolIdentity({observedName},identityIndex);
+        const overrideSchoolId=identityOverride(source,conference,observedName);
+        const identity=overrideSchoolId
+          ? {status:"resolved",schoolId:overrideSchoolId,method:"curated-source-conference-override",candidateSchoolIds:[overrideSchoolId]}
+          : resolveSchoolIdentity({observedName},identityIndex);
         if(identity.status!=="resolved") {
           problems.push({type:"source_identity",source_key:source.key,conference_id:conference.id,school_name:observedName,status:identity.status,candidates:identity.candidateSchoolIds});
           continue;
@@ -158,18 +184,26 @@ function mergeCollegePopulation({snapshot,verifiedAt}) {
   const built=buildCollegeConferenceMembership({season:SEASON,verifiedAt});
   const activeCollege=new Map((snapshot.teams||[]).filter(row=>row.level==="college").map(row=>[row.team_id,row]));
   const inventoryByTeam=new Map(built.memberships.map(row=>[row.team_id,row]));
+  const inventoryByIdentity=new Map();
+  for(const row of built.memberships) {
+    const match=String(row.team_id||"").match(/^(.*?)-(football|basketball|soccer|volleyball)-(men|women)-2026$/);
+    if(match) inventoryByIdentity.set(collegeInventoryKey(match[1],match[2],match[3]),row);
+  }
   const memberships=[];
   const missingInventory=[];
   const missingProduction=[];
+  const consumedInventory=new Set();
   for(const [teamId,team] of activeCollege) {
-    const row=inventoryByTeam.get(teamId);
-    if(row) memberships.push(normalizeConferenceMembership(row));
-    else {
+    const row=inventoryByTeam.get(teamId) || inventoryByIdentity.get(collegeInventoryKey(team.school_id,team.sport,team.gender));
+    if(row) {
+      memberships.push(normalizeConferenceMembership({...row,team_id:teamId}));
+      consumedInventory.add(row.team_id);
+    } else {
       memberships.push(normalizeConferenceMembership({team_id:teamId,membership_state:"unknown",authority_provider:"college-inventory-missing",authority_key:`${SEASON}:${teamId}:unresolved`,source_url:null,verified_at:verifiedAt}));
       missingInventory.push(teamId);
     }
   }
-  for(const teamId of inventoryByTeam.keys()) if(!activeCollege.has(teamId)) missingProduction.push(teamId);
+  for(const teamId of inventoryByTeam.keys()) if(!consumedInventory.has(teamId)) missingProduction.push(teamId);
   const used=new Set(memberships.filter(row=>row.conference_id).map(row=>row.conference_id));
   return {
     memberships,
@@ -260,3 +294,5 @@ export const STATEWIDE_MEMBERSHIP_WRITE_LIMITS=Object.freeze({
   max_team_pointer_changes:MAX_TEAM_POINTER_CHANGES,
   set_based_statements:3
 });
+
+export { HIGH_SCHOOL_IDENTITY_OVERRIDES };
