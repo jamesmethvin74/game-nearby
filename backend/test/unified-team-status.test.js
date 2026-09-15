@@ -68,14 +68,14 @@ test("local sport-suffixed conference ids resolve to the published conference ta
   assert.equal(publishedConferenceId("7a-central-football-2026", "7A Central", "football"), "7a-central");
 });
 
-test("Conway team status uses the exact same standings truth as the conference page", { concurrency:false }, async () => {
+test("published standings can cross-check Conway without becoming canonical rank truth", { concurrency:false }, async () => {
   await withPublishedVolleyball(standingsHtml(), async () => {
     const [status] = await buildUnifiedTeamStatuses(emptyEnv(), [volleyballRow()]);
     assert.equal(status.overall_record, "10-6");
     assert.equal(status.conference_record, "3-0");
     assert.equal(status.conference_games, 3);
-    assert.equal(status.rank, 1);
-    assert.equal(status.standing_state, "ranked");
+    assert.equal(status.rank, null);
+    assert.equal(status.standing_state, "unavailable");
     assert.equal(status.conference_name, "6A Central");
   });
 });
