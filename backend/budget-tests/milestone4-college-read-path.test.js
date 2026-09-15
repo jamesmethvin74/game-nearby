@@ -68,7 +68,7 @@ test("configured Worker preserves M4 underneath final-audit, M8, logo, and M9 me
   assert.match(logoWrapper, /import app from "\.\/conference-membership-public-worker\.js"/);
   assert.match(logoWrapper, /return app\.scheduled\(controller, env, ctx\)/);
   assert.match(membershipWrapper, /import app from "\.\/m4-public-worker\.js"/);
-  assert.match(membershipWrapper, /return app\.scheduled\(controller,env,ctx\)/);
+  assert.match(membershipWrapper, /return app\.scheduled\(controller,\s*env,\s*ctx\)/);
   assert.match(source, /import app from "\.\/d1-usage-public-worker\.js"/);
   assert.match(source, /return app\.scheduled\(controller, env, ctx\)/);
 });
