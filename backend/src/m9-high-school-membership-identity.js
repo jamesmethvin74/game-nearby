@@ -50,6 +50,11 @@ export const HIGH_SCHOOL_IDENTITY_OVERRIDES=new Map([
   ["*|*|fayetteville-christian","aaa-7qee96"],
   ["*|*|lee","df-tnebcj"],
   ["*|*|union-christian","df-ktr7yd"],
+  ["*|*|union-christian-academy","df-ktr7yd"],
+  ["*|*|nemo-vista","df-28tzpd"],
+  ["*|*|west-fork","df-qlkhe2"],
+  ["*|*|lonoke","df-qyakr5"],
+  ["*|*|forrest-city","aaa-rp6yzq"],
 
   ["basketball-boys|1a-region-6|marvell","aaa-agkhey"],
   ["basketball-girls|1a-region-6|marvell","aaa-agkhey"],
@@ -70,6 +75,8 @@ export const HIGH_SCHOOL_IDENTITY_OVERRIDES=new Map([
   ["football-boys|7a-central|central","df-t2mq54"],
   ["volleyball-girls|3a-3|central","df-7kza8c"],
   ["volleyball-girls|6a-central|central","df-t2mq54"],
+  ["soccer-boys|6a-central|central","df-t2mq54"],
+  ["soccer-girls|6a-central|central","df-t2mq54"],
   ["soccer-boys|6a-central|little-rock-central","df-t2mq54"],
   ["soccer-girls|6a-central|little-rock-central","df-t2mq54"],
 
