@@ -9,12 +9,14 @@ function snapshot(){
     teams:[
       {team_id:"df-vt4unv-volleyball-2026",school_id:"df-vt4unv",sport:"volleyball",gender:"girls",season:"2026",conference_id:null,school_name:"Lakeside High School",level:"high-school",catalog_scope:"local"},
       {team_id:"aaa-txnuhv-volleyball-2026",school_id:"aaa-txnuhv",sport:"volleyball",gender:"girls",season:"2026",conference_id:null,school_name:"Lakeside High School",level:"high-school",catalog_scope:"local"},
-      {team_id:"df-2tng4g-volleyball-2026",school_id:"df-2tng4g",sport:"volleyball",gender:"girls",season:"2026",conference_id:null,school_name:"Kipp Delta Elementary Literacy Academy",level:"high-school",catalog_scope:"local"}
+      {team_id:"df-2tng4g-volleyball-2026",school_id:"df-2tng4g",sport:"volleyball",gender:"girls",season:"2026",conference_id:null,school_name:"Kipp Delta Elementary Literacy Academy",level:"high-school",catalog_scope:"local"},
+      {team_id:"aaa-rp6yzq-football-2026",school_id:"aaa-rp6yzq",sport:"football",gender:"boys",season:"2026",conference_id:null,school_name:"Forest City High School",level:"high-school",catalog_scope:"local"}
     ],
     schools:[
       {id:"df-vt4unv",name:"Lakeside High School",mascot:"Rams"},
       {id:"aaa-txnuhv",name:"Lakeside High School",mascot:"Beavers"},
-      {id:"df-2tng4g",name:"Kipp Delta Elementary Literacy Academy",mascot:null}
+      {id:"df-2tng4g",name:"Kipp Delta Elementary Literacy Academy",mascot:null},
+      {id:"aaa-rp6yzq",name:"Forest City High School",mascot:"Mustangs"}
     ],
     aliases:[]
   };
@@ -41,9 +43,10 @@ test("M9 exact conference context resolves duplicate Lakeside names and leaves t
   assert.equal(byTeam.get("aaa-txnuhv-volleyball-2026")?.membership_state,"unknown");
 });
 
-test("M9 excludes reviewed non-high-school catalog rows from the statewide membership denominator",()=>{
+test("M9 excludes reviewed non-high-school and duplicate catalog rows from the statewide membership denominator",()=>{
   const result=buildHighSchoolMembershipPopulation({snapshot:snapshot(),sourceResults:[sourceResult()],verifiedAt});
   assert.equal(result.memberships.some(row=>row.team_id==="df-2tng4g-volleyball-2026"),false);
+  assert.equal(result.memberships.some(row=>row.team_id==="aaa-rp6yzq-football-2026"),false);
 });
 
 test("M9 curated residual aliases resolve only the exact local school identities",()=>{
