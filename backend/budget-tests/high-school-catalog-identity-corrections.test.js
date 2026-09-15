@@ -28,18 +28,18 @@ const EXPECTED_EXCLUDE = new Set([
   "aaa-rp6yzq"
 ]);
 
-test("all 11 production-only high-school identities remain explicitly reviewed alongside the Forrest City duplicate", () => {
+test("all 11 production-only high-school identities remain explicitly reviewed alongside the Forrest City duplicate exclusion", () => {
   const extras = reconciliation.production_high_school_rows_not_in_certified_aaa_295;
   assert.equal(extras.length, 11);
   const reviewed = new Set([...REVIEWED_HIGH_SCHOOL_KEEP_IDS, ...REVIEWED_HIGH_SCHOOL_EXCLUDE_IDS]);
   assert.equal(reviewed.size, 12);
+  for (const row of extras) assert.equal(reviewed.has(row.school_id), true, `${row.school_id} must remain reviewed`);
+  assert.equal(reviewed.has("aaa-rp6yzq"), true, "Forrest City typo duplicate must remain explicitly excluded");
   for (const row of extras) {
-    assert.equal(reviewed.has(row.school_id), true, `${row.school_id} must remain reviewed`);
     const result = highSchoolCatalogIdentityDecision({ id: row.school_id, name: row.school_name, level: "high-school" });
     assert.ok(result.decision === "keep" || result.decision === "exclude", `${row.school_id} must be reviewed`);
     assert.equal(result.reviewed, true);
   }
-  assert.equal(reviewed.has("aaa-rp6yzq"), true, "reviewed duplicate Forest City identity must stay excluded");
 });
 
 test("reviewed production identities split 5 keep and 7 exclude", () => {

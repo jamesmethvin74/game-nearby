@@ -3,9 +3,12 @@ import { buildResultGapAudit } from "./result-gap-audit.js";
 import { buildStatewideRecordTruthAudit } from "./record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-completeness-report.js";
+import { dryRunHighSchoolMembership,dryRunCollegeMembership,M9_DRY_RUN_SOURCES } from "./m9-membership-dry-run-v3.js";
+import { planStatewideConferenceMembershipPopulation } from "./statewide-conference-membership-population.js";
 
 const RESULT_GAP_VIEW = "result-gaps";
 const RECORD_TRUTH_VIEW = "record-truth";
+const M9_DRY_RUN_PATH = "/api/v1/internal/m9-membership-dry-run-20260915-a3f91c2e";
 
 function jsonFrom(upstream, body) {
   const headers = new Headers(upstream.headers);
@@ -30,6 +33,10 @@ function auditJson(body,status=200) {
   });
 }
 
+function privateJson(body,status=200){
+  return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store","x-localbleachers-m9":"dry-run-only"}});
+}
+
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token") === env.REFRESH_TOKEN;
 }
@@ -37,6 +44,24 @@ function authorizedAudit(request,env) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if(request.method==="GET" && url.pathname===M9_DRY_RUN_PATH){
+      const source=String(url.searchParams.get("source")||"").trim();
+      const allowed=[...M9_DRY_RUN_SOURCES,"all"];
+      if(!allowed.includes(source)) return privateJson({error:"invalid_source",allowed},400);
+      try{
+        const result=source==="all"
+          ? await planStatewideConferenceMembershipPopulation(env)
+          : source==="college"
+            ? await dryRunCollegeMembership(env)
+            : await dryRunHighSchoolMembership(env,source);
+        if(Number(result?.d1?.rows_written||0)!==0) return privateJson({error:"dry_run_write_guard",result},500);
+        return privateJson(result);
+      }catch(error){
+        return privateJson({error:"m9_dry_run_failed",source,message:String(error?.message||error)},500);
+      }
+    }
+
     const coverageView = request.method === "GET" && url.pathname === "/api/v1/coverage-report"
       ? url.searchParams.get("view")
       : null;
@@ -55,8 +80,6 @@ export default {
 
     if (coverageView !== RESULT_GAP_VIEW) return app.fetch(request, env, ctx);
 
-    // Reuse the existing truthful statewide snapshot. The M8 classifier is purely
-    // in-memory and intentionally adds no D1 statement or write.
     const fullUrl = new URL(request.url);
     fullUrl.searchParams.delete("view");
     const upstream = await app.fetch(new Request(fullUrl.toString(), request), env, ctx);
@@ -75,4 +98,4 @@ export default {
   }
 };
 
-export { RECORD_TRUTH_VIEW, RESULT_GAP_VIEW, authorizedAudit };
+export { M9_DRY_RUN_PATH, RECORD_TRUTH_VIEW, RESULT_GAP_VIEW, authorizedAudit };

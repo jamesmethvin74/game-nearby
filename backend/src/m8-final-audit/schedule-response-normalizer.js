@@ -41,11 +41,18 @@ function minutesBetween(a, b) {
   return Number.isFinite(aa) && Number.isFinite(bb) ? Math.abs(aa - bb) / 60000 : Infinity;
 }
 
-function scheduleRowsShareSlot(a, b, { reportingSchoolId = null, maxMinutes = 15 } = {}) {
+export function scheduleRowsLikelyDuplicate(a, b, { reportingSchoolId = null, maxMinutes = 15 } = {}) {
   if (!a || !b) return false;
   if (clean(a.sport).toLowerCase() !== clean(b.sport).toLowerCase()) return false;
   if (clean(a.gender).toLowerCase() !== clean(b.gender).toLowerCase()) return false;
   if (!reportingSchoolId && a.school_id && b.school_id && a.school_id !== b.school_id) return false;
+
+  // Once reconciliation has proven two observations belong to distinct canonical
+  // events, never collapse them again just because a tournament/rematch source gave
+  // both games the same date-only timestamp and opponent pair.
+  const aCanonical=clean(a.canonical_event_id);
+  const bCanonical=clean(b.canonical_event_id);
+  if (aCanonical && bCanonical && aCanonical !== bCanonical) return false;
 
   const aTime = a.scheduled_at || a.canonical_scheduled_at;
   const bTime = b.scheduled_at || b.canonical_scheduled_at;
@@ -54,33 +61,6 @@ function scheduleRowsShareSlot(a, b, { reportingSchoolId = null, maxMinutes = 15
   const bOpponentId = clean(b.opponent_school_id);
   if (aOpponentId && bOpponentId) return aOpponentId === bOpponentId;
   return opponentNamesLikelySame(a.opponent, b.opponent);
-}
-
-export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
-  if (!scheduleRowsShareSlot(a, b, options)) return false;
-
-  // Once reconciliation has proven two observations belong to distinct canonical
-  // events, never collapse them just because a tournament/rematch source gave both
-  // games the same date-only timestamp and opponent pair.
-  const aCanonical=clean(a.canonical_event_id);
-  const bCanonical=clean(b.canonical_event_id);
-  if (aCanonical && bCanonical && aCanonical !== bCanonical) return false;
-  return true;
-}
-
-function identicalVerifiedFinalSnapshot(a, b, options = {}) {
-  const aCanonical=clean(a?.canonical_event_id);
-  const bCanonical=clean(b?.canonical_event_id);
-  if (!aCanonical || !bCanonical || aCanonical === bCanonical) return false;
-  if (!scheduleRowsShareSlot(a, b, options)) return false;
-  if (String(a.status || "").toUpperCase() !== "FINAL" || String(b.status || "").toUpperCase() !== "FINAL") return false;
-
-  const aTruth=evaluateFinalResultTruth(a);
-  const bTruth=evaluateFinalResultTruth(b);
-  if (aTruth.state !== "VERIFIED" || bTruth.state !== "VERIFIED") return false;
-  return aTruth.row.result === bTruth.row.result
-    && Number(aTruth.row.team_score) === Number(bTruth.row.team_score)
-    && Number(aTruth.row.opponent_score) === Number(bTruth.row.opponent_score);
 }
 
 function trustScore(value) {
@@ -140,10 +120,7 @@ export function dedupeScheduleRows(games, options = {}) {
   const rows = Array.isArray(games) ? games : [];
   const merged = [];
   for (const row of rows) {
-    const index = merged.findIndex(existing =>
-      scheduleRowsLikelyDuplicate(existing, row, options)
-      || identicalVerifiedFinalSnapshot(existing, row, options)
-    );
+    const index = merged.findIndex(existing => scheduleRowsLikelyDuplicate(existing, row, options));
     if (index === -1) merged.push({ ...row, schedule_observation_count: Number(row.schedule_observation_count || 1) });
     else merged[index] = mergeDuplicateRows(merged[index], row);
   }
