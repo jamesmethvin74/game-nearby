@@ -35,8 +35,6 @@ export function relatedObservationsForReconciliation(seed,candidates,{timeZone="
   const ambiguousSameDayRematch=hasSameDayNativeRematch(seed,rows,timeZone);
   const seedNative=nativeObservationIdentity(seed);
 
-  // If authoritative native evidence proves the same participants met more than once
-  // on the same day, an untimed generic observation cannot safely choose a game.
   if (ambiguousSameDayRematch && !seedNative && !seed?.scheduled_time_known) return [];
 
   return rows.filter(candidate=>{
@@ -49,9 +47,6 @@ export function relatedObservationsForReconciliation(seed,candidates,{timeZone="
       return seedNative.key===candidateNative.key;
     }
 
-    // With a same-day rematch, only a real clock on both observations can bridge
-    // different source families. An untimed row must remain unattached rather than
-    // being guessed onto the wrong tournament match.
     return Boolean(seed?.scheduled_time_known && candidate?.scheduled_time_known);
   });
 }
@@ -116,8 +111,30 @@ export async function reconcileResolvedObservation(env,gameId) {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(id) DO UPDATE SET home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,
       scheduled_time_known=excluded.scheduled_time_known,venue=excluded.venue,location_text=excluded.location_text,latitude=excluded.latitude,longitude=excluded.longitude,
-      conference_game=excluded.conference_game,status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
-      trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`)
+      conference_game=excluded.conference_game,status=excluded.status,
+      home_score=CASE
+        WHEN canonical_events.status='FINAL'
+          AND canonical_events.home_score IS NOT NULL
+          AND canonical_events.away_score IS NOT NULL
+          AND excluded.status='FINAL'
+          AND (excluded.home_score IS NULL OR excluded.away_score IS NULL)
+          AND canonical_events.home_school_id=excluded.home_school_id
+          AND canonical_events.away_school_id=excluded.away_school_id
+        THEN canonical_events.home_score
+        ELSE excluded.home_score
+      END,
+      away_score=CASE
+        WHEN canonical_events.status='FINAL'
+          AND canonical_events.home_score IS NOT NULL
+          AND canonical_events.away_score IS NOT NULL
+          AND excluded.status='FINAL'
+          AND (excluded.home_score IS NULL OR excluded.away_score IS NULL)
+          AND canonical_events.home_school_id=excluded.home_school_id
+          AND canonical_events.away_school_id=excluded.away_school_id
+        THEN canonical_events.away_score
+        ELSE excluded.away_score
+      END,
+      selected_source_id=excluded.selected_source_id,trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`)
     .bind(resolved.id,resolved.sport,resolved.gender,resolved.season,resolved.participantA,resolved.participantB,resolved.homeSchoolId,resolved.awaySchoolId,
       resolved.scheduledAt,resolved.scheduledTimeKnown?1:0,resolved.venue||null,venueObservation?.location_text||resolved.venue||null,geoObservation?.latitude??null,geoObservation?.longitude??null,
       conferenceGame,resolved.status,resolved.homeScore??null,resolved.awayScore??null,resolved.selectedSourceId,resolved.trustState,resolved.conflicts.length,
