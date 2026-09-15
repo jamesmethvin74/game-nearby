@@ -13,50 +13,41 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Read exact residual school metadata
+      - name: Read school catalog once
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p m9-unknown
-          ids=(
-            aaa-kkngn2 aaa-qtg924 aaa-rp6yzq aaa-y7mrh7 aaa-zbqf4u
-            df-28tzpd df-354bu3 df-5xyspt df-6blldr df-76naez df-7wy9aj
-            df-7x4sxh df-8ak58a df-epraq7 df-ht8yyh df-jpcbnr df-k7ketx
-            df-ktr7yd df-pucby7 df-qlkhe2 df-qrvx97 df-qtvk53 df-qx6b5u
-            df-qyakr5 df-srqlt7 df-suqu5r df-t2mq54 df-vvme46 df-w9t9gr
-          )
-          printf '[\n' > m9-unknown/schools.json
-          first=1
-          for id in "${ids[@]}"; do
-            tmp=$(mktemp)
-            code=$(curl --silent --show-error --max-time 60 -w '%{http_code}' \
-              "https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools/${id}/schedule" \
-              -o "$tmp")
-            if [ "$code" != "200" ]; then
-              echo "metadata probe failed for $id HTTP $code" >&2
-              cat "$tmp" >&2
-              exit 1
-            fi
-            node - "$id" "$tmp" > row.json <<'NODE'
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/schools'
+          code=$(curl --silent --show-error --max-time 120 -w '%{http_code}' "$URL" -o m9-unknown/all-schools.json)
+          if [ "$code" != "200" ]; then
+            echo "school catalog probe HTTP $code" >&2
+            cat m9-unknown/all-schools.json >&2
+            exit 1
+          fi
+          node <<'NODE'
           const fs=require('fs');
-          const schoolId=process.argv[2];
-          const body=JSON.parse(fs.readFileSync(process.argv[3],'utf8'));
-          const statuses=Array.isArray(body.team_statuses)?body.team_statuses:[];
-          const names=[...new Set(statuses.map(x=>x.school_name).filter(Boolean))];
-          console.log(JSON.stringify({school_id:schoolId,school_names:names,teams:statuses.map(x=>({team_id:x.team_id,school_name:x.school_name,sport:x.sport,gender:x.gender,level:x.level}))}));
+          const body=JSON.parse(fs.readFileSync('m9-unknown/all-schools.json','utf8'));
+          const residual=new Set([
+            'aaa-kkngn2','aaa-qtg924','aaa-rp6yzq','aaa-y7mrh7','aaa-zbqf4u','df-28tzpd','df-354bu3','df-5xyspt','df-6blldr','df-76naez','df-7wy9aj','df-7x4sxh','df-8ak58a','df-epraq7','df-ht8yyh','df-jpcbnr','df-k7ketx','df-ktr7yd','df-pucby7','df-qlkhe2','df-qrvx97','df-qtvk53','df-qx6b5u','df-qyakr5','df-srqlt7','df-suqu5r','df-t2mq54','df-vvme46','df-w9t9gr'
+          ]);
+          const clean=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').replace(/\b(high|school|academy|christian|collegiate|university|studies|athletics)\b/g,' ').replace(/\s+/g,' ').trim();
+          const schools=Array.isArray(body.schools)?body.schools:[];
+          const rows=[];
+          for(const s of schools.filter(x=>residual.has(String(x.id)))) {
+            const key=clean(s.name);
+            const near=schools.filter(x=>String(x.id)!==String(s.id) && clean(x.name)===key).map(x=>({id:x.id,name:x.name,level:x.level,catalog_scope:x.catalog_scope,team_count:x.team_count}));
+            rows.push({id:s.id,name:s.name,level:s.level,catalog_scope:s.catalog_scope,team_count:s.team_count,exact_normalized_duplicates:near});
+          }
+          fs.writeFileSync('m9-unknown/residual-catalog.json',JSON.stringify(rows,null,2));
+          console.log(JSON.stringify(rows,null,2));
           NODE
-            if [ $first -eq 0 ]; then printf ',\n' >> m9-unknown/schools.json; fi
-            cat row.json >> m9-unknown/schools.json
-            first=0
-          done
-          printf '\n]\n' >> m9-unknown/schools.json
-          cat m9-unknown/schools.json
 
-      - name: Upload metadata evidence
+      - name: Upload catalog evidence
         uses: actions/upload-artifact@v4
         with:
-          name: m9-unknown-team-metadata
-          path: m9-unknown/schools.json
+          name: m9-residual-school-catalog
+          path: m9-unknown/residual-catalog.json
           retention-days: 3
