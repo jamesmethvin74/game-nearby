@@ -1,6 +1,7 @@
 import app from "./logo-bootstrap-worker.js";
 import { buildResultGapAudit } from "./result-gap-audit.js";
 import { dryRunHighSchoolMembership,dryRunCollegeMembership,M9_DRY_RUN_SOURCES } from "./m9-membership-dry-run-v3.js";
+import { planStatewideConferenceMembershipPopulation } from "./statewide-conference-membership-population.js";
 
 const RESULT_GAP_VIEW = "result-gaps";
 const M9_DRY_RUN_PATH = "/api/v1/internal/m9-membership-dry-run-20260915-a3f91c2e";
@@ -26,9 +27,14 @@ export default {
     const url = new URL(request.url);
     if(request.method==="GET" && url.pathname===M9_DRY_RUN_PATH){
       const source=String(url.searchParams.get("source")||"").trim();
-      if(!M9_DRY_RUN_SOURCES.includes(source)) return privateJson({error:"invalid_source",allowed:M9_DRY_RUN_SOURCES},400);
+      const allowed=[...M9_DRY_RUN_SOURCES,"all"];
+      if(!allowed.includes(source)) return privateJson({error:"invalid_source",allowed},400);
       try{
-        const result=source==="college"?await dryRunCollegeMembership(env):await dryRunHighSchoolMembership(env,source);
+        const result=source==="all"
+          ? await planStatewideConferenceMembershipPopulation(env)
+          : source==="college"
+            ? await dryRunCollegeMembership(env)
+            : await dryRunHighSchoolMembership(env,source);
         if(Number(result?.d1?.rows_written||0)!==0) return privateJson({error:"dry_run_write_guard",result},500);
         return privateJson(result);
       }catch(error){
