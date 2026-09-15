@@ -54,7 +54,6 @@ export const HIGH_SCHOOL_IDENTITY_OVERRIDES=new Map([
   ["*|*|nemo-vista","df-28tzpd"],
   ["*|*|west-fork","df-qlkhe2"],
   ["*|*|lonoke","df-qyakr5"],
-  ["*|*|forrest-city","aaa-rp6yzq"],
 
   ["basketball-boys|1a-region-6|marvell","aaa-agkhey"],
   ["basketball-girls|1a-region-6|marvell","aaa-agkhey"],
