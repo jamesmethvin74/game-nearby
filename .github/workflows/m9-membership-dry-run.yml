@@ -1,6 +1,6 @@
 name: M9 membership dry run
 
-# final one-shot read-only statewide planner evidence
+# final one-shot read-only statewide planner evidence after 250-conference fuse
 on:
   push:
     branches:
