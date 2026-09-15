@@ -11,7 +11,7 @@ import {
 
 const SEASON="2026";
 const MAX_MEMBERSHIPS=1500;
-const MAX_CONFERENCES=180;
+const MAX_CONFERENCES=250;
 const MAX_TEAM_POINTER_CHANGES=1500;
 
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
