@@ -1,0 +1,84 @@
+name: M9 approved production operation
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m9-production-once.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m9-approved-production-operation
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Execute approved fingerprint-locked M9 operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          API='https://localbleachersar-sports-api.james-methvin74.workers.dev'
+          PATH_ONCE='/api/v1/internal/m9-production-apply-20260915-7d2b9f4c1a6e'
+          FP='m9-statewide-membership-1220-228-61764aa2'
+          mkdir -p m9-production-evidence
+
+          ready=0
+          for attempt in $(seq 1 24); do
+            code=$(curl --silent --show-error --max-time 30 -w '%{http_code}' "$API$PATH_ONCE" -o m9-production-evidence/readiness.json || true)
+            if [ "$code" = "200" ] && node -e 'const b=require("./m9-production-evidence/readiness.json"); process.exit(b.status==="READY" && b.fingerprint==="m9-statewide-membership-1220-228-61764aa2" ? 0 : 1)' 2>/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ready" != "1" ]; then
+            echo 'M9 production endpoint never reached locked READY state'
+            cat m9-production-evidence/readiness.json || true
+            exit 1
+          fi
+
+          code=$(curl --silent --show-error --max-time 360 \
+            -X POST \
+            -H 'content-type: application/json' \
+            --data '{"fingerprint":"m9-statewide-membership-1220-228-61764aa2"}' \
+            -w '%{http_code}' \
+            "$API$PATH_ONCE" \
+            -o m9-production-evidence/result.json)
+
+          cat m9-production-evidence/result.json
+          echo
+          echo "HTTP $code"
+          test "$code" = "200"
+
+          node <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('m9-production-evidence/result.json','utf8'));
+          if(body.status!=='CERTIFIED' || body.certified!==true) throw new Error(`M9 not certified: ${JSON.stringify(body.failures||body)}`);
+          if(body.fingerprint!=='m9-statewide-membership-1220-228-61764aa2') throw new Error('fingerprint drift');
+          const v=body.verification?.values||{};
+          const expected={expected_teams:1220,membership_rows:1220,total_membership_rows:1220,member:1190,independent:1,unknown:29,invalid:0,missing_membership_rows:0,inactive_or_missing_expected_teams:0,member_without_conference_id:0,nonmember_with_conference_id:0,missing_conference_refs:0,conference_pointer_mismatches:0};
+          for(const [key,value] of Object.entries(expected)) if(Number(v[key])!==value) throw new Error(`${key}: ${v[key]} != ${value}`);
+          if(Number(body.verification?.d1?.rows_written||0)!==0) throw new Error('verification wrote rows');
+          if(Number(body.verification?.d1?.rows_read||0)>5000) throw new Error(`verification read budget exceeded: ${body.verification.d1.rows_read}`);
+          if(Number(body.write?.data_changes||0)>2478) throw new Error(`write bound exceeded: ${body.write.data_changes}`);
+          if(Number(body.write?.set_based_statements||0)!==3) throw new Error('unexpected write statement count');
+          fs.writeFileSync('m9-production-evidence/certification-summary.json',JSON.stringify({
+            status:body.status,certified:body.certified,fingerprint:body.fingerprint,
+            migration:body.migration,write:body.write,verification:body.verification
+          },null,2));
+          NODE
+
+      - name: Upload M9 production certification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m9-production-certification
+          path: m9-production-evidence
+          if-no-files-found: error
+          retention-days: 7
