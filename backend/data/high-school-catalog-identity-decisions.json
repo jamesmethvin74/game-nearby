@@ -1,9 +1,9 @@
 {
-  "version": "statewide-content-completion-high-school-identity-v1",
-  "reviewed_at": "2026-09-04",
+  "version": "statewide-content-completion-high-school-identity-v2",
+  "reviewed_at": "2026-09-15",
   "base_certified_high_school_count": 295,
   "reviewed_keep_additions": 5,
-  "reviewed_exclusions": 6,
+  "reviewed_exclusions": 7,
   "user_facing_high_school_denominator": 300,
   "keep": [
     {
@@ -95,6 +95,14 @@
       "city": "Pocahontas",
       "decision": "exclude",
       "reason": "Junior-high identity; outside varsity high-school scope."
+    },
+    {
+      "school_id": "aaa-rp6yzq",
+      "provider_org_id": null,
+      "name": "Forest City High School",
+      "city": "",
+      "decision": "exclude",
+      "reason": "Reviewed duplicate of df-cqpax3 FORREST CITY HIGH SCHOOL; same Mustangs identity, but this typo variant has no city and only one team while df-cqpax3 carries the authoritative four-sport local catalog."
     }
   ]
 }
