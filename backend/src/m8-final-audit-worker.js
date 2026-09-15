@@ -2,6 +2,7 @@ import app from "./m8-worker.js";
 import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
+import { handleM9ProductionOnce } from "./m9-production-once.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
@@ -30,6 +31,9 @@ async function runAudit(env) {
 
 export default {
   async fetch(request,env,ctx) {
+    const m9ProductionResponse=await handleM9ProductionOnce(request,env);
+    if(m9ProductionResponse) return m9ProductionResponse;
+
     const url=new URL(request.url);
     const authorizedView=request.method==="GET"
       && url.pathname==="/api/v1/coverage-report"
