@@ -7,7 +7,7 @@ import { HIGH_SCHOOL_IDENTITY_OVERRIDES, highSchoolMembershipIdentityOverride, i
 
 const SEASON="2026";
 const MAX_MEMBERSHIPS=1500;
-const MAX_CONFERENCES=180;
+const MAX_CONFERENCES=250;
 const MAX_TEAM_POINTER_CHANGES=1500;
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
 function safe(value){return clean(value).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
