@@ -11,16 +11,16 @@ permissions:
   contents: read
 
 jobs:
-  m10-seven-team-materialization:
+  m10-final-verification:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Materialize the five bounded M10 conference cohorts
+      - name: Verify final M10 production truth
         shell: bash
         run: |
           set -euo pipefail
-          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m10-materialize-seven-20260915-cf2a9d40'
-          code=$(curl -sS --max-time 60 -X POST -w '%{http_code}' "$URL" -o result.json)
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m10-final-verify-20260915-6d4c9e21'
+          code=$(curl -sS --max-time 60 -w '%{http_code}' "$URL" -o result.json)
           cat result.json
           echo
           echo "HTTP $code"
@@ -28,11 +28,10 @@ jobs:
           node <<'NODE'
           const fs=require('fs');
           const body=JSON.parse(fs.readFileSync('result.json','utf8'));
-          if(body.status!=='PASS') throw new Error(`unexpected repair status ${body.status}`);
-          if(Number(body.missing_before)!==7) throw new Error(`expected missing_before=7, got ${body.missing_before}`);
-          if(Number(body.missing_after)!==0) throw new Error(`expected missing_after=0, got ${body.missing_after}`);
-          if(Number(body.fuse?.cohort_count)!==5) throw new Error(`expected five cohorts, got ${body.fuse?.cohort_count}`);
-          if(Number(body.fuse?.candidate_rows)<7 || Number(body.fuse?.candidate_rows)>50) throw new Error(`candidate row fuse failed: ${body.fuse?.candidate_rows}`);
-          if(Number(body.write?.cohorts)!==5) throw new Error(`expected five rebuilt cohorts, got ${body.write?.cohorts}`);
-          console.log('M10 bounded standings materialization PASS');
+          if(body.status!=='PASS') throw new Error(`verification status ${body.status}`);
+          const v=body.verification||{};
+          if(Number(v.started_members_missing_materialized_standings)!==0) throw new Error(`started_members_missing_materialized_standings=${v.started_members_missing_materialized_standings}`);
+          if(Number(v.unexplained_record_contradictions)!==0) throw new Error(`unexplained_record_contradictions=${v.unexplained_record_contradictions}`);
+          if(Number(body.d1?.rows_written||0)!==0) throw new Error(`rows_written=${body.d1?.rows_written}`);
+          console.log('M10 final production verification PASS');
           NODE
