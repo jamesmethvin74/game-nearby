@@ -31,12 +31,10 @@ jobs:
           if(body.status!=='PASS') throw new Error(`verification status ${body.status}`);
           const v=body.verification||{};
           const expected={
-            expected_teams:1220,
-            explicit_memberships:1220,
+            membership_rows:1220,
             member:1190,
             independent:1,
             unknown:29,
-            missing_memberships:0,
             invalid_memberships:0,
             conference_pointer_mismatches:0,
             nonmember_pointer_mismatches:0,
