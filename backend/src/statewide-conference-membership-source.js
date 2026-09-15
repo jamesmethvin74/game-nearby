@@ -1,4 +1,5 @@
 import { parsePublishedStandings } from "./published-standings.js";
+import { normalizeMembershipSourceSchoolName } from "./m9-high-school-membership-identity.js";
 
 const MAXPREPS_ORIGIN="https://www.maxpreps.com";
 const FETCH_BATCH_SIZE=4;
@@ -32,7 +33,7 @@ function cleanText(value="") {
     .replace(/<[^>]+>/g," ")
     .replace(/&nbsp;/gi," ")
     .replace(/&amp;/gi,"&")
-    .replace(/&#39;/g,"'")
+    .replace(/&#(?:39|x27);/gi,"'")
     .replace(/&quot;/gi,'"')
     .replace(/\s+/g," ")
     .trim();
@@ -97,8 +98,11 @@ export async function fetchCurrentConferenceRosters(sourceConfig,{fetchFn=fetch}
           conferenceName:conference.name,
           sourceUrl:page.finalUrl
         });
-        if(!parsed.standings.length) throw new Error("empty conference roster");
-        return {conference:{...conference,source_url:page.finalUrl},schools:parsed.standings.map(row=>row.school_name)};
+        const schools=parsed.standings
+          .map(row=>normalizeMembershipSourceSchoolName(row.school_name))
+          .filter(Boolean);
+        if(!schools.length) throw new Error("empty conference roster");
+        return {conference:{...conference,source_url:page.finalUrl},schools};
       } catch(error) {
         return {conference,error:String(error?.message||error)};
       }
