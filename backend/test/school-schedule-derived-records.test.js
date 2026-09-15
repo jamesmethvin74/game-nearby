@@ -39,7 +39,8 @@ test("team detail derives a record from the scored finals already visible in its
     assert.equal(row.conference_wins, 0);
     assert.equal(row.conference_losses, 0);
     assert.equal(row.conference_ties, 0);
-    assert.equal(row.record_source, "schedule-derived");
+    assert.equal(row.record_source, "normalized-final-games");
+    assert.equal(row.record_verified, true);
   }
 });
 
@@ -52,7 +53,8 @@ test("legacy bare zero flags cannot hide ordinary scored finals statewide", () =
   const result = attachScheduleDerivedRecords(rows);
   assert.equal(result[0].wins, 1);
   assert.equal(result[0].losses, 1);
-  assert.equal(result[0].record_source, "schedule-derived");
+  assert.equal(result[0].record_source, "normalized-final-games");
+  assert.equal(result[0].record_verified, true);
 });
 
 test("named non-record games stay excluded while ordinary legacy finals count", () => {
@@ -82,7 +84,9 @@ test("certified DragonFly zero remains an explicit non-record decision", () => {
   const result = attachScheduleDerivedRecords(rows);
   assert.equal(result[0].wins, null);
   assert.equal(result[0].losses, null);
-  assert.equal(result[0].record_source, undefined);
+  assert.equal(result[0].record_source, "unverified");
+  assert.equal(result[0].record_state, "NO_RECORD_EVIDENCE");
+  assert.equal(result[0].record_verified, false);
 });
 
 test("high-school basketball before the official 2026-27 boundary stays out of records", () => {
@@ -105,10 +109,12 @@ test("high-school basketball before the official 2026-27 boundary stays out of r
   const result = attachScheduleDerivedRecords(rows);
   assert.equal(result[0].wins, null);
   assert.equal(result[0].losses, null);
-  assert.equal(result[0].record_source, undefined);
+  assert.equal(result[0].record_source, "unverified");
+  assert.equal(result[0].record_state, "NO_RECORD_EVIDENCE");
+  assert.equal(result[0].record_verified, false);
 });
 
-test("a richer stored record is preserved when the visible schedule snapshot has fewer scored finals", () => {
+test("a richer stored record marks visible schedule evidence incomplete instead of overriding game truth", () => {
   const rows = [
     game({
       id:"capital",
@@ -126,9 +132,12 @@ test("a richer stored record is preserved when the visible schedule snapshot has
   ];
 
   const result = attachScheduleDerivedRecords(rows);
-  assert.equal(result[0].wins, 3);
-  assert.equal(result[0].losses, 1);
-  assert.equal(result[0].record_source, undefined);
+  assert.equal(result[0].wins, null);
+  assert.equal(result[0].losses, null);
+  assert.equal(result[0].record_source, "unverified");
+  assert.equal(result[0].record_state, "INCOMPLETE");
+  assert.equal(result[0].record_verified, false);
+  assert.ok(result[0].record_issues.some(issue => issue.code === "STORED_RECORD_EXCEEDS_FINAL_EVIDENCE"));
 });
 
 test("no scored finals does not fabricate a 0-0 record when no record exists", () => {
@@ -139,5 +148,7 @@ test("no scored finals does not fabricate a 0-0 record when no record exists", (
   const result = attachScheduleDerivedRecords(rows);
   assert.equal(result[0].wins, null);
   assert.equal(result[0].losses, null);
-  assert.equal(result[0].record_source, undefined);
+  assert.equal(result[0].record_source, "unverified");
+  assert.equal(result[0].record_state, "NO_RECORD_EVIDENCE");
+  assert.equal(result[0].record_verified, false);
 });
