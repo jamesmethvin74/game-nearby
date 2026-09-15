@@ -1,12 +1,18 @@
 import app from "./m4-public-worker.js";
 import { membershipPublicStatus } from "./conference-membership-truth.js";
 import { loadStandingsTruth } from "./standings-truth.js";
-import { parseStandingsRecord } from "./conference-standings-truth.js";
+import { parseStandingsRecord, schoolKey } from "./conference-standings-truth.js";
 
 function json(body, response) {
   const headers = new Headers(response.headers);
   headers.set("content-type", "application/json; charset=utf-8");
   return new Response(JSON.stringify(body), { status: response.status, headers });
+}
+
+function recordIssue(status, issue) {
+  const issues=Array.isArray(status.record_issues) ? [...status.record_issues] : [];
+  if (!issues.some(existing=>existing?.code===issue?.code)) issues.push(issue);
+  return issues;
 }
 
 export function applyMembershipTruthToStatuses(statuses = [], memberships = []) {
@@ -78,33 +84,93 @@ function sameRecord(left, right) {
 function rowForStatus(payload, status) {
   const rows=Array.isArray(payload?.standings) ? payload.standings : [];
   return rows.find(row => row.team_id && String(row.team_id)===String(status.team_id))
-    || rows.find(row => String(row.school_name||"").trim().toLowerCase()===String(status.school_name||"").trim().toLowerCase())
+    || rows.find(row => schoolKey(row.school_name) && schoolKey(row.school_name)===schoolKey(status.school_name))
     || null;
+}
+
+function applyPublishedCompletenessCrossCheck(status, row) {
+  const next={...status};
+  const publishedConference=row?.published_conference_record;
+  const publishedOverall=row?.published_overall_record;
+  const publishedConferenceGames=parseStandingsRecord(publishedConference).games;
+  const publishedOverallGames=parseStandingsRecord(publishedOverall).games;
+  const localConferenceGames=Number(next.conference_games||0);
+  const localOverallGames=Number(next.overall_games||0);
+
+  if (publishedOverall && publishedOverallGames > localOverallGames) {
+    next.overall_record=null;
+    next.record_verified=false;
+    next.record_state="INCOMPLETE";
+    next.record_audit_state="INCOMPLETE";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE",
+      detail:`Published record covers ${publishedOverallGames} games; normalized final evidence covers ${localOverallGames}.`
+    });
+  } else if (publishedOverall && publishedOverallGames===localOverallGames && publishedOverallGames>0
+    && next.overall_record && !sameRecord(next.overall_record,publishedOverall)) {
+    if (next.record_audit_state==="VERIFIED") next.record_audit_state="CONTRADICTORY";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+      detail:"Published overall record disagrees with normalized final-game truth; normalized individual games remain authoritative.",
+      informational:true
+    });
+  }
+
+  if (publishedConference && publishedConferenceGames > localConferenceGames) {
+    next.conference_record=null;
+    next.rank=null;
+    next.standing_state="unavailable";
+    next.record_verified=false;
+    next.record_state="INCOMPLETE";
+    next.record_audit_state="INCOMPLETE";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
+      detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${localConferenceGames}.`
+    });
+  } else if (publishedConference && publishedConferenceGames===localConferenceGames && publishedConferenceGames>0
+    && next.conference_record && !sameRecord(next.conference_record,publishedConference)) {
+    next.rank=null;
+    next.standing_state="unavailable";
+    if (next.record_audit_state==="VERIFIED") next.record_audit_state="CONTRADICTORY";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+      detail:"Published conference record disagrees with normalized conference final-game truth; normalized individual games remain authoritative.",
+      informational:true
+    });
+  }
+  return next;
 }
 
 export function applyStandingsTruthToStatuses(statuses = [], truthByKey = new Map()) {
   return statuses.map(status => {
     if (status.conference_membership_state !== "member" || !status.conference_id || !status.sport) return status;
-    if (Number(status.conference_games || 0) === 0) {
-      return { ...status, conference_record:"N/A", rank:null, standing_state:"not-started" };
-    }
     const key=`${String(status.sport).toLowerCase()}|${String(status.conference_id).toLowerCase()}`;
     const payload=truthByKey.get(key);
-    if (!payload) return { ...status, rank:null, standing_state:"unavailable" };
-    const row=rowForStatus(payload,status);
-    if (!row) return { ...status, rank:null, standing_state:"unavailable" };
+    const row=payload ? rowForStatus(payload,status) : null;
 
-    const canonicalAgree=sameRecord(status.conference_record,row.conference_record);
-    return {
-      ...status,
-      rank:canonicalAgree ? row.rank : null,
-      standing_state:canonicalAgree ? (row.standing_state || (row.rank ? "ranked" : "unavailable")) : "unavailable",
-      standings_verified:Boolean(canonicalAgree && row.standings_verified),
-      published_cross_check:row.published_cross_check || null,
-      published_rank:row.published_rank ?? null,
-      published_conference_record:row.published_conference_record ?? null,
-      published_overall_record:row.published_overall_record ?? null
-    };
+    let next={...status};
+    if (Number(next.conference_games||0)===0) {
+      next.conference_record="N/A";
+      next.rank=null;
+      next.standing_state="not-started";
+    } else if (!row) {
+      next.rank=null;
+      next.standing_state="unavailable";
+    } else {
+      const canonicalAgree=sameRecord(next.conference_record,row.conference_record);
+      next.rank=canonicalAgree ? row.rank : null;
+      next.standing_state=canonicalAgree ? (row.standing_state || (row.rank ? "ranked" : "unavailable")) : "unavailable";
+      next.standings_verified=Boolean(canonicalAgree && row.standings_verified);
+    }
+
+    if (row) {
+      next.published_cross_check=row.published_cross_check || null;
+      next.published_rank=row.published_rank ?? null;
+      next.published_conference_record=row.published_conference_record ?? null;
+      next.published_overall_record=row.published_overall_record ?? null;
+      next=applyPublishedCompletenessCrossCheck(next,row);
+    }
+    return next;
   });
 }
 
@@ -141,8 +207,6 @@ async function enforceMembershipTruth(response, env) {
   try {
     memberships = await membershipRows(env, body.team_statuses.map(row => row.team_id));
   } catch (error) {
-    // Deployment is intentionally backward compatible with the migration order:
-    // until 0016 exists, preserve the prior response rather than taking schedules down.
     if (/no such table|conference_memberships/i.test(String(error?.message || error))) return response;
     throw error;
   }
@@ -220,6 +284,7 @@ export default {
 };
 
 export {
+  applyPublishedCompletenessCrossCheck,
   conferenceStandingsId,
   enforceConferenceStandingsRoute,
   enforceMembershipTruth,
