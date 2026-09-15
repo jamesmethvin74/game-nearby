@@ -139,7 +139,7 @@ function emptyDb(){
   };
 }
 
-test("M9 statewide truth matrix keeps Team Detail status and Standings on one backend truth path", async () => {
+test("M10 statewide truth matrix keeps local records authoritative and published tables as cross-check evidence", async () => {
   const originalFetch=globalThis.fetch;
   globalThis.fetch=fakeFetchFactory();
   try{
@@ -189,21 +189,25 @@ test("M9 statewide truth matrix keeps Team Detail status and Standings on one ba
       const derived=derivedByTeam.get(sample.teamId);
 
       assert.equal(status.overall_record,sample.overall,`${sample.school} Team Detail overall`);
-      assert.equal(standing.overall_record,sample.overall,`${sample.school} Standings overall`);
       assert.equal(status.conference_name,sample.conference,`${sample.school} conference membership`);
       assert.equal(status.conference_record,sample.conferenceRecord,`${sample.school} Team Detail conference record`);
-      assert.equal(status.rank,sample.rank,`${sample.school} Team Detail rank`);
+      assert.equal(status.rank,null,`${sample.school} published rank must not become Team Detail truth without certified local standings`);
       assert.equal(status.overall_games,sample.visibleFinals,`${sample.school} Team Detail overall game count`);
       assert.equal(status.conference_games,sample.conferenceFinals,`${sample.school} Team Detail conference game count`);
 
+      assert.equal(standing.overall_record,null,`${sample.school} published overall record must not become canonical standings truth`);
+      assert.equal(standing.conference_record,null,`${sample.school} published conference record must not become canonical standings truth`);
+      assert.equal(standing.rank,null,`${sample.school} published rank must not become canonical standings truth`);
+      assert.equal(standing.published_overall_record,sample.overall,`${sample.school} published overall cross-check`);
+      assert.equal(standing.published_conference_record,sample.conferenceRecord || "0-0",`${sample.school} published conference cross-check`);
+      assert.equal(standing.published_rank,sample.publishedRank,`${sample.school} published rank cross-check`);
+      assert.equal(standing.standing_state,"source-published",`${sample.school} published-only standing state`);
+      assert.equal(standing.standings_verified,false,`${sample.school} published-only evidence must stay unverified`);
+
       if(sample.conferenceFinals===0){
-        assert.equal(standing.conference_record,"N/A",`${sample.school} Standings must not fabricate 0-0`);
-        assert.equal(standing.rank,null,`${sample.school} Standings must not fabricate first place`);
-        assert.equal(standing.standing_state,"not-started");
+        assert.equal(status.standing_state,"not-started",`${sample.school} Team Detail must not fabricate a standing`);
       }else{
-        assert.equal(standing.conference_record,sample.conferenceRecord,`${sample.school} Standings conference record`);
-        assert.equal(standing.rank,sample.rank,`${sample.school} Standings rank`);
-        assert.equal(standing.standing_state,"ranked");
+        assert.equal(status.standing_state,"unavailable",`${sample.school} Team Detail rank waits for certified calculated standings`);
       }
 
       matrix.push({
