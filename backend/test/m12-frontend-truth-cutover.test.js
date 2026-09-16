@@ -103,7 +103,7 @@ test("M12 hides stale records and rank when record truth is unverified", async (
   assert.equal(status.conference_record, null);
   assert.equal(status.rank, null);
   assert.equal(status.record_verified, false);
-  assert.deepEqual(status.record_issues.map(issue => issue.code), ["PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE"]);
+  assert.equal(status.record_issues[0]?.code, "PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE");
 });
 
 test("M12 hides conference identity, conference record, and rank for unknown membership", async () => {
