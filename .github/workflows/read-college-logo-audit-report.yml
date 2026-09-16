@@ -1,0 +1,29 @@
+name: Read college logo audit report
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/read-college-logo-audit-report.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  read-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Read completed Cloudflare college logo audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://16845bab-localbleachersar-sports-api.james-methvin74.workers.dev'
+          curl -fsS --max-time 45 "$URL" -o report.json
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('report.json','utf8'));
+          if(Number(p?.counts?.total)!==36) throw new Error(`Expected 36 colleges, got ${p?.counts?.total}`);
+          console.log('COLLEGE_LOGO_AUDIT_REPORT_START');
+          console.log(JSON.stringify(p,null,2));
+          console.log('COLLEGE_LOGO_AUDIT_REPORT_END');
+          NODE
