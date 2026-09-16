@@ -87,8 +87,8 @@ test("same opponent at materially different times remains separate", () => {
 
 test("record calculation counts one real result when providers duplicate the same final", () => {
   const rows = [
-    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway High School",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-a",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"AUTHORITATIVE_LIVE"},
-    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-b",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"},
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway High School",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-greenwood-conway",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"AUTHORITATIVE_LIVE"},
+    {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-27T23:00:00.000Z",opponent:"Conway",status:"FINAL",team_score:3,opponent_score:1,conference_game:0,counts_for_record:1,canonical_event_id:"ce-greenwood-conway",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"},
     {school_id:"greenwood",sport:"volleyball",gender:"girls",scheduled_at:"2026-08-28T23:00:00.000Z",opponent:"Benton High School",status:"FINAL",team_score:1,opponent_score:3,conference_game:1,counts_for_record:1,canonical_event_id:"ce-c",parser_type:"dragonfly-public",source_type:"official-conference",data_trust:"CORROBORATED"}
   ];
   const record=recordFromScheduleRows(rows,{reportingSchoolId:"greenwood"});

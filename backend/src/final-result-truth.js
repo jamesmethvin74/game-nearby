@@ -1,3 +1,5 @@
+import { resultSourceQuarantine } from "./result-source-quarantine.js";
+
 function cleanResult(value) {
   const result = String(value ?? "").trim().toUpperCase();
   return /^[WLT]$/.test(result) ? result : null;
@@ -49,6 +51,21 @@ export function evaluateFinalResultTruth(row = {}) {
     };
   }
 
+  const quarantine = resultSourceQuarantine(row);
+  if (quarantine) {
+    normalized.result = null;
+    return {
+      row: normalized,
+      state: "QUARANTINED",
+      reason: "SOURCE_RESULT_AMBIGUITY",
+      corrected: false,
+      explicit_result: explicitResult,
+      numeric_result: resultFromTeamScores(teamScore, opponentScore),
+      orientation_source: "source-quarantine",
+      quarantine
+    };
+  }
+
   if (teamScore == null || opponentScore == null) {
     return {
       row: normalized,
@@ -63,21 +80,33 @@ export function evaluateFinalResultTruth(row = {}) {
 
   const numericResult = resultFromTeamScores(teamScore, opponentScore);
 
-  // Volleyball has no tied match result. Older Mascot rows used T 0-0 as an
-  // unknown-result placeholder, and some of those rows predate the parser fix.
-  // Treat a tied volleyball score as unresolved, and ignore a stale explicit T
-  // when independently oriented numeric/canonical scores prove a W or L.
+  // Older Mascot volleyball rows used T 0-0 as an unknown-result placeholder.
+  // Do not generalize that sentinel to every tied volleyball score: tournament
+  // pool play can legitimately finish tied in sets (for example 1-1), and the
+  // system-wide contract says authoritative explicit W/L/T orients FINAL truth.
   if (isVolleyball(row) && explicitResult === "T") {
     if (numericResult === "T") {
-      normalized.result = null;
+      if (teamScore === 0 && opponentScore === 0) {
+        normalized.result = null;
+        return {
+          row: normalized,
+          state: "UNRESOLVED",
+          reason: "VOLLEYBALL_TIE_PLACEHOLDER",
+          corrected: false,
+          explicit_result: explicitResult,
+          numeric_result: numericResult,
+          orientation_source: "invalid-volleyball-tie-placeholder"
+        };
+      }
+      normalized.result = "T";
       return {
         row: normalized,
-        state: "UNRESOLVED",
-        reason: "VOLLEYBALL_TIE_PLACEHOLDER",
+        state: "VERIFIED",
+        reason: null,
         corrected: false,
         explicit_result: explicitResult,
         numeric_result: numericResult,
-        orientation_source: "invalid-volleyball-tie-placeholder"
+        orientation_source: "explicit-result"
       };
     }
     normalized.result = numericResult;
