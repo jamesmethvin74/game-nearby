@@ -1,7 +1,6 @@
 (() => {
   const DEFAULT_API_BASE = "https://localbleachersar-sports-api.james-methvin74.workers.dev";
   const API_BASE = String(window.LocalBleachersLive?.apiBase || DEFAULT_API_BASE).replace(/\/$/, "");
-  const COLLEGE_LOGO_PROXY_ORIGIN = "https://images.weserv.nl/";
   const logos = new Map();
 
   const style = document.createElement("style");
@@ -29,21 +28,7 @@
     } catch { return ""; }
   }
   function collegeLogoUrl(value) {
-    const source = safeLogoUrl(value);
-    if (!source) return "";
-    try {
-      const sourceUrl = new URL(source);
-      if (sourceUrl.origin === new URL(COLLEGE_LOGO_PROXY_ORIGIN).origin) return sourceUrl.toString();
-      const proxy = new URL(COLLEGE_LOGO_PROXY_ORIGIN);
-      proxy.searchParams.set("url", sourceUrl.toString());
-      proxy.searchParams.set("w", "256");
-      proxy.searchParams.set("h", "256");
-      proxy.searchParams.set("fit", "contain");
-      proxy.searchParams.set("we", "1");
-      proxy.searchParams.set("output", "png");
-      proxy.searchParams.set("n", "-1");
-      return proxy.toString();
-    } catch { return source; }
+    return safeLogoUrl(value);
   }
   function schoolFor(teamId) {
     return logos.get(teamId)
@@ -79,7 +64,7 @@
         mascot: clean(raw.mascot),
         level,
         sourceLogoUrl,
-        logoUrl: level === "college" ? collegeLogoUrl(sourceLogoUrl) : sourceLogoUrl,
+        logoUrl: sourceLogoUrl,
         short: clean(raw.location_matched_name || raw.name).charAt(0).toUpperCase() || "★"
       };
       logos.set(raw.id, item);

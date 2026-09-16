@@ -50,19 +50,19 @@ test("diagnostic requests bypass the public cache", () => {
 });
 
 test("school-level schedule cache is versioned away from pre-unified team-status payloads", () => {
-  assert.equal(SCHEDULE_CACHE_VERSION, "unified-team-status-v3");
+  assert.equal(SCHEDULE_CACHE_VERSION, "unified-team-status-v4");
   const descriptor = cacheDescriptor(new Request("https://example.test/api/v1/schools/uca/schedule"));
   assert.ok(descriptor);
   assert.equal(descriptor.freshTtl, 2 * 60);
   assert.equal(descriptor.staleTtl, 24 * 60 * 60);
-  assert.match(new URL(descriptor.freshKey.url).pathname, /\/fresh\/schedule\/unified-team-status-v3\/api\/v1\/schools\/uca\/schedule$/);
+  assert.match(new URL(descriptor.freshKey.url).pathname, /\/fresh\/schedule\/unified-team-status-v4\/api\/v1\/schools\/uca\/schedule$/);
   assert.doesNotMatch(new URL(descriptor.freshKey.url).pathname, /\/fresh\/api\/v1\/schools\/uca\/schedule$/);
 });
 
 test("team schedule cache is also versioned while record cache remains stable", () => {
   const schedule = cacheDescriptor(new Request("https://example.test/api/v1/teams/t1/schedule"));
   const record = cacheDescriptor(new Request("https://example.test/api/v1/teams/t1/record"));
-  assert.match(new URL(schedule.freshKey.url).pathname, /\/fresh\/schedule\/unified-team-status-v3\/api\/v1\/teams\/t1\/schedule$/);
+  assert.match(new URL(schedule.freshKey.url).pathname, /\/fresh\/schedule\/unified-team-status-v4\/api\/v1\/teams\/t1\/schedule$/);
   assert.equal(new URL(record.freshKey.url).pathname, "/__localbleachers_cache__/fresh/api/v1/teams/t1/record");
 });
 

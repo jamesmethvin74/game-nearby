@@ -166,7 +166,10 @@ export function recordFromScheduleRows(games, options = {}) {
     const opponentScore = Number(row.opponent_score);
     if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) continue;
     scoredFinals++;
-    const result = teamScore === opponentScore ? "T" : teamScore > opponentScore ? "W" : "L";
+    const explicitResult = clean(row.result).toUpperCase();
+    const result = explicitResult === "W" || explicitResult === "L" || explicitResult === "T"
+      ? explicitResult
+      : teamScore === opponentScore ? "T" : teamScore > opponentScore ? "W" : "L";
     if (result === "W") wins++;
     else if (result === "L") losses++;
     else ties++;

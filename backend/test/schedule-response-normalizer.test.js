@@ -94,3 +94,12 @@ test("record calculation counts one real result when providers duplicate the sam
   const record=recordFromScheduleRows(rows,{reportingSchoolId:"greenwood"});
   assert.deepEqual(record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:1,conference_ties:0,scored_finals:2});
 });
+
+test("explicit final result beats winner-first score ordering in record math", () => {
+  const rows = [
+    {school_id:"uark",sport:"football",gender:"men",scheduled_at:"2026-09-05T20:15:00.000Z",opponent:"North Alabama",status:"FINAL",team_score:31,opponent_score:14,result:"W",counts_for_record:1},
+    {school_id:"uark",sport:"football",gender:"men",scheduled_at:"2026-09-13T02:15:00.000Z",opponent:"Utah",status:"FINAL",team_score:43,opponent_score:10,result:"L",counts_for_record:1}
+  ];
+  const record = recordFromScheduleRows(rows,{reportingSchoolId:"uark"});
+  assert.deepEqual(record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored_finals:2});
+});
