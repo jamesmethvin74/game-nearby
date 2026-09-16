@@ -28,12 +28,24 @@ const CURRENT_OVERRIDES=new Map([
 ]);
 
 const AFFILIATION_NAMES=new Map([
-  ["SEC","Southeastern Conference"],["Sun Belt","Sun Belt Conference"],["SWAC","Southwestern Athletic Conference"],["United Athletic Conference","United Athletic Conference"],["Great American Conference","Great American Conference"],["MIAA","Mid-America Intercollegiate Athletics Association"],["SCAC","Southern Collegiate Athletic Conference"],["American Midwest Conference","American Midwest Conference"],["Sooner Athletic Conference","Sooner Athletic Conference"],["HBCU Athletic Conference","HBCU Athletic Conference"],["Region 2","NJCAA Region 2"],["Central Region","NCCAA Central Region"]
+  ["SEC","Southeastern Conference"],
+  ["Sun Belt","Sun Belt Conference"],
+  ["SWAC","Southwestern Athletic Conference"],
+  ["United Athletic Conference","United Athletic Conference"],
+  ["Great American Conference","Great American Conference"],
+  ["MIAA","Mid-America Intercollegiate Athletics Association"],
+  ["SCAC","Southern Collegiate Athletic Conference"],
+  ["American Midwest Conference","American Midwest Conference"],
+  ["Sooner Athletic Conference","Sooner Athletic Conference"],
+  ["HBCU Athletic Conference","HBCU Athletic Conference"],
+  ["Region 2","NJCAA Region 2"],
+  ["Central Region","NCCAA Central Region"]
 ]);
 
 function safe(value){return String(value||"").toLowerCase().replace(/&/g," and ").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
 function teamKey(schoolId,team){return `${schoolId}|${team.sport}|${team.gender}`;}
 function conferenceId(name,team){return `${safe(name)}-${safe(team.sport)}-${safe(team.gender)}`;}
+
 function defaultConference(school,team){
   const override=CURRENT_OVERRIDES.get(teamKey(school.schoolId,team));
   if(override) return {...override,authority_provider:"current-official-college-membership"};
@@ -45,12 +57,18 @@ function defaultConference(school,team){
 }
 
 export function buildCollegeConferenceMembership({season="2026",verifiedAt="2026-09-15T00:00:00.000Z"}={}) {
-  const memberships=[];const conferences=new Map();const unresolved=[];
-  for(const school of ARKANSAS_COLLEGE_TEAM_INVENTORY){
-    for(const team of school.teams){
+  const memberships=[];
+  const conferences=new Map();
+  const unresolved=[];
+  for(const school of ARKANSAS_COLLEGE_TEAM_INVENTORY) {
+    for(const team of school.teams) {
       const teamId=`${school.schoolId}-${team.sport}-${team.gender}-${season}`;
       const conference=defaultConference(school,team);
-      if(!conference){memberships.push({team_id:teamId,membership_state:"unknown",conference_id:null,classification:school.association,division:null,authority_provider:"college-membership-unresolved",authority_key:`${season}:${school.schoolId}:${team.sport}:${team.gender}`,source_url:school.sourceUrl,verified_at:verifiedAt});unresolved.push({team_id:teamId,school_id:school.schoolId,affiliation:school.affiliation});continue;}
+      if(!conference) {
+        memberships.push({team_id:teamId,membership_state:"unknown",conference_id:null,classification:school.association,division:null,authority_provider:"college-membership-unresolved",authority_key:`${season}:${school.schoolId}:${team.sport}:${team.gender}`,source_url:school.sourceUrl,verified_at:verifiedAt});
+        unresolved.push({team_id:teamId,school_id:school.schoolId,affiliation:school.affiliation});
+        continue;
+      }
       const id=conferenceId(conference.name,team);
       conferences.set(id,{id,name:conference.name,classification:school.association,source_url:conference.source_url,standings_method:"calculated",coverage_complete:0});
       memberships.push({team_id:teamId,membership_state:"member",conference_id:id,classification:school.association,division:conference.name,authority_provider:conference.authority_provider,authority_key:`${season}:${school.schoolId}:${team.sport}:${team.gender}`,source_url:conference.source_url,verified_at:verifiedAt});
