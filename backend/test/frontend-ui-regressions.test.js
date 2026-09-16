@@ -7,6 +7,7 @@ const live = await readFile(new URL("../../live-data.js", import.meta.url), "utf
 const detail = await readFile(new URL("../../team-detail.js", import.meta.url), "utf8");
 const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
 const schoolSchedule = await readFile(new URL("../../school-schedule.js", import.meta.url), "utf8");
+const standings = await readFile(new URL("../../standings.js", import.meta.url), "utf8");
 
 test("home only renders games involving followed schools", () => {
   assert.match(follow, /\.filter\(isFollowedSchoolEvent\)/);
@@ -45,8 +46,8 @@ test("team detail uses one explicit school schedule read and preserves backend s
   assert.doesNotMatch(schoolSchedule, /-mens-soccer-|\-womens-soccer-|\-volleyball-\$\{season\}/);
 });
 
-test("team detail schedule cache is versioned by season and abandons pre-status payloads", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v3:/);
+test("team detail schedule cache is versioned by season and abandons pre-M12 truth payloads", () => {
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v4:/);
   assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
 });
 
@@ -57,23 +58,44 @@ test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
 
-test("team detail renders the unified backend record and standings contract", async () => {
+test("team detail renders only the verified backend record, membership, and standings contract", () => {
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
-  assert.match(schoolSchedule, /live\.getTeamStatus/);
+  assert.match(schoolSchedule, /const recordVerified = status\.record_verified === true/);
+  assert.match(schoolSchedule, /const membershipState = String\(status\.conference_membership_state/);
+  assert.match(schoolSchedule, /status\.standings_verified === true/);
   assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(detail, /status\.record_verified === true/);
+  assert.match(detail, /status\.conference_membership_state/);
+  assert.match(detail, /status\.standings_verified === true/);
   assert.match(detail, /status\.overall_record/);
   assert.match(detail, /status\.conference_record/);
   assert.match(detail, /status\.rank/);
 });
 
-test("home cards consume the same unified team status and prime only followed schools that are nearby", () => {
+test("home cards use the same fail-closed backend truth and never calculate substitute records", () => {
   assert.match(polish, /LocalBleachersLive\?\.getTeamStatus\?\.\(event\.teamId,event\.sport,event\.gender\)/);
-  assert.match(polish, /unified\.rank/);
+  assert.match(polish, /unified\.record_verified===true/);
+  assert.match(polish, /unified\.conference_membership_state/);
+  assert.match(polish, /unified\.standings_verified===true/);
+  assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
+  assert.doesNotMatch(polish, /event\.record/);
   assert.match(schoolSchedule, /function primeVisibleFollowedStatuses/);
   assert.match(schoolSchedule, /followedIds\.has\(id\)/);
   assert.match(schoolSchedule, /await live\.fetchTeamSchedule\(schoolId\)/);
   assert.match(schoolSchedule, /localbleachers:nearby-games/);
+});
+
+test("standings fail closed instead of inventing rank or 0-0 records", () => {
+  assert.match(standings, /row\?\.standings_verified === true/);
+  assert.match(standings, /conference\.membership_complete !== true/);
+  assert.match(standings, /conference\.result_evidence_complete !== true/);
+  assert.match(standings, /conference\.source_published_only === true/);
+  assert.match(standings, /function recordDisplay/);
+  assert.match(standings, /function rankDisplay/);
+  assert.doesNotMatch(standings, /row\.rank \?\? index \+ 1/);
+  assert.doesNotMatch(standings, /row\.conference_record \|\| "0-0"/);
+  assert.doesNotMatch(standings, /row\.overall_record \|\| "0-0"/);
 });
 
 test("fallback schedules never poison the authoritative team-status memory cache", () => {
