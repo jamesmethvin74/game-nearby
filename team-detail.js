@@ -49,14 +49,26 @@
   function unifiedStatus() {
     const status = window.LocalBleachersLive?.getTeamStatus?.(state.schoolId, state.sport, state.gender);
     if (status) {
-      const conferenceKnown = Boolean(status.conference_name || status.conference_id);
+      const recordVerified = status.record_verified === true;
+      const membershipState = String(status.conference_membership_state || "unknown").toLowerCase();
+      const conferenceMember = membershipState === "member";
       const conferenceGames = Number(status.conference_games || 0);
+      const standingsVerified = status.standings_verified === true;
       const rank = Number(status.rank);
+      const conferenceName = conferenceMember
+        ? (status.conference_name || "Conference")
+        : membershipState === "independent"
+          ? "Independent"
+          : "Conference not verified";
       return {
-        overall: status.overall_record || "N/A",
-        conference: conferenceKnown && conferenceGames > 0 ? (status.conference_record || "N/A") : "N/A",
-        standing: conferenceKnown && conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "N/A",
-        conferenceName: status.conference_name || (conferenceKnown ? "Conference" : "Conference not available")
+        overall: recordVerified && status.overall_record ? status.overall_record : "N/A",
+        conference: recordVerified && conferenceMember && conferenceGames > 0 && status.conference_record
+          ? status.conference_record
+          : "N/A",
+        standing: recordVerified && conferenceMember && conferenceGames > 0 && standingsVerified && Number.isFinite(rank) && rank > 0
+          ? `#${rank}`
+          : "N/A",
+        conferenceName
       };
     }
 
@@ -64,7 +76,7 @@
       return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };
     }
 
-    return { overall:"N/A", conference:"N/A", standing:"N/A", conferenceName:"Conference not available" };
+    return { overall:"N/A", conference:"N/A", standing:"N/A", conferenceName:"Conference not verified" };
   }
 
   function ensureDialog() {
