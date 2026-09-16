@@ -52,8 +52,11 @@ test("M9 sync is two set-based statements, not N+1 writes", async () => {
   assert.equal(env.prepared.length,2);
   assert.match(env.prepared[0].sql,/json_each\(\?\)/);
   assert.match(env.prepared[0].sql,/INSERT INTO conference_memberships/);
-  assert.match(env.prepared[1].sql,/UPDATE teams/);
+  assert.match(env.prepared[1].sql,/UPDATE teams AS t/);
+  assert.match(env.prepared[1].sql,/FROM payload AS p/);
+  assert.match(env.prepared[1].sql,/t\.id=p\.team_id/);
   assert.match(env.prepared[1].sql,/membership_state.*member/s);
+  assert.doesNotMatch(env.prepared[1].sql,/SELECT p\.conference_id FROM payload/);
 });
 
 test("M9 write fuse and duplicate-team guard fail closed before D1", async () => {
