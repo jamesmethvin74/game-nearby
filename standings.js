@@ -256,22 +256,56 @@
     pickerOptions.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
   }
 
+  function recordDisplay(value) {
+    const text = String(value ?? "").trim();
+    return text || "N/A";
+  }
+
+  function rankDisplay(row) {
+    const rank = Number(row?.rank);
+    return row?.standings_verified === true && Number.isFinite(rank) && rank > 0 ? String(rank) : "—";
+  }
+
+  function pctDisplay(row) {
+    return row?.conference_pct == null || row?.conference_record == null ? "—" : String(row.conference_pct);
+  }
+
+  function truthNotice(conference, rows) {
+    if (!rows.length) return "No canonical standings rows are available yet.";
+    if (conference.source_published_only === true) {
+      return "Published standings are available only as evidence. Canonical records and rank are withheld until local truth is complete.";
+    }
+    if (conference.membership_complete !== true) {
+      return "Rank is withheld until conference membership is completely verified.";
+    }
+    if (conference.result_evidence_complete !== true) {
+      return "Rank is withheld until completed-game evidence is complete and consistent.";
+    }
+    if (conference.coverage_complete !== true) {
+      return "Rank is withheld until this conference is fully verified.";
+    }
+    return "";
+  }
+
   function renderStandings(payload) {
     const rows = Array.isArray(payload?.standings) ? payload.standings : [];
     const conference = payload?.conference || {};
     sportLabel.textContent = String(conference.sport || selectedSport || "sport").toUpperCase();
     title.textContent = conference.name || "Conference standings";
-    body.innerHTML = rows.map((row, index) => `
+    body.innerHTML = rows.map(row => `
       <tr>
-        <td class="rank-col">${escapeHtml(row.rank ?? index + 1)}</td>
-        <td class="standings-team">${escapeHtml(row.school_name)}</td>
-        <td class="standings-record conf-col">${escapeHtml(row.conference_record || "0-0")}</td>
-        <td class="standings-record overall-col">${escapeHtml(row.overall_record || "0-0")}</td>
-        <td class="standings-pct pct-col">${escapeHtml(row.conference_pct || "—")}</td>
+        <td class="rank-col">${escapeHtml(rankDisplay(row))}</td>
+        <td class="standings-team">${escapeHtml(row.school_name || "Team")}</td>
+        <td class="standings-record conf-col">${escapeHtml(recordDisplay(row.conference_record))}</td>
+        <td class="standings-record overall-col">${escapeHtml(recordDisplay(row.overall_record))}</td>
+        <td class="standings-pct pct-col">${escapeHtml(pctDisplay(row))}</td>
       </tr>`).join("");
 
-    status.hidden = true;
-    tableWrap.hidden = false;
+    const notice = truthNotice(conference, rows);
+    status.classList.remove("standings-error");
+    status.textContent = notice;
+    status.hidden = !notice;
+    tableWrap.hidden = rows.length === 0;
     card.setAttribute("aria-busy", "false");
     updated.textContent = payload?.retrieved_at ? `Updated ${new Date(payload.retrieved_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "";
     if (conference.source_url) {
