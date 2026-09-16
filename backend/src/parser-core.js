@@ -1,3 +1,5 @@
+import { normalizeFinalResultTruth } from "./final-result-truth.js";
+
 export const MONTHS = {
   jan:1,january:1,feb:2,february:2,mar:3,march:3,apr:4,april:4,may:5,jun:6,june:6,
   jul:7,july:7,aug:8,august:8,sep:9,sept:9,september:9,oct:10,nov:11,dec:12,december:12
@@ -17,11 +19,18 @@ export function parseResult(text) {
   if (/cancel(?:ed|led)/i.test(value)) return {status:"CANCELED",teamScore:null,opponentScore:null,result:null};
   if (/postpon/i.test(value)) return {status:"POSTPONED",teamScore:null,opponentScore:null,result:null};
   const match = value.match(/\b([WLT])\s*,?\s*(\d+)\s*[-–]\s*(\d+)/i) || value.match(/\b([WLT])\b[^0-9]*(\d+)\s*[-–]\s*(\d+)/i);
-  if (match) return {status:"FINAL",teamScore:Number(match[2]),opponentScore:Number(match[3]),result:match[1].toUpperCase()};
+  if (match) {
+    return normalizeFinalResultTruth({
+      status:"FINAL",
+      teamScore:Number(match[2]),
+      opponentScore:Number(match[3]),
+      result:match[1].toUpperCase()
+    });
+  }
   const score = value.match(/\b(\d+)\s*[-–]\s*(\d+)\b/);
   if (score && /final/i.test(value)) {
     const teamScore=Number(score[1]), opponentScore=Number(score[2]);
-    return {status:"FINAL",teamScore,opponentScore,result:teamScore===opponentScore?"T":teamScore>opponentScore?"W":"L"};
+    return normalizeFinalResultTruth({status:"FINAL",teamScore,opponentScore,result:null});
   }
   return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
 }
@@ -127,13 +136,31 @@ function mascotCalendarYear(text, source) {
 }
 
 export function orientMascotResult(result) {
-  if (result?.status!=="FINAL" || !/^[WLT]$/.test(String(result?.result||""))) return result;
-  let teamScore=Number(result.teamScore), opponentScore=Number(result.opponentScore);
-  if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) return result;
-  const contradictsWin=result.result==="W" && teamScore<opponentScore;
-  const contradictsLoss=result.result==="L" && teamScore>opponentScore;
-  if (!contradictsWin && !contradictsLoss) return result;
-  return {...result,teamScore:opponentScore,opponentScore:teamScore};
+  return normalizeFinalResultTruth(result);
+}
+
+export function parseMascotResultCell(text, source={}) {
+  const value=cleanText(text);
+  const sport=String(source?.sport||"").trim().toLowerCase();
+  const parsed=parseResult(value);
+
+  // Mascot frequently publishes a placeholder "T 0 - 0" while a volleyball result
+  // is still unknown. Volleyball cannot legitimately finish 0-0, so do not promote
+  // that placeholder to FINAL or let it poison canonical reconciliation.
+  if (sport==="volleyball" && parsed.status==="FINAL"
+      && Number(parsed.teamScore)===0 && Number(parsed.opponentScore)===0) {
+    return {status:"SCHEDULED",teamScore:null,opponentScore:null,result:null};
+  }
+
+  if (parsed.status!=="SCHEDULED" || sport!=="volleyball") return parsed;
+
+  // Mascot score cells often contain only "0 - 3" / "3 - 1" without an explicit
+  // W/L or the word FINAL. For volleyball a non-zero match score is decisive.
+  const score=value.match(/^\s*(\d+)\s*[-–]\s*(\d+)\s*$/);
+  if (!score) return parsed;
+  const teamScore=Number(score[1]), opponentScore=Number(score[2]);
+  if (teamScore===0 && opponentScore===0) return parsed;
+  return normalizeFinalResultTruth({status:"FINAL",teamScore,opponentScore,result:null});
 }
 
 function suppressPrematureMascotFinal(result,schedule,now) {
@@ -204,7 +231,7 @@ export function normalizeMascotRows(rows, source, {now=new Date()}={}) {
     if (knownInvalidMascotObservation(source,schedule,opponent)) continue;
     if (!venue && homeAway==="home") venue=source.home_venue || "";
     const resultText=[...cells].reverse().find(Boolean) || full;
-    const parsedResult=orientMascotResult(parseResult(resultText));
+    const parsedResult=orientMascotResult(parseMascotResultCell(resultText,source));
     const result=suppressPrematureMascotFinal(parsedResult,schedule,now);
     const nonCount=/\b(meet the cats|benefit game|scrimmage|exhibition|jamboree)\b/i.test(full);
     events.push({

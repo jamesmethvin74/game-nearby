@@ -1,5 +1,6 @@
 import app from "./catalog-identity-worker.js";
-import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, evaluateScheduleRecordTruth } from "./schedule-response-normalizer.js";
+import { normalizeFinalResultTruth } from "./final-result-truth.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
 
@@ -13,16 +14,40 @@ function json(body, status = 200) {
   });
 }
 
-function emptyRecord(teamId) {
+function nullRecord(teamId) {
   return {
     team_id: teamId,
-    wins: 0,
-    losses: 0,
-    ties: 0,
-    conference_wins: 0,
-    conference_losses: 0,
-    conference_ties: 0,
+    wins: null,
+    losses: null,
+    ties: null,
+    conference_wins: null,
+    conference_losses: null,
+    conference_ties: null,
     calculated_at: null
+  };
+}
+
+function trustedRecordPayload(teamId, team, storedRecord, truth) {
+  const trusted = truth.trusted_record;
+  return {
+    ...nullRecord(teamId),
+    ...(trusted ? {
+      wins: trusted.wins,
+      losses: trusted.losses,
+      ties: trusted.ties,
+      conference_wins: trusted.conference_wins,
+      conference_losses: trusted.conference_losses,
+      conference_ties: trusted.conference_ties,
+      calculated_at: storedRecord?.calculated_at || null
+    } : {}),
+    conference_id: team.conference_id || null,
+    conference_name: team.conference_name || null,
+    record_state: truth.state,
+    record_verified: truth.verified,
+    record_source: truth.verified ? "normalized-final-games" : "unverified",
+    evidence_games: truth.evidence_games,
+    evidence_conference_games: truth.evidence_conference_games,
+    record_issues: truth.issues
   };
 }
 
@@ -40,11 +65,11 @@ function resolvedGameForTeam(row, team) {
   };
 
   if (!row.canonical_event_id) {
-    return {
+    return normalizeFinalResultTruth({
       ...base,
       data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
       conflict_count: Number(row.conflict_count || 0)
-    };
+    });
   }
 
   const isHome = row.canonical_home_school_id === team.school_id;
@@ -52,11 +77,8 @@ function resolvedGameForTeam(row, team) {
   const teamScore = isHome ? row.canonical_home_score : isAway ? row.canonical_away_score : row.team_score;
   const opponentScore = isHome ? row.canonical_away_score : isAway ? row.canonical_home_score : row.opponent_score;
   const status = row.canonical_status || row.status;
-  const result = status === "FINAL" && teamScore != null && opponentScore != null
-    ? (Number(teamScore) === Number(opponentScore) ? "T" : Number(teamScore) > Number(opponentScore) ? "W" : "L")
-    : null;
 
-  return {
+  return normalizeFinalResultTruth({
     ...base,
     id: row.canonical_event_id,
     canonical_event_id: row.canonical_event_id,
@@ -68,10 +90,10 @@ function resolvedGameForTeam(row, team) {
     status,
     team_score: teamScore,
     opponent_score: opponentScore,
-    result,
+    result: row.result || null,
     data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
     conflict_count: Number(row.conflict_count || 0)
-  };
+  });
 }
 
 async function displayNamesForGames(env, games, reportingSchoolId) {
@@ -109,7 +131,7 @@ async function readTeamSchedule(env, teamId) {
     return json({ error: "team_not_found" }, 404);
   }
 
-  const record = await env.DB.prepare("SELECT * FROM team_records WHERE team_id=?").bind(teamId).first();
+  const storedRecord = await env.DB.prepare("SELECT * FROM team_records WHERE team_id=?").bind(teamId).first();
   const { results } = await env.DB.prepare(`
     SELECT g.*, s.source_type, s.parser_type, s.authority_rank,
       s.last_successful_fetch_at AS source_last_successful_fetch_at,
@@ -148,37 +170,36 @@ async function readTeamSchedule(env, teamId) {
   const authorityRows = (results || []).filter(row => Number(row.authority_row) === 1);
   const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: team.school_id });
   const resolved = conferenceRows.map(row => resolvedGameForTeam(row, team));
-  const games = await normalizeGames(env, resolved, team.school_id);
+  const normalized = await normalizeGames(env, resolved, team.school_id);
+  const truth = evaluateScheduleRecordTruth(normalized, {
+    reportingSchoolId: team.school_id,
+    maxMinutes: 15,
+    storedRecord
+  });
+  const games = truth.normalized_rows;
+  const record = trustedRecordPayload(teamId, team, storedRecord, truth);
 
   return json({
     teamId,
     games,
-    record: {
-      ...emptyRecord(teamId),
-      ...(record || {}),
-      conference_id: team.conference_id || null,
-      conference_name: team.conference_name || null
+    record,
+    record_truth: {
+      state: truth.state,
+      verified: truth.verified,
+      evidence_games: truth.evidence_games,
+      evidence_conference_games: truth.evidence_conference_games,
+      orientation_corrections: truth.orientation_corrections,
+      unresolved_finals: truth.unresolved_finals,
+      issues: truth.issues
     }
   });
 }
 
 async function readTeamRecord(env, teamId) {
-  const row = await env.DB.prepare(`
-    SELECT t.id AS team_id, t.school_id, t.conference_id, c.name AS conference_name,
-      s.name AS school_name, s.level,
-      r.wins, r.losses, r.ties,
-      r.conference_wins, r.conference_losses, r.conference_ties,
-      r.calculated_at
-    FROM teams t
-    JOIN schools s ON s.id=t.school_id
-    LEFT JOIN team_records r ON r.team_id=t.id
-    LEFT JOIN conferences c ON c.id=t.conference_id
-    WHERE t.id=? AND t.active=1 AND s.catalog_scope='local'
-  `).bind(teamId).first();
-  if (!row || !isSchoolCatalogVisible({ id: row.school_id, name: row.school_name, level: row.level })) {
-    return json({ error: "team_not_found" }, 404);
-  }
-  return json({ record: { ...emptyRecord(teamId), ...row } });
+  const scheduleResponse = await readTeamSchedule(env, teamId);
+  if (!scheduleResponse.ok) return scheduleResponse;
+  const payload = await scheduleResponse.json();
+  return json({ record: payload.record, record_truth: payload.record_truth });
 }
 
 async function handleTeamRead(request, env) {

@@ -34,8 +34,11 @@ test("already team-oriented Mascot Media results are unchanged", () => {
   assert.equal(loss.opponentScore,3);
 });
 
-test("shared parseResult keeps provider score ordering for non-Mascot parsers", () => {
+test("shared parseResult enforces explicit-result orientation for every parser", () => {
   assert.deepEqual(parseResult("L, 31-24"), {
-    status:"FINAL",teamScore:31,opponentScore:24,result:"L"
+    status:"FINAL",teamScore:24,opponentScore:31,result:"L"
+  });
+  assert.deepEqual(parseResult("W, 14-35"), {
+    status:"FINAL",teamScore:35,opponentScore:14,result:"W"
   });
 });

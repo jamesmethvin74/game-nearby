@@ -1,4 +1,5 @@
 import { dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.js";
+import { evaluateFinalResultTruth, normalizeFinalResultTruth, resultFromTeamScores } from "./final-result-truth.js";
 
 const EVENT_DESCRIPTOR_RE = /\b(?:senior night|early bird|invitational|invite|tournament|tourney|classic|jamboree)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
@@ -40,11 +41,12 @@ function minutesBetween(a, b) {
   return Number.isFinite(aa) && Number.isFinite(bb) ? Math.abs(aa - bb) / 60000 : Infinity;
 }
 
-export function scheduleRowsLikelyDuplicate(a, b, { reportingSchoolId = null, maxMinutes = 15 } = {}) {
+function scheduleRowsShareSlot(a, b, { reportingSchoolId = null, maxMinutes = 15 } = {}) {
   if (!a || !b) return false;
   if (clean(a.sport).toLowerCase() !== clean(b.sport).toLowerCase()) return false;
   if (clean(a.gender).toLowerCase() !== clean(b.gender).toLowerCase()) return false;
   if (!reportingSchoolId && a.school_id && b.school_id && a.school_id !== b.school_id) return false;
+
   const aTime = a.scheduled_at || a.canonical_scheduled_at;
   const bTime = b.scheduled_at || b.canonical_scheduled_at;
   if (minutesBetween(aTime, bTime) > maxMinutes) return false;
@@ -52,6 +54,33 @@ export function scheduleRowsLikelyDuplicate(a, b, { reportingSchoolId = null, ma
   const bOpponentId = clean(b.opponent_school_id);
   if (aOpponentId && bOpponentId) return aOpponentId === bOpponentId;
   return opponentNamesLikelySame(a.opponent, b.opponent);
+}
+
+export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
+  if (!scheduleRowsShareSlot(a, b, options)) return false;
+
+  // Once reconciliation has proven two observations belong to distinct canonical
+  // events, never collapse them just because a tournament/rematch source gave both
+  // games the same date-only timestamp and opponent pair.
+  const aCanonical=clean(a.canonical_event_id);
+  const bCanonical=clean(b.canonical_event_id);
+  if (aCanonical && bCanonical && aCanonical !== bCanonical) return false;
+  return true;
+}
+
+function identicalVerifiedFinalSnapshot(a, b, options = {}) {
+  const aCanonical=clean(a?.canonical_event_id);
+  const bCanonical=clean(b?.canonical_event_id);
+  if (!aCanonical || !bCanonical || aCanonical === bCanonical) return false;
+  if (!scheduleRowsShareSlot(a, b, options)) return false;
+  if (String(a.status || "").toUpperCase() !== "FINAL" || String(b.status || "").toUpperCase() !== "FINAL") return false;
+
+  const aTruth=evaluateFinalResultTruth(a);
+  const bTruth=evaluateFinalResultTruth(b);
+  if (aTruth.state !== "VERIFIED" || bTruth.state !== "VERIFIED") return false;
+  return aTruth.row.result === bTruth.row.result
+    && Number(aTruth.row.team_score) === Number(bTruth.row.team_score)
+    && Number(aTruth.row.opponent_score) === Number(bTruth.row.opponent_score);
 }
 
 function trustScore(value) {
@@ -111,7 +140,10 @@ export function dedupeScheduleRows(games, options = {}) {
   const rows = Array.isArray(games) ? games : [];
   const merged = [];
   for (const row of rows) {
-    const index = merged.findIndex(existing => scheduleRowsLikelyDuplicate(existing, row, options));
+    const index = merged.findIndex(existing =>
+      scheduleRowsLikelyDuplicate(existing, row, options)
+      || identicalVerifiedFinalSnapshot(existing, row, options)
+    );
     if (index === -1) merged.push({ ...row, schedule_observation_count: Number(row.schedule_observation_count || 1) });
     else merged[index] = mergeDuplicateRows(merged[index], row);
   }
@@ -149,42 +181,184 @@ export function rowCountsForRecord(row = {}) {
   return true;
 }
 
+function emptyRecord() {
+  return {
+    wins: 0,
+    losses: 0,
+    ties: 0,
+    conference_wins: 0,
+    conference_losses: 0,
+    conference_ties: 0,
+    scored_finals: 0
+  };
+}
+
 export function recordFromScheduleRows(games, options = {}) {
-  const rows = dedupeScheduleRows(games, options);
-  let wins = 0;
-  let losses = 0;
-  let ties = 0;
-  let conferenceWins = 0;
-  let conferenceLosses = 0;
-  let conferenceTies = 0;
-  let scoredFinals = 0;
+  const normalized = (Array.isArray(games) ? games : []).map(normalizeFinalResultTruth);
+  const rows = dedupeScheduleRows(normalized, options);
+  const record = emptyRecord();
 
   for (const row of rows) {
-    if (row.status !== "FINAL" || !rowCountsForRecord(row)) continue;
-    if (row.team_score == null || row.opponent_score == null) continue;
-    const teamScore = Number(row.team_score);
-    const opponentScore = Number(row.opponent_score);
-    if (!Number.isFinite(teamScore) || !Number.isFinite(opponentScore)) continue;
-    scoredFinals++;
-    const result = teamScore === opponentScore ? "T" : teamScore > opponentScore ? "W" : "L";
-    if (result === "W") wins++;
-    else if (result === "L") losses++;
-    else ties++;
-    if (Number(row.conference_game || 0) === 1 || row.conferenceGame === true) {
-      if (result === "W") conferenceWins++;
-      else if (result === "L") conferenceLosses++;
-      else conferenceTies++;
+    if (String(row.status || "").toUpperCase() !== "FINAL" || !rowCountsForRecord(row)) continue;
+    const evaluated = evaluateFinalResultTruth(row);
+    if (evaluated.state !== "VERIFIED") continue;
+    const normalizedRow = evaluated.row;
+    const result = normalizedRow.result || resultFromTeamScores(normalizedRow.team_score, normalizedRow.opponent_score);
+    if (!result) continue;
+    record.scored_finals++;
+    if (result === "W") record.wins++;
+    else if (result === "L") record.losses++;
+    else record.ties++;
+    if (Number(normalizedRow.conference_game || 0) === 1 || normalizedRow.conferenceGame === true) {
+      if (result === "W") record.conference_wins++;
+      else if (result === "L") record.conference_losses++;
+      else record.conference_ties++;
     }
   }
 
+  return record;
+}
+
+function numericRecordObject(value) {
+  if (!value || typeof value !== "object") return null;
+  if (["wins", "losses", "ties"].every(key => value[key] == null)) return null;
+  const n = key => Number(value[key] || 0);
   return {
-    wins,
-    losses,
-    ties,
-    conference_wins: conferenceWins,
-    conference_losses: conferenceLosses,
-    conference_ties: conferenceTies,
-    scored_finals: scoredFinals
+    wins: n("wins"),
+    losses: n("losses"),
+    ties: n("ties"),
+    conference_wins: n("conference_wins"),
+    conference_losses: n("conference_losses"),
+    conference_ties: n("conference_ties")
+  };
+}
+
+export function parseRecordText(value) {
+  if (value && typeof value === "object") return numericRecordObject(value);
+  const parts = String(value || "").match(/\d+/g)?.map(Number) || [];
+  if (parts.length < 2) return null;
+  return {
+    wins: parts[0] || 0,
+    losses: parts[1] || 0,
+    ties: parts[2] || 0,
+    conference_wins: 0,
+    conference_losses: 0,
+    conference_ties: 0
+  };
+}
+
+export function recordGameCount(record = {}) {
+  return Number(record.wins || 0) + Number(record.losses || 0) + Number(record.ties || 0);
+}
+
+export function conferenceGameCount(record = {}) {
+  return Number(record.conference_wins || 0) + Number(record.conference_losses || 0) + Number(record.conference_ties || 0);
+}
+
+export function sameOverallRecord(a, b) {
+  return Boolean(a && b)
+    && Number(a.wins || 0) === Number(b.wins || 0)
+    && Number(a.losses || 0) === Number(b.losses || 0)
+    && Number(a.ties || 0) === Number(b.ties || 0);
+}
+
+export function sameConferenceRecord(a, b) {
+  return Boolean(a && b)
+    && Number(a.conference_wins || 0) === Number(b.conference_wins || 0)
+    && Number(a.conference_losses || 0) === Number(b.conference_losses || 0)
+    && Number(a.conference_ties || 0) === Number(b.conference_ties || 0);
+}
+
+function pushIssue(issues, code, detail, extra = {}) {
+  if (issues.some(issue => issue.code === code && issue.detail === detail)) return;
+  issues.push({ code, detail, ...extra });
+}
+
+export function evaluateScheduleRecordTruth(games, options = {}) {
+  const rawRows = Array.isArray(games) ? games : [];
+  const evaluations = rawRows.map(row => ({ original: row, ...evaluateFinalResultTruth(row) }));
+  const normalizedRows = dedupeScheduleRows(evaluations.map(item => item.row), options);
+  const derived = recordFromScheduleRows(normalizedRows, options);
+  const issues = [];
+  let orientationCorrections = 0;
+  let unresolvedFinals = 0;
+
+  for (const item of evaluations) {
+    if (item.corrected) orientationCorrections++;
+    const row = item.row;
+    if (String(row.status || "").toUpperCase() !== "FINAL" || !rowCountsForRecord(row)) continue;
+    if (item.state === "UNRESOLVED" || item.state === "CONTRADICTORY") {
+      unresolvedFinals++;
+      pushIssue(
+        issues,
+        item.reason || "FINAL_RESULT_UNRESOLVED",
+        `${row.opponent || row.id || "Final game"}: ${item.reason || "result truth unresolved"}`,
+        { game_id: row.id || null, opponent: row.opponent || null }
+      );
+    }
+  }
+
+  const stored = numericRecordObject(options.storedRecord);
+  const published = parseRecordText(options.publishedRecord);
+  const evidenceGames = recordGameCount(derived);
+  const evidenceConferenceGames = conferenceGameCount(derived);
+  const storedGames = stored ? recordGameCount(stored) : null;
+  const storedConferenceGames = stored ? conferenceGameCount(stored) : null;
+  const publishedGames = published ? recordGameCount(published) : null;
+
+  let state = unresolvedFinals > 0
+    ? "UNRESOLVED"
+    : evidenceGames > 0
+      ? "VERIFIED"
+      : "NO_RECORD_EVIDENCE";
+  let auditClass = unresolvedFinals > 0 ? "UNRESOLVED" : "VERIFIED";
+
+  if (stored && storedGames > evidenceGames) {
+    if (state !== "UNRESOLVED") state = "INCOMPLETE";
+    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
+    pushIssue(issues, "STORED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`);
+  } else if (stored && storedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(stored, derived)) {
+    auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STALE_STORED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Stored ${stored.wins}-${stored.losses}-${stored.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`, { informational: true });
+  } else if (stored && storedGames < evidenceGames) {
+    auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STALE_STORED_RECORD", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`, { informational: true });
+  }
+
+  if (stored && storedConferenceGames > evidenceConferenceGames) {
+    if (state !== "UNRESOLVED") state = "INCOMPLETE";
+    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
+    pushIssue(issues, "STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored conference record covers ${storedConferenceGames} games; normalized conference final evidence covers ${evidenceConferenceGames}.`);
+  } else if (stored && storedConferenceGames === evidenceConferenceGames && evidenceConferenceGames > 0 && !sameConferenceRecord(stored, derived)) {
+    if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STALE_STORED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE", "Stored conference record disagrees with normalized conference finals.", { informational: true });
+  }
+
+  if (published && publishedGames > evidenceGames) {
+    if (state !== "UNRESOLVED") state = "INCOMPLETE";
+    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
+    pushIssue(issues, "PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Published record covers ${publishedGames} games; normalized final evidence covers ${evidenceGames}.`);
+  } else if (published && publishedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(published, derived)) {
+    if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Published ${published.wins}-${published.losses}-${published.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`, { informational: true });
+  } else if (published && publishedGames < evidenceGames) {
+    if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "PUBLISHED_RECORD_BEHIND_FINAL_EVIDENCE", `Published record covers ${publishedGames} games; normalized final evidence covers ${evidenceGames}.`, { informational: true });
+  }
+
+  const verified = state === "VERIFIED" && evidenceGames > 0;
+  return {
+    state,
+    audit_class: auditClass,
+    verified,
+    trusted_record: verified ? derived : null,
+    derived_record: derived,
+    evidence_games: evidenceGames,
+    evidence_conference_games: evidenceConferenceGames,
+    unresolved_finals: unresolvedFinals,
+    orientation_corrections: orientationCorrections,
+    issues,
+    normalized_rows: normalizedRows
   };
 }
 
