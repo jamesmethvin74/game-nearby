@@ -1,0 +1,105 @@
+name: Post-M10 production acceptance once
+
+on:
+  push:
+    branches:
+      - ops/post-m10-production-acceptance-20260915
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Bounded read-only production acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          async function get(path) {
+            const response=await fetch(`${API}${path}`,{headers:{accept:'application/json'},cache:'no-store'});
+            const text=await response.text();
+            let payload=null;
+            try { payload=JSON.parse(text); } catch {}
+            if(!response.ok) throw new Error(`${path} HTTP ${response.status}: ${text.slice(0,300)}`);
+            return payload;
+          }
+          function must(cond,message){ if(!cond) throw new Error(message); }
+          function finalGames(payload){
+            return (payload.games||[]).filter(g=>String(g.status||'').toUpperCase()==='FINAL' && g.team_score!=null && g.opponent_score!=null);
+          }
+          function statusFor(payload,predicate){ return (payload.team_statuses||[]).find(predicate); }
+          function standingsRow(payload,status){
+            const rows=Array.isArray(payload?.standings)?payload.standings:[];
+            return rows.find(r=>String(r.team_id||'')===String(status.team_id||''))
+              || rows.find(r=>String(r.school_name||'').toLowerCase()===String(status.school_name||'').toLowerCase());
+          }
+
+          const high=await get('/api/v1/schools/conway/schedule');
+          const highFinals=finalGames(high);
+          const highStatus=statusFor(high,s=>Number(s.overall_games||0)>0 && Boolean(s.overall_record));
+          must(high.schoolLevel==='high-school','Conway did not resolve as high-school');
+          must(highFinals.length>0,'Conway has no completed scored game in live schedule');
+          must(highStatus,'Conway has completed games but no overall-record team status');
+          must(highStatus.record_verified===true,`Conway record is not verified: ${JSON.stringify(highStatus.record_issues||[])}`);
+          must(['member','independent','unknown'].includes(String(highStatus.conference_membership_state||'')), 'Conway missing durable conference membership state');
+
+          const collegeCandidates=['harding','henderson-state','uca'];
+          let college=null;
+          let collegeStatus=null;
+          for (const schoolId of collegeCandidates) {
+            const payload=await get(`/api/v1/schools/${encodeURIComponent(schoolId)}/schedule`);
+            const candidate=statusFor(payload,s=>
+              Number(s.conference_games||0)>0 &&
+              Boolean(s.overall_record) &&
+              Boolean(s.conference_record) &&
+              String(s.conference_membership_state||'')==='member' &&
+              Number(s.rank||0)>0
+            );
+            if(candidate && finalGames(payload).length>0){ college={schoolId,payload}; collegeStatus=candidate; break; }
+          }
+          must(college && collegeStatus,'No bounded college candidate exposed completed conference games with canonical record + rank');
+          must(college.payload.schoolLevel==='college',`${college.schoolId} did not resolve as college`);
+          must(collegeStatus.record_verified===true,`College record is not verified: ${JSON.stringify(collegeStatus.record_issues||[])}`);
+
+          const standings=await get(`/api/v1/conferences/${encodeURIComponent(collegeStatus.conference_id)}/standings?sport=${encodeURIComponent(collegeStatus.sport)}&season=2026`);
+          const row=standingsRow(standings,collegeStatus);
+          must(row,`Conference standings missing ${collegeStatus.team_id}`);
+          must(String(row.conference_record)===String(collegeStatus.conference_record),`Conference record disagreement: team=${collegeStatus.conference_record} standings=${row.conference_record}`);
+          must(Number(row.rank||0)===Number(collegeStatus.rank||0),`Rank disagreement: team=${collegeStatus.rank} standings=${row.rank}`);
+
+          const result={
+            accepted:true,
+            high_school:{
+              school_id:'conway',
+              completed_scored_games:highFinals.length,
+              team_id:highStatus.team_id,
+              sport:highStatus.sport,
+              overall_record:highStatus.overall_record,
+              conference_membership_state:highStatus.conference_membership_state,
+              conference_id:highStatus.conference_id,
+              conference_record:highStatus.conference_record,
+              rank:highStatus.rank,
+              standing_state:highStatus.standing_state
+            },
+            college:{
+              school_id:college.schoolId,
+              team_id:collegeStatus.team_id,
+              sport:collegeStatus.sport,
+              completed_scored_games:finalGames(college.payload).length,
+              overall_record:collegeStatus.overall_record,
+              conference_membership_state:collegeStatus.conference_membership_state,
+              conference_id:collegeStatus.conference_id,
+              conference_record:collegeStatus.conference_record,
+              rank:collegeStatus.rank,
+              standing_state:collegeStatus.standing_state,
+              endpoint_conference_record:row.conference_record,
+              endpoint_rank:row.rank,
+              standings_verified:row.standings_verified
+            }
+          };
+          console.log('POST_M10_ACCEPTANCE='+JSON.stringify(result));
+          NODE
