@@ -5,7 +5,7 @@
   const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const memoryCache = new Map();
   const statusCache = new Map();
-  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v3:";
+  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v4:";
   const SCHEDULE_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
   const NEARBY_CACHE_MAX_AGE_MS = 18 * 60 * 60 * 1000;
@@ -27,7 +27,10 @@
   }
 
   function cloneStatuses(statuses) {
-    return (statuses || []).map(status => ({ ...status }));
+    return (statuses || []).map(status => ({
+      ...status,
+      record_issues: Array.isArray(status.record_issues) ? status.record_issues.map(issue => ({ ...issue })) : []
+    }));
   }
 
   function readJson(key) {
@@ -120,11 +123,30 @@
 
   function normalizeStatus(status) {
     if (!status || !status.team_id || !status.sport) return null;
+    const recordVerified = status.record_verified === true;
+    const membershipState = String(status.conference_membership_state || "unknown").toLowerCase();
+    const conferenceMember = membershipState === "member";
+    const standingsVerified = conferenceMember && status.standings_verified === true;
+    const conferenceGames = Number(status.conference_games || 0);
+    const rank = status.rank == null ? null : Number(status.rank);
     return {
       ...status,
-      rank: status.rank == null ? null : Number(status.rank),
+      overall_record: recordVerified ? (status.overall_record || null) : null,
+      conference_membership_state: membershipState,
+      conference_id: conferenceMember ? (status.conference_id || null) : null,
+      conference_name: conferenceMember ? (status.conference_name || null) : null,
+      conference_record: recordVerified && conferenceMember ? (status.conference_record || null) : null,
+      rank: recordVerified && standingsVerified && Number.isFinite(rank) && rank > 0 ? rank : null,
+      standing_state: conferenceMember
+        ? (status.standing_state || (conferenceGames > 0 ? "unavailable" : "not-started"))
+        : membershipState,
       overall_games: Number(status.overall_games || 0),
-      conference_games: Number(status.conference_games || 0)
+      conference_games: conferenceGames,
+      record_verified: recordVerified,
+      standings_verified: standingsVerified,
+      record_state: status.record_state || (recordVerified ? "VERIFIED" : "UNVERIFIED"),
+      record_audit_state: status.record_audit_state || null,
+      record_issues: Array.isArray(status.record_issues) ? status.record_issues.map(issue => ({ ...issue })) : []
     };
   }
 
@@ -234,7 +256,10 @@
       String(status.sport || "") === String(sport || "")
       && String(status.gender || "") === String(gender || "")
     );
-    return found ? { ...found } : null;
+    return found ? {
+      ...found,
+      record_issues: (found.record_issues || []).map(issue => ({ ...issue }))
+    } : null;
   };
 
   const primedSchools = new Set();
