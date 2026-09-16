@@ -1,6 +1,7 @@
 const INTERNAL_REFRESH_TOKEN = "__localbleachers_scoped_cadence__";
 const ORDINARY_MAX_SOURCES_PER_RUN = 4;
 const COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN = 8;
+const COLLEGE_LATE_FINAL_LOOKBACK_MINUTES = 900;
 const OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 256;
 const OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 64;
 const OFFICIAL_LIVE_FINAL_RESULTS_MAX_SOURCES_PER_RUN = 64;
@@ -42,7 +43,7 @@ function liveFinalResultPolicy(plan = {}) {
     gameWindow:`AND EXISTS (
       SELECT 1
       FROM games gx
-      WHERE gx.team_id=t.id
+      WHERE gx.source_id=src.id
         AND gx.status='SCHEDULED'
         AND gx.scheduled_time_known=1
         AND (${game})
@@ -68,7 +69,7 @@ export function scopePolicy(plan = {}) {
       gameWindow: `AND EXISTS (
         SELECT 1
         FROM games gx
-        WHERE gx.team_id=t.id
+        WHERE gx.source_id=src.id
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND datetime(gx.scheduled_at) BETWEEN datetime('now','-330 minutes') AND datetime('now','-120 minutes')
@@ -90,7 +91,7 @@ export function scopePolicy(plan = {}) {
       gameWindow: `AND EXISTS (
         SELECT 1
         FROM games gx
-        WHERE gx.team_id=t.id
+        WHERE gx.source_id=src.id
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND datetime(gx.scheduled_at) BETWEEN datetime('now','-900 minutes') AND datetime('now','-90 minutes')
@@ -119,7 +120,7 @@ export function scopePolicy(plan = {}) {
       gameWindow: `AND EXISTS (
         SELECT 1
         FROM games gx
-        WHERE gx.team_id=t.id
+        WHERE gx.source_id=src.id
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND (
@@ -136,18 +137,22 @@ export function scopePolicy(plan = {}) {
       where: "sch.level='college'",
       activeMinutes: Number(plan.activeResultMinutes || 30),
       maxSources: 8,
+      // Keep unresolved games in the live queue for 15 hours after scheduled
+      // start while retaining sport-specific minimum elapsed times. The selector
+      // stays capped at eight sources and uses the existing source/time index,
+      // so a slow provider final cannot silently fall into the ordinary queue.
       gameWindow: `AND EXISTS (
         SELECT 1
         FROM games gx
-        WHERE gx.team_id=t.id
+        WHERE gx.source_id=src.id
           AND gx.status='SCHEDULED'
           AND gx.scheduled_time_known=1
           AND (
-            (t.sport='football' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-360 minutes') AND datetime('now','-120 minutes')) OR
-            (t.sport='basketball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-210 minutes') AND datetime('now','-75 minutes')) OR
-            (t.sport='soccer' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-240 minutes') AND datetime('now','-90 minutes')) OR
-            (t.sport='volleyball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-270 minutes') AND datetime('now','-75 minutes')) OR
-            (t.sport NOT IN ('football','basketball','soccer','volleyball') AND datetime(gx.scheduled_at) BETWEEN datetime('now','-300 minutes') AND datetime('now','-90 minutes'))
+            (t.sport='football' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-${COLLEGE_LATE_FINAL_LOOKBACK_MINUTES} minutes') AND datetime('now','-120 minutes')) OR
+            (t.sport='basketball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-${COLLEGE_LATE_FINAL_LOOKBACK_MINUTES} minutes') AND datetime('now','-75 minutes')) OR
+            (t.sport='soccer' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-${COLLEGE_LATE_FINAL_LOOKBACK_MINUTES} minutes') AND datetime('now','-90 minutes')) OR
+            (t.sport='volleyball' AND datetime(gx.scheduled_at) BETWEEN datetime('now','-${COLLEGE_LATE_FINAL_LOOKBACK_MINUTES} minutes') AND datetime('now','-75 minutes')) OR
+            (t.sport NOT IN ('football','basketball','soccer','volleyball') AND datetime(gx.scheduled_at) BETWEEN datetime('now','-${COLLEGE_LATE_FINAL_LOOKBACK_MINUTES} minutes') AND datetime('now','-90 minutes'))
           )
       )`,
       dueMode: "active-result"
@@ -301,6 +306,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
 
 export {
   COLLEGE_BOOTSTRAP_MAX_SOURCES_PER_RUN,
+  COLLEGE_LATE_FINAL_LOOKBACK_MINUTES,
   OFFICIAL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
   OFFICIAL_VOLLEYBALL_FINAL_RESULTS_MAX_SOURCES_PER_RUN,
   OFFICIAL_LIVE_FINAL_RESULTS_MAX_SOURCES_PER_RUN,

@@ -74,17 +74,19 @@ test("Friday football runs every 30 minutes from 8:30 PM through 1 AM Central", 
   for (const slot of slots) assert.equal(kind(slot), "friday-football-results", slot);
 });
 
-test("Saturday college game-day window runs every 30 minutes from 10:30 AM through 1 AM Sunday", () => {
+test("Saturday college game-day window runs every 30 minutes from 10:30 AM through 2 AM Sunday", () => {
   const samples = [
     "2026-09-05T15:30:00Z", // Sat 10:30 AM CDT
     "2026-09-05T17:00:00Z", // Sat noon CDT
     "2026-09-06T04:30:00Z", // Sat 11:30 PM CDT
     "2026-09-06T05:30:00Z", // Sun 12:30 AM CDT
-    "2026-09-06T06:00:00Z"  // Sun 1:00 AM CDT
+    "2026-09-06T06:00:00Z", // Sun 1:00 AM CDT
+    "2026-09-06T06:30:00Z", // Sun 1:30 AM CDT
+    "2026-09-06T07:00:00Z"  // Sun 2:00 AM CDT
   ];
   for (const slot of samples) assert.equal(kind(slot), "saturday-college-results", slot);
   assert.equal(kind("2026-09-05T15:00:00Z"), null);
-  assert.equal(kind("2026-09-06T06:30:00Z"), null);
+  assert.equal(kind("2026-09-06T07:30:00Z"), null);
 });
 
 test("Saturday college plan stays scoped while volleyball tournament probes are hourly", () => {
