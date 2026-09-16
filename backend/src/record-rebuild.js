@@ -206,7 +206,9 @@ export async function rebuildTeamRecord(env, teamId, calculatedAt = new Date().t
   const built = buildRecordsFromInputs(inputs);
   if (!built.length) return null;
   await persistRecords(env, built, calculatedAt);
-  await rebuildStandingsForTeams(env, [teamId], calculatedAt, { skipCompleteCalculated: true });
+  // M9 durable membership is authoritative. A touched conference cohort must be
+  // materialized even when the legacy conferences.coverage_complete flag is 1.
+  await rebuildStandingsForTeams(env, [teamId], calculatedAt);
   return built[0].record;
 }
 

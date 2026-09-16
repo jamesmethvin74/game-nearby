@@ -1,10 +1,18 @@
 import app from "./m4-public-worker.js";
 import { membershipPublicStatus } from "./conference-membership-truth.js";
+import { loadStandingsTruth } from "./standings-truth.js";
+import { parseStandingsRecord, schoolKey } from "./conference-standings-truth.js";
 
 function json(body, response) {
   const headers = new Headers(response.headers);
   headers.set("content-type", "application/json; charset=utf-8");
   return new Response(JSON.stringify(body), { status: response.status, headers });
+}
+
+function recordIssue(status, issue) {
+  const issues=Array.isArray(status.record_issues) ? [...status.record_issues] : [];
+  if (!issues.some(existing=>existing?.code===issue?.code)) issues.push(issue);
+  return issues;
 }
 
 export function applyMembershipTruthToStatuses(statuses = [], memberships = []) {
@@ -67,6 +75,124 @@ async function membershipRows(env, teamIds) {
   return result.results || [];
 }
 
+function sameRecord(left, right) {
+  if (!left || !right || left === "N/A" || right === "N/A") return false;
+  const a=parseStandingsRecord(left), b=parseStandingsRecord(right);
+  return a.wins===b.wins && a.losses===b.losses && a.ties===b.ties;
+}
+
+function rowForStatus(payload, status) {
+  const rows=Array.isArray(payload?.standings) ? payload.standings : [];
+  return rows.find(row => row.team_id && String(row.team_id)===String(status.team_id))
+    || rows.find(row => schoolKey(row.school_name) && schoolKey(row.school_name)===schoolKey(status.school_name))
+    || null;
+}
+
+function applyPublishedCompletenessCrossCheck(status, row) {
+  const next={...status};
+  const publishedConference=row?.published_conference_record;
+  const publishedOverall=row?.published_overall_record;
+  const publishedConferenceGames=parseStandingsRecord(publishedConference).games;
+  const publishedOverallGames=parseStandingsRecord(publishedOverall).games;
+  const localConferenceGames=Number(next.conference_games||0);
+  const localOverallGames=Number(next.overall_games||0);
+
+  if (publishedOverall && publishedOverallGames > localOverallGames) {
+    next.overall_record=null;
+    next.record_verified=false;
+    next.record_state="INCOMPLETE";
+    next.record_audit_state="INCOMPLETE";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE",
+      detail:`Published record covers ${publishedOverallGames} games; normalized final evidence covers ${localOverallGames}.`
+    });
+  } else if (publishedOverall && publishedOverallGames===localOverallGames && publishedOverallGames>0
+    && next.overall_record && !sameRecord(next.overall_record,publishedOverall)) {
+    if (next.record_audit_state==="VERIFIED") next.record_audit_state="CONTRADICTORY";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+      detail:"Published overall record disagrees with normalized final-game truth; normalized individual games remain authoritative.",
+      informational:true
+    });
+  }
+
+  if (publishedConference && publishedConferenceGames > localConferenceGames) {
+    next.conference_record=null;
+    next.rank=null;
+    next.standing_state="unavailable";
+    next.record_verified=false;
+    next.record_state="INCOMPLETE";
+    next.record_audit_state="INCOMPLETE";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
+      detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${localConferenceGames}.`
+    });
+  } else if (publishedConference && publishedConferenceGames===localConferenceGames && publishedConferenceGames>0
+    && next.conference_record && !sameRecord(next.conference_record,publishedConference)) {
+    next.rank=null;
+    next.standing_state="unavailable";
+    if (next.record_audit_state==="VERIFIED") next.record_audit_state="CONTRADICTORY";
+    next.record_issues=recordIssue(next,{
+      code:"PUBLISHED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+      detail:"Published conference record disagrees with normalized conference final-game truth; normalized individual games remain authoritative.",
+      informational:true
+    });
+  }
+  return next;
+}
+
+export function applyStandingsTruthToStatuses(statuses = [], truthByKey = new Map()) {
+  return statuses.map(status => {
+    if (status.conference_membership_state !== "member" || !status.conference_id || !status.sport) return status;
+    const key=`${String(status.sport).toLowerCase()}|${String(status.conference_id).toLowerCase()}`;
+    const payload=truthByKey.get(key);
+    const row=payload ? rowForStatus(payload,status) : null;
+
+    let next={...status};
+    if (Number(next.conference_games||0)===0) {
+      next.conference_record="N/A";
+      next.rank=null;
+      next.standing_state="not-started";
+    } else if (!row) {
+      next.rank=null;
+      next.standing_state="unavailable";
+    } else {
+      const canonicalAgree=sameRecord(next.conference_record,row.conference_record);
+      next.rank=canonicalAgree ? row.rank : null;
+      next.standing_state=canonicalAgree ? (row.standing_state || (row.rank ? "ranked" : "unavailable")) : "unavailable";
+      next.standings_verified=Boolean(canonicalAgree && row.standings_verified);
+    }
+
+    if (row) {
+      next.published_cross_check=row.published_cross_check || null;
+      next.published_rank=row.published_rank ?? null;
+      next.published_conference_record=row.published_conference_record ?? null;
+      next.published_overall_record=row.published_overall_record ?? null;
+      next=applyPublishedCompletenessCrossCheck(next,row);
+    }
+    return next;
+  });
+}
+
+async function loadStatusStandingsTruth(env, statuses) {
+  const jobs=new Map();
+  for (const status of statuses) {
+    if (status.conference_membership_state !== "member" || !status.conference_id || !status.sport) continue;
+    const sport=String(status.sport).toLowerCase();
+    const conferenceId=String(status.conference_id).toLowerCase();
+    const key=`${sport}|${conferenceId}`;
+    if (!jobs.has(key)) {
+      jobs.set(key,loadStandingsTruth(env,{sport,conferenceId,season:status.season||"2026"}).catch(error => {
+        console.warn("durable standings truth unavailable",{sport,conferenceId,error:String(error?.message||error)});
+        return null;
+      }));
+    }
+  }
+  const resolved=new Map();
+  await Promise.all([...jobs].map(async ([key,promise]) => resolved.set(key,await promise)));
+  return resolved;
+}
+
 async function enforceMembershipTruth(response, env) {
   if (!response || response.status !== 200) return response;
   const contentType = response.headers.get("content-type") || "";
@@ -81,15 +207,16 @@ async function enforceMembershipTruth(response, env) {
   try {
     memberships = await membershipRows(env, body.team_statuses.map(row => row.team_id));
   } catch (error) {
-    // Deployment is intentionally backward compatible with the migration order:
-    // until 0016 exists, preserve the prior response rather than taking schedules down.
     if (/no such table|conference_memberships/i.test(String(error?.message || error))) return response;
     throw error;
   }
 
+  const membershipStatuses=applyMembershipTruthToStatuses(body.team_statuses,memberships);
+  const truthByKey=await loadStatusStandingsTruth(env,membershipStatuses);
+  const teamStatuses=applyStandingsTruthToStatuses(membershipStatuses,truthByKey);
   return json({
     ...body,
-    team_statuses: applyMembershipTruthToStatuses(body.team_statuses, memberships),
+    team_statuses: teamStatuses,
     conference_membership_truth: {
       method: "durable-authority",
       explicit_rows: memberships.length,
@@ -99,10 +226,56 @@ async function enforceMembershipTruth(response, env) {
   }, response);
 }
 
+function conferenceStandingsId(pathname) {
+  const match=String(pathname||"").match(/^\/api\/v1\/conferences\/([^/]+)\/standings$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+async function standingsSport(env, conferenceId, requestedSport = null) {
+  if (requestedSport) return String(requestedSport).toLowerCase();
+  const result=await env.DB.prepare(`
+    SELECT DISTINCT t.sport
+    FROM conference_memberships cm
+    JOIN teams t ON t.id=cm.team_id
+    WHERE cm.membership_state='member' AND cm.conference_id=? AND t.active=1
+    ORDER BY t.sport
+    LIMIT 2
+  `).bind(conferenceId).all();
+  const sports=(result.results||[]).map(row=>String(row.sport||"").toLowerCase()).filter(Boolean);
+  if (sports.length===1) return sports[0];
+  if (sports.length>1) throw new Error("standings_sport_required");
+  return null;
+}
+
+async function enforceConferenceStandingsRoute(request,response,env) {
+  const url=new URL(request.url);
+  const conferenceId=conferenceStandingsId(url.pathname);
+  if (!conferenceId || request.method!=="GET") return response;
+  try {
+    const sport=await standingsSport(env,conferenceId,url.searchParams.get("sport"));
+    if (!sport) return response;
+    const payload=await loadStandingsTruth(env,{sport,conferenceId,season:url.searchParams.get("season")||"2026"});
+    return json(payload,response);
+  } catch (error) {
+    const message=String(error?.message||error);
+    if (/no such table|conference_memberships/i.test(message)) return response;
+    if (message==="standings_sport_required") {
+      return new Response(JSON.stringify({error:"standings_sport_required"}),{
+        status:400,
+        headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}
+      });
+    }
+    console.warn("conference standings truth route failed",{conferenceId,error:message});
+    return response;
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const response = await app.fetch(request, env, ctx);
     if (request.method !== "GET") return response;
+    const standingsResponse=await enforceConferenceStandingsRoute(request,response,env);
+    if (standingsResponse!==response) return standingsResponse;
     return enforceMembershipTruth(response, env);
   },
   async scheduled(controller, env, ctx) {
@@ -110,4 +283,11 @@ export default {
   }
 };
 
-export { enforceMembershipTruth, membershipRows };
+export {
+  applyPublishedCompletenessCrossCheck,
+  conferenceStandingsId,
+  enforceConferenceStandingsRoute,
+  enforceMembershipTruth,
+  membershipRows,
+  standingsSport
+};
