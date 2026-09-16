@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, recordFromScheduleRows, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, opponentNamesLikelySame, recordFromScheduleRows, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";
 
 const displayNames = new Map([
   ["conway", "Conway High School"],
@@ -82,6 +82,107 @@ test("same opponent at materially different times remains separate", () => {
   const b = { school_id:"conway", sport:"volleyball", gender:"girls", scheduled_at:"2026-09-19T17:00:00.000Z", opponent:"Nixa Springfield Classic" };
   assert.equal(scheduleRowsLikelyDuplicate(a,b), false);
   assert.equal(dedupeScheduleRows([a,b]).length, 2);
+});
+
+test("Bryant known-time observations with distinct canonical ids collapse and the verified final wins", () => {
+  const stale = {
+    id:"benton-stale",
+    canonical_event_id:"ce-benton-schedule",
+    school_id:"bryant",
+    sport:"football",
+    gender:"boys",
+    scheduled_at:"2026-08-29T00:00:00.000Z",
+    scheduled_time_known:1,
+    opponent:"Benton High School",
+    status:"SCHEDULED",
+    team_score:null,
+    opponent_score:null,
+    result:null,
+    parser_type:"dragonfly-public",
+    source_type:"official-conference",
+    data_trust:"AUTHORITATIVE_LIVE"
+  };
+  const final = {
+    id:"benton-final",
+    canonical_event_id:"ce-benton-final",
+    school_id:"bryant",
+    sport:"football",
+    gender:"boys",
+    scheduled_at:"2026-08-29T00:00:00.000Z",
+    scheduled_time_known:1,
+    opponent:"Benton",
+    status:"FINAL",
+    team_score:42,
+    opponent_score:43,
+    result:"L",
+    counts_for_record:1,
+    parser_type:"mascot-media",
+    source_type:"official-school",
+    data_trust:"SINGLE_SOURCE_LIVE"
+  };
+
+  assert.equal(scheduleRowsLikelyDuplicate(stale, final, {reportingSchoolId:"bryant"}), true);
+  const rows = dedupeScheduleRows([stale, final], {reportingSchoolId:"bryant"});
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "FINAL");
+  assert.equal(rows[0].team_score, 42);
+  assert.equal(rows[0].opponent_score, 43);
+  assert.equal(rows[0].result, "L");
+  assert.equal(rows[0].schedule_observation_count, 2);
+});
+
+test("Bryant Alexandria source aliases normalize without confusing the Louisiana qualifier", () => {
+  assert.equal(opponentNamesLikelySame("Alexandria Senior High School", "Alexandria (LA)"), true);
+
+  const rows = dedupeScheduleRows([
+    {
+      canonical_event_id:"ce-alexandria-schedule",
+      school_id:"bryant",
+      sport:"football",
+      gender:"boys",
+      scheduled_at:"2026-09-05T00:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Alexandria Senior High School",
+      status:"SCHEDULED"
+    },
+    {
+      canonical_event_id:"ce-alexandria-final",
+      school_id:"bryant",
+      sport:"football",
+      gender:"boys",
+      scheduled_at:"2026-09-05T00:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Alexandria (LA)",
+      status:"FINAL",
+      team_score:20,
+      opponent_score:44,
+      result:"L",
+      counts_for_record:1,
+      source_type:"official-school",
+      parser_type:"mascot-media"
+    }
+  ], {reportingSchoolId:"bryant"});
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, "FINAL");
+  assert.equal(rows[0].team_score, 20);
+  assert.equal(rows[0].opponent_score, 44);
+});
+
+test("distinct date-only canonical rows remain separate to protect real rematches", () => {
+  const base = {
+    school_id:"conway",
+    sport:"volleyball",
+    gender:"girls",
+    scheduled_at:"2026-09-19T05:00:00.000Z",
+    scheduled_time_known:0,
+    opponent:"Nixa High School",
+    status:"SCHEDULED"
+  };
+  const a = {...base, canonical_event_id:"ce-rematch-a"};
+  const b = {...base, canonical_event_id:"ce-rematch-b"};
+  assert.equal(scheduleRowsLikelyDuplicate(a,b,{reportingSchoolId:"conway"}), false);
+  assert.equal(dedupeScheduleRows([a,b],{reportingSchoolId:"conway"}).length, 2);
 });
 
 
