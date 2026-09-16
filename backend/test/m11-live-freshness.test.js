@@ -71,7 +71,7 @@ test("M11 normal collectors preserve final -> record -> touched-conference stand
   assert.match(standings, /persistCalculatedStandings/);
 });
 
-test("M11 source selection remains scoped and telemetry remains wired", () => {
+test("M11 source selection stays scoped and D1 usage visibility remains intact", () => {
   const runner = source("../src/scoped-cadence-runner.js");
   const telemetry = source("../src/d1-usage-public-worker.js");
 
@@ -79,5 +79,7 @@ test("M11 source selection remains scoped and telemetry remains wired", () => {
   assert.match(runner, /LIMIT \?/);
   assert.match(runner, /rowsRead: Number\(selection\.meta\?\.rows_read/);
   assert.match(runner, /rowsWritten: Number\(selection\.meta\?\.rows_written/);
-  assert.match(telemetry, /withD1UsageTelemetry/);
+  assert.match(telemetry, /loadD1Usage/);
+  assert.match(telemetry, /\/api\/v1\/d1-usage/);
+  assert.match(telemetry, /async scheduled\(controller, env, ctx\)[\s\S]*app\.scheduled\(controller, env, ctx\)/);
 });
