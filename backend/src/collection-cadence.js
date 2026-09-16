@@ -108,16 +108,18 @@ export function collectionPlanAt(value = new Date()) {
     });
   }
 
-  // Saturday is the college-heavy live-update day. Keep the existing 30-minute
-  // college source polling. Basketball statewide probes run every tick in season;
-  // fall volleyball remains hourly during tournament season.
+  // Saturday is the college-heavy live-update day. Keep the bounded 30-minute
+  // college source polling running through 2:00 AM Sunday Central so late games,
+  // overtime, weather delays, and slow provider finalization do not fall into the
+  // ordinary four-source queue overnight. Basketball statewide probes run every
+  // tick in season; fall volleyball remains hourly during tournament season.
   const saturdayCollege = weekday === "Sat" && (
     (hour === 10 && minute === 30) ||
     (hour >= 11 && hour <= 23 && (minute === 0 || minute === 30))
   );
   const saturdayLate = weekday === "Sun" && (
-    (hour === 0 && (minute === 0 || minute === 30)) ||
-    (hour === 1 && minute === 0)
+    ((hour === 0 || hour === 1) && (minute === 0 || minute === 30)) ||
+    (hour === 2 && minute === 0)
   );
   if (saturdayCollege || saturdayLate) {
     const liveStatewideSports = [];
