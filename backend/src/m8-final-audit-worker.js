@@ -32,7 +32,7 @@ async function runRecordTruthAudit(env) {
 }
 
 async function runDataIntegrityAudit(env) {
-  const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:100});
+  const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   return auditJson(audit,200,{integrity:true});
 }
 
@@ -59,7 +59,7 @@ export default {
         return auditJson({error:"data_integrity_audit_failed",message:String(error?.message||error)},500,{integrity:true});
       }
       console.error("final M8 record truth audit failed",error);
-      return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500);
+      return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500,{integrity:true});
     }
   },
   async scheduled(controller,env,ctx) {
