@@ -476,7 +476,7 @@ export async function repairAuditedPresentationDefects(env,audit,{
   if(typeof rebuildAudit!=="function") throw new Error("repairAuditedPresentationDefects requires rebuildAudit");
   const checkedAt=now.toISOString();
   const initialIssues=blockingRepairIssues(audit);
-  const initialGameIds=[...new Set(initialIssues.flatMap(issue=>[issue.game_id,isssue.other_game_id]).map(String).filter(Boolean))];
+  const initialGameIds=[...new Set(initialIssues.flatMap(issue=>[issue.game_id,issue.other_game_id]).map(String).filter(Boolean))];
   const loaded=await loadRepairRows(env,initialGameIds);
   const d1={statements:1,rows_read:loaded.meta.rows_read,rows_written:loaded.meta.rows_written,duration_ms:loaded.meta.duration_ms};
   const mergePlan=buildAuditedCanonicalMergePlan(audit,loaded.rows);
