@@ -1,4 +1,4 @@
-name: One-shot M15 statewide collector repair
+name: One-shot M15 exact presentation repair
 
 on:
   push:
@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Run bounded statewide football and volleyball collectors
+      - name: Run audit-proven presentation repair
         shell: bash
         run: |
           set -euo pipefail
@@ -27,13 +27,13 @@ jobs:
           const BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const PATH_ONCE='/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd';
           const FP='m15-statewide-presentation-repair-1426-364-20260917';
-          const VERSION='m15-v4';
+          const VERSION='m15-v5';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
           async function request(method,body=null,timeoutMs=2400000){
             const controller=new AbortController();
             const timer=setTimeout(()=>controller.abort(),timeoutMs);
-            try {
+            try{
               const response=await fetch(BASE+PATH_ONCE,{
                 method,
                 headers:body?{'content-type':'application/json'}:{},
@@ -49,43 +49,48 @@ jobs:
           }
 
           async function main(){
-            let ready=null;
+            let before=null;
             for(let attempt=1;attempt<=120;attempt++){
               try{
                 const payload=await request('GET',null,300000);
-                if(payload.status==='READY'&&payload.fingerprint===FP&&payload.transport_version===VERSION){ready=payload;break;}
-                console.log(`M15_V4_WAIT attempt=${attempt} got=${String(payload.transport_version||'legacy')}`);
-              }catch(error){console.log(`M15_V4_WAIT attempt=${attempt} error=${String(error.message).slice(0,500)}`);}
+                if(payload.status==='READY'&&payload.fingerprint===FP&&payload.transport_version===VERSION){before=payload;break;}
+                console.log(`M15_V5_WAIT attempt=${attempt} got=${String(payload.transport_version||'legacy')}`);
+              }catch(error){console.log(`M15_V5_WAIT attempt=${attempt} error=${String(error.message).slice(0,500)}`);}
               await sleep(5000);
             }
-            if(!ready) throw new Error('M15 v4 transport never reached READY');
-            console.log('M15_PRE_STATEWIDE='+JSON.stringify({summary:ready.summary,d1:ready.d1,issue_counts:ready.issue_counts,blocking_issue_rows:ready.blocking_issue_rows}));
+            if(!before) throw new Error('M15 v5 transport never reached READY');
+            console.log('M15_REPAIR_BEFORE='+JSON.stringify({
+              summary:before.summary,d1:before.d1,issue_counts:before.issue_counts,
+              blocking_issue_rows:before.blocking_issue_rows,
+              affected_team_count:(before.affected_team_ids||[]).length
+            }));
 
             const result=await request('POST',{
               fingerprint:FP,
               transport_version:VERSION,
-              action:'statewide-collect',
-              keys:['football-boys','volleyball-girls']
-            });
-            console.log('M15_STATEWIDE_RESULT='+JSON.stringify({
+              action:'presentation-repair'
+            },3600000);
+            console.log('M15_REPAIR_RESULT='+JSON.stringify({
               status:result.status,
-              keys:result.keys,
-              outcomes:(result.outcomes||[]).map(item=>({
-                key:item.key,status:item.status,error:item.error||null,
-                collector_status:item.result?.status||null,
-                rawEventCount:item.result?.rawEventCount??null,
-                canonicalEvents:item.result?.canonicalEvents??null,
-                observations:item.result?.observations??null,
-                sources:item.result?.sources??null,
-                touchedTeams:item.result?.touchedTeams??null,
-                recordRebuild:item.result?.recordRebuild??null
-              })),
               before:result.before,
+              canonical:result.repair?.canonical,
+              score_repair:result.repair?.score_repair,
+              suppression_count:result.repair?.suppression?.game_ids?.length||0,
+              suppression_rows_written:result.repair?.suppression?.rows_written||0,
+              affected_team_ids:result.repair?.affected_team_ids||[],
+              record_rebuild:result.repair?.record_rebuild,
+              repair_after_summary:result.repair?.after_summary,
+              repair_after_issue_counts:result.repair?.after_issue_counts,
+              repair_d1:result.repair?.d1,
               after:result.after
             }));
 
             const after=await request('GET',null,300000);
-            console.log('M15_POST_STATEWIDE='+JSON.stringify({summary:after.summary,d1:after.d1,issue_counts:after.issue_counts,blocking_issue_rows:after.blocking_issue_rows}));
+            console.log('M15_REPAIR_AFTER='+JSON.stringify({
+              summary:after.summary,d1:after.d1,issue_counts:after.issue_counts,
+              blocking_issue_rows:after.blocking_issue_rows,
+              affected_team_count:(after.affected_team_ids||[]).length
+            }));
           }
           main().catch(error=>{console.error(error?.stack||String(error));process.exit(1);});
           NODE
