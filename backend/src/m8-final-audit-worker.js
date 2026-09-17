@@ -3,6 +3,8 @@ import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-au
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
+import { reconcileAuditedCanonicalDefects } from "./statewide-data-integrity-repair.js";
+import { executeFinalMissingScoreRepair, planFinalMissingScoreRepair } from "./final-missing-score-repair.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
@@ -10,7 +12,7 @@ const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const M15_PATH="/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd";
 const M15_FINGERPRINT="m15-statewide-presentation-repair-1426-364-20260917";
-const M15_TRANSPORT_VERSION="m15-v2";
+const M15_TRANSPORT_VERSION="m15-v3";
 const M15_CODES=new Set([
   "SPLIT_CANONICAL_LOGICAL_GAME",
   "STALE_NONTERMINAL_TWIN_OF_FINAL",
@@ -48,6 +50,15 @@ async function loadM15Sources(request,env,ctx) {
   return Array.isArray(sourcesPayload.sources)?sourcesPayload.sources:[];
 }
 
+function m15IssueCounts(audit) {
+  const byCode={};
+  for(const issue of audit.issues||[]) {
+    if(issue.severity!=="blocking"||!M15_CODES.has(issue.code)) continue;
+    byCode[issue.code]=(byCode[issue.code]||0)+1;
+  }
+  return byCode;
+}
+
 async function buildM15Plan(request,env,ctx) {
   const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   const blocking=(audit.issues||[]).filter(issue=>issue.severity==="blocking"&&M15_CODES.has(issue.code));
@@ -58,9 +69,49 @@ async function buildM15Plan(request,env,ctx) {
     .filter(source=>affectedTeams.has(String(source.team_id||"")))
     .map(source=>String(source.id||""))
     .filter(Boolean))];
-  const byCode={};
-  for(const issue of blocking) byCode[issue.code]=(byCode[issue.code]||0)+1;
-  return {audit,blocking,affectedTeamIds,sourceIds,byCode};
+  return {audit,blocking,affectedTeamIds,sourceIds,byCode:m15IssueCounts(audit)};
+}
+
+async function runM15CanonicalRepair(env) {
+  const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  const repair=await reconcileAuditedCanonicalDefects(env,before);
+  const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  return {
+    status:"EXECUTED",
+    fingerprint:M15_FINGERPRINT,
+    transport_version:M15_TRANSPORT_VERSION,
+    action:"canonical-reconcile",
+    before:{summary:before.summary,d1:before.d1,issue_counts:m15IssueCounts(before)},
+    repair,
+    after:{summary:after.summary,d1:after.d1,issue_counts:m15IssueCounts(after)}
+  };
+}
+
+async function runM15MissingScoreRepair(env) {
+  const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  const plan=await planFinalMissingScoreRepair(env);
+  if(!plan.safe) {
+    return {
+      status:"UNSAFE",
+      fingerprint:M15_FINGERPRINT,
+      transport_version:M15_TRANSPORT_VERSION,
+      action:"missing-score-repair",
+      before:{summary:before.summary,d1:before.d1,issue_counts:m15IssueCounts(before)},
+      plan
+    };
+  }
+  const repair=await executeFinalMissingScoreRepair(env,{fingerprint:plan.fingerprint});
+  const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  return {
+    status:"EXECUTED",
+    fingerprint:M15_FINGERPRINT,
+    transport_version:M15_TRANSPORT_VERSION,
+    action:"missing-score-repair",
+    before:{summary:before.summary,d1:before.d1,issue_counts:m15IssueCounts(before)},
+    plan,
+    repair,
+    after:{summary:after.summary,d1:after.d1,issue_counts:m15IssueCounts(after)}
+  };
 }
 
 async function runM15Transport(request,env,ctx) {
@@ -83,14 +134,19 @@ async function runM15Transport(request,env,ctx) {
   if(body.fingerprint!==M15_FINGERPRINT||body.transport_version!==M15_TRANSPORT_VERSION) {
     return auditJson({error:"not_found"},404,{integrity:true});
   }
+
+  if(body.action==="canonical-reconcile") {
+    const result=await runM15CanonicalRepair(env);
+    return auditJson(result,200,{integrity:true});
+  }
+  if(body.action==="missing-score-repair") {
+    const result=await runM15MissingScoreRepair(env);
+    return auditJson(result,result.status==="UNSAFE"?409:200,{integrity:true});
+  }
+
   const sourceIds=[...new Set((Array.isArray(body.sourceIds)?body.sourceIds:[]).map(String).filter(Boolean))];
   if(sourceIds.length<1||sourceIds.length>16) return auditJson({error:"invalid_source_batch"},400,{integrity:true});
 
-  // The GET repair contract is authoritative for each cycle. Do not rerun the
-  // statewide audit between batches: a successful early batch can legitimately
-  // remove a later source's team from the live defect set before that source is
-  // processed. Keep POST bounded by fingerprint, batch size, and real enabled
-  // source IDs instead.
   const sources=await loadM15Sources(request,env,ctx);
   const enabledSourceIds=new Set(sources.map(source=>String(source?.id||"")).filter(Boolean));
   const rejected=sourceIds.filter(id=>!enabledSourceIds.has(id));
@@ -110,6 +166,7 @@ async function runM15Transport(request,env,ctx) {
     status:refreshResponse.ok?"EXECUTED":"FAILED",
     fingerprint:M15_FINGERPRINT,
     transport_version:M15_TRANSPORT_VERSION,
+    action:"authoritative-refresh",
     source_ids:sourceIds,
     refresh_status:refreshResponse.status,
     refresh:payload
