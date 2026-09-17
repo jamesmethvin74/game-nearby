@@ -39,25 +39,46 @@ test("canonical repair clusters collapse overlapping audit pairs without inventi
   assert.deepEqual(clusters[0].codes,["DUPLICATE_SCHEDULE_ENTRY","SPLIT_CANONICAL_LOGICAL_GAME","STALE_NONTERMINAL_TWIN_OF_FINAL"]);
 });
 
-test("canonical repair retries only audit-proven cluster members and rebuilds affected records once",async()=>{
+test("canonical repair retries only audit-proven cluster members and rebuilds both participating teams once",async()=>{
   const audit={issues:[
     issue("SPLIT_CANONICAL_LOGICAL_GAME",{team:"team-a",game:"g1",other:"g2"}),
     issue("STALE_NONTERMINAL_TWIN_OF_FINAL",{team:"team-a",game:"g1",other:"g2"})
   ]};
   const calls=[];
   const rebuilds=[];
+  const loaded=[];
   const reconcile=async(_env,gameId)=>{
     calls.push(gameId);
     return gameId==="g2"?"ce-fixed":null;
+  };
+  const loadAffectedTeams=async(_env,gameIds)=>{
+    loaded.push([...gameIds]);
+    return ["team-a","team-b"];
   };
   const rebuildRecords=async(_env,teamIds)=>{
     rebuilds.push(teamIds);
     return {teams:teamIds.length,scoredFinals:1,standings:{cohorts:1,standingsRows:2}};
   };
-  const result=await reconcileAuditedCanonicalDefects({},audit,{reconcile,rebuildRecords});
+  const result=await reconcileAuditedCanonicalDefects({},audit,{reconcile,rebuildRecords,loadAffectedTeams});
   assert.deepEqual(calls,["g1","g2"]);
   assert.equal(result.clustersRepaired,1);
-  assert.deepEqual(result.affectedTeamIds,["team-a"]);
-  assert.deepEqual(rebuilds,[["team-a"]]);
+  assert.deepEqual(loaded,[["g1","g2"]]);
+  assert.deepEqual(result.affectedTeamIds,["team-a","team-b"]);
+  assert.deepEqual(rebuilds,[["team-a","team-b"]]);
   assert.equal(result.recordRebuild.standings.cohorts,1);
+});
+
+test("failed canonical clusters do not cause unrelated record rebuilds",async()=>{
+  const audit={issues:[issue("DUPLICATE_SCHEDULE_ENTRY",{team:"team-a",game:"g1",other:"g2"})]};
+  let loaderCalled=false;
+  let rebuildCalled=false;
+  const result=await reconcileAuditedCanonicalDefects({},audit,{
+    reconcile:async()=>null,
+    loadAffectedTeams:async()=>{loaderCalled=true;return ["team-a","team-b"];},
+    rebuildRecords:async()=>{rebuildCalled=true;return {};}
+  });
+  assert.equal(result.clustersRepaired,0);
+  assert.equal(loaderCalled,false);
+  assert.equal(rebuildCalled,false);
+  assert.deepEqual(result.affectedTeamIds,[]);
 });
