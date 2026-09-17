@@ -1,4 +1,4 @@
-name: One-shot M15 remaining defect evidence
+name: One-shot M15 statewide collector repair
 
 on:
   push:
@@ -15,11 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  audit:
+  repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
-      - name: Read exact remaining overdue and presentation defects
+      - name: Run bounded statewide football and volleyball collectors
         shell: bash
         run: |
           set -euo pipefail
@@ -27,60 +27,65 @@ jobs:
           const BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const PATH_ONCE='/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd';
           const FP='m15-statewide-presentation-repair-1426-364-20260917';
-          const VERSION='m15-v3';
+          const VERSION='m15-v4';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-          async function get(detail){
-            const response=await fetch(`${BASE}${PATH_ONCE}?detail=${detail}`);
-            const text=await response.text();
-            let payload={};
-            try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,4000)};}
-            if(!response.ok) throw new Error(`GET ${detail} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,4000)}`);
-            return payload;
-          }
-
-          function aggregate(rows,key){
-            const out={};
-            for(const row of rows||[]){
-              const value=String(row?.[key]??'unknown');
-              out[value]=(out[value]||0)+Number(row.game_rows||0);
-            }
-            return Object.fromEntries(Object.entries(out).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])));
-          }
-
-          async function waitForDetail(detail){
-            for(let attempt=1;attempt<=90;attempt++){
-              try{
-                const payload=await get(detail);
-                if(payload.status==='READY'&&payload.fingerprint===FP&&payload.transport_version===VERSION&&payload.detail===detail) return payload;
-                console.log(`M15_DETAIL_WAIT detail=${detail} attempt=${attempt} got=${String(payload.detail||'none')}`);
-              }catch(error){console.log(`M15_DETAIL_WAIT detail=${detail} attempt=${attempt} error=${String(error.message).slice(0,500)}`);}
-              await sleep(5000);
-            }
-            throw new Error(`M15 detail ${detail} never became ready`);
+          async function request(method,body=null,timeoutMs=2400000){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),timeoutMs);
+            try {
+              const response=await fetch(BASE+PATH_ONCE,{
+                method,
+                headers:body?{'content-type':'application/json'}:{},
+                body:body?JSON.stringify(body):undefined,
+                signal:controller.signal
+              });
+              const text=await response.text();
+              let payload={};
+              try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,4000)};}
+              if(!response.ok) throw new Error(`${method} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,12000)}`);
+              return payload;
+            } finally { clearTimeout(timer); }
           }
 
           async function main(){
-            const overdue=await waitForDetail('overdue');
-            const rows=overdue.overdue_breakdown?.rows||[];
-            console.log('M15_OVERDUE_SUMMARY='+JSON.stringify({
-              summary:overdue.summary,
-              issue_counts:overdue.issue_counts,
-              d1:overdue.overdue_breakdown?.d1,
-              groups:rows.length,
-              by_sport:aggregate(rows,'sport'),
-              by_level:aggregate(rows,'level'),
-              by_source_type:aggregate(rows,'source_type'),
-              by_parser_type:aggregate(rows,'parser_type'),
-              by_collection_mode:aggregate(rows,'collection_mode'),
-              disabled_rows:rows.filter(row=>Number(row.source_enabled)!==1).reduce((sum,row)=>sum+Number(row.game_rows||0),0)
-            }));
-            console.log('M15_OVERDUE_GROUPS='+JSON.stringify(rows));
+            let ready=null;
+            for(let attempt=1;attempt<=120;attempt++){
+              try{
+                const payload=await request('GET',null,300000);
+                if(payload.status==='READY'&&payload.fingerprint===FP&&payload.transport_version===VERSION){ready=payload;break;}
+                console.log(`M15_V4_WAIT attempt=${attempt} got=${String(payload.transport_version||'legacy')}`);
+              }catch(error){console.log(`M15_V4_WAIT attempt=${attempt} error=${String(error.message).slice(0,500)}`);}
+              await sleep(5000);
+            }
+            if(!ready) throw new Error('M15 v4 transport never reached READY');
+            console.log('M15_PRE_STATEWIDE='+JSON.stringify({summary:ready.summary,d1:ready.d1,issue_counts:ready.issue_counts,blocking_issue_rows:ready.blocking_issue_rows}));
 
-            const defects=await waitForDetail('defects');
-            console.log('M15_DEFECT_SUMMARY='+JSON.stringify({summary:defects.summary,issue_counts:defects.issue_counts,d1:defects.defects?.d1,issues:defects.defects?.issues?.length||0,rows:defects.defects?.rows?.length||0}));
-            console.log('M15_DEFECT_ISSUES='+JSON.stringify(defects.defects?.issues||[]));
-            console.log('M15_DEFECT_ROWS='+JSON.stringify(defects.defects?.rows||[]));
+            const result=await request('POST',{
+              fingerprint:FP,
+              transport_version:VERSION,
+              action:'statewide-collect',
+              keys:['football-boys','volleyball-girls']
+            });
+            console.log('M15_STATEWIDE_RESULT='+JSON.stringify({
+              status:result.status,
+              keys:result.keys,
+              outcomes:(result.outcomes||[]).map(item=>({
+                key:item.key,status:item.status,error:item.error||null,
+                collector_status:item.result?.status||null,
+                rawEventCount:item.result?.rawEventCount??null,
+                canonicalEvents:item.result?.canonicalEvents??null,
+                observations:item.result?.observations??null,
+                sources:item.result?.sources??null,
+                touchedTeams:item.result?.touchedTeams??null,
+                recordRebuild:item.result?.recordRebuild??null
+              })),
+              before:result.before,
+              after:result.after
+            }));
+
+            const after=await request('GET',null,300000);
+            console.log('M15_POST_STATEWIDE='+JSON.stringify({summary:after.summary,d1:after.d1,issue_counts:after.issue_counts,blocking_issue_rows:after.blocking_issue_rows}));
           }
           main().catch(error=>{console.error(error?.stack||String(error));process.exit(1);});
           NODE
