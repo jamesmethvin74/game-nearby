@@ -1,5 +1,6 @@
 import { reconcileResolvedObservation } from "./canonical-observation-writer.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
+import { PRESENTATION_SUPPRESSED_NOTE } from "./current-schedule-truth.js";
 
 export const STATEWIDE_REPAIR_CODES=new Set([
   "SPLIT_CANONICAL_LOGICAL_GAME",
@@ -138,4 +139,128 @@ export async function reconcileAuditedCanonicalDefects(env,audit,{
     results,
     recordRebuild
   };
+}
+
+
+function metaOf(result={}) {
+  const meta=result?.meta||{};
+  return {
+    rows_read:meta.rows_read==null?0:Number(meta.rows_read),
+    rows_written:meta.rows_written==null?0:Number(meta.rows_written),
+    duration_ms:meta.duration==null?0:Number(meta.duration)
+  };
+}
+
+function addMeta(total,result={}) {
+  const meta=metaOf(result);
+  total.rows_read+=meta.rows_read;
+  total.rows_written+=meta.rows_written;
+  total.duration_ms+=meta.duration_ms;
+  total.statements++;
+  return meta;
+}
+
+function completeCanonicalFinal(row={}) {
+  return String(row.canonical_status||"").toUpperCase()==="FINAL"
+    && row.canonical_home_score!=null
+    && row.canonical_away_score!=null;
+}
+
+function completeRawFinal(row={}) {
+  return String(row.raw_status||"").toUpperCase()==="FINAL"
+    && row.raw_team_score!=null
+    && row.raw_opponent_score!=null;
+}
+
+function canonicalCandidateScore(id,rows=[]) {
+  let score=0;
+  for(const row of rows) {
+    if(String(row.canonical_event_id||"")!==id) continue;
+    if(completeCanonicalFinal(row)) score=Math.max(score,10000);
+    if(completeRawFinal(row)) score=Math.max(score,5000);
+    if(Number(row.source_enabled)===1) score=Math.max(score,1000);
+    const authority=Number(row.authority_rank);
+    if(Number.isFinite(authority)) score=Math.max(score,Math.max(0,500-authority));
+  }
+  return score;
+}
+
+export function chooseCanonicalWinner(rows=[]) {
+  const ids=[...new Set(rows.map(row=>String(row?.canonical_event_id||"")).filter(Boolean))];
+  if(!ids.length) return null;
+  return ids.sort((a,b)=>{
+    const delta=canonicalCandidateScore(b,rows)-canonicalCandidateScore(a,rows);
+    return delta || a.localeCompare(b);
+  })[0];
+}
+
+function orientedRawFinal(row,winnerRow) {
+  if(!completeRawFinal(row)||!winnerRow) return null;
+  const school=String(row.reporting_school_id||"");
+  const home=String(winnerRow.canonical_home_school_id||"");
+  const away=String(winnerRow.canonical_away_school_id||"");
+  if(!school||!home||!away) return null;
+  if(school===home) return {home_score:Number(row.raw_team_score),away_score:Number(row.raw_opponent_score)};
+  if(school===away) return {home_score:Number(row.raw_opponent_score),away_score:Number(row.raw_team_score)};
+  return null;
+}
+
+function uniqueFinalPair(rows,winnerRow) {
+  const pairs=new Map();
+  for(const row of rows) {
+    const pair=orientedRawFinal(row,winnerRow);
+    if(!pair) continue;
+    pairs.set(`${pair.home_score}:${pair.away_score}`,pair);
+  }
+  return pairs.size===1?[...pairs.values()][0]:null;
+}
+
+export function buildAuditedCanonicalMergePlan(audit={},rows=[]) {
+  const byId=new Map((rows||[]).map(row=>[String(row.game_id||""),row]));
+  const plans=[];
+  for(const cluster of buildCanonicalRepairClusters(audit)) {
+    const clusterRows=cluster.gameIds.map(id=>byId.get(String(id))).filter(Boolean);
+    const winner=chooseCanonicalWinner(clusterRows);
+    if(!winner) continue;
+    const winnerRow=clusterRows.find(row=>String(row.canonical_event_id||"")===winner)||null;
+    const loserCanonicalIds=[...new Set(clusterRows
+      .map(row=>String(row.canonical_event_id||""))
+      .filter(id=>id&&id!==winner))];
+    const pair=completeCanonicalFinal(winnerRow)?null:uniqueFinalPair(clusterRows,winnerRow);
+    plans.push({
+      winner_canonical_id:winner,
+      loser_canonical_ids:loserCanonicalIds,
+      game_ids:[...new Set(cluster.gameIds.map(String))],
+      team_ids:[...new Set(cluster.teamIds.map(String))],
+      codes:[...cluster.codes],
+      promote_final:pair
+    });
+  }
+  return plans;
+}
+
+async function loadRepairRows(env,gameIds=[]) {
+  const ids=[...new Set((gameIds||[]).map(String).filter(Boolean))];
+  if(!ids.length) return {rows:[],meta:{rows_read:0,rows_written:0,duration_ms:0}};
+  const result=await env.DB.prepare(`
+    WITH requested(id) AS (
+      SELECT CAST(value AS TEXT) FROM json_each(?)
+    )
+    SELECT
+      g.id AS game_id,g.team_id,g.source_id,g.canonical_event_id,
+      g.status AS raw_status,g.team_score AS raw_team_score,g.opponent_score AS raw_opponent_score,
+      g.opponent_school_id,g.scheduled_at,g.notes,
+      t.school_id AS reporting_school_id,t.sport,t.gender,t.season,
+      src.enabled AS source_enabled,src.authority_rank,src.source_priority,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
+      ce.scheduled_at AS canonical_scheduled_at,ce.selected_source_id,ce.trust_state
+    FROM requested requested
+    JOIN games g ON g.id=requested.id
+    JOIN teams t ON t.id=g.team_id
+    JOIN sources src ON src.id=g.source_id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    ORDER BY g.id
+  `).bind(JSON.stringify(ids)).all();
+  return {rows:result?.results||[],meta:metaOf(result)};
 }
