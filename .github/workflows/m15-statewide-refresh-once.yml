@@ -29,6 +29,7 @@ jobs:
           const BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const PATH_ONCE='/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd';
           const FP='m15-statewide-presentation-repair-1426-364-20260917';
+          const VERSION='m15-v2';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
           async function request(method,body=null,timeoutMs=900000){
@@ -60,37 +61,61 @@ jobs:
             };
           }
 
+          function collectCounters(value,totals={rows_read:0,rows_written:0},seen=new Set()){
+            if(!value||typeof value!=='object'||seen.has(value)) return totals;
+            seen.add(value);
+            for(const [key,item] of Object.entries(value)){
+              const normalized=key.toLowerCase();
+              if((normalized==='rows_read'||normalized==='rowsread')&&Number.isFinite(Number(item))) totals.rows_read+=Number(item);
+              else if((normalized==='rows_written'||normalized==='rowswritten')&&Number.isFinite(Number(item))) totals.rows_written+=Number(item);
+              else if(item&&typeof item==='object') collectCounters(item,totals,seen);
+            }
+            return totals;
+          }
+
           async function main(){
             let before=null;
             for(let attempt=1;attempt<=72;attempt++){
               try{
                 const plan=await request('GET',null,300000);
-                if(plan.status==='READY'&&plan.fingerprint===FP){
+                if(plan.status==='READY'&&plan.fingerprint===FP&&plan.transport_version===VERSION){
                   before=plan;
                   console.log(`M15_READY attempt=${attempt} blocking=${Number(plan.summary?.blocking_issues||0)} sources=${plan.source_ids?.length||0}`);
                   break;
                 }
+                console.log(`M15_READY attempt=${attempt} waiting_for=${VERSION} got=${String(plan.transport_version||'legacy')}`);
               }catch(error){
                 console.log(`M15_READY attempt=${attempt} ${String(error.message).slice(0,500)}`);
               }
               await sleep(5000);
             }
-            if(!before) throw new Error('M15 fingerprint-locked endpoint never reached READY state');
+            if(!before) throw new Error('M15 v2 fingerprint-locked endpoint never reached READY state');
             fs.writeFileSync('m15-production-evidence/before.json',JSON.stringify(before,null,2));
             console.log('M15_BEFORE='+JSON.stringify(compact(before)));
 
             const sourceIds=[...new Set((before.source_ids||[]).map(String).filter(Boolean))];
             if(!sourceIds.length&&Number(before.summary?.blocking_issues||0)>0) throw new Error('No enabled authoritative sources resolved for current M15 blocking teams');
             const executions=[];
+            const aggregate={rows_read:0,rows_written:0};
             for(let offset=0;offset<sourceIds.length;offset+=16){
               const chunk=sourceIds.slice(offset,offset+16);
               const batch=Math.floor(offset/16)+1;
               const total=Math.ceil(sourceIds.length/16);
-              const result=await request('POST',{fingerprint:FP,sourceIds:chunk});
+              const result=await request('POST',{fingerprint:FP,transport_version:VERSION,sourceIds:chunk});
               executions.push(result);
-              console.log(`M15_REFRESH_BATCH=${batch}/${total} sources=${chunk.length} refresh_status=${result.refresh_status}`);
+              const counters=collectCounters(result.refresh||{});
+              aggregate.rows_read+=counters.rows_read;
+              aggregate.rows_written+=counters.rows_written;
+              const outcomes=Array.isArray(result.refresh?.outcomes)?result.refresh.outcomes:[];
+              const statuses={};
+              for(const outcome of outcomes){
+                const status=String(outcome?.status||outcome?.outcome||outcome?.result||'UNKNOWN');
+                statuses[status]=(statuses[status]||0)+1;
+              }
+              console.log(`M15_REFRESH_BATCH=${batch}/${total} sources=${chunk.length} refresh_status=${result.refresh_status} outcomes=${outcomes.length} statuses=${JSON.stringify(statuses)} d1=${JSON.stringify(counters)}`);
             }
             fs.writeFileSync('m15-production-evidence/refresh-executions.json',JSON.stringify(executions,null,2));
+            console.log('M15_REFRESH_D1_AGGREGATE='+JSON.stringify(aggregate));
 
             const after=await request('GET',null,300000);
             fs.writeFileSync('m15-production-evidence/after.json',JSON.stringify(after,null,2));
@@ -107,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: m15-authoritative-refresh-evidence
+          name: m15-authoritative-refresh-evidence-v2
           path: m15-production-evidence
           if-no-files-found: warn
           retention-days: 7
