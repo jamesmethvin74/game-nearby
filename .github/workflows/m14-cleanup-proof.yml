@@ -1,0 +1,27 @@
+name: M14 cleanup proof
+
+on:
+  push:
+    branches: [ops/m14-audit-http-transport-20260917]
+    paths: [.github/workflows/m14-cleanup-proof.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify one-shot audit route is closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m14-statewide-data-integrity-audit-20260916-4d8c7a2f'
+          code=$(curl -sS --max-time 30 -o body.txt -w '%{http_code}' -H 'cache-control: no-store' "$URL" || true)
+          echo "HTTP_STATUS=$code"
+          if [ "$code" = "200" ]; then
+            echo 'ONE_SHOT_ROUTE_STILL_OPEN' >&2
+            exit 1
+          fi
+          echo 'ONE_SHOT_ROUTE_CLOSED'
