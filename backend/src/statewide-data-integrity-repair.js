@@ -78,18 +78,21 @@ export function buildCanonicalRepairClusters(audit={}) {
 export async function loadAffectedTeamIdsForGameIds(env,gameIds=[]) {
   const ids=[...new Set((gameIds||[]).map(String).filter(Boolean))];
   if(!ids.length) return [];
-  const placeholders=ids.map(()=>"?").join(",");
   const {results=[]}=await env.DB.prepare(`
+    WITH requested_games(id) AS (
+      SELECT CAST(value AS TEXT)
+      FROM json_each(?)
+    )
     SELECT DISTINCT t.id AS reporting_team_id, opponent_team.id AS opponent_team_id
-    FROM games g
+    FROM requested_games requested
+    JOIN games g ON g.id=requested.id
     JOIN teams t ON t.id=g.team_id
     LEFT JOIN teams opponent_team
       ON opponent_team.school_id=g.opponent_school_id
      AND opponent_team.sport=t.sport
      AND opponent_team.gender=t.gender
-     AND opponent_team.season=t.season
-    WHERE g.id IN (${placeholders})`)
-    .bind(...ids).all();
+     AND opponent_team.season=t.season`)
+    .bind(JSON.stringify(ids)).all();
   return [...new Set(results.flatMap(row=>[row.reporting_team_id,row.opponent_team_id]).map(String).filter(Boolean))];
 }
 
