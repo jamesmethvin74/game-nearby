@@ -9,7 +9,7 @@ const DATA_INTEGRITY_VIEW="data-integrity";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const ONE_SHOT_DATA_INTEGRITY_PATH="/api/v1/internal/m14-statewide-data-integrity-audit-20260916-4d8c7a2f";
-const ONE_SHOT_DATA_INTEGRITY_EXPIRES_AT=Date.parse("2026-09-17T04:00:00Z");
+const ONE_SHOT_DATA_INTEGRITY_EXPIRES_AT=Date.parse("2026-09-17T16:30:00Z");
 
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token")===env.REFRESH_TOKEN;
@@ -64,7 +64,7 @@ export default {
         return auditJson({error:"data_integrity_audit_failed",message:String(error?.message||error)},500,{integrity:true});
       }
       console.error("final M8 record truth audit failed",error);
-      return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500);
+      return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500,{integrity:false});
     }
   },
   async scheduled(controller,env,ctx) {
