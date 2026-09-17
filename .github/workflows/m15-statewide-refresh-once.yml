@@ -1,4 +1,4 @@
-name: One-shot M15 canonical repair and verification
+name: One-shot M15 remaining defect evidence
 
 on:
   push:
@@ -15,11 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  repair:
+  audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
-      - name: Execute audit-proven canonical and missing-score repairs
+      - name: Read exact remaining overdue and presentation defects
         shell: bash
         run: |
           set -euo pipefail
@@ -30,78 +30,57 @@ jobs:
           const VERSION='m15-v3';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-          async function request(method,body=null,timeoutMs=1800000){
-            const controller=new AbortController();
-            const timer=setTimeout(()=>controller.abort(),timeoutMs);
-            try{
-              const response=await fetch(BASE+PATH_ONCE,{
-                method,
-                headers:body?{'content-type':'application/json'}:{},
-                body:body?JSON.stringify(body):undefined,
-                signal:controller.signal
-              });
-              const text=await response.text();
-              let payload={};
-              try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,4000)};}
-              if(!response.ok) throw new Error(`${method} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,12000)}`);
-              return payload;
-            }finally{clearTimeout(timer);}
+          async function get(detail){
+            const response=await fetch(`${BASE}${PATH_ONCE}?detail=${detail}`);
+            const text=await response.text();
+            let payload={};
+            try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,4000)};}
+            if(!response.ok) throw new Error(`GET ${detail} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,4000)}`);
+            return payload;
           }
 
-          function compact(plan){
-            return {
-              summary:plan.summary,
-              d1:plan.d1,
-              issue_counts:plan.issue_counts,
-              blocking_issue_rows:plan.blocking_issue_rows,
-              affected_teams:Array.isArray(plan.affected_team_ids)?plan.affected_team_ids.length:0,
-              enabled_sources:Array.isArray(plan.source_ids)?plan.source_ids.length:0
-            };
+          function aggregate(rows,key){
+            const out={};
+            for(const row of rows||[]){
+              const value=String(row?.[key]??'unknown');
+              out[value]=(out[value]||0)+Number(row.game_rows||0);
+            }
+            return Object.fromEntries(Object.entries(out).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])));
+          }
+
+          async function waitForDetail(detail){
+            for(let attempt=1;attempt<=90;attempt++){
+              try{
+                const payload=await get(detail);
+                if(payload.status==='READY'&&payload.fingerprint===FP&&payload.transport_version===VERSION&&payload.detail===detail) return payload;
+                console.log(`M15_DETAIL_WAIT detail=${detail} attempt=${attempt} got=${String(payload.detail||'none')}`);
+              }catch(error){console.log(`M15_DETAIL_WAIT detail=${detail} attempt=${attempt} error=${String(error.message).slice(0,500)}`);}
+              await sleep(5000);
+            }
+            throw new Error(`M15 detail ${detail} never became ready`);
           }
 
           async function main(){
-            let before=null;
-            for(let attempt=1;attempt<=120;attempt++){
-              try{
-                const plan=await request('GET',null,300000);
-                if(plan.status==='READY'&&plan.fingerprint===FP&&plan.transport_version===VERSION){
-                  before=plan;
-                  break;
-                }
-                console.log(`M15_V3_WAIT attempt=${attempt} got=${String(plan.transport_version||'legacy')}`);
-              }catch(error){
-                console.log(`M15_V3_WAIT attempt=${attempt} error=${String(error.message).slice(0,500)}`);
-              }
-              await sleep(5000);
-            }
-            if(!before) throw new Error('M15 v3 transport never reached READY');
-            console.log('M15_PRE_CANONICAL='+JSON.stringify(compact(before)));
-
-            const canonical=await request('POST',{fingerprint:FP,transport_version:VERSION,action:'canonical-reconcile'});
-            console.log('M15_CANONICAL_RESULT='+JSON.stringify({
-              status:canonical.status,
-              before:canonical.before,
-              clustersExamined:canonical.repair?.clustersExamined,
-              clustersRepaired:canonical.repair?.clustersRepaired,
-              affectedTeamCount:canonical.repair?.affectedTeamIds?.length||0,
-              recordRebuild:canonical.repair?.recordRebuild,
-              after:canonical.after
+            const overdue=await waitForDetail('overdue');
+            const rows=overdue.overdue_breakdown?.rows||[];
+            console.log('M15_OVERDUE_SUMMARY='+JSON.stringify({
+              summary:overdue.summary,
+              issue_counts:overdue.issue_counts,
+              d1:overdue.overdue_breakdown?.d1,
+              groups:rows.length,
+              by_sport:aggregate(rows,'sport'),
+              by_level:aggregate(rows,'level'),
+              by_source_type:aggregate(rows,'source_type'),
+              by_parser_type:aggregate(rows,'parser_type'),
+              by_collection_mode:aggregate(rows,'collection_mode'),
+              disabled_rows:rows.filter(row=>Number(row.source_enabled)!==1).reduce((sum,row)=>sum+Number(row.game_rows||0),0)
             }));
+            console.log('M15_OVERDUE_GROUPS='+JSON.stringify(rows));
 
-            const missing=await request('POST',{fingerprint:FP,transport_version:VERSION,action:'missing-score-repair'});
-            console.log('M15_MISSING_SCORE_RESULT='+JSON.stringify({
-              status:missing.status,
-              plan:{safe:missing.plan?.safe,reasons:missing.plan?.reasons,cases:missing.plan?.cases,d1:missing.plan?.d1},
-              repair:missing.repair,
-              after:missing.after
-            }));
-
-            const after=await request('GET',null,300000);
-            console.log('M15_AFTER_CANONICAL_AND_SCORE='+JSON.stringify(compact(after)));
+            const defects=await waitForDetail('defects');
+            console.log('M15_DEFECT_SUMMARY='+JSON.stringify({summary:defects.summary,issue_counts:defects.issue_counts,d1:defects.defects?.d1,issues:defects.defects?.issues?.length||0,rows:defects.defects?.rows?.length||0}));
+            console.log('M15_DEFECT_ISSUES='+JSON.stringify(defects.defects?.issues||[]));
+            console.log('M15_DEFECT_ROWS='+JSON.stringify(defects.defects?.rows||[]));
           }
-
-          main().catch(error=>{
-            console.error(error?.stack||String(error));
-            process.exit(1);
-          });
+          main().catch(error=>{console.error(error?.stack||String(error));process.exit(1);});
           NODE
