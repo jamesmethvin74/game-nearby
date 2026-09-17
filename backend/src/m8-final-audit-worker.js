@@ -8,6 +8,15 @@ const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
+const M15_PATH="/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd";
+const M15_FINGERPRINT="m15-statewide-presentation-repair-1426-364-20260917";
+const M15_CODES=new Set([
+  "SPLIT_CANONICAL_LOGICAL_GAME",
+  "STALE_NONTERMINAL_TWIN_OF_FINAL",
+  "DUPLICATE_SCHEDULE_ENTRY",
+  "DISPLAY_FINAL_MISSING_SCORE",
+  "PAST_DUE_NONTERMINAL_DISPLAY"
+]);
 
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token")===env.REFRESH_TOKEN;
@@ -31,6 +40,64 @@ async function runRecordTruthAudit(env) {
   return auditJson(audit);
 }
 
+async function buildM15Plan(request,env,ctx) {
+  const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  const blocking=(audit.issues||[]).filter(issue=>issue.severity==="blocking"&&M15_CODES.has(issue.code));
+  const affectedTeamIds=[...new Set(blocking.map(issue=>String(issue.team_id||"")).filter(Boolean))];
+  const sourcesResponse=await app.fetch(new Request(new URL("/api/v1/sources",request.url),{method:"GET"}),env,ctx);
+  if(!sourcesResponse.ok) throw new Error(`M15 sources lookup failed: ${sourcesResponse.status}`);
+  const sourcesPayload=await sourcesResponse.json();
+  const sourceIds=[...new Set((sourcesPayload.sources||[])
+    .filter(source=>affectedTeamIds.includes(String(source.team_id||"")))
+    .map(source=>String(source.id||""))
+    .filter(Boolean))];
+  const byCode={};
+  for(const issue of blocking) byCode[issue.code]=(byCode[issue.code]||0)+1;
+  return {audit,blocking,affectedTeamIds,sourceIds,byCode};
+}
+
+async function runM15Transport(request,env,ctx) {
+  if(request.method==="GET") {
+    const plan=await buildM15Plan(request,env,ctx);
+    return auditJson({
+      status:"READY",
+      fingerprint:M15_FINGERPRINT,
+      summary:plan.audit.summary,
+      d1:plan.audit.d1,
+      issue_counts:plan.byCode,
+      blocking_issue_rows:plan.blocking.length,
+      affected_team_ids:plan.affectedTeamIds,
+      source_ids:plan.sourceIds
+    },200,{integrity:true});
+  }
+  if(request.method!=="POST") return auditJson({error:"not_found"},404,{integrity:true});
+  const body=await request.json().catch(()=>({}));
+  if(body.fingerprint!==M15_FINGERPRINT) return auditJson({error:"not_found"},404,{integrity:true});
+  const sourceIds=[...new Set((Array.isArray(body.sourceIds)?body.sourceIds:[]).map(String).filter(Boolean))];
+  if(sourceIds.length<1||sourceIds.length>16) return auditJson({error:"invalid_source_batch"},400,{integrity:true});
+  const plan=await buildM15Plan(request,env,ctx);
+  const allowed=new Set(plan.sourceIds);
+  const rejected=sourceIds.filter(id=>!allowed.has(id));
+  if(rejected.length) return auditJson({error:"source_outside_current_m15_scope",rejected},409,{integrity:true});
+  if(!env.REFRESH_TOKEN) return auditJson({error:"refresh_token_unavailable"},503,{integrity:true});
+  const refreshRequest=new Request(new URL("/api/v1/refresh",request.url),{
+    method:"POST",
+    headers:{"content-type":"application/json","x-refresh-token":env.REFRESH_TOKEN},
+    body:JSON.stringify({sourceIds,force:true,reason:"m15-statewide-repair"})
+  });
+  const refreshResponse=await app.fetch(refreshRequest,env,ctx);
+  const text=await refreshResponse.text();
+  let payload={};
+  try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,2000)};}
+  return auditJson({
+    status:refreshResponse.ok?"EXECUTED":"FAILED",
+    fingerprint:M15_FINGERPRINT,
+    source_ids:sourceIds,
+    refresh_status:refreshResponse.status,
+    refresh:payload
+  },refreshResponse.ok?200:refreshResponse.status,{integrity:true});
+}
+
 async function runDataIntegrityAudit(env) {
   const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   return auditJson(audit,200,{integrity:true});
@@ -39,6 +106,12 @@ async function runDataIntegrityAudit(env) {
 export default {
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
+    if(url.pathname===M15_PATH) {
+      try{return await runM15Transport(request,env,ctx);}catch(error){
+        console.error("M15 statewide repair transport failed",error);
+        return auditJson({error:"m15_transport_failed",message:String(error?.message||error)},500,{integrity:true});
+      }
+    }
     const coverageView=request.method==="GET" && url.pathname==="/api/v1/coverage-report"
       ? url.searchParams.get("view")
       : null;
@@ -67,4 +140,4 @@ export default {
   }
 };
 
-export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH };
+export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH, M15_FINGERPRINT, M15_PATH };
