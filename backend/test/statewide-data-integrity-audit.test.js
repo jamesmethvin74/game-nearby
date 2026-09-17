@@ -1,0 +1,195 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { auditPresentationRows } from "../src/statewide-data-integrity-audit.js";
+
+const NOW = new Date("2026-09-16T23:30:00.000Z");
+
+function row(overrides = {}) {
+  return {
+    team_id: "bryant-football-2026",
+    school_id: "bryant",
+    school_name: "Bryant High School",
+    level: "high-school",
+    sport: "football",
+    gender: "boys",
+    season: "2026",
+    game_id: "game-a",
+    source_id: "bryant-football-school",
+    source_type: "official-school",
+    parser_type: "mascot-media",
+    opponent: "Benton High School",
+    opponent_school_id: "benton",
+    raw_scheduled_at: "2026-08-29T00:00:00.000Z",
+    raw_time_known: 1,
+    raw_status: "SCHEDULED",
+    raw_team_score: null,
+    raw_opponent_score: null,
+    raw_result: null,
+    counts_for_record: 1,
+    home_away: "home",
+    canonical_event_id: "ce-a",
+    canonical_scheduled_at: "2026-08-29T00:00:00.000Z",
+    canonical_time_known: 1,
+    canonical_status: "SCHEDULED",
+    canonical_home_score: null,
+    canonical_away_score: null,
+    canonical_home_school_id: "bryant",
+    canonical_away_school_id: "benton",
+    canonical_trust_state: "SINGLE_SOURCE_LIVE",
+    ...overrides
+  };
+}
+
+function codes(audit) {
+  return audit.issues.map(value => value.code);
+}
+
+test("Bryant-shaped stale scheduled observation beside a verified Benton final is blocking", () => {
+  const audit = auditPresentationRows([
+    row(),
+    row({
+      game_id: "game-b",
+      source_id: "bryant-football-results",
+      source_type: "secondary",
+      parser_type: "hootens",
+      canonical_event_id: "ce-b",
+      raw_status: "FINAL",
+      raw_team_score: 42,
+      raw_opponent_score: 43,
+      raw_result: "L",
+      canonical_status: "FINAL",
+      canonical_home_score: 42,
+      canonical_away_score: 43,
+      canonical_trust_state: "AUTHORITATIVE_LIVE"
+    })
+  ], { now: NOW });
+
+  assert.equal(audit.clean, false);
+  assert.ok(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"));
+  assert.ok(codes(audit).includes("STALE_NONTERMINAL_TWIN_OF_FINAL"));
+  assert.equal(audit.summary.total_active_teams_examined, 1);
+  assert.equal(audit.summary.total_schedule_rows_examined, 2);
+});
+
+test("Alexandria Senior High School and Alexandria (LA) reconcile as one logical timed game", () => {
+  const audit = auditPresentationRows([
+    row({
+      game_id: "alex-a",
+      opponent: "Alexandria Senior High School",
+      opponent_school_id: null,
+      raw_scheduled_at: "2026-09-05T00:00:00.000Z",
+      canonical_scheduled_at: "2026-09-05T00:00:00.000Z",
+      canonical_event_id: "ce-alex-a",
+      canonical_away_school_id: null
+    }),
+    row({
+      game_id: "alex-b",
+      opponent: "Alexandria (LA)",
+      opponent_school_id: null,
+      raw_scheduled_at: "2026-09-05T00:00:00.000Z",
+      canonical_scheduled_at: "2026-09-05T00:00:00.000Z",
+      canonical_event_id: "ce-alex-b",
+      canonical_away_school_id: null,
+      raw_status: "FINAL",
+      raw_team_score: 20,
+      raw_opponent_score: 44,
+      raw_result: "L",
+      canonical_status: "FINAL",
+      canonical_home_score: null,
+      canonical_away_score: null
+    })
+  ], { now: NOW });
+
+  assert.ok(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"));
+  assert.ok(codes(audit).includes("STALE_NONTERMINAL_TWIN_OF_FINAL"));
+});
+
+test("duplicate future Little Rock Central schedule rows are caught before a result exists", () => {
+  const audit = auditPresentationRows([
+    row({
+      game_id: "central-a",
+      opponent: "Little Rock Central High School",
+      opponent_school_id: "little-rock-central",
+      raw_scheduled_at: "2026-09-26T00:00:00.000Z",
+      canonical_scheduled_at: "2026-09-26T00:00:00.000Z",
+      canonical_event_id: "ce-central-a",
+      canonical_away_school_id: "little-rock-central"
+    }),
+    row({
+      game_id: "central-b",
+      opponent: "Central",
+      opponent_school_id: "little-rock-central",
+      raw_scheduled_at: "2026-09-26T00:00:00.000Z",
+      canonical_scheduled_at: "2026-09-26T00:00:00.000Z",
+      canonical_event_id: "ce-central-b",
+      canonical_away_school_id: "little-rock-central",
+      source_id: "bryant-football-secondary"
+    })
+  ], { now: NOW });
+
+  assert.ok(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"));
+  assert.ok(codes(audit).includes("DUPLICATE_SCHEDULE_ENTRY"));
+});
+
+test("date-only distinct canonical rows remain separate to protect possible rematches", () => {
+  const audit = auditPresentationRows([
+    row({
+      game_id: "tourney-a",
+      opponent: "Cabot High School",
+      opponent_school_id: "cabot",
+      raw_scheduled_at: "2026-10-10T05:00:00.000Z",
+      canonical_scheduled_at: "2026-10-10T05:00:00.000Z",
+      raw_time_known: 0,
+      canonical_time_known: 0,
+      canonical_event_id: "ce-tourney-a",
+      canonical_away_school_id: "cabot"
+    }),
+    row({
+      game_id: "tourney-b",
+      opponent: "Cabot High School",
+      opponent_school_id: "cabot",
+      raw_scheduled_at: "2026-10-10T05:00:00.000Z",
+      canonical_scheduled_at: "2026-10-10T05:00:00.000Z",
+      raw_time_known: 0,
+      canonical_time_known: 0,
+      canonical_event_id: "ce-tourney-b",
+      canonical_away_school_id: "cabot"
+    })
+  ], { now: NOW });
+
+  assert.equal(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"), false);
+  assert.equal(codes(audit).includes("DUPLICATE_SCHEDULE_ENTRY"), false);
+});
+
+test("an app-visible FINAL missing scores is caught even when it does not count for record", () => {
+  const audit = auditPresentationRows([
+    row({
+      game_id: "nonrecord-final",
+      opponent: "Scrimmage Opponent",
+      canonical_event_id: "ce-nonrecord",
+      raw_status: "FINAL",
+      canonical_status: "FINAL",
+      counts_for_record: 0,
+      raw_team_score: null,
+      raw_opponent_score: null,
+      canonical_home_score: null,
+      canonical_away_score: null
+    })
+  ], { now: NOW });
+
+  assert.ok(codes(audit).includes("DISPLAY_FINAL_MISSING_SCORE"));
+  assert.equal(audit.clean, false);
+});
+
+test("audit scope includes every active team/sport supplied, not one volleyball team per school", () => {
+  const audit = auditPresentationRows([
+    row({ team_id: "bryant-football-2026", sport: "football", game_id: null }),
+    row({ team_id: "bryant-volleyball-2026", sport: "volleyball", gender: "girls", game_id: null }),
+    row({ team_id: "bryant-boys-basketball-2026", sport: "basketball", gender: "boys", game_id: null }),
+    row({ team_id: "uca-soccer-2026", school_id: "uca", school_name: "University of Central Arkansas", level: "college", sport: "soccer", gender: "women", game_id: null })
+  ], { now: NOW });
+
+  assert.equal(audit.summary.total_active_teams_examined, 4);
+  assert.deepEqual(audit.summary.sports_examined, ["basketball", "football", "soccer", "volleyball"]);
+  assert.deepEqual(audit.summary.levels_examined, ["college", "high-school"]);
+});

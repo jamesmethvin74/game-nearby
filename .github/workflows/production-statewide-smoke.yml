@@ -3,8 +3,8 @@ name: Production statewide smoke
 on:
   workflow_dispatch:
     inputs:
-      full_statewide_record_audit:
-        description: "Run the expensive all-team schedule/record audit"
+      legacy_volleyball_record_diagnostic:
+        description: "Run the legacy volleyball-only HTTP record diagnostic (not statewide integrity proof)"
         required: false
         default: false
         type: boolean
@@ -15,6 +15,8 @@ permissions:
 # Production D1 reads are a shared daily budget. This workflow is deliberately
 # manual-only. Local/in-memory tests are the default; live production audits are
 # explicit diagnostic actions, never automatic CI.
+# IMPORTANT: the optional record diagnostic below is volleyball-only. It must not
+# be used as evidence that every active production team/sport passed integrity QA.
 concurrency:
   group: production-statewide-smoke
   cancel-in-progress: true
@@ -124,12 +126,13 @@ jobs:
           test -f valley.json
           node -e 'const c=require("./conway.json"),v=require("./valley.json"); console.log(`Manual schedule proof: Conway ${c.games.length}; Valley Springs ${v.games.length}`)'
 
-      - name: Verify every available statewide result feeds team records
-        if: inputs.full_statewide_record_audit == true
+      - name: Legacy volleyball-only result/record diagnostic
+        if: inputs.legacy_volleyball_record_diagnostic == true
         shell: bash
         run: |
           set -euo pipefail
-          echo "WARNING: running explicit full statewide D1 audit"
+          echo "WARNING: this diagnostic checks one volleyball team per visible school only."
+          echo "It is NOT a statewide all-sports integrity audit and must not be reported as one."
           node <<'NODE'
           const API='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const fetchJson=async url=>{
@@ -157,7 +160,7 @@ jobs:
             return record;
           }
 
-          // Deliberately sequential. This is a diagnostic, not a load test.
+          // Deliberately sequential. This is a narrow legacy diagnostic, not a load test.
           for(const school of schools){
             const teamId=`${school.id}-volleyball-2026`;
             const scheduleResult=await fetchJson(`${API}/api/v1/teams/${encodeURIComponent(teamId)}/schedule`);
@@ -173,8 +176,8 @@ jobs:
             checked.push({teamId,scored:expected.scored});
             if(failures.length) break;
           }
-          if(failures.length) throw new Error(`Result/record audit stopped: ${JSON.stringify(failures.slice(0,5))}`);
-          console.log(`Manual statewide audit checked ${checked.length} teams; skipped ${skipped.length}.`);
+          if(failures.length) throw new Error(`Volleyball-only diagnostic stopped: ${JSON.stringify(failures.slice(0,5))}`);
+          console.log(`Legacy volleyball diagnostic checked ${checked.length} teams; skipped ${skipped.length}.`);
           NODE
 
       - name: Verify GitHub Pages serves live-record frontend
