@@ -94,7 +94,7 @@ export async function loadAffectedTeamIdsForGameIds(env,gameIds=[]) {
      AND opponent_team.gender=t.gender
      AND opponent_team.season=t.season`)
     .bind(JSON.stringify(ids)).all();
-  return [...new Set(results.flatMap(row=>[row.reporting_team_id,row.opponent_team_id]).map(String).filter(Boolean))];
+  return [...new Set(results.flatMap(row=>[row.reporting_team_id,row.opponent_team_id]).filter(value=>value!=null&&String(value)!=="").map(String))];
 }
 
 export async function reconcileAuditedCanonicalDefects(env,audit,{
@@ -476,7 +476,7 @@ export async function repairAuditedPresentationDefects(env,audit,{
   if(typeof rebuildAudit!=="function") throw new Error("repairAuditedPresentationDefects requires rebuildAudit");
   const checkedAt=now.toISOString();
   const initialIssues=blockingRepairIssues(audit);
-  const initialGameIds=[...new Set(initialIssues.flatMap(issue=>[issue.game_id,issue.other_game_id]).map(String).filter(Boolean))];
+  const initialGameIds=[...new Set(initialIssues.flatMap(issue=>[issue.game_id,issue.other_game_id]).filter(value=>value!=null&&String(value)!=="").map(String))];
   const loaded=await loadRepairRows(env,initialGameIds);
   const d1={statements:1,rows_read:loaded.meta.rows_read,rows_written:loaded.meta.rows_written,duration_ms:loaded.meta.duration_ms};
   const mergePlan=buildAuditedCanonicalMergePlan(audit,loaded.rows);
