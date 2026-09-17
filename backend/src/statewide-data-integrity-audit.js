@@ -101,20 +101,24 @@ function addIssue(list, next) {
   if (!list.some(existing => issueKey(existing) === key)) list.push(next);
 }
 
-function isVerifiedFinal(row) {
-  if (text(row.status).toUpperCase() !== "FINAL") return false;
-  return evaluateFinalResultTruth(row).state === "VERIFIED";
+function isScoredFinal(row) {
+  return text(row?.status).toUpperCase() === "FINAL"
+    && nullableNumber(row?.team_score) != null
+    && nullableNumber(row?.opponent_score) != null;
 }
 
 function statusesDifferFinalVsNonterminal(a, b) {
-  return (isVerifiedFinal(a) && !TERMINAL_STATUSES.has(text(b.status).toUpperCase()))
-    || (isVerifiedFinal(b) && !TERMINAL_STATUSES.has(text(a.status).toUpperCase()));
+  return (isScoredFinal(a) && !TERMINAL_STATUSES.has(text(b.status).toUpperCase()))
+    || (isScoredFinal(b) && !TERMINAL_STATUSES.has(text(a.status).toUpperCase()));
 }
 
 function verifiedFinalsContradict(a, b) {
-  if (!isVerifiedFinal(a) || !isVerifiedFinal(b)) return false;
-  const aa = evaluateFinalResultTruth(a).row;
-  const bb = evaluateFinalResultTruth(b).row;
+  if (!isScoredFinal(a) || !isScoredFinal(b)) return false;
+  const aTruth = evaluateFinalResultTruth(a);
+  const bTruth = evaluateFinalResultTruth(b);
+  if (aTruth.state !== "VERIFIED" || bTruth.state !== "VERIFIED") return false;
+  const aa = aTruth.row;
+  const bb = bTruth.row;
   return aa.result !== bb.result
     || Number(aa.team_score) !== Number(bb.team_score)
     || Number(aa.opponent_score) !== Number(bb.opponent_score);
@@ -133,12 +137,30 @@ function auditTeam(rows, { now = new Date() } = {}) {
   const graceBoundary = now.getTime() - PAST_DUE_GRACE_HOURS * 60 * 60 * 1000;
 
   for (const candidate of candidates) {
-    if (candidate.status === "FINAL" && (candidate.team_score == null || candidate.opponent_score == null)) {
-      addIssue(issues, issue(
-        "DISPLAY_FINAL_MISSING_SCORE",
-        candidate,
-        `${candidate.opponent}: the app-visible FINAL does not have both scores. This is a presentation defect even when the row does not count for the record.`
-      ));
+    if (candidate.status === "FINAL") {
+      if (candidate.team_score == null || candidate.opponent_score == null) {
+        addIssue(issues, issue(
+          "DISPLAY_FINAL_MISSING_SCORE",
+          candidate,
+          `${candidate.opponent}: the app-visible FINAL does not have both scores. This is a presentation defect even when the row does not count for the record.`
+        ));
+      } else {
+        const truth = evaluateFinalResultTruth(candidate);
+        if (truth.state === "CONTRADICTORY" || truth.state === "UNRESOLVED") {
+          addIssue(issues, issue(
+            "DISPLAY_FINAL_TRUTH_UNVERIFIED",
+            candidate,
+            `${candidate.opponent}: the app-visible FINAL has unresolved/contradictory result truth (${truth.reason || truth.state}).`
+          ));
+        } else if (truth.state === "QUARANTINED") {
+          addIssue(issues, issue(
+            "DISPLAY_FINAL_SOURCE_QUARANTINED",
+            candidate,
+            `${candidate.opponent}: the app-visible FINAL comes from a quarantined result source (${truth.reason || truth.state}).`,
+            { severity: "warning" }
+          ));
+        }
+      }
     }
 
     const scheduled = Date.parse(candidate.scheduled_at);
@@ -171,12 +193,12 @@ function auditTeam(rows, { now = new Date() } = {}) {
       }
 
       if (statusesDifferFinalVsNonterminal(a, b)) {
-        const finalRow = isVerifiedFinal(a) ? a : b;
+        const finalRow = isScoredFinal(a) ? a : b;
         const staleRow = finalRow === a ? b : a;
         addIssue(issues, issue(
           "STALE_NONTERMINAL_TWIN_OF_FINAL",
           staleRow,
-          `${staleRow.opponent}: a stale ${staleRow.status} row exists beside a verified FINAL for the same logical game.`,
+          `${staleRow.opponent}: a stale ${staleRow.status} row exists beside a scored FINAL for the same logical game.`,
           { other: finalRow }
         ));
       } else if (verifiedFinalsContradict(a, b)) {
@@ -248,8 +270,9 @@ export function auditPresentationRows(rows, {
       scope: "Every active local-catalog team and every stored current-season schedule row that can feed the production app.",
       rules: [
         "A logical game must not be split across canonical event IDs when the participants and known game time identify one contest.",
-        "A stale scheduled/nonterminal observation must not survive beside a verified final for the same displayed game.",
+        "A stale scheduled/nonterminal observation must not survive beside a scored final for the same displayed game.",
         "App-visible finals must contain both scores even when a row does not count toward record math.",
+        "App-visible final result contradictions are blocking; quarantined result sources are surfaced as warnings rather than silently ignored.",
         "Duplicate future/nonterminal schedule entries are production data defects, not harmless record-audit noise.",
         "Possible date-only/TBA rematches remain separate unless the evidence safely identifies one contest."
       ]
