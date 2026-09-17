@@ -10,6 +10,7 @@ const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const M15_PATH="/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd";
 const M15_FINGERPRINT="m15-statewide-presentation-repair-1426-364-20260917";
+const M15_TRANSPORT_VERSION="m15-v2";
 const M15_CODES=new Set([
   "SPLIT_CANONICAL_LOGICAL_GAME",
   "STALE_NONTERMINAL_TWIN_OF_FINAL",
@@ -40,15 +41,21 @@ async function runRecordTruthAudit(env) {
   return auditJson(audit);
 }
 
+async function loadM15Sources(request,env,ctx) {
+  const sourcesResponse=await app.fetch(new Request(new URL("/api/v1/sources",request.url),{method:"GET"}),env,ctx);
+  if(!sourcesResponse.ok) throw new Error(`M15 sources lookup failed: ${sourcesResponse.status}`);
+  const sourcesPayload=await sourcesResponse.json();
+  return Array.isArray(sourcesPayload.sources)?sourcesPayload.sources:[];
+}
+
 async function buildM15Plan(request,env,ctx) {
   const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   const blocking=(audit.issues||[]).filter(issue=>issue.severity==="blocking"&&M15_CODES.has(issue.code));
   const affectedTeamIds=[...new Set(blocking.map(issue=>String(issue.team_id||"")).filter(Boolean))];
-  const sourcesResponse=await app.fetch(new Request(new URL("/api/v1/sources",request.url),{method:"GET"}),env,ctx);
-  if(!sourcesResponse.ok) throw new Error(`M15 sources lookup failed: ${sourcesResponse.status}`);
-  const sourcesPayload=await sourcesResponse.json();
-  const sourceIds=[...new Set((sourcesPayload.sources||[])
-    .filter(source=>affectedTeamIds.includes(String(source.team_id||"")))
+  const affectedTeams=new Set(affectedTeamIds);
+  const sources=await loadM15Sources(request,env,ctx);
+  const sourceIds=[...new Set(sources
+    .filter(source=>affectedTeams.has(String(source.team_id||"")))
     .map(source=>String(source.id||""))
     .filter(Boolean))];
   const byCode={};
@@ -62,6 +69,7 @@ async function runM15Transport(request,env,ctx) {
     return auditJson({
       status:"READY",
       fingerprint:M15_FINGERPRINT,
+      transport_version:M15_TRANSPORT_VERSION,
       summary:plan.audit.summary,
       d1:plan.audit.d1,
       issue_counts:plan.byCode,
@@ -72,14 +80,23 @@ async function runM15Transport(request,env,ctx) {
   }
   if(request.method!=="POST") return auditJson({error:"not_found"},404,{integrity:true});
   const body=await request.json().catch(()=>({}));
-  if(body.fingerprint!==M15_FINGERPRINT) return auditJson({error:"not_found"},404,{integrity:true});
+  if(body.fingerprint!==M15_FINGERPRINT||body.transport_version!==M15_TRANSPORT_VERSION) {
+    return auditJson({error:"not_found"},404,{integrity:true});
+  }
   const sourceIds=[...new Set((Array.isArray(body.sourceIds)?body.sourceIds:[]).map(String).filter(Boolean))];
   if(sourceIds.length<1||sourceIds.length>16) return auditJson({error:"invalid_source_batch"},400,{integrity:true});
-  const plan=await buildM15Plan(request,env,ctx);
-  const allowed=new Set(plan.sourceIds);
-  const rejected=sourceIds.filter(id=>!allowed.has(id));
-  if(rejected.length) return auditJson({error:"source_outside_current_m15_scope",rejected},409,{integrity:true});
+
+  // The GET repair contract is authoritative for each cycle. Do not rerun the
+  // statewide audit between batches: a successful early batch can legitimately
+  // remove a later source's team from the live defect set before that source is
+  // processed. Keep POST bounded by fingerprint, batch size, and real enabled
+  // source IDs instead.
+  const sources=await loadM15Sources(request,env,ctx);
+  const enabledSourceIds=new Set(sources.map(source=>String(source?.id||"")).filter(Boolean));
+  const rejected=sourceIds.filter(id=>!enabledSourceIds.has(id));
+  if(rejected.length) return auditJson({error:"unknown_or_disabled_source",rejected},409,{integrity:true});
   if(!env.REFRESH_TOKEN) return auditJson({error:"refresh_token_unavailable"},503,{integrity:true});
+
   const refreshRequest=new Request(new URL("/api/v1/refresh",request.url),{
     method:"POST",
     headers:{"content-type":"application/json","x-refresh-token":env.REFRESH_TOKEN},
@@ -92,6 +109,7 @@ async function runM15Transport(request,env,ctx) {
   return auditJson({
     status:refreshResponse.ok?"EXECUTED":"FAILED",
     fingerprint:M15_FINGERPRINT,
+    transport_version:M15_TRANSPORT_VERSION,
     source_ids:sourceIds,
     refresh_status:refreshResponse.status,
     refresh:payload
@@ -140,4 +158,4 @@ export default {
   }
 };
 
-export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH, M15_FINGERPRINT, M15_PATH };
+export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH, M15_FINGERPRINT, M15_PATH, M15_TRANSPORT_VERSION };
