@@ -1,0 +1,112 @@
+name: One-shot M15 statewide authoritative refresh
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m15-statewide-refresh-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+    steps:
+      - name: Audit full defect contract, refresh affected authoritative sources, and re-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs=require('fs');
+          const BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const TOKEN=process.env.REFRESH_TOKEN||'';
+          if(!TOKEN) throw new Error('REFRESH_TOKEN secret is unavailable to the transport');
+          const REPAIR_CODES=new Set([
+            'SPLIT_CANONICAL_LOGICAL_GAME',
+            'STALE_NONTERMINAL_TWIN_OF_FINAL',
+            'DUPLICATE_SCHEDULE_ENTRY',
+            'DISPLAY_FINAL_MISSING_SCORE',
+            'PAST_DUE_NONTERMINAL_DISPLAY'
+          ]);
+          const headers={'x-refresh-token':TOKEN};
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function jsonFetch(path,{method='GET',body=null,timeoutMs=900000,auth=true}={}){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),timeoutMs);
+            try {
+              const response=await fetch(BASE+path,{
+                method,
+                headers:{...(auth?headers:{}),...(body?{'content-type':'application/json'}:{})},
+                body:body?JSON.stringify(body):undefined,
+                signal:controller.signal
+              });
+              const text=await response.text();
+              let payload={};
+              try { payload=text?JSON.parse(text):{}; } catch { payload={raw:text.slice(0,2000)}; }
+              if(!response.ok) throw new Error(`${method} ${path} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,2000)}`);
+              return payload;
+            } finally { clearTimeout(timer); }
+          }
+          async function audit(){
+            return jsonFetch('/api/v1/coverage-report?view=data-integrity',{timeoutMs:300000});
+          }
+          let before=null;
+          for(let attempt=1;attempt<=60;attempt++){
+            try {
+              const current=await audit();
+              const count=Array.isArray(current.issues)?current.issues.length:0;
+              console.log(`M15_AUDIT_READY_ATTEMPT=${attempt} issues_returned=${count} blocking=${Number(current.summary?.blocking_issues||0)}`);
+              if(count>100 || Number(current.summary?.blocking_issues||0)<=100){ before=current; break; }
+            } catch(error) {
+              console.log(`M15_AUDIT_READY_ATTEMPT=${attempt} not_ready=${String(error.message).slice(0,500)}`);
+            }
+            await sleep(5000);
+          }
+          if(!before) throw new Error('Full M15 audit contract did not become available after deployment');
+          fs.writeFileSync('m15-before.json',JSON.stringify(before));
+          console.log('M15_BEFORE='+JSON.stringify({summary:before.summary,d1:before.d1,issues_returned:before.issues?.length||0}));
+
+          const blocking=(before.issues||[]).filter(i=>i.severity==='blocking'&&REPAIR_CODES.has(i.code));
+          const teamIds=[...new Set(blocking.map(i=>String(i.team_id||'')).filter(Boolean))];
+          const sourcesPayload=await jsonFetch('/api/v1/sources',{auth:false,timeoutMs:120000});
+          const allSources=Array.isArray(sourcesPayload.sources)?sourcesPayload.sources:[];
+          const sourceIds=[...new Set(allSources.filter(s=>teamIds.includes(String(s.team_id||''))).map(s=>String(s.id||'')).filter(Boolean))];
+          console.log('M15_REFRESH_SCOPE='+JSON.stringify({blocking_issue_rows:blocking.length,affected_teams:teamIds.length,enabled_sources:sourceIds.length}));
+          if(!sourceIds.length) throw new Error('No enabled sources resolved for blocking defect teams');
+
+          const outcomes=[];
+          for(let offset=0;offset<sourceIds.length;offset+=16){
+            const chunk=sourceIds.slice(offset,offset+16);
+            const batch=Math.floor(offset/16)+1;
+            const total=Math.ceil(sourceIds.length/16);
+            const result=await jsonFetch('/api/v1/refresh',{
+              method:'POST',
+              body:{sourceIds:chunk,force:true,reason:'m15-statewide-repair'},
+              timeoutMs:900000
+            });
+            const rows=Array.isArray(result.outcomes)?result.outcomes:[];
+            const statusCounts={};
+            for(const row of rows){
+              const key=String(row.status||row.outcome||row.result||'UNKNOWN');
+              statusCounts[key]=(statusCounts[key]||0)+1;
+            }
+            outcomes.push(...rows);
+            console.log(`M15_REFRESH_BATCH=${batch}/${total} sources=${chunk.length} outcomes=${rows.length} statuses=${JSON.stringify(statusCounts)}`);
+          }
+          fs.writeFileSync('m15-refresh-outcomes.json',JSON.stringify(outcomes));
+
+          const after=await audit();
+          fs.writeFileSync('m15-after.json',JSON.stringify(after));
+          const beforeBlocking=Number(before.summary?.blocking_issues||0);
+          const afterBlocking=Number(after.summary?.blocking_issues||0);
+          console.log('M15_AFTER_REFRESH='+JSON.stringify({summary:after.summary,d1:after.d1,issues_returned:after.issues?.length||0,blocking_delta:afterBlocking-beforeBlocking}));
+          const remaining=(after.issues||[]).filter(i=>i.severity==='blocking');
+          const remainingByCode={};
+          for(const issue of remaining) remainingByCode[issue.code]=(remainingByCode[issue.code]||0)+1;
+          console.log('M15_REMAINING_SAMPLE='+JSON.stringify({blocking_rows_returned:remaining.length,by_code:remainingByCode,teams:[...new Set(remaining.map(i=>i.team_id).filter(Boolean))].length}));
+          NODE
