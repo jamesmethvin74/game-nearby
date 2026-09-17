@@ -75,12 +75,30 @@ export function buildCanonicalRepairClusters(audit={}) {
   }));
 }
 
+export async function loadAffectedTeamIdsForGameIds(env,gameIds=[]) {
+  const ids=[...new Set((gameIds||[]).map(String).filter(Boolean))];
+  if(!ids.length) return [];
+  const placeholders=ids.map(()=>"?").join(",");
+  const {results=[]}=await env.DB.prepare(`
+    SELECT DISTINCT t.id AS reporting_team_id, opponent_team.id AS opponent_team_id
+    FROM games g
+    JOIN teams t ON t.id=g.team_id
+    LEFT JOIN teams opponent_team
+      ON opponent_team.school_id=g.opponent_school_id
+     AND opponent_team.sport=t.sport
+     AND opponent_team.gender=t.gender
+     AND opponent_team.season=t.season
+    WHERE g.id IN (${placeholders})`)
+    .bind(...ids).all();
+  return [...new Set(results.flatMap(row=>[row.reporting_team_id,row.opponent_team_id]).map(String).filter(Boolean))];
+}
+
 export async function reconcileAuditedCanonicalDefects(env,audit,{
   reconcile=reconcileResolvedObservation,
-  rebuildRecords=rebuildTeamRecords
+  rebuildRecords=rebuildTeamRecords,
+  loadAffectedTeams=loadAffectedTeamIdsForGameIds
 }={}) {
   const clusters=buildCanonicalRepairClusters(audit);
-  const affectedTeamIds=new Set();
   const results=[];
 
   for(const cluster of clusters) {
@@ -93,7 +111,6 @@ export async function reconcileAuditedCanonicalDefects(env,audit,{
         break;
       }
     }
-    if(canonicalEventId) for(const teamId of cluster.teamIds) affectedTeamIds.add(teamId);
     results.push({
       ...cluster,
       repaired:Boolean(canonicalEventId),
@@ -102,14 +119,18 @@ export async function reconcileAuditedCanonicalDefects(env,audit,{
     });
   }
 
-  const teamIds=[...affectedTeamIds];
+  const repairedResults=results.filter(result=>result.repaired);
+  const repairedGameIds=[...new Set(repairedResults.flatMap(result=>result.gameIds))];
+  const auditedTeamIds=repairedResults.flatMap(result=>result.teamIds);
+  const resolvedTeamIds=repairedGameIds.length?await loadAffectedTeams(env,repairedGameIds):[];
+  const teamIds=[...new Set([...auditedTeamIds,...resolvedTeamIds].map(String).filter(Boolean))];
   const recordRebuild=teamIds.length
     ? await rebuildRecords(env,teamIds,new Date().toISOString())
     : {teams:0,scoredFinals:0,standings:{cohorts:0,standingsRows:0}};
 
   return {
     clustersExamined:clusters.length,
-    clustersRepaired:results.filter(result=>result.repaired).length,
+    clustersRepaired:repairedResults.length,
     affectedTeamIds:teamIds,
     results,
     recordRebuild
