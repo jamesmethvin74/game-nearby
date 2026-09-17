@@ -9,7 +9,7 @@ test("statewide data-integrity audit is protected, manual, all-team, and read-on
   assert.match(worker, /const DATA_INTEGRITY_VIEW="data-integrity"/);
   assert.match(worker, /coverageView===RECORD_TRUTH_VIEW \|\| coverageView===DATA_INTEGRITY_VIEW/);
   assert.match(worker, /!authorizedAudit\(request,env\)/);
-  assert.match(worker, /buildStatewideDataIntegrityAudit\(env,\{season:"2026",sampleLimit:\\d+\}\)/);
+  assert.match(worker, /buildStatewideDataIntegrityAudit\(env,\{season:"2026",sampleLimit:\d+\}\)/);
   assert.match(worker, /"cache-control":"no-store"/);
   assert.doesNotMatch(worker, /access-control-allow-origin/);
 
