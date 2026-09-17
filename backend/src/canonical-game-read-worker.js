@@ -1,4 +1,5 @@
 import app from "./team-read-worker.js";
+import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
 const MAX_SCORES_WINDOW_MS = 72 * 60 * 60 * 1000;
 const MAX_SCORES_ROWS = 500;
@@ -82,7 +83,7 @@ async function nearbyGames(request, env, url) {
   const radius=Math.max(1,Math.min(500,finiteNumber(url.searchParams.get("radius"))??25));
   const useGeo=hasGeo&&lat!=null&&lon!=null;
 
-  let where="WHERE (g.canonical_event_id IS NOT NULL OR src.enabled=1) AND COALESCE(ce.scheduled_at,g.scheduled_at) BETWEEN ? AND ?";
+  let where=`WHERE (g.canonical_event_id IS NOT NULL OR src.enabled=1) AND ${currentScheduleTruthSql("g","src")} AND COALESCE(ce.scheduled_at,g.scheduled_at) BETWEEN ? AND ?`;
   const binds=[since,until];
   if (useGeo) {
     const latDelta=radius/69;
@@ -155,7 +156,7 @@ async function scores(request, env, url) {
   if (!(span>0) || span>MAX_SCORES_WINDOW_MS) return json({error:"scores_window_too_large",max_hours:72},400);
   const sport=String(url.searchParams.get("sport")||"").trim().toLowerCase();
   const gender=String(url.searchParams.get("gender")||"").trim().toLowerCase();
-  let where="WHERE ce.scheduled_at BETWEEN ? AND ?";
+  let where=`WHERE ce.scheduled_at BETWEEN ? AND ? AND EXISTS (SELECT 1 FROM canonical_event_members cem_vis JOIN games gvis ON gvis.id=cem_vis.game_id JOIN sources srcvis ON srcvis.id=gvis.source_id WHERE cem_vis.canonical_event_id=ce.id AND ${currentScheduleTruthSql("gvis","srcvis")})`;
   const binds=[since,until];
   if (sport) { where+=" AND lower(ce.sport)=?"; binds.push(sport); }
   if (gender) { where+=" AND lower(ce.gender)=?"; binds.push(gender); }
