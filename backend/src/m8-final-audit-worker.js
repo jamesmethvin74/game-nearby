@@ -59,7 +59,7 @@ export default {
         return auditJson({error:"data_integrity_audit_failed",message:String(error?.message||error)},500,{integrity:true});
       }
       console.error("final M8 record truth audit failed",error);
-      return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500,{integrity:true});
+      return auditJson({error:"record_truth_audit_failed",message:String(error?.message||error)},500);
     }
   },
   async scheduled(controller,env,ctx) {
