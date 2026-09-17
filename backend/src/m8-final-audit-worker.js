@@ -72,6 +72,54 @@ async function buildM15Plan(request,env,ctx) {
   return {audit,blocking,affectedTeamIds,sourceIds,byCode:m15IssueCounts(audit)};
 }
 
+async function loadM15OverdueBreakdown(env,issues=[]) {
+  const ids=[...new Set(issues
+    .filter(issue=>issue?.severity==="blocking"&&issue?.code==="PAST_DUE_NONTERMINAL_DISPLAY")
+    .map(issue=>String(issue.game_id||""))
+    .filter(Boolean))];
+  if(!ids.length) return {rows:[],d1:{rows_read:0,rows_written:0}};
+  const query=await env.DB.prepare(`
+    WITH requested_games(id) AS (
+      SELECT CAST(value AS TEXT)
+      FROM json_each(?)
+    )
+    SELECT
+      COALESCE(g.source_id,'') AS source_id,
+      COALESCE(src.source_type,'none') AS source_type,
+      COALESCE(src.parser_type,'none') AS parser_type,
+      COALESCE(src.collection_mode,'none') AS collection_mode,
+      COALESCE(src.enabled,0) AS source_enabled,
+      COALESCE(src.authority_rank,999) AS authority_rank,
+      t.sport,
+      sch.level,
+      UPPER(COALESCE(ce.status,g.status,'SCHEDULED')) AS effective_status,
+      COUNT(*) AS game_rows,
+      COUNT(DISTINCT g.team_id) AS teams,
+      MIN(g.scheduled_at) AS oldest_scheduled_at,
+      MAX(g.scheduled_at) AS newest_scheduled_at
+    FROM requested_games requested
+    JOIN games g ON g.id=requested.id
+    JOIN teams t ON t.id=g.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    LEFT JOIN sources src ON src.id=g.source_id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    GROUP BY
+      COALESCE(g.source_id,''),COALESCE(src.source_type,'none'),COALESCE(src.parser_type,'none'),
+      COALESCE(src.collection_mode,'none'),COALESCE(src.enabled,0),COALESCE(src.authority_rank,999),
+      t.sport,sch.level,UPPER(COALESCE(ce.status,g.status,'SCHEDULED'))
+    ORDER BY game_rows DESC,source_id,t.sport,sch.level`)
+    .bind(JSON.stringify(ids)).all();
+  const meta=query?.meta||{};
+  return {
+    rows:query?.results||[],
+    d1:{
+      rows_read:meta.rows_read==null?null:Number(meta.rows_read),
+      rows_written:meta.rows_written==null?0:Number(meta.rows_written),
+      duration_ms:meta.duration==null?null:Number(meta.duration)
+    }
+  };
+}
+
 async function runM15CanonicalRepair(env) {
   const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   const repair=await reconcileAuditedCanonicalDefects(env,before);
@@ -117,6 +165,19 @@ async function runM15MissingScoreRepair(env) {
 async function runM15Transport(request,env,ctx) {
   if(request.method==="GET") {
     const plan=await buildM15Plan(request,env,ctx);
+    const detail=new URL(request.url).searchParams.get("detail");
+    if(detail==="overdue") {
+      const breakdown=await loadM15OverdueBreakdown(env,plan.blocking);
+      return auditJson({
+        status:"READY",
+        fingerprint:M15_FINGERPRINT,
+        transport_version:M15_TRANSPORT_VERSION,
+        detail:"overdue",
+        summary:plan.audit.summary,
+        issue_counts:plan.byCode,
+        overdue_breakdown:breakdown
+      },200,{integrity:true});
+    }
     return auditJson({
       status:"READY",
       fingerprint:M15_FINGERPRINT,
