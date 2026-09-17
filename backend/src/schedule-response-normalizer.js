@@ -2,6 +2,8 @@ import { dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.j
 import { evaluateFinalResultTruth, normalizeFinalResultTruth, resultFromTeamScores } from "./final-result-truth.js";
 
 const EVENT_DESCRIPTOR_RE = /\b(?:senior night|early bird|invitational|invite|tournament|tourney|classic|jamboree)\b/g;
+const TRAILING_STATE_QUALIFIER_RE = /\s*\((?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\)\s*$/i;
+const GENERIC_SCHOOL_QUALIFIER_RE = /\b(?:senior|sr)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
 const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet the cats)\b/i;
 const HIGH_SCHOOL_BASKETBALL_FIRST_OFFICIAL = new Map([
@@ -13,8 +15,10 @@ function clean(value) {
 }
 
 function opponentKey(value) {
-  return normalizeSchoolAlias(value)
+  const withoutStateQualifier = clean(value).replace(TRAILING_STATE_QUALIFIER_RE, " ");
+  return normalizeSchoolAlias(withoutStateQualifier)
     .replace(EVENT_DESCRIPTOR_RE, " ")
+    .replace(GENERIC_SCHOOL_QUALIFIER_RE, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -56,15 +60,25 @@ function scheduleRowsShareSlot(a, b, { reportingSchoolId = null, maxMinutes = 15
   return opponentNamesLikelySame(a.opponent, b.opponent);
 }
 
+function knownTimedRowsShareExactSlot(a, b, options = {}) {
+  if (!Number(a?.scheduled_time_known) || !Number(b?.scheduled_time_known)) return false;
+  const requestedMax = Number(options?.maxMinutes);
+  const maxMinutes = Number.isFinite(requestedMax) ? Math.min(requestedMax, 5) : 5;
+  return scheduleRowsShareSlot(a, b, { ...options, maxMinutes });
+}
+
 export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
   if (!scheduleRowsShareSlot(a, b, options)) return false;
 
-  // Once reconciliation has proven two observations belong to distinct canonical
-  // events, never collapse them just because a tournament/rematch source gave both
-  // games the same date-only timestamp and opponent pair.
   const aCanonical=clean(a.canonical_event_id);
   const bCanonical=clean(b.canonical_event_id);
-  if (aCanonical && bCanonical && aCanonical !== bCanonical) return false;
+  if (aCanonical && bCanonical && aCanonical !== bCanonical) {
+    // Distinct canonical IDs can still be duplicate provider observations when both
+    // sources publish the same real clock time. Keep the old fail-closed behavior
+    // for date-only/TBA rows so tournament rematches are never collapsed merely
+    // because both were assigned the same placeholder timestamp.
+    return knownTimedRowsShareExactSlot(a, b, options);
+  }
   return true;
 }
 
@@ -81,6 +95,11 @@ function identicalVerifiedFinalSnapshot(a, b, options = {}) {
   return aTruth.row.result === bTruth.row.result
     && Number(aTruth.row.team_score) === Number(bTruth.row.team_score)
     && Number(aTruth.row.opponent_score) === Number(bTruth.row.opponent_score);
+}
+
+function verifiedFinal(row) {
+  if (String(row?.status || "").toUpperCase() !== "FINAL") return false;
+  return evaluateFinalResultTruth(row).state === "VERIFIED";
 }
 
 function trustScore(value) {
@@ -121,7 +140,11 @@ function venueSpecificity(row) {
 }
 
 function mergeDuplicateRows(a, b) {
-  const preferred = rowScore(a) >= rowScore(b) ? a : b;
+  const aVerifiedFinal = verifiedFinal(a);
+  const bVerifiedFinal = verifiedFinal(b);
+  const preferred = aVerifiedFinal !== bVerifiedFinal
+    ? (aVerifiedFinal ? a : b)
+    : (rowScore(a) >= rowScore(b) ? a : b);
   const alternate = preferred === a ? b : a;
   const venueSource = venueSpecificity(alternate) > venueSpecificity(preferred) ? alternate : preferred;
   return {
@@ -277,7 +300,7 @@ function pushIssue(issues, code, detail, extra = {}) {
 export function evaluateScheduleRecordTruth(games, options = {}) {
   // Collapse proven duplicate observations before unresolved-final accounting.
   // This lets verified canonical truth supersede a stale source placeholder while
-  // the distinct-canonical-id guard above still preserves legitimate rematches.
+  // date-only distinct canonical events remain protected as possible rematches.
   const rawRows = dedupeScheduleRows(Array.isArray(games) ? games : [], options);
   const evaluations = rawRows.map(row => ({ original: row, ...evaluateFinalResultTruth(row) }));
   const normalizedRows = dedupeScheduleRows(evaluations.map(item => item.row), options);
