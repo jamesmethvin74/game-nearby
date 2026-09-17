@@ -3,6 +3,7 @@ import { applySchoolDisplayNames, dedupeScheduleRows, evaluateScheduleRecordTrut
 import { normalizeFinalResultTruth } from "./final-result-truth.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
+import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -163,7 +164,7 @@ async function readTeamSchedule(env, teamId) {
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
     LEFT JOIN schools aws ON aws.id=ce.away_school_id
-    WHERE g.team_id=?
+    WHERE g.team_id=? AND ${currentScheduleTruthSql("g","s")}
     ORDER BY COALESCE(ce.scheduled_at,g.scheduled_at)
   `).bind(teamId).all();
 
