@@ -19,8 +19,9 @@ test("production-wide D1 verification is manual-only", () => {
   assert.match(productionSmoke, /workflow_dispatch:/);
   assert.doesNotMatch(productionSmoke, /\n  push:/);
   assert.doesNotMatch(productionSmoke, /\n  pull_request:/);
-  assert.match(productionSmoke, /full_statewide_record_audit:/);
-  assert.match(productionSmoke, /inputs\.full_statewide_record_audit == true/);
+  assert.match(productionSmoke, /legacy_volleyball_record_diagnostic:/);
+  assert.match(productionSmoke, /inputs\.legacy_volleyball_record_diagnostic == true/);
+  assert.match(productionSmoke, /not statewide integrity proof/i);
   assert.match(productionSmoke, /Deliberately sequential/);
   assert.doesNotMatch(productionSmoke, /Promise\.all\(Array\.from\(\{length:12\}/);
 });
