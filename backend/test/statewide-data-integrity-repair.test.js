@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   buildCanonicalRepairClusters,
   buildStatewideRepairPlan,
+  buildAuditedCanonicalMergePlan,
+  chooseCanonicalWinner,
   reconcileAuditedCanonicalDefects
 } from "../src/statewide-data-integrity-repair.js";
 
@@ -81,4 +83,54 @@ test("failed canonical clusters do not cause unrelated record rebuilds",async()=
   assert.equal(loaderCalled,false);
   assert.equal(rebuildCalled,false);
   assert.deepEqual(result.affectedTeamIds,[]);
+});
+
+
+test("canonical merge winner prefers complete final truth over enabled stale schedule",()=>{
+  const rows=[
+    {game_id:"scheduled",canonical_event_id:"ce-scheduled",canonical_status:"SCHEDULED",source_enabled:1,authority_rank:5},
+    {game_id:"final",canonical_event_id:"ce-final",canonical_status:"FINAL",canonical_home_score:28,canonical_away_score:14,source_enabled:0,authority_rank:10}
+  ];
+  assert.equal(chooseCanonicalWinner(rows),"ce-final");
+});
+
+test("audit-proven split plan merges only cluster canonical IDs and can promote one unambiguous raw final",()=>{
+  const audit={issues:[
+    issue("SPLIT_CANONICAL_LOGICAL_GAME",{team:"home-team",game:"g-scheduled",other:"g-final"}),
+    issue("STALE_NONTERMINAL_TWIN_OF_FINAL",{team:"home-team",game:"g-scheduled",other:"g-final"})
+  ]};
+  const rows=[
+    {
+      game_id:"g-scheduled",canonical_event_id:"ce-old",canonical_status:"SCHEDULED",
+      canonical_home_school_id:"home",canonical_away_school_id:"away",
+      reporting_school_id:"home",raw_status:"SCHEDULED",source_enabled:1,authority_rank:10
+    },
+    {
+      game_id:"g-final",canonical_event_id:"ce-new",canonical_status:"SCHEDULED",
+      canonical_home_school_id:"home",canonical_away_school_id:"away",
+      reporting_school_id:"away",raw_status:"FINAL",raw_team_score:14,raw_opponent_score:28,
+      source_enabled:0,authority_rank:20
+    }
+  ];
+  const plan=buildAuditedCanonicalMergePlan(audit,rows);
+  assert.equal(plan.length,1);
+  assert.deepEqual(plan[0].game_ids.sort(),["g-final","g-scheduled"]);
+  assert.equal(plan[0].loser_canonical_ids.length,1);
+  assert.deepEqual(plan[0].promote_final,{home_score:28,away_score:14});
+});
+
+test("ambiguous raw final evidence is never promoted",()=>{
+  const audit={issues:[issue("SPLIT_CANONICAL_LOGICAL_GAME",{game:"g1",other:"g2"})]};
+  const common={
+    canonical_event_id:"ce-a",canonical_status:"SCHEDULED",
+    canonical_home_school_id:"home",canonical_away_school_id:"away",
+    reporting_school_id:"home",source_enabled:1,authority_rank:10
+  };
+  const rows=[
+    {...common,game_id:"g1",raw_status:"FINAL",raw_team_score:21,raw_opponent_score:14},
+    {...common,game_id:"g2",raw_status:"FINAL",raw_team_score:28,raw_opponent_score:14}
+  ];
+  const plan=buildAuditedCanonicalMergePlan(audit,rows);
+  assert.equal(plan.length,1);
+  assert.equal(plan[0].promote_final,null);
 });
