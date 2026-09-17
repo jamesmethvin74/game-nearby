@@ -3,7 +3,7 @@ import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-au
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
-import { reconcileAuditedCanonicalDefects } from "./statewide-data-integrity-repair.js";
+import { reconcileAuditedCanonicalDefects, repairAuditedPresentationDefects } from "./statewide-data-integrity-repair.js";
 import { executeFinalMissingScoreRepair, planFinalMissingScoreRepair } from "./final-missing-score-repair.js";
 import { runCertifiedDragonFlyStatewideCollection } from "./dragonfly-certified-statewide.js";
 import { statewideSportConfig } from "./statewide-sport-config.js";
@@ -14,7 +14,7 @@ const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const M15_PATH="/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd";
 const M15_FINGERPRINT="m15-statewide-presentation-repair-1426-364-20260917";
-const M15_TRANSPORT_VERSION="m15-v4";
+const M15_TRANSPORT_VERSION="m15-v5";
 
 const M15_STATEWIDE_KEYS=new Set(["football-boys","volleyball-girls","basketball-boys","basketball-girls","soccer-boys","soccer-girls"]);
 const M15_CODES=new Set([
@@ -187,6 +187,24 @@ async function runM15StatewideCollection(env,keys=[]) {
   };
 }
 
+
+async function runM15PresentationRepair(env) {
+  const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  const repair=await repairAuditedPresentationDefects(env,before,{
+    rebuildAudit:()=>buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000})
+  });
+  const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
+  return {
+    status:"EXECUTED",
+    fingerprint:M15_FINGERPRINT,
+    transport_version:M15_TRANSPORT_VERSION,
+    action:"presentation-repair",
+    before:{summary:before.summary,d1:before.d1,issue_counts:m15IssueCounts(before)},
+    repair,
+    after:{summary:after.summary,d1:after.d1,issue_counts:m15IssueCounts(after)}
+  };
+}
+
 async function runM15CanonicalRepair(env) {
   const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   const repair=await reconcileAuditedCanonicalDefects(env,before);
@@ -262,6 +280,10 @@ async function runM15Transport(request,env,ctx) {
   if(body.action==="statewide-collect") {
     const result=await runM15StatewideCollection(env,body.keys);
     return auditJson(result,result.status==="PARTIAL"?207:200,{integrity:true});
+  }
+  if(body.action==="presentation-repair") {
+    const result=await runM15PresentationRepair(env);
+    return auditJson(result,200,{integrity:true});
   }
   if(body.action==="canonical-reconcile") {
     const result=await runM15CanonicalRepair(env);
