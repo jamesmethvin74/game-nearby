@@ -1,4 +1,4 @@
-name: One-shot M15 statewide authoritative refresh
+name: One-shot M15 canonical repair and verification
 
 on:
   push:
@@ -15,24 +15,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  repair:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - name: Execute bounded authoritative refresh for current M15 defect teams
+      - name: Execute audit-proven canonical and missing-score repairs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p m15-production-evidence
           node <<'NODE'
-          const fs=require('fs');
           const BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const PATH_ONCE='/api/v1/internal/m15-statewide-repair-20260917-4c8e2f7a91bd';
           const FP='m15-statewide-presentation-repair-1426-364-20260917';
-          const VERSION='m15-v2';
+          const VERSION='m15-v3';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-          async function request(method,body=null,timeoutMs=900000){
+          async function request(method,body=null,timeoutMs=1800000){
             const controller=new AbortController();
             const timer=setTimeout(()=>controller.abort(),timeoutMs);
             try{
@@ -45,7 +43,7 @@ jobs:
               const text=await response.text();
               let payload={};
               try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,4000)};}
-              if(!response.ok) throw new Error(`${method} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,4000)}`);
+              if(!response.ok) throw new Error(`${method} HTTP ${response.status}: ${JSON.stringify(payload).slice(0,12000)}`);
               return payload;
             }finally{clearTimeout(timer);}
           }
@@ -61,65 +59,45 @@ jobs:
             };
           }
 
-          function collectCounters(value,totals={rows_read:0,rows_written:0},seen=new Set()){
-            if(!value||typeof value!=='object'||seen.has(value)) return totals;
-            seen.add(value);
-            for(const [key,item] of Object.entries(value)){
-              const normalized=key.toLowerCase();
-              if((normalized==='rows_read'||normalized==='rowsread')&&Number.isFinite(Number(item))) totals.rows_read+=Number(item);
-              else if((normalized==='rows_written'||normalized==='rowswritten')&&Number.isFinite(Number(item))) totals.rows_written+=Number(item);
-              else if(item&&typeof item==='object') collectCounters(item,totals,seen);
-            }
-            return totals;
-          }
-
           async function main(){
             let before=null;
-            for(let attempt=1;attempt<=72;attempt++){
+            for(let attempt=1;attempt<=120;attempt++){
               try{
                 const plan=await request('GET',null,300000);
                 if(plan.status==='READY'&&plan.fingerprint===FP&&plan.transport_version===VERSION){
                   before=plan;
-                  console.log(`M15_READY attempt=${attempt} blocking=${Number(plan.summary?.blocking_issues||0)} sources=${plan.source_ids?.length||0}`);
                   break;
                 }
-                console.log(`M15_READY attempt=${attempt} waiting_for=${VERSION} got=${String(plan.transport_version||'legacy')}`);
+                console.log(`M15_V3_WAIT attempt=${attempt} got=${String(plan.transport_version||'legacy')}`);
               }catch(error){
-                console.log(`M15_READY attempt=${attempt} ${String(error.message).slice(0,500)}`);
+                console.log(`M15_V3_WAIT attempt=${attempt} error=${String(error.message).slice(0,500)}`);
               }
               await sleep(5000);
             }
-            if(!before) throw new Error('M15 v2 fingerprint-locked endpoint never reached READY state');
-            fs.writeFileSync('m15-production-evidence/before.json',JSON.stringify(before,null,2));
-            console.log('M15_BEFORE='+JSON.stringify(compact(before)));
+            if(!before) throw new Error('M15 v3 transport never reached READY');
+            console.log('M15_PRE_CANONICAL='+JSON.stringify(compact(before)));
 
-            const sourceIds=[...new Set((before.source_ids||[]).map(String).filter(Boolean))];
-            if(!sourceIds.length&&Number(before.summary?.blocking_issues||0)>0) throw new Error('No enabled authoritative sources resolved for current M15 blocking teams');
-            const executions=[];
-            const aggregate={rows_read:0,rows_written:0};
-            for(let offset=0;offset<sourceIds.length;offset+=16){
-              const chunk=sourceIds.slice(offset,offset+16);
-              const batch=Math.floor(offset/16)+1;
-              const total=Math.ceil(sourceIds.length/16);
-              const result=await request('POST',{fingerprint:FP,transport_version:VERSION,sourceIds:chunk});
-              executions.push(result);
-              const counters=collectCounters(result.refresh||{});
-              aggregate.rows_read+=counters.rows_read;
-              aggregate.rows_written+=counters.rows_written;
-              const outcomes=Array.isArray(result.refresh?.outcomes)?result.refresh.outcomes:[];
-              const statuses={};
-              for(const outcome of outcomes){
-                const status=String(outcome?.status||outcome?.outcome||outcome?.result||'UNKNOWN');
-                statuses[status]=(statuses[status]||0)+1;
-              }
-              console.log(`M15_REFRESH_BATCH=${batch}/${total} sources=${chunk.length} refresh_status=${result.refresh_status} outcomes=${outcomes.length} statuses=${JSON.stringify(statuses)} d1=${JSON.stringify(counters)}`);
-            }
-            fs.writeFileSync('m15-production-evidence/refresh-executions.json',JSON.stringify(executions,null,2));
-            console.log('M15_REFRESH_D1_AGGREGATE='+JSON.stringify(aggregate));
+            const canonical=await request('POST',{fingerprint:FP,transport_version:VERSION,action:'canonical-reconcile'});
+            console.log('M15_CANONICAL_RESULT='+JSON.stringify({
+              status:canonical.status,
+              before:canonical.before,
+              clustersExamined:canonical.repair?.clustersExamined,
+              clustersRepaired:canonical.repair?.clustersRepaired,
+              affectedTeamCount:canonical.repair?.affectedTeamIds?.length||0,
+              recordRebuild:canonical.repair?.recordRebuild,
+              after:canonical.after
+            }));
+
+            const missing=await request('POST',{fingerprint:FP,transport_version:VERSION,action:'missing-score-repair'});
+            console.log('M15_MISSING_SCORE_RESULT='+JSON.stringify({
+              status:missing.status,
+              plan:{safe:missing.plan?.safe,reasons:missing.plan?.reasons,cases:missing.plan?.cases,d1:missing.plan?.d1},
+              repair:missing.repair,
+              after:missing.after
+            }));
 
             const after=await request('GET',null,300000);
-            fs.writeFileSync('m15-production-evidence/after.json',JSON.stringify(after,null,2));
-            console.log('M15_AFTER_REFRESH='+JSON.stringify(compact(after)));
+            console.log('M15_AFTER_CANONICAL_AND_SCORE='+JSON.stringify(compact(after)));
           }
 
           main().catch(error=>{
@@ -127,12 +105,3 @@ jobs:
             process.exit(1);
           });
           NODE
-
-      - name: Upload M15 production evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: m15-authoritative-refresh-evidence-v2
-          path: m15-production-evidence
-          if-no-files-found: warn
-          retention-days: 7
