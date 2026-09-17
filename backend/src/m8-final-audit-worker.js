@@ -120,6 +120,42 @@ async function loadM15OverdueBreakdown(env,issues=[]) {
   };
 }
 
+async function loadM15DefectDetails(env,issues=[]) {
+  const relevant=issues.filter(issue=>issue?.severity==="blocking"&&issue?.code!=="PAST_DUE_NONTERMINAL_DISPLAY");
+  const ids=[...new Set(relevant.flatMap(issue=>[issue.game_id,issue.other_game_id]).map(String).filter(Boolean))];
+  if(!ids.length) return {issues:relevant,rows:[],d1:{rows_read:0,rows_written:0}};
+  const query=await env.DB.prepare(`
+    WITH requested_games(id) AS (
+      SELECT CAST(value AS TEXT)
+      FROM json_each(?)
+    )
+    SELECT
+      g.id AS game_id,g.team_id,g.source_id,g.opponent,g.opponent_school_id,
+      g.scheduled_at AS raw_scheduled_at,g.scheduled_time_known AS raw_time_known,
+      g.status AS raw_status,g.team_score AS raw_team_score,g.opponent_score AS raw_opponent_score,
+      g.result AS raw_result,g.counts_for_record,g.canonical_event_id,
+      src.source_type,src.parser_type,src.collection_mode,src.enabled AS source_enabled,src.authority_rank,
+      t.sport,t.gender,t.season,sch.id AS school_id,sch.name AS school_name,sch.level,
+      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
+      ce.selected_source_id,ce.trust_state,ce.conflict_count
+    FROM requested_games requested
+    JOIN games g ON g.id=requested.id
+    JOIN teams t ON t.id=g.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    LEFT JOIN sources src ON src.id=g.source_id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    ORDER BY g.team_id,g.scheduled_at,g.id`)
+    .bind(JSON.stringify(ids)).all();
+  const meta=query?.meta||{};
+  return {
+    issues:relevant,
+    rows:query?.results||[],
+    d1:{rows_read:meta.rows_read==null?null:Number(meta.rows_read),rows_written:meta.rows_written==null?0:Number(meta.rows_written),duration_ms:meta.duration==null?null:Number(meta.duration)}
+  };
+}
+
 async function runM15CanonicalRepair(env) {
   const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:5000});
   const repair=await reconcileAuditedCanonicalDefects(env,before);
@@ -168,15 +204,11 @@ async function runM15Transport(request,env,ctx) {
     const detail=new URL(request.url).searchParams.get("detail");
     if(detail==="overdue") {
       const breakdown=await loadM15OverdueBreakdown(env,plan.blocking);
-      return auditJson({
-        status:"READY",
-        fingerprint:M15_FINGERPRINT,
-        transport_version:M15_TRANSPORT_VERSION,
-        detail:"overdue",
-        summary:plan.audit.summary,
-        issue_counts:plan.byCode,
-        overdue_breakdown:breakdown
-      },200,{integrity:true});
+      return auditJson({status:"READY",fingerprint:M15_FINGERPRINT,transport_version:M15_TRANSPORT_VERSION,detail:"overdue",summary:plan.audit.summary,issue_counts:plan.byCode,overdue_breakdown:breakdown},200,{integrity:true});
+    }
+    if(detail==="defects") {
+      const defects=await loadM15DefectDetails(env,plan.blocking);
+      return auditJson({status:"READY",fingerprint:M15_FINGERPRINT,transport_version:M15_TRANSPORT_VERSION,detail:"defects",summary:plan.audit.summary,issue_counts:plan.byCode,defects},200,{integrity:true});
     }
     return auditJson({
       status:"READY",
@@ -223,15 +255,7 @@ async function runM15Transport(request,env,ctx) {
   const text=await refreshResponse.text();
   let payload={};
   try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,2000)};}
-  return auditJson({
-    status:refreshResponse.ok?"EXECUTED":"FAILED",
-    fingerprint:M15_FINGERPRINT,
-    transport_version:M15_TRANSPORT_VERSION,
-    action:"authoritative-refresh",
-    source_ids:sourceIds,
-    refresh_status:refreshResponse.status,
-    refresh:payload
-  },refreshResponse.ok?200:refreshResponse.status,{integrity:true});
+  return auditJson({status:refreshResponse.ok?"EXECUTED":"FAILED",fingerprint:M15_FINGERPRINT,transport_version:M15_TRANSPORT_VERSION,action:"authoritative-refresh",source_ids:sourceIds,refresh_status:refreshResponse.status,refresh:payload},refreshResponse.ok?200:refreshResponse.status,{integrity:true});
 }
 
 async function runDataIntegrityAudit(env) {
