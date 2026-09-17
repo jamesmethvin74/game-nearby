@@ -1,5 +1,6 @@
 import { dedupeScheduleRows, scheduleRowsLikelyDuplicate } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
+import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
 const DEFAULT_SEASON = "2026";
 const PAST_DUE_GRACE_HOURS = 6;
@@ -321,6 +322,7 @@ export async function buildStatewideDataIntegrityAudit(env, {
     LEFT JOIN games g INDEXED BY idx_games_team_time ON g.team_id=at.team_id
     LEFT JOIN sources src ON src.id=g.source_id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    WHERE g.id IS NULL OR ${currentScheduleTruthSql("g","src")}
     ORDER BY at.team_id,g.scheduled_at,g.id
   `).bind(String(season)).all();
 
