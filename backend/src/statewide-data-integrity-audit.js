@@ -181,7 +181,8 @@ function auditTeam(rows, { now = new Date() } = {}) {
       const b = candidates[j];
       const sameLogicalGame = pairLooksLikeOneDisplayedGame(a, b);
       const footballDateCollision = footballRowsConflictSameDay(a,b,{reportingSchoolId:a.school_id});
-      const staleSameDayTwin = staleSameDayOpponentTwin(a,b,{reportingSchoolId:a.school_id});
+      const staleSameDayTwin = statusesDifferFinalVsNonterminal(a,b)
+        && staleSameDayOpponentTwin(a,b,{reportingSchoolId:a.school_id});
       if (staleSameDayTwin && !sameLogicalGame) {
         const finalRow = isScoredFinal(a) ? a : b;
         const staleRow = finalRow === a ? b : a;
