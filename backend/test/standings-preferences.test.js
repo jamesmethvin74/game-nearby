@@ -39,8 +39,8 @@ test("standings preference release remains present after the unified team-status
   const html = await read("standings.html");
   const sw = await read("service-worker.js");
 
-  assert.match(html, /standings\\.js\\?v=65/);
-  assert.match(html, /standings-favorites\\.css\\?v=65/);
+  assert.match(html, /standings\.js\?v=65/);
+  assert.match(html, /standings-favorites\.css\?v=65/);
   assert.match(sw, /localbleachersar-shell-v65/);
   assert.match(sw, /\.\/standings-favorites\.css/);
 });
