@@ -1,6 +1,7 @@
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { collectionSafety, dateKeyInZone } from "./schedule-authority-core.js";
 import { rebuildStatewideRecords } from "./record-rebuild.js";
+import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 
 const STATE_ID="dragonfly:ArkAA:2026:WVB_Varsity";
 const DEFAULT_FEED="https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
