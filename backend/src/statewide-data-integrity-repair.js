@@ -511,6 +511,7 @@ export async function repairAuditedPresentationDefects(env,audit,{
     record_rebuild:recordRebuild,
     after_summary:after.summary,
     after_issue_counts:Object.fromEntries(Object.entries(after.summary?.issues_by_code||{})),
+    after_audit:after,
     d1
   };
 }
