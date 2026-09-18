@@ -11,7 +11,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    name: verify-live-team-presentation
+    name: inspect-baptist-duplicate
     steps:
       - name: Verify factual team cards and official-season schedules
         shell: bash
@@ -85,6 +85,7 @@ jobs:
           console.log('NLR_FOOTBALL_STATUS='+JSON.stringify(nlrFootball||null));
           console.log('NLR_FOCUS='+JSON.stringify(nlr.rows.filter(g=>String(g.sport||'').toLowerCase()==='football').map(g=>({opponent:g.opponent,date:dateOf(g),status:g.status})).slice(0,8)));
           console.log('BRYANT_VB_FOCUS='+JSON.stringify(bryant.rows.filter(g=>String(g.sport||'').toLowerCase()==='volleyball').map(g=>({opponent:g.opponent,date:dateOf(g),status:g.status})).slice(0,8)));
+          console.log('BRYANT_BAPTIST_DETAIL='+JSON.stringify(bryant.rows.filter(g=>String(g.sport||'').toLowerCase()==='volleyball' && dateOf(g)==='2026-09-01').map(g=>({id:g.id,canonical_event_id:g.canonical_event_id||null,opponent:g.opponent,opponent_school_id:g.opponent_school_id||null,scheduled_at:g.scheduled_at||g.canonical_scheduled_at,status:g.status,team_score:g.team_score,opponent_score:g.opponent_score,source_type:g.source_type,parser_type:g.parser_type,authority_rank:g.authority_rank,source_url:g.source_url||null,schedule_observation_count:g.schedule_observation_count||1}))))
           console.log('VANBUREN_VB_FOCUS='+JSON.stringify(van.rows.filter(g=>String(g.sport||'').toLowerCase()==='volleyball').map(g=>({opponent:g.opponent,date:dateOf(g),status:g.status,notes:g.notes||null})).slice(0,8)));
 
           const failed=Object.entries(checks).filter(([,ok])=>!ok);
