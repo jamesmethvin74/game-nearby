@@ -11,7 +11,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    name: inspect-statewide-duplicate-details
+    name: inspect-statewide-duplicate-details-v2
     steps:
       - name: Audit every school presentation surface
         shell: bash
