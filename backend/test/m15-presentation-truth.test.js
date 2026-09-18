@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import {
   PRESENTATION_SUPPRESSED_NOTE,
   currentScheduleTruthSql,
@@ -45,4 +46,31 @@ test("unchanged stale refresh preserves suppression but terminal or future truth
   const statewideWriter=fs.readFileSync(new URL("../src/dragonfly-statewide.js",import.meta.url),"utf8");
   assert.match(canonicalWriter,/suppressionPreservingNotesSql\("games","excluded"\)/);
   assert.match(statewideWriter,/suppressionPreservingNotesSql\("games","excluded"\)/);
+});
+
+
+test("suppression SQL survives stale upsert and clears on terminal or future reschedule",()=>{
+  const db=new DatabaseSync(":memory:");
+  db.exec("CREATE TABLE games(id TEXT PRIMARY KEY,notes TEXT,status TEXT,scheduled_at TEXT)");
+  db.prepare("INSERT INTO games(id,notes,status,scheduled_at) VALUES(?,?,?,?)")
+    .run("g1",PRESENTATION_SUPPRESSED_NOTE,"SCHEDULED","2026-09-01T00:00:00.000Z");
+
+  const sql=`
+    INSERT INTO games(id,notes,status,scheduled_at) VALUES(?,?,?,?)
+    ON CONFLICT(id) DO UPDATE SET
+      notes=${suppressionPreservingNotesSql("games","excluded")},
+      status=excluded.status,
+      scheduled_at=excluded.scheduled_at
+  `;
+
+  db.prepare(sql).run("g1","provider stale","SCHEDULED","2026-09-01T00:00:00.000Z");
+  assert.match(db.prepare("SELECT notes FROM games WHERE id='g1'").get().notes,/Excluded from current LocalBleachers presentation/);
+
+  db.prepare(sql).run("g1","provider final","FINAL","2026-09-01T00:00:00.000Z");
+  assert.equal(db.prepare("SELECT notes FROM games WHERE id='g1'").get().notes,"provider final");
+
+  db.prepare("UPDATE games SET notes=?,status='SCHEDULED',scheduled_at='2026-09-01T00:00:00.000Z' WHERE id='g1'")
+    .run(PRESENTATION_SUPPRESSED_NOTE);
+  db.prepare(sql).run("g1","provider rescheduled","SCHEDULED","2099-09-01T00:00:00.000Z");
+  assert.equal(db.prepare("SELECT notes FROM games WHERE id='g1'").get().notes,"provider rescheduled");
 });
