@@ -10,17 +10,21 @@ const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet
 const FOOTBALL_NON_GAME_STATUSES = new Set(["CANCELED","CANCELLED","POSTPONED"]);
 const DISPLAY_TERMINAL_STATUSES = new Set(["FINAL","CANCELED","CANCELLED","POSTPONED"]);
 
+function localDateForRow(row,timeZone="America/Chicago") {
+  const cached=clean(row?.schedule_local_date);
+  if(cached) return cached;
+  const value=row?.scheduled_at||row?.canonical_scheduled_at;
+  return value?dateKeyInZone(value,timeZone):"";
+}
+
 function footballSameLocalDate(a,b,{reportingSchoolId=null,timeZone="America/Chicago"}={}) {
   if (!a || !b) return false;
   if (clean(a.sport).toLowerCase()!=="football" || clean(b.sport).toLowerCase()!=="football") return false;
   if (clean(a.gender).toLowerCase()!==clean(b.gender).toLowerCase()) return false;
   if (!reportingSchoolId && a.school_id && b.school_id && a.school_id!==b.school_id) return false;
   if (FOOTBALL_NON_GAME_STATUSES.has(clean(a.status).toUpperCase()) || FOOTBALL_NON_GAME_STATUSES.has(clean(b.status).toUpperCase())) return false;
-  const aTime=a.scheduled_at||a.canonical_scheduled_at;
-  const bTime=b.scheduled_at||b.canonical_scheduled_at;
-  if (!aTime || !bTime) return false;
-  const aDate=dateKeyInZone(aTime,timeZone);
-  const bDate=dateKeyInZone(bTime,timeZone);
+  const aDate=localDateForRow(a,timeZone);
+  const bDate=localDateForRow(b,timeZone);
   return Boolean(aDate && bDate && aDate===bDate);
 }
 
@@ -70,11 +74,8 @@ function scoredFinalSnapshot(row) {
 }
 
 function sameLocalScheduleDate(a,b,{timeZone="America/Chicago"}={}) {
-  const aTime=a?.scheduled_at||a?.canonical_scheduled_at;
-  const bTime=b?.scheduled_at||b?.canonical_scheduled_at;
-  if(!aTime||!bTime) return false;
-  const aDate=dateKeyInZone(aTime,timeZone);
-  const bDate=dateKeyInZone(bTime,timeZone);
+  const aDate=localDateForRow(a,timeZone);
+  const bDate=localDateForRow(b,timeZone);
   return Boolean(aDate&&bDate&&aDate===bDate);
 }
 
@@ -230,8 +231,18 @@ function mergeDuplicateRows(a, b) {
 
 export function dedupeScheduleRows(games, options = {}) {
   const rows = Array.isArray(games) ? games : [];
-  const merged = [];
-  for (const row of rows) {
+  const buckets=new Map();
+  for (const sourceRow of rows) {
+    const row=sourceRow?.schedule_local_date
+      ? sourceRow
+      : {...sourceRow,schedule_local_date:localDateForRow(sourceRow,options.timeZone||"America/Chicago")};
+    const bucketKey=[
+      clean(row.sport).toLowerCase(),
+      clean(row.gender).toLowerCase(),
+      row.schedule_local_date||String(row.scheduled_at||row.canonical_scheduled_at||row.id||"")
+    ].join("|");
+    if(!buckets.has(bucketKey)) buckets.set(bucketKey,[]);
+    const merged=buckets.get(bucketKey);
     const index = merged.findIndex(existing =>
       scheduleRowsLikelyDuplicate(existing, row, options)
       || identicalVerifiedFinalSnapshot(existing, row, options)
@@ -239,7 +250,9 @@ export function dedupeScheduleRows(games, options = {}) {
     if (index === -1) merged.push({ ...row, schedule_observation_count: Number(row.schedule_observation_count || 1) });
     else merged[index] = mergeDuplicateRows(merged[index], row);
   }
-  return merged.sort((a, b) => Date.parse(a.scheduled_at || a.canonical_scheduled_at) - Date.parse(b.scheduled_at || b.canonical_scheduled_at));
+  return [...buckets.values()].flat().sort((a, b) =>
+    Date.parse(a.scheduled_at || a.canonical_scheduled_at) - Date.parse(b.scheduled_at || b.canonical_scheduled_at)
+  );
 }
 
 function highSchoolBasketballPreseason(row) {
