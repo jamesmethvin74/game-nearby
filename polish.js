@@ -8,29 +8,21 @@ function sportSvg(sport){
 }
 
 function getTeamStatus(event){
-  const unified=window.LocalBleachersLive?.getTeamStatus?.(event.teamId,event.sport,event.gender);
-  if (!unified) {
-    return {overall:"—",conference:"—",standing:"Not verified",conferenceName:"Conference pending"};
+  const unified = window.LocalBleachersLive?.getTeamStatus?.(event.teamId, event.sport, event.gender);
+  const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
+  if (factual) return factual;
+  const record = event.record || null;
+  if (record) {
+    const conferenceGames = Number(record.conference_wins || 0) + Number(record.conference_losses || 0) + Number(record.conference_ties || 0);
+    const rank = Number(record.rank);
+    return {
+      overall: recordLabel(record.wins, record.losses, record.ties),
+      conference: record.conference_name ? recordLabel(record.conference_wins, record.conference_losses, record.conference_ties) : "—",
+      standing: record.conference_name && conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "—",
+      conferenceName: record.conference_name || event.conferenceName || "Conference not available"
+    };
   }
-
-  const recordVerified=unified.record_verified===true;
-  const membershipState=String(unified.conference_membership_state||"unknown").toLowerCase();
-  const conferenceMember=membershipState==="member";
-  const conferenceGames=Number(unified.conference_games||0);
-  const standingsVerified=unified.standings_verified===true;
-  const rank=Number(unified.rank);
-  const conferenceName=conferenceMember
-    ? (unified.conference_name||"Conference")
-    : membershipState==="independent"
-      ? "Independent"
-      : "Conference not verified";
-
-  return {
-    overall:recordVerified && unified.overall_record ? unified.overall_record : "—",
-    conference:recordVerified && conferenceMember && conferenceGames>0 && unified.conference_record ? unified.conference_record : "—",
-    standing:recordVerified && conferenceMember && conferenceGames>0 && standingsVerified && Number.isFinite(rank) && rank>0 ? `#${rank}` : "Not verified",
-    conferenceName
-  };
+  return { overall:"—", conference:"—", standing:"—", conferenceName:"Conference not available" };
 }
 
 function polishedSourceLabel(event){
