@@ -27,3 +27,14 @@ export function isRetiredStatewideObservation(game = {}, source = {}) {
 export function isPresentationSuppressedObservation(game = {}, source = {}) {
   return hasPresentationSuppressedMarker(game) || isRetiredStatewideObservation(game, source);
 }
+
+
+export function suppressionPreservingNotesSql(existingAlias="games", incomingAlias="excluded") {
+  return `CASE
+    WHEN instr(COALESCE(${existingAlias}.notes,''),'${PRESENTATION_SUPPRESSED_NOTE}')>0
+      AND UPPER(COALESCE(${incomingAlias}.status,'SCHEDULED'))='SCHEDULED'
+      AND datetime(${incomingAlias}.scheduled_at)<=datetime('now','-6 hours')
+    THEN ${existingAlias}.notes
+    ELSE ${incomingAlias}.notes
+  END`;
+}
