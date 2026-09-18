@@ -13,6 +13,7 @@ const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
 const STANDINGS_SPORTS = new Set(["football", "volleyball"]);
+const TEAM_STATUS_BATCH_MAX = 32;
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -433,6 +434,97 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
   return statuses;
 }
 
+function requestedSchoolIds(url) {
+  const values = String(url.searchParams.get("school_ids") || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(value => /^[a-z0-9][a-z0-9-]{0,79}$/i.test(value));
+  return [...new Set(values)].slice(0, TEAM_STATUS_BATCH_MAX);
+}
+
+async function batchTeamStatuses(env, schoolIds = []) {
+  if (!schoolIds.length) return { school_ids: [], team_statuses: [] };
+  const placeholders = schoolIds.map(() => "?").join(",");
+
+  const teamSeedResult = await env.DB.prepare(`
+    SELECT
+      t.id AS reporting_team_id,t.sport,t.gender,t.season,t.conference_id,
+      sch.id AS school_id,sch.name AS school_name,sch.level,
+      c.name AS conference_name,
+      r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local'
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    LEFT JOIN team_records r ON r.team_id=t.id
+    WHERE t.school_id IN (${placeholders}) AND t.active=1 AND t.season='2026'
+    ORDER BY t.school_id,t.sport,t.gender,t.id
+  `).bind(...schoolIds).all();
+
+  const result = await env.DB.prepare(`
+    SELECT
+      g.*,
+      t.id AS reporting_team_id,t.sport,t.gender,t.season,t.conference_id,
+      sch.id AS school_id,sch.name AS school_name,sch.level,
+      c.name AS conference_name,
+      r.wins,r.losses,r.ties,r.conference_wins,r.conference_losses,r.conference_ties,r.calculated_at,
+      src.source_type,src.parser_type,src.authority_rank,src.source_priority,
+      src.last_successful_fetch_at AS source_last_successful_fetch_at,
+      ce.scheduled_at AS canonical_scheduled_at,
+      ce.scheduled_time_known AS canonical_time_known,
+      ce.venue AS canonical_venue,
+      ce.location_text AS canonical_location_text,
+      ce.latitude AS canonical_latitude,
+      ce.longitude AS canonical_longitude,
+      ce.conference_game AS canonical_conference_game,
+      ce.status AS canonical_status,
+      ce.home_score AS canonical_home_score,
+      ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,
+      ce.away_school_id AS canonical_away_school_id,
+      ce.trust_state AS data_trust,
+      ce.conflict_count,
+      hs.name AS canonical_home_name,
+      aws.name AS canonical_away_name,
+      ROW_NUMBER() OVER (
+        PARTITION BY t.id,COALESCE(g.canonical_event_id,g.id)
+        ORDER BY src.authority_rank,src.source_priority,src.id
+      ) AS authority_row
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local'
+    JOIN games g ON g.team_id=t.id
+    JOIN sources src ON src.id=g.source_id
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    LEFT JOIN team_records r ON r.team_id=t.id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    LEFT JOIN schools hs ON hs.id=ce.home_school_id
+    LEFT JOIN schools aws ON aws.id=ce.away_school_id
+    WHERE t.school_id IN (${placeholders}) AND t.active=1 AND t.season='2026'
+      AND ${currentScheduleTruthSql("g","src")}
+    ORDER BY t.school_id,t.sport,t.gender,COALESCE(ce.scheduled_at,g.scheduled_at)
+  `).bind(...schoolIds).all();
+
+  const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
+  const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows);
+  const orientedRows = conferenceRows.map(row => resolvedGameForSchool(row, row.school_id));
+  const resolvedRows = attachScheduleDerivedRecords(dedupeSchoolScheduleRows(orientedRows));
+  const statusRows = mergeTeamStatusSeeds(resolvedRows, teamSeedResult.results || []);
+  const teamStatuses = await buildUnifiedTeamStatuses(env, statusRows);
+
+  console.log("batched team presentation status read", {
+    schools: schoolIds.length,
+    teamStatuses: teamStatuses.length,
+    rowsRead: Number(result.meta?.rows_read || 0) + Number(teamSeedResult.meta?.rows_read || 0),
+    rowsWritten: Number(result.meta?.rows_written || 0) + Number(teamSeedResult.meta?.rows_written || 0)
+  });
+  return { school_ids: schoolIds, team_statuses: teamStatuses };
+}
+
+async function teamStatusesResponse(env, url) {
+  const schoolIds = requestedSchoolIds(url);
+  if (!schoolIds.length) return json({ school_ids: [], team_statuses: [] });
+  return json(await batchTeamStatuses(env, schoolIds));
+}
+
 async function localSchoolSchedule(request, env, schoolId, { requiredLevel = null } = {}) {
   const school = await env.DB.prepare(`
     SELECT id,name,level,catalog_scope
@@ -548,6 +640,7 @@ export default {
       return runCollegeBootstrap(request, env, ctx);
     }
     if (request.method === "GET") {
+      if (url.pathname === "/api/v1/team-statuses") return teamStatusesResponse(env, url);
       const directSchoolId = localSchoolId(url.pathname);
       if (directSchoolId) {
         const response = await localSchoolSchedule(request, env, directSchoolId);
