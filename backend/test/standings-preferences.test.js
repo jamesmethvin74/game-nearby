@@ -35,12 +35,14 @@ test("standings supports persisted sport+conference favorites below the live car
   assert.match(html, /id="favoriteStandingsGrid"/);
 });
 
-test("standings preference release remains present after the unified team-status shell bust", async () => {
+test("standings factual release advances the PWA shell", async () => {
   const html = await read("standings.html");
   const sw = await read("service-worker.js");
 
-  assert.match(html, /standings\.js\?v=65/);
-  assert.match(html, /standings-favorites\.css\?v=65/);
-  assert.match(sw, /localbleachersar-shell-v66/);
+  assert.match(html, /standings\.js\?v=71/);
+  assert.match(html, /runtime-build\.js\?v=71/);
+  assert.match(html, /presentation-status\.js\?v=71/);
+  assert.match(html, /standings-favorites\.css\?v=67/);
+  assert.match(sw, /localbleachersar-shell-v71/);
   assert.match(sw, /\.\/standings-favorites\.css/);
 });
