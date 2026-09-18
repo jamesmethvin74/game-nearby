@@ -79,6 +79,11 @@ test("published-only table is exposed as unverified source evidence, not standin
   assert.equal(result.standings[0].published_conference_record,"3-0");
   assert.equal(result.standings[0].standing_state,"source-published");
   assert.equal(result.standings[0].standings_verified,false);
+  assert.equal(result.standings[0].display_rank,1);
+  assert.equal(result.standings[0].display_conference_record,"3-0");
+  assert.equal(result.standings[0].display_overall_record,"5-0");
+  assert.equal(result.standings[0].display_method,"published");
+  assert.equal(result.conference.presentation_complete,true);
 });
 
 test("complete local truth stays authoritative even when published evidence exists", () => {
@@ -110,4 +115,27 @@ test("cohort truth requires explicit membership and clean final evidence", () =>
   const resultGap=cohortTruthState({expectedMembers:8,explicitMembers:8,unresolvedFinals:1});
   assert.equal(resultGap.coverage_complete,false);
   assert.equal(resultGap.result_evidence_complete,false);
+});
+
+
+test("incomplete canonical truth displays factual published values without promoting them to canonical fields", () => {
+  const result=reconcileConferenceStandings({
+    calculated:{conference:{id:"7a-west",name:"7A West"},standings:[
+      {team_id:"a",school_name:"Alpha",conference_record:"0-0",overall_record:"1-0",method:"calculated"}
+    ]},
+    published:{conference:{id:"7a-west",name:"7A West",source_url:"https://example.test"},standings:[
+      {school_name:"Alpha",rank:2,conference_record:"0-0",overall_record:"3-0",source_url:"https://example.test"}
+    ]},
+    membershipComplete:true,
+    resultEvidenceComplete:false
+  });
+  const row=result.standings[0];
+  assert.equal(row.rank,null,"canonical rank remains withheld");
+  assert.equal(row.overall_record,"1-0","canonical local record remains intact");
+  assert.equal(row.display_rank,2,"presentation uses factual published rank");
+  assert.equal(row.display_conference_record,"0-0");
+  assert.equal(row.display_overall_record,"3-0");
+  assert.equal(row.display_method,"published");
+  assert.equal(result.conference.presentation_method,"published");
+  assert.equal(result.conference.presentation_complete,true);
 });

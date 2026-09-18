@@ -264,7 +264,7 @@ async function runMaxPrepsVolleyballFallbackPass({env,plan,when}){
 async function runIntegrityGatePass({env,plan,when}){
   if(!plan?.runIntegrityGate) return null;
   try {
-    return await runStatewideIntegrityGate(env,{now:when,reason:plan.kind});
+    return await runStatewideIntegrityGate(env,{now:when,reason:plan.kind,auditStandings:Boolean(plan.runStandingsReadiness)});
   } catch(error) {
     const message=String(error?.message||error).slice(0,1000);
     console.error("statewide integrity gate failed",{plan:plan.kind,error:message});

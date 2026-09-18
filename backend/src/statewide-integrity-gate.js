@@ -1,5 +1,6 @@
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
 import { ROUTINE_SUPPRESSION_CODES, suppressAuditedRoutineDefects } from "./statewide-data-integrity-repair.js";
+import { buildStatewideStandingsReadinessAudit } from "./standings-readiness-audit.js";
 
 export const INTEGRITY_GATE_AUDIT_SAMPLE_LIMIT=50000;
 export const INTEGRITY_GATE_MAX_PRESENTATION_ISSUES=250;
@@ -65,6 +66,7 @@ export async function persistIntegrityState(env,result,checkedAt) {
     ? null
     : (
       "presentation_blockers="+Number(result.presentation?.after?.blocking_issues||0)+
+      "; standings_blockers="+Number(result.standings?.summary?.blocking_issues||0)+
       (pending?"; pending_verify=1":"")+
       (result.fuses?.length?"; fuses="+result.fuses.join(","):"")
     ).slice(0,1000);
@@ -75,6 +77,7 @@ export async function persistIntegrityState(env,result,checkedAt) {
     status:result.status,
     presentation:result.presentation,
     record:result.record,
+    standings:result.standings,
     repairs:result.repairs,
     fuses:result.fuses,
     blocker_examples:result.blocker_examples
@@ -134,6 +137,8 @@ export async function runStatewideIntegrityGate(env,{
   maxPresentationIssues=INTEGRITY_GATE_MAX_PRESENTATION_ISSUES,
   buildPresentationAudit=buildStatewideDataIntegrityAudit,
   suppressRoutine=suppressAuditedRoutineDefects,
+  auditStandings=false,
+  buildStandingsAudit=buildStatewideStandingsReadinessAudit,
   persistState=persistIntegrityState
 }={}) {
   const checkedAt=now.toISOString();
@@ -167,6 +172,12 @@ export async function runStatewideIntegrityGate(env,{
     status="REPAIRED_PENDING_VERIFY";
   }
 
+  let standings={status:"NOT_RUN",summary:{conferences_examined:0,blocking_issues:0,warning_issues:0,issues_by_code:{}},issues:[],checked:[]};
+  if(auditStandings) {
+    standings=await buildStandingsAudit(env);
+    if(Number(standings?.summary?.blocking_issues||0)>0) status="BLOCKED";
+  }
+
   const result={
     status,
     generated_at:checkedAt,
@@ -180,10 +191,12 @@ export async function runStatewideIntegrityGate(env,{
       }
     },
     record:emptyDeferredRecordState(),
+    standings,
     repairs,
     fuses,
     blocker_examples:{
       presentation:presentationExamples(audit),
+      standings:(standings.issues||[]).filter(row=>row.severity==="blocking").slice(0,20),
       record_contradictions:[],
       record_gaps:[]
     }
@@ -197,6 +210,8 @@ export async function runStatewideIntegrityGate(env,{
     routine_repairable:safe.length,
     complex_blockers:complex.length,
     repair_passes:repairs.length,
+    standings_blockers:Number(standings?.summary?.blocking_issues||0),
+    standings_warnings:Number(standings?.summary?.warning_issues||0),
     fuses
   };
   if(status==="CLEAN") console.log("statewide integrity gate",logPayload);

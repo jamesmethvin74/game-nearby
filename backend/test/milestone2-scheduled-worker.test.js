@@ -13,6 +13,7 @@ test("ordinary statewide windows refresh all six high-school bulk feeds without 
   assert.equal(plan.runStatewide,true);
   assert.equal(plan.runCore,true);
   assert.equal(plan.runIntegrityGate,true);
+  assert.equal(plan.runStandingsReadiness,false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),ALL);
 
   const scoped=fs.readFileSync(fileURLToPath(new URL("../src/scoped-cadence-runner.js",import.meta.url)),"utf8");
@@ -69,6 +70,7 @@ test("morning results get one bounded historical Hootens team-page catchup",()=>
   const plan=collectionPlanAt(new Date("2026-09-12T11:00:00.000Z")); // Saturday 6 AM Central
   assert.equal(plan.kind,"morning-results");
   assert.equal(plan.runIntegrityGate,true);
+  assert.equal(plan.runStandingsReadiness,true);
   assert.equal(shouldRunHootensTeamPageCatchup(plan),true);
 
   const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
@@ -93,6 +95,7 @@ test("Sunday catalog maintenance refreshes all six certified feeds and published
   assert.equal(plan.kind,"weekly-catalog-maintenance");
   assert.equal(plan.runCatalogMaintenance,true);
   assert.equal(plan.runIntegrityGate,true);
+  assert.equal(plan.runStandingsReadiness,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),false);
   assert.equal(shouldRunHootensTeamPageCatchup(plan),false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),ALL);
@@ -118,4 +121,14 @@ test("closing Friday and Saturday live windows run the integrity gate once after
   const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
   assert.match(runner,/runStatewideIntegrityGate/);
   assert.match(runner,/runIntegrityGatePass/);
+});
+
+
+test("scheduled integrity passes standings readiness only on bounded morning and weekly windows",()=>{
+  const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  assert.match(runner,/auditStandings:Boolean\(plan\.runStandingsReadiness\)/);
+  const afternoon=collectionPlanAt(new Date("2026-09-03T20:00:00.000Z"));
+  const evening=collectionPlanAt(new Date("2026-09-04T04:00:00.000Z"));
+  assert.equal(afternoon.runStandingsReadiness,false);
+  assert.equal(evening.runStandingsReadiness,false);
 });

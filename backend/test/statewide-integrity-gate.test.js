@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   INTEGRITY_GATE_MAX_PRESENTATION_ISSUES,
   persistIntegrityState,
-  recordMaterializationRepairTeamIds,
   runStatewideIntegrityGate
 } from "../src/statewide-integrity-gate.js";
 
@@ -21,232 +20,189 @@ function presentationAudit(issues=[]){
       blocking_issues:blocking,
       warning_issues:0,
       issues_by_code:counts,
-      sports_examined:["football"],
+      sports_examined:["football","volleyball"],
       levels_examined:["high-school"]
     },
     d1:{rows_read:100,rows_written:0}
   };
 }
 
-function recordAudit(teams=[]){
-  return {
-    teams,
-    summary:{
-      unexplained_record_contradictions:0,
-      non_verified:teams.filter(team=>team.classification!=="VERIFIED").length
-    }
-  };
-}
-
-test("clean gate performs no repairs and persists CLEAN",async()=>{
+test("clean routine gate audits once and persists CLEAN",async()=>{
+  let builds=0;
+  let suppressed=false;
   const persisted=[];
-  let presentationBuilds=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-clean",
-    buildPresentationAudit:async()=>{presentationBuilds++;return presentationAudit();},
-    buildRecordAudit:async()=>recordAudit([]),
-    finalizeRecordAudit:value=>value,
-    repairPresentation:async()=>{throw new Error("repair should not run");},
-    rebuildRecords:async()=>{throw new Error("record rebuild should not run");},
+    buildPresentationAudit:async()=>{builds++;return presentationAudit();},
+    suppressRoutine:async()=>{suppressed=true;throw new Error("must not suppress");},
     persistState:async(_env,value)=>{persisted.push(value);return {rows_written:1};}
   });
   assert.equal(result.status,"CLEAN");
-  assert.equal(presentationBuilds,1);
+  assert.equal(builds,1);
+  assert.equal(suppressed,false);
   assert.equal(result.repairs.length,0);
-  assert.equal(result.record.rebuild.teams,0);
+  assert.equal(result.record.status,"DEFERRED_TO_RECORD_TRUTH_PIPELINE");
   assert.equal(persisted.length,1);
-  assert.equal(persisted[0].status,"CLEAN");
 });
 
-test("repairable presentation defects are repaired before verified record materialization drift",async()=>{
-  const before=presentationAudit([{
-    code:"PAST_DUE_NONTERMINAL_DISPLAY",severity:"blocking",team_id:"team-a",game_id:"g1"
-  }]);
-  const after=presentationAudit([]);
-  let repaired=0;
-  let rebuilt=[];
-  let recordBuilds=0;
-  const staleTeam={
-    team_id:"team-a",
-    school_name:"Alpha",
-    sport:"football",
-    gender:"boys",
-    classification:"VERIFIED",
-    public_record_verified:true,
-    issues:[{code:"STALE_RECORD_ROW",severity:"info",resolved:true}]
-  };
+test("safe routine defects are written once and defer verification to the next gate",async()=>{
+  const before=presentationAudit([
+    {code:"SAME_DAY_STALE_TWIN_OF_FINAL",severity:"blocking",team_id:"nlr-volleyball",game_id:"stale-1"},
+    {code:"FOOTBALL_SAME_DAY_COLLISION",severity:"blocking",team_id:"bryant-football",game_id:"stale-2"}
+  ]);
+  let builds=0;
+  let suppressCalls=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-repair",
-    buildPresentationAudit:async()=>before,
-    repairPresentation:async()=>{repaired++;return {
-      before_blocking:1,
-      canonical:{clusters:0,canonical_merges:0,game_reassignments:0,final_promotions:0},
-      score_repair:{promoted:[]},
-      suppression:{rows_written:1},
-      affected_team_ids:["team-a"],
-      record_rebuild:{teams:1,scoredFinals:1,standings:{cohorts:1,standingsRows:2}},
-      after_summary:after.summary,
-      after_audit:after,
-      d1:{rows_read:10,rows_written:1}
-    };},
-    buildRecordAudit:async()=>{
-      recordBuilds++;
-      return recordBuilds===1?recordAudit([staleTeam]):recordAudit([{
-        ...staleTeam,issues:[]
-      }]);
+    buildPresentationAudit:async()=>{builds++;return before;},
+    suppressRoutine:async(_env,audit)=>{
+      suppressCalls++;
+      assert.equal(audit,before);
+      return {
+        status:"EXECUTED",
+        issue_count:2,
+        issue_counts:{SAME_DAY_STALE_TWIN_OF_FINAL:1,FOOTBALL_SAME_DAY_COLLISION:1},
+        suppression:{rows_written:2},
+        affected_team_ids:["nlr-volleyball","bryant-football"],
+        record_rebuild:{teams:2,scoredFinals:2,standings:{cohorts:1,standingsRows:4}},
+        d1:{statements:2,rows_read:4,rows_written:2,duration_ms:1}
+      };
     },
-    finalizeRecordAudit:value=>value,
-    rebuildRecords:async(_env,ids)=>{
-      rebuilt=[...ids];
-      return {teams:ids.length,scoredFinals:1,standings:{cohorts:1,standingsRows:2}};
-    },
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"REPAIRED_PENDING_VERIFY");
+  assert.equal(builds,1,"routine gate must not run a second statewide audit in the same Worker invocation");
+  assert.equal(suppressCalls,1);
+  assert.equal(result.presentation.after.pending_verify,true);
+  assert.equal(result.repairs[0].suppressed_rows,2);
+});
+
+test("next gate invocation verifies a prior routine repair as CLEAN",async()=>{
+  const result=await runStatewideIntegrityGate({},{
+    reason:"test-verify",
+    buildPresentationAudit:async()=>presentationAudit([]),
+    suppressRoutine:async()=>{throw new Error("must not suppress on clean verify");},
     persistState:async()=>({rows_written:1})
   });
   assert.equal(result.status,"CLEAN");
-  assert.equal(repaired,1);
-  assert.deepEqual(rebuilt,["team-a"]);
-  assert.equal(result.repairs.length,1);
-  assert.equal(result.record.rebuild.teams,1);
+  assert.equal(result.presentation.after.blocking_issues,0);
 });
 
-test("unrepairable contradictory final stays blocking instead of being guessed away",async()=>{
-  let repaired=false;
+test("complex blockers stay blocked instead of being guessed away",async()=>{
+  let suppressCalls=0;
   const result=await runStatewideIntegrityGate({},{
-    reason:"test-contradiction",
-    buildPresentationAudit:async()=>presentationAudit([{
-      code:"DUPLICATE_FINAL_CONTRADICTION",severity:"blocking",team_id:"team-a",game_id:"g1",other_game_id:"g2"
-    }]),
-    repairPresentation:async()=>{repaired=true;throw new Error("must not repair contradiction");},
-    buildRecordAudit:async()=>recordAudit([]),
-    finalizeRecordAudit:value=>value,
+    reason:"test-complex",
+    buildPresentationAudit:async()=>presentationAudit([
+      {code:"DUPLICATE_FINAL_CONTRADICTION",severity:"blocking",team_id:"team-a",game_id:"g1",other_game_id:"g2"}
+    ]),
+    suppressRoutine:async()=>{suppressCalls++;return {};},
     persistState:async()=>({rows_written:1})
   });
-  assert.equal(repaired,false);
   assert.equal(result.status,"BLOCKED");
-  assert.equal(result.presentation.after.blocking_issues,1);
+  assert.equal(suppressCalls,0);
   assert.equal(result.blocker_examples.presentation[0].code,"DUPLICATE_FINAL_CONTRADICTION");
 });
 
-test("large presentation defect wave trips fuse before writes",async()=>{
+test("canonical and missing-score repairs stay out of routine cron writes",async()=>{
+  let suppressCalls=0;
+  const result=await runStatewideIntegrityGate({},{
+    reason:"test-heavy",
+    buildPresentationAudit:async()=>presentationAudit([
+      {code:"SPLIT_CANONICAL_LOGICAL_GAME",severity:"blocking",team_id:"team-a",game_id:"g1",other_game_id:"g2"},
+      {code:"DISPLAY_FINAL_MISSING_SCORE",severity:"blocking",team_id:"team-b",game_id:"g3"}
+    ]),
+    suppressRoutine:async()=>{suppressCalls++;return {};},
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"BLOCKED");
+  assert.equal(suppressCalls,0);
+});
+
+test("large safe defect wave trips fuse before writes",async()=>{
   const issues=Array.from({length:INTEGRITY_GATE_MAX_PRESENTATION_ISSUES+1},(_,index)=>({
     code:"PAST_DUE_NONTERMINAL_DISPLAY",
     severity:"blocking",
     team_id:"team-"+index,
     game_id:"game-"+index
   }));
-  let repaired=false;
+  let suppressCalls=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-fuse",
     buildPresentationAudit:async()=>presentationAudit(issues),
-    repairPresentation:async()=>{repaired=true;throw new Error("fuse failed");},
-    buildRecordAudit:async()=>recordAudit([]),
-    finalizeRecordAudit:value=>value,
+    suppressRoutine:async()=>{suppressCalls++;return {};},
     persistState:async()=>({rows_written:1})
   });
-  assert.equal(repaired,false);
   assert.equal(result.status,"FUSE_BLOCKED");
+  assert.equal(suppressCalls,0);
   assert.deepEqual(result.fuses,["presentation:251>250"]);
 });
 
-test("record materialization repair targets only verified drift",()=>{
-  const ids=recordMaterializationRepairTeamIds(recordAudit([
-    {
-      team_id:"verified-stale",public_record_verified:true,
-      issues:[{code:"STALE_RECORD_ROW",severity:"info",resolved:true}]
-    },
-    {
-      team_id:"verified-standing",public_record_verified:true,
-      issues:[{code:"MATERIALIZED_STANDING_RECORD_CONTRADICTION",severity:"blocking",resolved:false}]
-    },
-    {
-      team_id:"unverified-stale",public_record_verified:false,
-      issues:[{code:"STALE_RECORD_ROW",severity:"info",resolved:true}]
-    },
-    {
-      team_id:"published-conflict",public_record_verified:true,
-      issues:[{code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",severity:"blocking",resolved:false}]
-    }
-  ]));
-  assert.deepEqual(ids.sort(),["verified-stale","verified-standing"]);
-});
-
-test("integrity state persistence uses one bounded status upsert",async()=>{
-  let boundArgs=null;
-  let sqlText="";
+test("integrity state persistence accepts CLEAN and pending-verify states",async()=>{
+  const calls=[];
   const env={DB:{prepare(sql){
-    sqlText=sql;
     return {bind(...args){
-      boundArgs=args;
+      calls.push({sql,args});
       return {run:async()=>({meta:{rows_read:1,rows_written:1,duration:0.25}})};
     }};
   }}};
-  const result={
-    status:"CLEAN",
+  const base={
     generated_at:"2026-09-18T12:00:00.000Z",
     reason:"test",
     presentation:{before:{blocking_issues:0},after:{
       blocking_issues:0,total_schedule_rows_examined:10,total_normalized_schedule_rows:9,total_active_teams_examined:3
     }},
-    record:{after:{blocking_issue_count:0,unexplained_record_contradictions:0}},
+    record:{status:"DEFERRED_TO_RECORD_TRUTH_PIPELINE",after:{blocking_issue_count:null,unexplained_record_contradictions:null}},
     repairs:[],
     fuses:[],
-    blocker_examples:{presentation:[],record:[]}
+    blocker_examples:{presentation:[],record_contradictions:[],record_gaps:[]}
   };
-  const meta=await persistIntegrityState(env,result,result.generated_at);
-  assert.match(sqlText,/INSERT INTO statewide_collection_state/);
-  assert.equal(boundArgs.length,9);
-  assert.equal(meta.rows_written,1);
+
+  const clean=await persistIntegrityState(env,{...base,status:"CLEAN"},base.generated_at);
+  assert.equal(clean.rows_written,1);
+  const pending=await persistIntegrityState(env,{
+    ...base,
+    status:"REPAIRED_PENDING_VERIFY",
+    presentation:{...base.presentation,after:{...base.presentation.after,blocking_issues:2,pending_verify:true}}
+  },base.generated_at);
+  assert.equal(pending.rows_written,1);
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].args.length,9);
+  assert.equal(calls[1].args.length,9);
+  assert.match(calls[1].args[6],/pending_verify=1/);
 });
 
 
-test("fail-closed record evidence gaps do not make visible presentation truth dirty",async()=>{
-  const gapAudit=recordAudit([{
-    team_id:"gap-team",
-    classification:"INCOMPLETE",
-    public_record_verified:false,
-    issues:[{
-      code:"STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
-      severity:"blocking",
-      resolved:false,
-      detail:"stored conference record is ahead of final evidence"
-    }]
-  }]);
+test("standings readiness blockers make the scheduled integrity state BLOCKED",async()=>{
   const result=await runStatewideIntegrityGate({},{
-    reason:"test-gap",
+    reason:"morning-results",
+    auditStandings:true,
     buildPresentationAudit:async()=>presentationAudit([]),
-    buildRecordAudit:async()=>gapAudit,
-    finalizeRecordAudit:value=>value,
-    persistState:async()=>({rows_written:1})
-  });
-  assert.equal(result.status,"CLEAN");
-  assert.equal(result.record.after.audit_blocking_gap_count,1);
-  assert.equal(result.record.after.unexplained_record_contradictions,0);
-});
-
-test("unexplained record contradiction blocks a clean presentation gate",async()=>{
-  const contradiction=recordAudit([{
-    team_id:"bad-record",
-    school_name:"Bad Record High",
-    sport:"football",
-    gender:"boys",
-    classification:"CONTRADICTORY",
-    public_record_verified:true,
-    issues:[{
-      code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",
-      severity:"warning",
-      resolved:false,
-      detail:"published record disagrees with final evidence"
-    }]
-  }]);
-  contradiction.summary.unexplained_record_contradictions=1;
-  const result=await runStatewideIntegrityGate({},{
-    reason:"test-record-contradiction",
-    buildPresentationAudit:async()=>presentationAudit([]),
-    buildRecordAudit:async()=>contradiction,
-    finalizeRecordAudit:value=>value,
+    buildStandingsAudit:async()=>({
+      status:"BLOCKED",
+      summary:{conferences_examined:12,blocking_issues:1,warning_issues:3,issues_by_code:{STANDINGS_EMPTY:1}},
+      issues:[{code:"STANDINGS_EMPTY",severity:"blocking",sport:"football",conference_id:"5a-east"}],
+      checked:[]
+    }),
     persistState:async()=>({rows_written:1})
   });
   assert.equal(result.status,"BLOCKED");
-  assert.equal(result.record.after.unexplained_record_contradictions,1);
-  assert.equal(result.blocker_examples.record_contradictions[0].team_id,"bad-record");
+  assert.equal(result.standings.summary.blocking_issues,1);
+  assert.equal(result.blocker_examples.standings[0].code,"STANDINGS_EMPTY");
+});
+
+test("standings readiness warnings do not dirty a factual published fallback",async()=>{
+  const result=await runStatewideIntegrityGate({},{
+    reason:"morning-results",
+    auditStandings:true,
+    buildPresentationAudit:async()=>presentationAudit([]),
+    buildStandingsAudit:async()=>({
+      status:"READY",
+      summary:{conferences_examined:12,blocking_issues:0,warning_issues:4,issues_by_code:{STANDINGS_USING_PUBLISHED_FALLBACK:4}},
+      issues:[{code:"STANDINGS_USING_PUBLISHED_FALLBACK",severity:"warning",sport:"football",conference_id:"7a-west"}],
+      checked:[]
+    }),
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"CLEAN");
+  assert.equal(result.standings.summary.warning_issues,4);
 });
