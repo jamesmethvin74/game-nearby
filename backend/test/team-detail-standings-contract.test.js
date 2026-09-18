@@ -14,9 +14,12 @@ test("team detail consumes unified backend team status instead of fetching stand
   assert.match(schedule, /live\.getTeamStatus\s*=/);
 });
 
-test("known conferences without conference games render N\/A instead of a fake rank", () => {
-  assert.match(detail, /conferenceKnown\s*&&\s*conferenceGames\s*>\s*0/);
-  assert.match(detail, /standing:.*"N\/A"/s);
+test("team detail renders factual presentation fields without N/A gates", () => {
+  assert.match(detail, /status\.display_overall_record\s*\?\?\s*status\.overall_record/);
+  assert.match(detail, /status\.display_conference_record\s*\?\?\s*status\.conference_record/);
+  assert.match(detail, /status\.display_rank\s*\?\?\s*status\.rank/);
+  assert.doesNotMatch(detail, /conferenceKnown\s*&&\s*conferenceGames\s*>\s*0/);
+  assert.doesNotMatch(detail, /"N\/A"/);
   assert.match(detail, /conferenceName:\s*status\.conference_name/);
 });
 
