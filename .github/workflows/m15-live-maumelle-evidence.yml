@@ -11,6 +11,7 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    name: inspect-live-maumelle
     steps:
       - name: Inspect live Maumelle and 6A Central
         shell: bash
