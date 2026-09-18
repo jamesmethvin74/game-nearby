@@ -285,3 +285,47 @@ test("North Little Rock same-day volleyball final suppresses stale benefit twin 
   assert.equal(stale.severity,"blocking");
   assert.equal(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"),false);
 });
+
+
+test("pre-official and benefit contests are not part of the audited app-visible schedule surface",()=>{
+  const audit=auditPresentationRows([
+    row({
+      team_id:"north-little-rock-football-2026",
+      school_id:"north-little-rock",
+      school_name:"North Little Rock High School",
+      level:"high-school",
+      sport:"football",
+      gender:"boys",
+      season:"2026",
+      game_id:"benefit-football",
+      opponent:"Joe T. Robinson High School",
+      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
+      status:"SCHEDULED",
+      counts_for_record:1,
+      parser_type:"dragonfly-public"
+    }),
+    row({
+      team_id:"van-buren-volleyball-2026",
+      school_id:"van-buren",
+      school_name:"Van Buren High School",
+      level:"high-school",
+      sport:"volleyball",
+      gender:"girls",
+      season:"2026",
+      game_id:"benefit-volleyball",
+      opponent:"Mena High School",
+      raw_scheduled_at:"2026-08-20T22:30:00.000Z",
+      canonical_scheduled_at:"2026-08-20T22:30:00.000Z",
+      status:"SCHEDULED",
+      notes:"Benefit Game",
+      counts_for_record:1,
+      parser_type:"dragonfly-public"
+    })
+  ],{now:new Date("2026-09-18T12:00:00.000Z")});
+
+  assert.equal(audit.summary.blocking_issues,0);
+  assert.equal(audit.summary.warning_issues,0);
+  assert.equal(audit.summary.total_schedule_rows_examined,0);
+  assert.equal(audit.summary.total_normalized_schedule_rows,0);
+});
