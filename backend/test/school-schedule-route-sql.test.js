@@ -66,6 +66,7 @@ test("school schedule route SQL executes against the guaranteed schema without o
       id TEXT PRIMARY KEY,
       source_type TEXT,
       parser_type TEXT,
+      collection_mode TEXT,
       authority_rank INTEGER,
       source_priority INTEGER,
       last_successful_fetch_at TEXT
