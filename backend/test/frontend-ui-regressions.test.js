@@ -45,7 +45,7 @@ test("team detail uses one explicit school schedule read and preserves backend s
 });
 
 test("team detail schedule cache is versioned by season and abandons pre-status payloads", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v4:/);
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v5:/);
   assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
 });
 
