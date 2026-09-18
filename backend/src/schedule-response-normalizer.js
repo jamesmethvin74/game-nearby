@@ -75,6 +75,8 @@ function clean(value) {
 function opponentKey(value) {
   const withoutStateQualifier = clean(value).replace(TRAILING_STATE_QUALIFIER_RE, " ");
   return normalizeSchoolAlias(withoutStateQualifier)
+    .replace(/^the\s+/, "")
+    .replace(/\bpreparatory\b/g, "prep")
     .replace(EVENT_DESCRIPTOR_RE, " ")
     .replace(GENERIC_SCHOOL_QUALIFIER_RE, " ")
     .replace(/\s+/g, " ")
