@@ -50,3 +50,10 @@ test("Standings page identifies both published standings and football cross-chec
   assert.match(html, /football records are cross-checked with/);
   assert.match(html, />Fearless Friday<\/a>/);
 });
+
+
+test("Standings UI never invents rank and explains verified not-started conferences", () => {
+  assert.match(js, /row\.rank \?\? "—"/);
+  assert.match(js, /Conference play has not started\. Verified members are 0-0 in conference\./);
+  assert.doesNotMatch(js, /row\.rank \?\? index \+ 1/);
+});
