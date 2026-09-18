@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySchoolDisplayNames, dedupeScheduleRows, humanizeScheduleText, opponentNamesLikelySame, recordFromScheduleRows, scheduleRowsLikelyDuplicate } from "../src/schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, footballRowsConflictSameDay, humanizeScheduleText, opponentNamesLikelySame, recordFromScheduleRows, scheduleRowsLikelyDuplicate, scheduleRowsLikelySameLogicalGame } from "../src/schedule-response-normalizer.js";
 
 const displayNames = new Map([
   ["conway", "Conway High School"],
@@ -194,4 +194,62 @@ test("record calculation counts one real result when providers duplicate the sam
   ];
   const record=recordFromScheduleRows(rows,{reportingSchoolId:"greenwood"});
   assert.deepEqual(record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:1,conference_ties:0,scored_finals:2});
+});
+
+
+test("football same-day invariant collapses different source opponents without canonical merging",()=>{
+  const full={
+    id:"nlr-robinson-full",
+    canonical_event_id:"ce-robinson-full",
+    school_id:"north-little-rock",
+    sport:"football",
+    gender:"boys",
+    scheduled_at:"2026-08-22T00:00:00.000Z",
+    scheduled_time_known:1,
+    opponent:"Joe T. Robinson High School",
+    opponent_school_id:"joe-t-robinson",
+    status:"SCHEDULED",
+    venue:"North Little Rock High School Stadium",
+    source_type:"official-school"
+  };
+  const short={
+    id:"nlr-robinson-short",
+    canonical_event_id:"ce-robinson-short",
+    school_id:"north-little-rock",
+    sport:"football",
+    gender:"boys",
+    scheduled_at:"2026-08-22T00:00:00.000Z",
+    scheduled_time_known:1,
+    opponent:"Robinson",
+    opponent_school_id:"robinson-legacy",
+    status:"SCHEDULED",
+    venue:"TBD NLRHS Stadium",
+    source_type:"secondary"
+  };
+  assert.equal(footballRowsConflictSameDay(full,short,{reportingSchoolId:"north-little-rock"}),true);
+  assert.equal(scheduleRowsLikelySameLogicalGame(full,short,{reportingSchoolId:"north-little-rock"}),false);
+  assert.equal(scheduleRowsLikelyDuplicate(full,short,{reportingSchoolId:"north-little-rock"}),true);
+  const rows=dedupeScheduleRows([full,short],{reportingSchoolId:"north-little-rock"});
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].opponent,"Joe T. Robinson High School");
+});
+
+test("canceled football entry can coexist with a replacement on the same date",()=>{
+  const canceled={
+    school_id:"north-little-rock",sport:"football",gender:"boys",
+    scheduled_at:"2026-08-22T00:00:00.000Z",opponent:"Original Opponent",status:"CANCELED"
+  };
+  const replacement={
+    school_id:"north-little-rock",sport:"football",gender:"boys",
+    scheduled_at:"2026-08-22T01:00:00.000Z",opponent:"Replacement Opponent",status:"SCHEDULED"
+  };
+  assert.equal(footballRowsConflictSameDay(canceled,replacement,{reportingSchoolId:"north-little-rock"}),false);
+  assert.equal(dedupeScheduleRows([canceled,replacement],{reportingSchoolId:"north-little-rock"}).length,2);
+});
+
+test("same-day volleyball contests remain allowed for tournament play",()=>{
+  const a={school_id:"conway",sport:"volleyball",gender:"girls",scheduled_at:"2026-09-19T15:00:00.000Z",opponent:"Nixa",status:"SCHEDULED"};
+  const b={school_id:"conway",sport:"volleyball",gender:"girls",scheduled_at:"2026-09-19T19:00:00.000Z",opponent:"Ozark",status:"SCHEDULED"};
+  assert.equal(footballRowsConflictSameDay(a,b,{reportingSchoolId:"conway"}),false);
+  assert.equal(dedupeScheduleRows([a,b],{reportingSchoolId:"conway"}).length,2);
 });

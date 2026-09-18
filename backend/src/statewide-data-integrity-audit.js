@@ -1,4 +1,4 @@
-import { dedupeScheduleRows, scheduleRowsLikelyDuplicate } from "./schedule-response-normalizer.js";
+import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, scheduleRowsLikelySameLogicalGame } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
 import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
@@ -126,7 +126,7 @@ function verifiedFinalsContradict(a, b) {
 }
 
 function pairLooksLikeOneDisplayedGame(a, b) {
-  return scheduleRowsLikelyDuplicate(a, b, {
+  return scheduleRowsLikelySameLogicalGame(a, b, {
     reportingSchoolId: a.school_id,
     maxMinutes: 5
   });
@@ -179,7 +179,19 @@ function auditTeam(rows, { now = new Date() } = {}) {
     for (let j = i + 1; j < candidates.length; j++) {
       const a = candidates[i];
       const b = candidates[j];
-      if (!pairLooksLikeOneDisplayedGame(a, b)) continue;
+      const sameLogicalGame = pairLooksLikeOneDisplayedGame(a, b);
+      const footballDateCollision = footballRowsConflictSameDay(a,b,{reportingSchoolId:a.school_id});
+      if (footballDateCollision && !sameLogicalGame) {
+        const preferred = choosePreferredScheduleRow(a,b);
+        const staleRow = preferred === a ? b : a;
+        addIssue(issues, issue(
+          "FOOTBALL_SAME_DAY_COLLISION",
+          staleRow,
+          `${staleRow.opponent}: a football team has more than one app-visible contest on the same local date. The lower-trust row must be suppressed.`,
+          { other: preferred }
+        ));
+      }
+      if (!sameLogicalGame) continue;
 
       const aCanonical = text(a.canonical_event_id);
       const bCanonical = text(b.canonical_event_id);

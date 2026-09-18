@@ -6,6 +6,27 @@ const TRAILING_STATE_QUALIFIER_RE = /\s*\((?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID
 const GENERIC_SCHOOL_QUALIFIER_RE = /\b(?:senior|sr)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
 const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet the cats)\b/i;
+
+const FOOTBALL_NON_GAME_STATUSES = new Set(["CANCELED","CANCELLED","POSTPONED"]);
+
+function footballSameLocalDate(a,b,{reportingSchoolId=null,timeZone="America/Chicago"}={}) {
+  if (!a || !b) return false;
+  if (clean(a.sport).toLowerCase()!=="football" || clean(b.sport).toLowerCase()!=="football") return false;
+  if (clean(a.gender).toLowerCase()!==clean(b.gender).toLowerCase()) return false;
+  if (!reportingSchoolId && a.school_id && b.school_id && a.school_id!==b.school_id) return false;
+  if (FOOTBALL_NON_GAME_STATUSES.has(clean(a.status).toUpperCase()) || FOOTBALL_NON_GAME_STATUSES.has(clean(b.status).toUpperCase())) return false;
+  const aTime=a.scheduled_at||a.canonical_scheduled_at;
+  const bTime=b.scheduled_at||b.canonical_scheduled_at;
+  if (!aTime || !bTime) return false;
+  const aDate=dateKeyInZone(aTime,timeZone);
+  const bDate=dateKeyInZone(bTime,timeZone);
+  return Boolean(aDate && bDate && aDate===bDate);
+}
+
+export function footballRowsConflictSameDay(a,b,options={}) {
+  return footballSameLocalDate(a,b,options);
+}
+
 const HIGH_SCHOOL_BASKETBALL_FIRST_OFFICIAL = new Map([
   ["2026", "2026-11-05"]
 ]);
@@ -67,7 +88,7 @@ function knownTimedRowsShareExactSlot(a, b, options = {}) {
   return scheduleRowsShareSlot(a, b, { ...options, maxMinutes });
 }
 
-export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
+export function scheduleRowsLikelySameLogicalGame(a, b, options = {}) {
   if (!scheduleRowsShareSlot(a, b, options)) return false;
 
   const aCanonical=clean(a.canonical_event_id);
@@ -80,6 +101,10 @@ export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
     return knownTimedRowsShareExactSlot(a, b, options);
   }
   return true;
+}
+
+export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
+  return footballSameLocalDate(a,b,options) || scheduleRowsLikelySameLogicalGame(a,b,options);
 }
 
 function identicalVerifiedFinalSnapshot(a, b, options = {}) {
@@ -139,12 +164,15 @@ function venueSpecificity(row) {
   return score;
 }
 
-function mergeDuplicateRows(a, b) {
+export function choosePreferredScheduleRow(a,b) {
   const aVerifiedFinal = verifiedFinal(a);
   const bVerifiedFinal = verifiedFinal(b);
-  const preferred = aVerifiedFinal !== bVerifiedFinal
-    ? (aVerifiedFinal ? a : b)
-    : (rowScore(a) >= rowScore(b) ? a : b);
+  if (aVerifiedFinal !== bVerifiedFinal) return aVerifiedFinal ? a : b;
+  return rowScore(a) >= rowScore(b) ? a : b;
+}
+
+function mergeDuplicateRows(a, b) {
+  const preferred = choosePreferredScheduleRow(a,b);
   const alternate = preferred === a ? b : a;
   const venueSource = venueSpecificity(alternate) > venueSpecificity(preferred) ? alternate : preferred;
   return {
