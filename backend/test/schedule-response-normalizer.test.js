@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySchoolDisplayNames, dedupeScheduleRows, footballRowsConflictSameDay, humanizeScheduleText, opponentNamesLikelySame, recordFromScheduleRows, scheduleRowsLikelyDuplicate, scheduleRowsLikelySameLogicalGame } from "../src/schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, footballRowsConflictSameDay, humanizeScheduleText, opponentNamesLikelySame, recordFromScheduleRows, scheduleRowsLikelyDuplicate, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "../src/schedule-response-normalizer.js";
 
 const displayNames = new Map([
   ["conway", "Conway High School"],
@@ -252,4 +252,64 @@ test("same-day volleyball contests remain allowed for tournament play",()=>{
   const b={school_id:"conway",sport:"volleyball",gender:"girls",scheduled_at:"2026-09-19T19:00:00.000Z",opponent:"Ozark",status:"SCHEDULED"};
   assert.equal(footballRowsConflictSameDay(a,b,{reportingSchoolId:"conway"}),false);
   assert.equal(dedupeScheduleRows([a,b],{reportingSchoolId:"conway"}).length,2);
+});
+
+
+test("same-day scored final suppresses stale Pulaski Academy benefit twin despite one-hour time drift",()=>{
+  const finalRow={
+    id:"nlr-pa-final",school_id:"north-little-rock",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-18T22:30:00.000Z",scheduled_time_known:1,
+    opponent:"Pulaski Academy High School",opponent_school_id:"pulaski-academy",
+    status:"FINAL",team_score:0,opponent_score:1,
+    canonical_event_id:"ce-pa-final",source_type:"official-conference",parser_type:"dragonfly-public"
+  };
+  const staleRow={
+    id:"nlr-pa-benefit",school_id:"north-little-rock",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-18T23:30:00.000Z",scheduled_time_known:1,
+    opponent:"Pulaski Academy (Benefit)",opponent_school_id:"pulaski-academy-legacy",
+    status:"SCHEDULED",team_score:null,opponent_score:null,
+    canonical_event_id:"ce-pa-benefit",source_type:"official-school",parser_type:"mascot-media"
+  };
+  assert.equal(staleSameDayOpponentTwin(finalRow,staleRow,{reportingSchoolId:"north-little-rock"}),true);
+  const rows=dedupeScheduleRows([staleRow,finalRow],{reportingSchoolId:"north-little-rock"});
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].status,"FINAL");
+  assert.equal(rows[0].team_score,0);
+  assert.equal(rows[0].opponent_score,1);
+});
+
+test("same-day scored final suppresses stale Beebe twin despite multi-hour source time drift",()=>{
+  const finalRow={
+    id:"nlr-beebe-final",school_id:"north-little-rock",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-24T21:30:00.000Z",scheduled_time_known:1,
+    opponent:"Beebe High School",opponent_school_id:"beebe",
+    status:"FINAL",team_score:0,opponent_score:3,
+    canonical_event_id:"ce-beebe-final",source_type:"official-school",parser_type:"mascot-media"
+  };
+  const staleRow={
+    id:"nlr-beebe-stale",school_id:"north-little-rock",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-25T00:00:00.000Z",scheduled_time_known:1,
+    opponent:"BEEBE HIGH SCHOOL",opponent_school_id:"beebe-alt",
+    status:"SCHEDULED",team_score:null,opponent_score:null,
+    canonical_event_id:"ce-beebe-stale",source_type:"secondary",parser_type:"legacy"
+  };
+  assert.equal(staleSameDayOpponentTwin(finalRow,staleRow,{reportingSchoolId:"north-little-rock"}),true);
+  const rows=dedupeScheduleRows([finalRow,staleRow],{reportingSchoolId:"north-little-rock"});
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].status,"FINAL");
+});
+
+test("two completed same-day volleyball matches against one opponent are not auto-collapsed",()=>{
+  const first={
+    id:"doubleheader-1",school_id:"sample",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-09-19T15:00:00.000Z",opponent:"Opponent High School",opponent_school_id:"opp",
+    status:"FINAL",team_score:2,opponent_score:0,canonical_event_id:"ce-1"
+  };
+  const second={
+    id:"doubleheader-2",school_id:"sample",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-09-19T19:00:00.000Z",opponent:"Opponent High School",opponent_school_id:"opp",
+    status:"FINAL",team_score:2,opponent_score:1,canonical_event_id:"ce-2"
+  };
+  assert.equal(staleSameDayOpponentTwin(first,second,{reportingSchoolId:"sample"}),false);
+  assert.equal(dedupeScheduleRows([first,second],{reportingSchoolId:"sample"}).length,2);
 });
