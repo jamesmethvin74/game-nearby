@@ -48,25 +48,9 @@
 
   function unifiedStatus() {
     const status = window.LocalBleachersLive?.getTeamStatus?.(state.schoolId, state.sport, state.gender);
-    if (status) {
-      const conferenceKnown = Boolean(status.conference_name || status.conference_id);
-      const conferenceGames = Number(status.conference_games || 0);
-      const rankValue = status.display_rank ?? status.rank;
-      const rank = Number(rankValue);
-      return {
-        overall: status.display_overall_record ?? status.overall_record ?? "—",
-        conference: conferenceKnown
-          ? (status.display_conference_record ?? status.conference_record ?? (conferenceGames === 0 ? "0-0" : "—"))
-          : "—",
-        standing: conferenceKnown && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "—",
-        conferenceName: status.conference_name || (conferenceKnown ? "Conference" : "Conference not available")
-      };
-    }
-
-    if (state.loading) {
-      return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };
-    }
-
+    const factual = window.LocalBleachersPresentation?.teamStatus?.(status);
+    if (factual) return factual;
+    if (state.loading) return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };
     return { overall:"—", conference:"—", standing:"—", conferenceName:"Conference not available" };
   }
 
