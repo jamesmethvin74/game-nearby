@@ -13,7 +13,7 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    name: inspect-membership-truth
+    name: inspect-membership-truth-exact
     steps:
       - name: Pull live 7A standings and membership truth
         shell: bash
@@ -51,7 +51,7 @@ jobs:
           const wanted=[...publishedNames];
           for(const wantedName of wanted){
             const key=normalize(wantedName);
-            const school=schools.find(s=>normalize(s.name)===key || normalize(s.name).startsWith(key+' ') || key.startsWith(normalize(s.name)+' '));
+            const school=schools.find(s=>normalize(s.name)===key);
             if(!school){
               console.log('MEMBERSHIP='+JSON.stringify({school_name:wantedName,school_id:null,error:'school_not_found'}));
               continue;
