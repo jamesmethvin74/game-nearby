@@ -7,6 +7,24 @@ import {
   schoolKey
 } from "./conference-standings-truth.js";
 
+
+export function publicConferenceIdForSport(sport, conferenceId) {
+  const normalizedSport=String(sport||"").trim().toLowerCase();
+  const normalizedId=String(conferenceId||"").trim().toLowerCase();
+  if (!normalizedId) return "";
+  if (normalizedSport==="football" && normalizedId.endsWith("-football")) {
+    return normalizedId.slice(0,-"-football".length);
+  }
+  return normalizedId;
+}
+
+export function durableConferenceIdForSport(sport, conferenceId) {
+  const normalizedSport=String(sport||"").trim().toLowerCase();
+  const publicId=publicConferenceIdForSport(normalizedSport,conferenceId);
+  if (!publicId) return "";
+  return normalizedSport==="football" ? `${publicId}-football` : publicId;
+}
+
 function recordGameCount(value = "") {
   return (String(value || "").match(/\d+/g)?.map(Number) || [])
     .reduce((sum, part) => sum + part, 0);
@@ -68,25 +86,22 @@ export async function loadDurableConferenceCohortState(env, {
   if (!env?.DB || !conferenceId || !sport) {
     return cohortTruthState({ expectedMembers:0, explicitMembers:0 });
   }
+  const durableConferenceId=durableConferenceIdForSport(sport,conferenceId);
   const result=await env.DB.prepare(`
     SELECT
       COUNT(*) AS expected_members,
-      SUM(CASE WHEN cm.team_id IS NOT NULL
-        AND cm.membership_state='member'
-        AND cm.conference_id=t.conference_id THEN 1 ELSE 0 END) AS explicit_members,
+      SUM(CASE WHEN cm.membership_state='member' THEN 1 ELSE 0 END) AS explicit_members,
       SUM(CASE WHEN cm.membership_state='unknown' THEN 1 ELSE 0 END) AS unknown_members,
-      SUM(CASE WHEN cm.team_id IS NULL
-        OR cm.membership_state<>'member'
-        OR COALESCE(cm.conference_id,'')<>COALESCE(t.conference_id,'') THEN 1 ELSE 0 END) AS invalid_memberships
-    FROM teams t
+      SUM(CASE WHEN cm.membership_state<>'member' THEN 1 ELSE 0 END) AS invalid_memberships
+    FROM conference_memberships cm
+    JOIN teams t ON t.id=cm.team_id
     JOIN schools s ON s.id=t.school_id
-    LEFT JOIN conference_memberships cm ON cm.team_id=t.id
-    WHERE t.active=1
-      AND t.conference_id=?
+    WHERE cm.conference_id=?
+      AND t.active=1
       AND t.sport=?
       AND t.season=?
       AND s.catalog_scope='local'
-  `).bind(conferenceId,String(sport).toLowerCase(),season).first();
+  `).bind(durableConferenceId,String(sport).toLowerCase(),season).first();
   return cohortTruthState({
     expectedMembers:Number(result?.expected_members || 0),
     explicitMembers:Number(result?.explicit_members || 0),
@@ -159,34 +174,36 @@ export async function loadStandingsTruth(env, {
   season = "2026"
 } = {}) {
   const normalizedSport = String(sport || "").toLowerCase();
-  const normalizedConferenceId = String(conferenceId || "").toLowerCase();
-  if (!normalizedConferenceId) throw new Error("conference_required");
+  const requestedConferenceId = String(conferenceId || "").toLowerCase();
+  if (!requestedConferenceId) throw new Error("conference_required");
+  const publicConferenceId=publicConferenceIdForSport(normalizedSport,requestedConferenceId);
+  const durableConferenceId=durableConferenceIdForSport(normalizedSport,requestedConferenceId);
 
   let calculated = null;
   try {
     calculated = await loadMaterializedCalculatedStandings(env, {
       sport: normalizedSport,
-      conferenceId: normalizedConferenceId,
+      conferenceId: durableConferenceId,
       season
     });
   } catch (error) {
     console.warn("calculated standings read failed", {
       sport:normalizedSport,
-      conferenceId:normalizedConferenceId,
+      conferenceId:durableConferenceId,
       error:String(error?.message || error)
     });
   }
 
   const [published,membershipState] = await Promise.all([
-    tryPublishedStandings({ sport:normalizedSport, conferenceId:normalizedConferenceId }),
+    tryPublishedStandings({ sport:normalizedSport, conferenceId:publicConferenceId }),
     loadDurableConferenceCohortState(env, {
       sport:normalizedSport,
-      conferenceId:normalizedConferenceId,
+      conferenceId:durableConferenceId,
       season
     }).catch(error=>{
       console.warn("durable membership cohort read failed",{
         sport:normalizedSport,
-        conferenceId:normalizedConferenceId,
+        conferenceId:durableConferenceId,
         error:String(error?.message||error)
       });
       return cohortTruthState({ expectedMembers:0, explicitMembers:0, invalidMemberships:1 });
@@ -213,6 +230,8 @@ export async function loadStandingsTruth(env, {
     ...normalized,
     conference:{
       ...(normalized.conference || {}),
+      id:publicConferenceId,
+      durable_conference_id:durableConferenceId,
       coverage_complete:Boolean(membershipState.membership_complete && resultEvidence.result_evidence_complete),
       membership_complete:Boolean(membershipState.membership_complete),
       result_evidence_complete:Boolean(resultEvidence.result_evidence_complete),
