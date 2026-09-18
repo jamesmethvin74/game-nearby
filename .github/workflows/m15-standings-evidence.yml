@@ -13,6 +13,7 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    name: inspect-live-standings
     name: inspect-membership-truth-exact-v2
     steps:
       - name: Pull live 7A standings and membership truth
