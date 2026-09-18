@@ -11,6 +11,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    name: audit-statewide-team-presentation
     steps:
       - name: Audit every school presentation surface
         shell: bash
