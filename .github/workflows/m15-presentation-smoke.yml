@@ -1,0 +1,113 @@
+name: M15 combined presentation smoke
+
+on:
+  push:
+    branches:
+      - m15/statewide-repair-reconciliation-20260917
+    paths:
+      - .github/workflows/m15-presentation-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify live schedules and standings presentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          const get=async path=>{
+            const r=await fetch(base+path,{headers:{accept:'application/json'},cache:'no-store'});
+            const text=await r.text();
+            let body={}; try{body=JSON.parse(text);}catch{body={raw:text.slice(0,2000)};}
+            return {http:r.status,body};
+          };
+          const localDate=value=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+
+          for(let attempt=1;attempt<=120;attempt++){
+            const schools=(await get('/api/v1/schools')).body.schools||[];
+            const bryant=schools.find(s=>/Bryant High School/i.test(String(s.name||'')));
+            const nlr=schools.find(s=>/North Little Rock High School/i.test(String(s.name||'')));
+            if(!bryant||!nlr){await sleep(5000);continue;}
+
+            const [bryantSchedule,nlrSchedule,central,west]=await Promise.all([
+              get('/api/v1/schools/'+encodeURIComponent(bryant.id)+'/schedule'),
+              get('/api/v1/schools/'+encodeURIComponent(nlr.id)+'/schedule'),
+              get('/api/v1/standings?sport=football&conference=7a-central'),
+              get('/api/v1/standings?sport=football&conference=7a-west')
+            ]);
+
+            const bg=bryantSchedule.body.games||[];
+            const ng=nlrSchedule.body.games||[];
+            const focus=(rows,terms)=>rows.filter(g=>terms.some(term=>String(g.opponent||'').toLowerCase().includes(term))).map(g=>({
+              id:g.id,team_id:g.reporting_team_id||g.team_id,sport:g.sport,gender:g.gender,
+              opponent:g.opponent,scheduled_at:g.scheduled_at,status:g.status,
+              team_score:g.team_score,opponent_score:g.opponent_score,venue:g.venue,
+              canonical_event_id:g.canonical_event_id||null,
+              schedule_observation_count:g.schedule_observation_count||1
+            }));
+            const bryantFocus=focus(bg,['benton','alexandria']);
+            const nlrFocus=focus(ng,['pulaski academy','beebe']);
+
+            const footballCollisions=new Map();
+            for(const g of bg.filter(g=>String(g.sport).toLowerCase()==='football')){
+              if(['CANCELED','CANCELLED','POSTPONED'].includes(String(g.status||'').toUpperCase())) continue;
+              const key=(g.reporting_team_id||g.team_id)+'|'+localDate(g.scheduled_at);
+              footballCollisions.set(key,(footballCollisions.get(key)||0)+1);
+            }
+            const bryantFootballCollisionCount=[...footballCollisions.values()].filter(n=>n>1).length;
+
+            const exactDuplicateCount=rows=>{
+              const seen=new Map(); let dups=0;
+              for(const g of rows){
+                const key=[
+                  g.reporting_team_id||g.team_id,
+                  String(g.sport||'').toLowerCase(),
+                  String(g.gender||'').toLowerCase(),
+                  g.scheduled_at,
+                  String(g.opponent||'').toLowerCase().replace(/[^a-z0-9]+/g,''),
+                  String(g.status||'').toUpperCase(),
+                  g.team_score??'',
+                  g.opponent_score??''
+                ].join('|');
+                const n=(seen.get(key)||0)+1; seen.set(key,n); if(n===2)dups++;
+              }
+              return dups;
+            };
+
+            const centralRows=central.body.standings||[];
+            const westRows=west.body.standings||[];
+            const standingsGood=
+              central.http===200 && west.http===200 &&
+              centralRows.length===8 && westRows.length===8 &&
+              central.body?.conference?.coverage_complete===true &&
+              west.body?.conference?.coverage_complete===true &&
+              centralRows.every(r=>r.conference_record==='0-0') &&
+              westRows.every(r=>r.conference_record==='0-0');
+
+            const schedulesGood=
+              bryantSchedule.http===200 && nlrSchedule.http===200 &&
+              exactDuplicateCount(bg)===0 &&
+              exactDuplicateCount(ng)===0 &&
+              bryantFootballCollisionCount===0;
+
+            console.log('PRESENTATION_SMOKE='+JSON.stringify({
+              attempt,
+              bryant:{id:bryant.id,http:bryantSchedule.http,games:bg.length,exact_duplicates:exactDuplicateCount(bg),football_same_day_collisions:bryantFootballCollisionCount,focus:bryantFocus},
+              northLittleRock:{id:nlr.id,http:nlrSchedule.http,games:ng.length,exact_duplicates:exactDuplicateCount(ng),focus:nlrFocus},
+              central:{rows:centralRows.length,coverage:central.body?.conference?.coverage_complete,sample:centralRows.slice(0,2).map(r=>({school:r.school_name,conf:r.conference_record,overall:r.overall_record,rank:r.rank}))},
+              west:{rows:westRows.length,coverage:west.body?.conference?.coverage_complete,sample:westRows.slice(0,2).map(r=>({school:r.school_name,conf:r.conference_record,overall:r.overall_record,rank:r.rank}))},
+              schedulesGood,standingsGood
+            }));
+
+            if(schedulesGood&&standingsGood) process.exit(0);
+            await sleep(5000);
+          }
+          throw new Error('combined presentation smoke did not converge');
+          NODE
