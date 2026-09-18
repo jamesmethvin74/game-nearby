@@ -5,7 +5,7 @@
   const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const memoryCache = new Map();
   const statusCache = new Map();
-  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v4:";
+  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v5:";
   const SCHEDULE_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
   const NEARBY_CACHE_MAX_AGE_MS = 18 * 60 * 60 * 1000;
@@ -59,7 +59,7 @@
 
   function restoreSavedPayload(schoolId) {
     const saved = readJson(scheduleCacheKey(schoolId));
-    if (!saved || !Array.isArray(saved.events) || !saved.events.length) return { events: [], statuses: [] };
+    if (!saved || saved.schemaVersion !== 5 || !Array.isArray(saved.events) || !saved.events.length) return { events: [], statuses: [] };
     const savedAt = Number(saved.savedAt);
     if (!Number.isFinite(savedAt) || Date.now() - savedAt > SCHEDULE_CACHE_MAX_AGE_MS) return { events: [], statuses: [] };
     return {
@@ -71,6 +71,7 @@
   function saveSchedule(schoolId, events, statuses) {
     if (!Array.isArray(events) || !events.length) return;
     writeJson(scheduleCacheKey(schoolId), {
+      schemaVersion: 5,
       savedAt: Date.now(),
       events: cloneEvents(events),
       statuses: cloneStatuses(statuses)
