@@ -1,4 +1,4 @@
-import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, scheduleRowsLikelySameLogicalGame } from "./schedule-response-normalizer.js";
+import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
 import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
@@ -181,6 +181,17 @@ function auditTeam(rows, { now = new Date() } = {}) {
       const b = candidates[j];
       const sameLogicalGame = pairLooksLikeOneDisplayedGame(a, b);
       const footballDateCollision = footballRowsConflictSameDay(a,b,{reportingSchoolId:a.school_id});
+      const staleSameDayTwin = staleSameDayOpponentTwin(a,b,{reportingSchoolId:a.school_id});
+      if (staleSameDayTwin && !sameLogicalGame) {
+        const finalRow = isScoredFinal(a) ? a : b;
+        const staleRow = finalRow === a ? b : a;
+        addIssue(issues, issue(
+          "SAME_DAY_STALE_TWIN_OF_FINAL",
+          staleRow,
+          `${staleRow.opponent}: a stale ${staleRow.status} row exists on the same local date as a scored FINAL against the same opponent, despite source time drift.`,
+          { other: finalRow }
+        ));
+      }
       if (footballDateCollision && !sameLogicalGame) {
         const preferred = choosePreferredScheduleRow(a,b);
         const staleRow = preferred === a ? b : a;
