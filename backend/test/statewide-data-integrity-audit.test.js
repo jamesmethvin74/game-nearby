@@ -193,3 +193,45 @@ test("audit scope includes every active team/sport supplied, not one volleyball 
   assert.deepEqual(audit.summary.sports_examined, ["basketball", "football", "soccer", "volleyball"]);
   assert.deepEqual(audit.summary.levels_examined, ["college", "high-school"]);
 });
+
+
+test("football same-day collision is blocking even when opponent identities disagree",()=>{
+  const audit=auditPresentationRows([
+    row({
+      team_id:"north-little-rock-football-2026",
+      school_id:"north-little-rock",
+      school_name:"North Little Rock High School",
+      game_id:"nlr-robinson-full",
+      opponent:"Joe T. Robinson High School",
+      opponent_school_id:"joe-t-robinson",
+      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_event_id:"ce-robinson-full",
+      canonical_away_school_id:"joe-t-robinson",
+      source_type:"official-school",
+      parser_type:"mascot-media"
+    }),
+    row({
+      team_id:"north-little-rock-football-2026",
+      school_id:"north-little-rock",
+      school_name:"North Little Rock High School",
+      game_id:"nlr-robinson-short",
+      opponent:"Robinson",
+      opponent_school_id:"robinson-legacy",
+      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_event_id:"ce-robinson-short",
+      canonical_away_school_id:"robinson-legacy",
+      source_type:"secondary",
+      parser_type:"legacy"
+    })
+  ],{now:new Date("2026-08-20T12:00:00.000Z")});
+
+  const collision=audit.issues.find(value=>value.code==="FOOTBALL_SAME_DAY_COLLISION");
+  assert.ok(collision);
+  assert.equal(collision.game_id,"nlr-robinson-short");
+  assert.equal(collision.other_game_id,"nlr-robinson-full");
+  assert.equal(collision.severity,"blocking");
+  assert.equal(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"),false,
+    "different opponent identities must not be canonical-merged merely because football shares a date");
+});
