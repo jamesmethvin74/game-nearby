@@ -349,9 +349,13 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       continue;
     }
 
-    const publishedOverall = parseRecordText(row.overall_record);
-    const publishedOverallGames = recordTextGameCount(row.overall_record);
-    const publishedConferenceGames = recordTextGameCount(row.conference_record);
+    const publishedOverallText = row.published_overall_record
+      ?? (row.display_method==="published" ? row.display_overall_record : null);
+    const publishedConferenceText = row.published_conference_record
+      ?? (row.display_method==="published" ? row.display_conference_record : null);
+    const publishedOverall = parseRecordText(publishedOverallText);
+    const publishedOverallGames = recordTextGameCount(publishedOverallText);
+    const publishedConferenceGames = recordTextGameCount(publishedConferenceText);
     const rank = Number(row.rank);
     status.conference_id = status.conference_id || status.published_conference_id || payload?.conference?.id || null;
     status.conference_name = payload?.conference?.name || status.conference_name;
@@ -388,7 +392,7 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
         code:"PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
         detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${status.conference_games}.`
       });
-    } else if (publishedConferenceGames === status.conference_games && publishedConferenceGames > 0 && status.conference_record && !recordsTextAgree(row.conference_record,status.conference_record)) {
+    } else if (publishedConferenceGames === status.conference_games && publishedConferenceGames > 0 && status.conference_record && !recordsTextAgree(publishedConferenceText,status.conference_record)) {
       status.rank = null;
       status.standing_state = "unavailable";
       if (status.record_audit_state === "VERIFIED") status.record_audit_state = "CONTRADICTORY";
@@ -404,6 +408,24 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
         : "not-started";
     }
 
+    status.display_overall_record = row.display_overall_record
+      ?? row.published_overall_record
+      ?? status.overall_record
+      ?? null;
+    status.display_conference_record = row.display_conference_record
+      ?? row.published_conference_record
+      ?? status.conference_record
+      ?? (status.conference_id || status.conference_name ? "0-0" : null);
+    status.display_rank = row.display_rank
+      ?? row.published_rank
+      ?? status.rank
+      ?? null;
+    status.display_method = row.display_method
+      ?? payload?.conference?.presentation_method
+      ?? (status.record_verified ? "canonical" : "unavailable");
+    status.display_source_url = row.display_source_url
+      ?? payload?.conference?.presentation_source_url
+      ?? null;
     status.source = status.record_verified ? "normalized-final-games" : "unverified";
     delete status.standings_key;
   }
