@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { attachScheduleDerivedRecords } from "../src/m4-public-worker.js";
+import { attachScheduleDerivedRecords, dedupeSchoolScheduleRows } from "../src/m4-public-worker.js";
 
 function game(overrides = {}) {
   return {
@@ -151,4 +151,131 @@ test("no scored finals does not fabricate a 0-0 record when no record exists", (
   assert.equal(result[0].record_source, "unverified");
   assert.equal(result[0].record_state, "NO_RECORD_EVIDENCE");
   assert.equal(result[0].record_verified, false);
+});
+
+
+test("school schedule collapses exact volleyball duplicates across split canonical ids",()=>{
+  const rows=[
+    game({
+      id:"benton-a",
+      reporting_team_id:"bryant-volleyball-2026",
+      team_id:"bryant-volleyball-2026",
+      school_id:"bryant",
+      sport:"volleyball",
+      gender:"girls",
+      canonical_event_id:"ce-benton-a",
+      scheduled_at:"2026-08-27T23:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Benton High School",
+      opponent_school_id:"benton",
+      status:"FINAL",
+      team_score:1,
+      opponent_score:3,
+      source_type:"official-conference",
+      parser_type:"dragonfly-public"
+    }),
+    game({
+      id:"benton-b",
+      reporting_team_id:"bryant-volleyball-2026",
+      team_id:"bryant-volleyball-2026",
+      school_id:"bryant",
+      sport:"volleyball",
+      gender:"girls",
+      canonical_event_id:"ce-benton-b",
+      scheduled_at:"2026-08-27T23:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Benton High School",
+      opponent_school_id:"benton",
+      status:"FINAL",
+      team_score:1,
+      opponent_score:3,
+      source_type:"official-school",
+      parser_type:"mascot-media"
+    })
+  ];
+  const result=dedupeSchoolScheduleRows(rows,"bryant");
+  assert.equal(result.length,1);
+  assert.equal(result[0].opponent,"Benton High School");
+  assert.equal(result[0].schedule_observation_count,2);
+});
+
+test("school schedule enforces one displayed football contest per local date",()=>{
+  const rows=[
+    game({
+      id:"benton-football-a",
+      reporting_team_id:"bryant-football-2026",
+      team_id:"bryant-football-2026",
+      school_id:"bryant",
+      sport:"football",
+      gender:"boys",
+      canonical_event_id:"ce-football-a",
+      scheduled_at:"2026-08-29T00:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Benton High School",
+      opponent_school_id:"benton",
+      status:"FINAL",
+      team_score:42,
+      opponent_score:43,
+      source_type:"official-conference",
+      parser_type:"dragonfly-public"
+    }),
+    game({
+      id:"benton-football-b",
+      reporting_team_id:"bryant-football-2026",
+      team_id:"bryant-football-2026",
+      school_id:"bryant",
+      sport:"football",
+      gender:"boys",
+      canonical_event_id:"ce-football-b",
+      scheduled_at:"2026-08-29T00:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Benton High School",
+      opponent_school_id:"legacy-benton",
+      status:"FINAL",
+      team_score:42,
+      opponent_score:43,
+      source_type:"official-school",
+      parser_type:"mascot-media"
+    })
+  ];
+  const result=dedupeSchoolScheduleRows(rows,"bryant");
+  assert.equal(result.length,1);
+  assert.equal(result[0].team_score,42);
+  assert.equal(result[0].opponent_score,43);
+});
+
+test("school schedule keeps legitimate same-day volleyball matches distinct",()=>{
+  const rows=[
+    game({
+      id:"pool-a",
+      reporting_team_id:"sample-volleyball-2026",
+      team_id:"sample-volleyball-2026",
+      school_id:"sample",
+      sport:"volleyball",
+      gender:"girls",
+      scheduled_at:"2026-09-19T15:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Nixa High School",
+      opponent_school_id:"nixa",
+      status:"FINAL",
+      team_score:2,
+      opponent_score:0
+    }),
+    game({
+      id:"pool-b",
+      reporting_team_id:"sample-volleyball-2026",
+      team_id:"sample-volleyball-2026",
+      school_id:"sample",
+      sport:"volleyball",
+      gender:"girls",
+      scheduled_at:"2026-09-19T19:00:00.000Z",
+      scheduled_time_known:1,
+      opponent:"Ozark High School",
+      opponent_school_id:"ozark",
+      status:"FINAL",
+      team_score:2,
+      opponent_score:1
+    })
+  ];
+  assert.equal(dedupeSchoolScheduleRows(rows,"sample").length,2);
 });
