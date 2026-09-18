@@ -60,7 +60,7 @@ export function rankCanonicalConferenceRows(rows = [], {
     let standingState="unavailable";
     let conferenceRecord=row.conference_record || standingsRecordText(record.wins,record.losses,record.ties);
     if (record.games === 0) {
-      conferenceRecord="N/A";
+      conferenceRecord=conferenceRecord || "0-0";
       standingState="not-started";
     } else if (canRank) {
       rank=recordKey===previousKey ? previousRank : index+1;
