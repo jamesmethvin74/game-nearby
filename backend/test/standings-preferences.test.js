@@ -57,10 +57,10 @@ test("standings preference release advances the PWA shell without dropping live 
   const html = await read("standings.html");
   const sw = await read("service-worker.js");
 
-  assert.match(html, /standings\.js\?v=66/);
+  assert.match(html, /standings\.js\?v=71/);
   assert.match(html, /standings-drag-reorder\.js\?v=66/);
   assert.match(html, /standings-favorites\.css\?v=66/);
-  assert.match(sw, /localbleachersar-shell-v70/);
+  assert.match(sw, /localbleachersar-shell-v71/);
   assert.match(sw, /\.\/standings-drag-reorder\.js/);
   assert.match(sw, /\.\/standings-favorites\.css/);
   assert.match(sw, /\.\/live-scores\.html/);
