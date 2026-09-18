@@ -11,6 +11,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    name: audit-statewide-standings
     steps:
       - name: Audit every published conference through public API
         shell: bash
