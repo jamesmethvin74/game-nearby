@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applySchoolDisplayNames, dedupeScheduleRows, footballRowsConflictSameDay, humanizeScheduleText, opponentNamesLikelySame, recordFromScheduleRows, scheduleRowsLikelyDuplicate, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "../src/schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, footballRowsConflictSameDay, highSchoolOfficialSeasonBoundary, humanizeScheduleText, officialSeasonScheduleRows, opponentNamesLikelySame, recordFromScheduleRows, rowIsOfficialSeasonContest, scheduleRowsLikelyDuplicate, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "../src/schedule-response-normalizer.js";
 
 const displayNames = new Map([
   ["conway", "Conway High School"],
@@ -312,4 +312,54 @@ test("two completed same-day volleyball matches against one opponent are not aut
   };
   assert.equal(staleSameDayOpponentTwin(first,second,{reportingSchoolId:"sample"}),false);
   assert.equal(dedupeScheduleRows([first,second],{reportingSchoolId:"sample"}).length,2);
+});
+
+
+test("2026 Arkansas official-season boundaries hide benefit-week football and volleyball rows",()=>{
+  const nlrBenefit={
+    level:"high-school",sport:"football",gender:"boys",season:"2026",
+    scheduled_at:"2026-08-22T00:00:00.000Z",parser_type:"dragonfly-public",
+    counts_for_record:1,opponent:"Joe T. Robinson High School"
+  };
+  const nlrRegular={...nlrBenefit,scheduled_at:"2026-08-28T00:00:00.000Z",opponent:"Rogers High School"};
+  const bryantBenefit={
+    level:"high-school",sport:"volleyball",gender:"girls",season:"2026",
+    scheduled_at:"2026-08-18T22:30:00.000Z",parser_type:"dragonfly-public",
+    counts_for_record:1,opponent:"Bauxite High School"
+  };
+  const bryantRegular={...bryantBenefit,scheduled_at:"2026-08-24T23:00:00.000Z",opponent:"Lakeside High School (Hot Springs)"};
+
+  assert.equal(highSchoolOfficialSeasonBoundary(nlrBenefit),"2026-08-27");
+  assert.equal(highSchoolOfficialSeasonBoundary(bryantBenefit),"2026-08-24");
+  assert.equal(rowIsOfficialSeasonContest(nlrBenefit),false);
+  assert.equal(rowIsOfficialSeasonContest(nlrRegular),true);
+  assert.equal(rowIsOfficialSeasonContest(bryantBenefit),false);
+  assert.equal(rowIsOfficialSeasonContest(bryantRegular),true);
+  assert.deepEqual(officialSeasonScheduleRows([nlrBenefit,nlrRegular,bryantBenefit,bryantRegular]).map(row=>row.opponent),[
+    "Rogers High School","Lakeside High School (Hot Springs)"
+  ]);
+});
+
+test("named benefit and certified DragonFly exhibitions stay out of regular schedule presentation",()=>{
+  const namedBenefit={
+    level:"high-school",sport:"volleyball",gender:"girls",season:"2026",
+    scheduled_at:"2026-09-01T23:00:00.000Z",notes:"Benefit Game",
+    parser_type:"official-school",counts_for_record:1
+  };
+  const certifiedExhibition={
+    level:"high-school",sport:"volleyball",gender:"girls",season:"2026",
+    scheduled_at:"2026-09-01T23:00:00.000Z",notes:null,
+    parser_type:"dragonfly-public",counts_for_record:0
+  };
+  assert.equal(rowIsOfficialSeasonContest(namedBenefit),false);
+  assert.equal(rowIsOfficialSeasonContest(certifiedExhibition),false);
+});
+
+test("legacy bare zero does not hide an otherwise ordinary regular-season final",()=>{
+  const legacy={
+    level:"high-school",sport:"football",gender:"boys",season:"2026",
+    scheduled_at:"2026-09-05T00:00:00.000Z",status:"FINAL",
+    counts_for_record:0,parser_type:"legacy",opponent:"Opponent High School"
+  };
+  assert.equal(rowIsOfficialSeasonContest(legacy),true);
 });

@@ -32,9 +32,41 @@ export function footballRowsConflictSameDay(a,b,options={}) {
   return footballSameLocalDate(a,b,options);
 }
 
-const HIGH_SCHOOL_BASKETBALL_FIRST_OFFICIAL = new Map([
-  ["2026", "2026-11-05"]
+const HIGH_SCHOOL_FIRST_OFFICIAL = new Map([
+  ["football|2026", "2026-08-27"],
+  ["volleyball|2026", "2026-08-24"],
+  ["basketball|2026", "2026-11-05"]
 ]);
+
+
+export function highSchoolOfficialSeasonBoundary(row = {}) {
+  const level=clean(row.level).toLowerCase();
+  if (level && level !== "high-school") return null;
+  const sport=clean(row.sport).toLowerCase();
+  const season=clean(row.season);
+  return HIGH_SCHOOL_FIRST_OFFICIAL.get(`${sport}|${season}`) || null;
+}
+
+export function rowIsOfficialSeasonContest(row = {}, { timeZone="America/Chicago" } = {}) {
+  if (row.countsForRecord === false) return false;
+  if (Number(row.counts_for_record) === 0 && clean(row.parser_type).toLowerCase() === "dragonfly-public") return false;
+  const descriptiveText=[row.notes,row.opponent,row.venue,row.location_text]
+    .map(clean)
+    .filter(Boolean)
+    .join(" ");
+  if (NON_RECORD_TEXT_RE.test(descriptiveText)) return false;
+
+  const boundary=highSchoolOfficialSeasonBoundary(row);
+  if (!boundary) return true;
+  const scheduledAt=row.scheduled_at||row.canonical_scheduled_at;
+  if (!scheduledAt) return true;
+  const localDate=dateKeyInZone(scheduledAt,timeZone);
+  return !localDate || localDate >= boundary;
+}
+
+export function officialSeasonScheduleRows(rows = [], options = {}) {
+  return (Array.isArray(rows)?rows:[]).filter(row=>rowIsOfficialSeasonContest(row,options));
+}
 
 function clean(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -255,16 +287,12 @@ export function dedupeScheduleRows(games, options = {}) {
   );
 }
 
-function highSchoolBasketballPreseason(row) {
-  if (clean(row.sport).toLowerCase() !== "basketball") return false;
-  const gender = clean(row.gender).toLowerCase();
-  if (gender !== "boys" && gender !== "girls") return false;
-  const season = clean(row.season);
-  const boundary = HIGH_SCHOOL_BASKETBALL_FIRST_OFFICIAL.get(season);
-  if (!boundary) return false;
-  const scheduledAt = row.scheduled_at || row.canonical_scheduled_at;
-  if (!scheduledAt) return false;
-  const localDate = dateKeyInZone(scheduledAt, "America/Chicago");
+function highSchoolPreOfficialSeason(row) {
+  const boundary=highSchoolOfficialSeasonBoundary(row);
+  if(!boundary) return false;
+  const scheduledAt=row.scheduled_at||row.canonical_scheduled_at;
+  if(!scheduledAt) return false;
+  const localDate=dateKeyInZone(scheduledAt,"America/Chicago");
   return Boolean(localDate && localDate < boundary);
 }
 
@@ -277,7 +305,7 @@ export function rowCountsForRecord(row = {}) {
     .join(" ");
   if (NON_RECORD_TEXT_RE.test(descriptiveText)) return false;
 
-  if (highSchoolBasketballPreseason(row)) return false;
+  if (highSchoolPreOfficialSeason(row)) return false;
 
   if (Number(row.counts_for_record) !== 0) return true;
 

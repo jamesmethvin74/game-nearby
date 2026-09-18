@@ -51,11 +51,14 @@
     if (status) {
       const conferenceKnown = Boolean(status.conference_name || status.conference_id);
       const conferenceGames = Number(status.conference_games || 0);
-      const rank = Number(status.rank);
+      const rankValue = status.display_rank ?? status.rank;
+      const rank = Number(rankValue);
       return {
-        overall: status.overall_record || "N/A",
-        conference: conferenceKnown && conferenceGames > 0 ? (status.conference_record || "N/A") : "N/A",
-        standing: conferenceKnown && conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "N/A",
+        overall: status.display_overall_record ?? status.overall_record ?? "—",
+        conference: conferenceKnown
+          ? (status.display_conference_record ?? status.conference_record ?? (conferenceGames === 0 ? "0-0" : "—"))
+          : "—",
+        standing: conferenceKnown && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "—",
         conferenceName: status.conference_name || (conferenceKnown ? "Conference" : "Conference not available")
       };
     }
@@ -64,7 +67,7 @@
       return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };
     }
 
-    return { overall:"N/A", conference:"N/A", standing:"N/A", conferenceName:"Conference not available" };
+    return { overall:"—", conference:"—", standing:"—", conferenceName:"Conference not available" };
   }
 
   function ensureDialog() {

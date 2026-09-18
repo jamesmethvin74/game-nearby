@@ -1,4 +1,4 @@
-import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "./schedule-response-normalizer.js";
+import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, officialSeasonScheduleRows, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
 import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 import { dateKeyInZone } from "./schedule-authority-core.js";
@@ -135,7 +135,7 @@ function pairLooksLikeOneDisplayedGame(a, b) {
 }
 
 function auditTeam(rows, { now = new Date() } = {}) {
-  const candidates = rows.filter(row => row?.game_id).map(effectiveCandidate);
+  const candidates = officialSeasonScheduleRows(rows.filter(row => row?.game_id).map(effectiveCandidate));
   const issues = [];
   const graceBoundary = now.getTime() - PAST_DUE_GRACE_HOURS * 60 * 60 * 1000;
 

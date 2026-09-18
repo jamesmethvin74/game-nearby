@@ -165,7 +165,7 @@ test("an app-visible FINAL missing scores is caught even when it does not count 
   const audit = auditPresentationRows([
     row({
       game_id: "nonrecord-final",
-      opponent: "Scrimmage Opponent",
+      opponent: "Opponent High School",
       canonical_event_id: "ce-nonrecord",
       raw_status: "FINAL",
       canonical_status: "FINAL",
@@ -204,8 +204,8 @@ test("football same-day collision is blocking even when opponent identities disa
       game_id:"nlr-robinson-full",
       opponent:"Joe T. Robinson High School",
       opponent_school_id:"joe-t-robinson",
-      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
-      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
+      raw_scheduled_at:"2026-09-05T00:00:00.000Z",
+      canonical_scheduled_at:"2026-09-05T00:00:00.000Z",
       canonical_event_id:"ce-robinson-full",
       canonical_away_school_id:"joe-t-robinson",
       source_type:"official-school",
@@ -218,14 +218,14 @@ test("football same-day collision is blocking even when opponent identities disa
       game_id:"nlr-robinson-short",
       opponent:"Robinson",
       opponent_school_id:"robinson-legacy",
-      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
-      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
+      raw_scheduled_at:"2026-09-05T00:00:00.000Z",
+      canonical_scheduled_at:"2026-09-05T00:00:00.000Z",
       canonical_event_id:"ce-robinson-short",
       canonical_away_school_id:"robinson-legacy",
       source_type:"secondary",
       parser_type:"legacy"
     })
-  ],{now:new Date("2026-08-20T12:00:00.000Z")});
+  ],{now:new Date("2026-09-04T12:00:00.000Z")});
 
   const collision=audit.issues.find(value=>value.code==="FOOTBALL_SAME_DAY_COLLISION");
   assert.ok(collision);
@@ -237,7 +237,7 @@ test("football same-day collision is blocking even when opponent identities disa
 });
 
 
-test("North Little Rock same-day volleyball final suppresses stale benefit twin across time drift",()=>{
+test("same-day regular-season volleyball final suppresses stale source twin across time drift",()=>{
   const audit=auditPresentationRows([
     row({
       team_id:"north-little-rock-volleyball-2026",
@@ -248,8 +248,8 @@ test("North Little Rock same-day volleyball final suppresses stale benefit twin 
       game_id:"pa-final",
       opponent:"Pulaski Academy High School",
       opponent_school_id:"pulaski-academy",
-      raw_scheduled_at:"2026-08-18T22:30:00.000Z",
-      canonical_scheduled_at:"2026-08-18T22:30:00.000Z",
+      raw_scheduled_at:"2026-09-01T22:30:00.000Z",
+      canonical_scheduled_at:"2026-09-01T22:30:00.000Z",
       canonical_event_id:"ce-pa-final",
       raw_status:"FINAL",
       raw_team_score:0,
@@ -266,22 +266,66 @@ test("North Little Rock same-day volleyball final suppresses stale benefit twin 
       school_name:"North Little Rock High School",
       sport:"volleyball",
       gender:"girls",
-      game_id:"pa-benefit-stale",
-      opponent:"Pulaski Academy (Benefit)",
+      game_id:"pa-stale",
+      opponent:"Pulaski Academy",
       opponent_school_id:"pulaski-academy-legacy",
-      raw_scheduled_at:"2026-08-18T23:30:00.000Z",
-      canonical_scheduled_at:"2026-08-18T23:30:00.000Z",
-      canonical_event_id:"ce-pa-benefit",
+      raw_scheduled_at:"2026-09-01T23:30:00.000Z",
+      canonical_scheduled_at:"2026-09-01T23:30:00.000Z",
+      canonical_event_id:"ce-pa-stale",
       raw_status:"SCHEDULED",
       canonical_status:"SCHEDULED",
       canonical_home_school_id:"north-little-rock",
       canonical_away_school_id:"pulaski-academy-legacy"
     })
-  ],{now:new Date("2026-08-19T12:00:00.000Z")});
+  ],{now:new Date("2026-09-02T12:00:00.000Z")});
   const stale=audit.issues.find(value=>value.code==="SAME_DAY_STALE_TWIN_OF_FINAL");
   assert.ok(stale);
-  assert.equal(stale.game_id,"pa-benefit-stale");
+  assert.equal(stale.game_id,"pa-stale");
   assert.equal(stale.other_game_id,"pa-final");
   assert.equal(stale.severity,"blocking");
   assert.equal(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"),false);
+});
+
+
+test("pre-official and benefit contests are not part of the audited app-visible schedule surface",()=>{
+  const audit=auditPresentationRows([
+    row({
+      team_id:"north-little-rock-football-2026",
+      school_id:"north-little-rock",
+      school_name:"North Little Rock High School",
+      level:"high-school",
+      sport:"football",
+      gender:"boys",
+      season:"2026",
+      game_id:"benefit-football",
+      opponent:"Joe T. Robinson High School",
+      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
+      status:"SCHEDULED",
+      counts_for_record:1,
+      parser_type:"dragonfly-public"
+    }),
+    row({
+      team_id:"van-buren-volleyball-2026",
+      school_id:"van-buren",
+      school_name:"Van Buren High School",
+      level:"high-school",
+      sport:"volleyball",
+      gender:"girls",
+      season:"2026",
+      game_id:"benefit-volleyball",
+      opponent:"Mena High School",
+      raw_scheduled_at:"2026-08-20T22:30:00.000Z",
+      canonical_scheduled_at:"2026-08-20T22:30:00.000Z",
+      status:"SCHEDULED",
+      notes:"Benefit Game",
+      counts_for_record:1,
+      parser_type:"dragonfly-public"
+    })
+  ],{now:new Date("2026-09-18T12:00:00.000Z")});
+
+  assert.equal(audit.summary.blocking_issues,0);
+  assert.equal(audit.summary.warning_issues,0);
+  assert.equal(audit.summary.total_schedule_rows_examined,0);
+  assert.equal(audit.summary.total_normalized_schedule_rows,0);
 });

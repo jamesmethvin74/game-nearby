@@ -66,6 +66,6 @@ test("Standings UI renders presentation truth fields and never invents missing r
   assert.doesNotMatch(js, /row\.rank \?\? index \+ 1/);
   assert.doesNotMatch(js, /row\.conference_record \|\| "0-0"/);
   assert.doesNotMatch(js, /row\.overall_record \|\| "0-0"/);
-  assert.match(serviceWorker, /localbleachersar-shell-v65/);
+  assert.match(serviceWorker, /localbleachersar-shell-v66/);
   assert.match(html, /standings\.js\?v=65/);
 });

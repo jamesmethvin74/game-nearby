@@ -7,6 +7,7 @@ function game(overrides = {}) {
     reporting_team_id: "conway-football-2026",
     team_id: "conway-football-2026",
     school_id: "conway",
+    level: "high-school",
     sport: "football",
     gender: "boys",
     season: "2026",
@@ -278,4 +279,36 @@ test("school schedule keeps legitimate same-day volleyball matches distinct",()=
     })
   ];
   assert.equal(dedupeSchoolScheduleRows(rows,"sample").length,2);
+});
+
+
+test("school schedule hides Arkansas benefit-week rows but keeps first official contests",()=>{
+  const rows=[
+    game({
+      id:"nlr-benefit",reporting_team_id:"nlr-football-2026",team_id:"nlr-football-2026",
+      school_id:"nlr",sport:"football",gender:"boys",season:"2026",
+      scheduled_at:"2026-08-22T00:00:00.000Z",status:"SCHEDULED",
+      opponent:"Joe T. Robinson High School",parser_type:"dragonfly-public",counts_for_record:1
+    }),
+    game({
+      id:"nlr-regular",reporting_team_id:"nlr-football-2026",team_id:"nlr-football-2026",
+      school_id:"nlr",sport:"football",gender:"boys",season:"2026",
+      scheduled_at:"2026-08-28T00:00:00.000Z",status:"FINAL",
+      opponent:"Rogers High School",team_score:34,opponent_score:28,parser_type:"dragonfly-public",counts_for_record:1
+    }),
+    game({
+      id:"vb-benefit",reporting_team_id:"van-buren-volleyball-2026",team_id:"van-buren-volleyball-2026",
+      school_id:"van-buren",sport:"volleyball",gender:"girls",season:"2026",
+      scheduled_at:"2026-08-20T22:30:00.000Z",status:"SCHEDULED",
+      opponent:"Mena High School",notes:"Benefit Game",parser_type:"dragonfly-public",counts_for_record:1
+    }),
+    game({
+      id:"vb-regular",reporting_team_id:"van-buren-volleyball-2026",team_id:"van-buren-volleyball-2026",
+      school_id:"van-buren",sport:"volleyball",gender:"girls",season:"2026",
+      scheduled_at:"2026-08-24T22:30:00.000Z",status:"FINAL",
+      opponent:"Rogers High School",team_score:0,opponent_score:3,parser_type:"dragonfly-public",counts_for_record:1
+    })
+  ];
+  const result=dedupeSchoolScheduleRows(rows,"sample");
+  assert.deepEqual(result.map(row=>row.id).sort(),["nlr-regular","vb-regular"]);
 });

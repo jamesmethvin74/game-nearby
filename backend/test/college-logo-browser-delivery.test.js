@@ -17,6 +17,6 @@ test("college logos use browser-side image delivery while high-school logos rema
 });
 
 test("PWA shell version changes so installed apps receive the logo-delivery code", () => {
-  assert.match(serviceWorker, /localbleachersar-shell-v65/);
+  assert.match(serviceWorker, /localbleachersar-shell-v66/);
   assert.match(serviceWorker, /"\.\/school-logo-ui\.js"/);
 });
