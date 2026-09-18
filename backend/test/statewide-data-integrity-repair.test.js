@@ -145,3 +145,14 @@ test("football same-day collision is repairable but never enters canonical merge
   assert.deepEqual(plan.affectedTeamIds,["north-little-rock-football-2026"]);
   assert.deepEqual(plan.canonicalClusters,[]);
 });
+
+
+test("same-day stale opponent twin is repairable by suppression but never canonical-merged",()=>{
+  const audit={issues:[
+    issue("SAME_DAY_STALE_TWIN_OF_FINAL",{team:"north-little-rock-volleyball-2026",game:"pa-stale",other:"pa-final"})
+  ]};
+  const plan=buildStatewideRepairPlan(audit,[]);
+  assert.equal(plan.issueCounts.SAME_DAY_STALE_TWIN_OF_FINAL,1);
+  assert.deepEqual(plan.affectedTeamIds,["north-little-rock-volleyball-2026"]);
+  assert.deepEqual(plan.canonicalClusters,[]);
+});

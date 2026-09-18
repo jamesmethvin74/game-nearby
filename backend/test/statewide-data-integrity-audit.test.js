@@ -235,3 +235,53 @@ test("football same-day collision is blocking even when opponent identities disa
   assert.equal(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"),false,
     "different opponent identities must not be canonical-merged merely because football shares a date");
 });
+
+
+test("North Little Rock same-day volleyball final suppresses stale benefit twin across time drift",()=>{
+  const audit=auditPresentationRows([
+    row({
+      team_id:"north-little-rock-volleyball-2026",
+      school_id:"north-little-rock",
+      school_name:"North Little Rock High School",
+      sport:"volleyball",
+      gender:"girls",
+      game_id:"pa-final",
+      opponent:"Pulaski Academy High School",
+      opponent_school_id:"pulaski-academy",
+      raw_scheduled_at:"2026-08-18T22:30:00.000Z",
+      canonical_scheduled_at:"2026-08-18T22:30:00.000Z",
+      canonical_event_id:"ce-pa-final",
+      raw_status:"FINAL",
+      raw_team_score:0,
+      raw_opponent_score:1,
+      canonical_status:"FINAL",
+      canonical_home_score:0,
+      canonical_away_score:1,
+      canonical_home_school_id:"north-little-rock",
+      canonical_away_school_id:"pulaski-academy"
+    }),
+    row({
+      team_id:"north-little-rock-volleyball-2026",
+      school_id:"north-little-rock",
+      school_name:"North Little Rock High School",
+      sport:"volleyball",
+      gender:"girls",
+      game_id:"pa-benefit-stale",
+      opponent:"Pulaski Academy (Benefit)",
+      opponent_school_id:"pulaski-academy-legacy",
+      raw_scheduled_at:"2026-08-18T23:30:00.000Z",
+      canonical_scheduled_at:"2026-08-18T23:30:00.000Z",
+      canonical_event_id:"ce-pa-benefit",
+      raw_status:"SCHEDULED",
+      canonical_status:"SCHEDULED",
+      canonical_home_school_id:"north-little-rock",
+      canonical_away_school_id:"pulaski-academy-legacy"
+    })
+  ],{now:new Date("2026-08-19T12:00:00.000Z")});
+  const stale=audit.issues.find(value=>value.code==="SAME_DAY_STALE_TWIN_OF_FINAL");
+  assert.ok(stale);
+  assert.equal(stale.game_id,"pa-benefit-stale");
+  assert.equal(stale.other_game_id,"pa-final");
+  assert.equal(stale.severity,"blocking");
+  assert.equal(codes(audit).includes("SPLIT_CANONICAL_LOGICAL_GAME"),false);
+});

@@ -1,13 +1,14 @@
 import { dateKeyInZone, normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { evaluateFinalResultTruth, normalizeFinalResultTruth, resultFromTeamScores } from "./final-result-truth.js";
 
-const EVENT_DESCRIPTOR_RE = /\b(?:senior night|early bird|invitational|invite|tournament|tourney|classic|jamboree)\b/g;
+const EVENT_DESCRIPTOR_RE = /\b(?:senior night|early bird|invitational|invite|tournament|tourney|classic|jamboree|benefit(?: game)?|exhibition|scrimmage)\b/g;
 const TRAILING_STATE_QUALIFIER_RE = /\s*\((?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\)\s*$/i;
 const GENERIC_SCHOOL_QUALIFIER_RE = /\b(?:senior|sr)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
 const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet the cats)\b/i;
 
 const FOOTBALL_NON_GAME_STATUSES = new Set(["CANCELED","CANCELLED","POSTPONED"]);
+const DISPLAY_TERMINAL_STATUSES = new Set(["FINAL","CANCELED","CANCELLED","POSTPONED"]);
 
 function footballSameLocalDate(a,b,{reportingSchoolId=null,timeZone="America/Chicago"}={}) {
   if (!a || !b) return false;
@@ -60,6 +61,38 @@ export function opponentNamesLikelySame(a, b) {
   return tokenSubset(shorter, longer);
 }
 
+
+
+function sameLocalScheduleDate(a,b,{timeZone="America/Chicago"}={}) {
+  const aTime=a?.scheduled_at||a?.canonical_scheduled_at;
+  const bTime=b?.scheduled_at||b?.canonical_scheduled_at;
+  if(!aTime||!bTime) return false;
+  const aDate=dateKeyInZone(aTime,timeZone);
+  const bDate=dateKeyInZone(bTime,timeZone);
+  return Boolean(aDate&&bDate&&aDate===bDate);
+}
+
+function opponentIdentityLikelySame(a,b) {
+  const aId=clean(a?.opponent_school_id);
+  const bId=clean(b?.opponent_school_id);
+  if(aId&&bId&&aId===bId) return true;
+  return opponentNamesLikelySame(a?.opponent,b?.opponent);
+}
+
+export function staleSameDayOpponentTwin(a,b,{reportingSchoolId=null,timeZone="America/Chicago"}={}) {
+  if(!a||!b) return false;
+  if(clean(a.sport).toLowerCase()!==clean(b.sport).toLowerCase()) return false;
+  if(clean(a.gender).toLowerCase()!==clean(b.gender).toLowerCase()) return false;
+  if(!reportingSchoolId&&a.school_id&&b.school_id&&a.school_id!==b.school_id) return false;
+  if(!sameLocalScheduleDate(a,b,{timeZone})) return false;
+  if(!opponentIdentityLikelySame(a,b)) return false;
+  const aFinal=verifiedFinal(a);
+  const bFinal=verifiedFinal(b);
+  if(aFinal===bFinal) return false;
+  const stale=aFinal?b:a;
+  return !DISPLAY_TERMINAL_STATUSES.has(clean(stale.status).toUpperCase());
+}
+
 function minutesBetween(a, b) {
   const aa = Date.parse(a);
   const bb = Date.parse(b);
@@ -104,7 +137,9 @@ export function scheduleRowsLikelySameLogicalGame(a, b, options = {}) {
 }
 
 export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
-  return footballSameLocalDate(a,b,options) || scheduleRowsLikelySameLogicalGame(a,b,options);
+  return footballSameLocalDate(a,b,options)
+    || staleSameDayOpponentTwin(a,b,options)
+    || scheduleRowsLikelySameLogicalGame(a,b,options);
 }
 
 function identicalVerifiedFinalSnapshot(a, b, options = {}) {
