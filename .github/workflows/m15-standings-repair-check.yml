@@ -14,7 +14,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: validate-standings-repair
+    name: validate-standings-repair-v2
     defaults:
       run:
         working-directory: backend
