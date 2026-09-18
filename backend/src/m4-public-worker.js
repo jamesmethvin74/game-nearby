@@ -1,7 +1,7 @@
 import app from "./d1-usage-public-worker.js";
 import core from "./index.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
-import { conferenceGameCount, dedupeScheduleRows, evaluateScheduleRecordTruth, parseRecordText, sameOverallRecord } from "./schedule-response-normalizer.js";
+import { conferenceGameCount, dedupeScheduleRows, evaluateScheduleRecordTruth, officialSeasonScheduleRows, parseRecordText, sameOverallRecord } from "./schedule-response-normalizer.js";
 import { normalizeFinalResultTruth } from "./final-result-truth.js";
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { findPublishedConferenceMembership } from "./published-standings.js";
@@ -153,7 +153,7 @@ export function dedupeSchoolScheduleRows(rows = [], schoolId = null) {
   }
   const merged = [];
   for (const teamRows of byTeam.values()) {
-    merged.push(...dedupeScheduleRows(teamRows, { reportingSchoolId: schoolId, maxMinutes: 15 }));
+    merged.push(...dedupeScheduleRows(officialSeasonScheduleRows(teamRows), { reportingSchoolId: schoolId, maxMinutes: 15 }));
   }
   return merged.sort((a,b) => {
     const sport = String(a.sport || "").localeCompare(String(b.sport || ""));
