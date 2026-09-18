@@ -1,0 +1,78 @@
+name: M15 live regression verification
+on:
+  push:
+    branches:
+      - m15/statewide-repair-reconciliation-20260917
+    paths:
+      - .github/workflows/m15-live-regression-verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify live standings and school schedules
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          const get=async path=>{
+            const r=await fetch(base+path,{headers:{accept:'application/json'},cache:'no-store'});
+            const text=await r.text();
+            let body={}; try{body=JSON.parse(text);}catch{body={raw:text.slice(0,4000)}}
+            return {status:r.status,body};
+          };
+          const normalize=s=>String(s||'').toLowerCase().replace(/\bhigh school\b/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+
+          let central=null,west=null;
+          for(let attempt=1;attempt<=120;attempt++){
+            central=await get('/api/v1/standings?sport=football&conference=7a-central');
+            west=await get('/api/v1/standings?sport=football&conference=7a-west');
+            const ce=Number(central.body?.conference?.membership_truth?.expected_members||0);
+            const we=Number(west.body?.conference?.membership_truth?.expected_members||0);
+            console.log('VERIFY_WAIT='+JSON.stringify({attempt,central_expected:ce,west_expected:we,central_rows:(central.body?.standings||[]).length,west_rows:(west.body?.standings||[]).length}));
+            if(ce>0 && we>0) break;
+            await sleep(5000);
+          }
+
+          console.log('VERIFY_STANDINGS='+JSON.stringify({
+            central:{
+              http:central.status,conference:central.body.conference,
+              rows:(central.body.standings||[]).map(r=>({team_id:r.team_id,school_name:r.school_name,conference_record:r.conference_record,overall_record:r.overall_record,rank:r.rank}))
+            },
+            west:{
+              http:west.status,conference:west.body.conference,
+              rows:(west.body.standings||[]).map(r=>({team_id:r.team_id,school_name:r.school_name,conference_record:r.conference_record,overall_record:r.overall_record,rank:r.rank}))
+            }
+          }));
+
+          const schools=(await get('/api/v1/schools')).body.schools||[];
+          const schoolByName=name=>schools.find(s=>normalize(s.name)===normalize(name));
+          for(const name of ['Bryant High School','North Little Rock High School']){
+            const school=schoolByName(name);
+            if(!school){
+              console.log('VERIFY_SCHOOL='+JSON.stringify({name,error:'school_not_found'}));
+              continue;
+            }
+            const res=await get('/api/v1/schools/'+encodeURIComponent(school.id)+'/schedule');
+            const games=res.body.games||[];
+            const focus=games.filter(g=>{
+              const d=String(g.scheduled_at||g.canonical_scheduled_at||'');
+              if(name.startsWith('Bryant')) return /2026-08-27|2026-08-28|2026-09-04/.test(d);
+              return /2026-08-18|2026-08-24/.test(d);
+            }).map(g=>({
+              id:g.id,reporting_team_id:g.reporting_team_id||g.team_id,
+              sport:g.sport,gender:g.gender,opponent:g.opponent,
+              opponent_school_id:g.opponent_school_id||null,
+              scheduled_at:g.scheduled_at||g.canonical_scheduled_at,
+              status:g.status,team_score:g.team_score,opponent_score:g.opponent_score,
+              venue:g.venue,schedule_observation_count:g.schedule_observation_count||1
+            }));
+            console.log('VERIFY_SCHOOL='+JSON.stringify({name,id:school.id,http:res.status,focus}));
+          }
+          NODE
