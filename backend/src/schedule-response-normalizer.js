@@ -88,8 +88,7 @@ function knownTimedRowsShareExactSlot(a, b, options = {}) {
   return scheduleRowsShareSlot(a, b, { ...options, maxMinutes });
 }
 
-export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
-  if (footballSameLocalDate(a,b,options)) return true;
+export function scheduleRowsLikelySameLogicalGame(a, b, options = {}) {
   if (!scheduleRowsShareSlot(a, b, options)) return false;
 
   const aCanonical=clean(a.canonical_event_id);
@@ -102,6 +101,10 @@ export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
     return knownTimedRowsShareExactSlot(a, b, options);
   }
   return true;
+}
+
+export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
+  return footballSameLocalDate(a,b,options) || scheduleRowsLikelySameLogicalGame(a,b,options);
 }
 
 function identicalVerifiedFinalSnapshot(a, b, options = {}) {
@@ -161,12 +164,15 @@ function venueSpecificity(row) {
   return score;
 }
 
-function mergeDuplicateRows(a, b) {
+export function choosePreferredScheduleRow(a,b) {
   const aVerifiedFinal = verifiedFinal(a);
   const bVerifiedFinal = verifiedFinal(b);
-  const preferred = aVerifiedFinal !== bVerifiedFinal
-    ? (aVerifiedFinal ? a : b)
-    : (rowScore(a) >= rowScore(b) ? a : b);
+  if (aVerifiedFinal !== bVerifiedFinal) return aVerifiedFinal ? a : b;
+  return rowScore(a) >= rowScore(b) ? a : b;
+}
+
+function mergeDuplicateRows(a, b) {
+  const preferred = choosePreferredScheduleRow(a,b);
   const alternate = preferred === a ? b : a;
   const venueSource = venueSpecificity(alternate) > venueSpecificity(preferred) ? alternate : preferred;
   return {
