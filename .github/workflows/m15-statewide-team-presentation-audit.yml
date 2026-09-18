@@ -11,7 +11,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    name: inspect-statewide-duplicate-details-v2
+    name: audit-statewide-team-presentation-final
     steps:
       - name: Audit every school presentation surface
         shell: bash
@@ -109,7 +109,15 @@ jobs:
               if(rows.length>1) add('FOOTBALL_SAME_DAY_VISIBLE','blocking',{school_id:school.id,school_name:school.name,key,count:rows.length,opponents:rows.map(r=>r.opponent)});
             }
             for(const [key,rows] of exact){
-              if(rows.length>1) add('EXACT_DUPLICATE_GAME_VISIBLE','blocking',{
+              if(rows.length<=1) continue;
+              const finalSignatures=new Set(rows
+                .filter(r=>String(r.status||'').toUpperCase()==='FINAL' && r.team_score!=null && r.opponent_score!=null)
+                .map(r=>String(r.team_score)+'-'+String(r.opponent_score)+'-'+String(r.result||'')));
+              const allScoredFinals=rows.every(r=>String(r.status||'').toUpperCase()==='FINAL' && r.team_score!=null && r.opponent_score!=null);
+              // MaxPreps date-only tournament rematches share the same noon placeholder.
+              // Distinct scored outcomes prove separate contests and must remain visible.
+              if(allScoredFinals && finalSignatures.size===rows.length) continue;
+              add('EXACT_DUPLICATE_GAME_VISIBLE','blocking',{
                 school_id:school.id,school_name:school.name,key,count:rows.length,
                 rows:rows.map(r=>({
                   id:r.id,canonical_event_id:r.canonical_event_id||null,
