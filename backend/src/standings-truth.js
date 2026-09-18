@@ -189,21 +189,21 @@ export async function loadStandingsTruth(env, {
   } catch (error) {
     console.warn("calculated standings read failed", {
       sport:normalizedSport,
-      conferenceId:normalizedConferenceId,
+      conferenceId:durableConferenceId,
       error:String(error?.message || error)
     });
   }
 
   const [published,membershipState] = await Promise.all([
-    tryPublishedStandings({ sport:normalizedSport, conferenceId:normalizedConferenceId }),
+    tryPublishedStandings({ sport:normalizedSport, conferenceId:publicConferenceId }),
     loadDurableConferenceCohortState(env, {
       sport:normalizedSport,
-      conferenceId:normalizedConferenceId,
+      conferenceId:durableConferenceId,
       season
     }).catch(error=>{
       console.warn("durable membership cohort read failed",{
         sport:normalizedSport,
-        conferenceId:normalizedConferenceId,
+        conferenceId:durableConferenceId,
         error:String(error?.message||error)
       });
       return cohortTruthState({ expectedMembers:0, explicitMembers:0, invalidMemberships:1 });
