@@ -77,6 +77,10 @@ test("published standings can cross-check Conway without becoming canonical rank
     assert.equal(status.rank, null);
     assert.equal(status.standing_state, "unavailable");
     assert.equal(status.conference_name, "6A Central");
+    assert.equal(status.display_overall_record, "10-6");
+    assert.equal(status.display_conference_record, "3-0");
+    assert.equal(status.display_rank, 1);
+    assert.equal(status.display_method, "published");
   });
 });
 
@@ -95,6 +99,10 @@ test("known conference with no conference games reports membership but no fake s
     assert.equal(status.conference_record, null);
     assert.equal(status.rank, null);
     assert.equal(status.standing_state, "not-started");
+    assert.equal(status.display_overall_record, "2-1");
+    assert.equal(status.display_conference_record, "0-0");
+    assert.equal(status.display_rank, 1);
+    assert.equal(status.display_method, "published");
   });
 });
 
