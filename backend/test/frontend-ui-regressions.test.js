@@ -58,40 +58,32 @@ test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
 
-test("team detail renders only the verified backend record, membership, and standings contract", () => {
+test("team detail renders the backend factual presentation contract", () => {
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
-  assert.match(schoolSchedule, /const recordVerified = status\.record_verified === true/);
-  assert.match(schoolSchedule, /const membershipState = String\(status\.conference_membership_state/);
-  assert.match(schoolSchedule, /status\.standings_verified === true/);
+  assert.match(schoolSchedule, /live\.getTeamStatus/);
   assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
-  assert.match(detail, /status\.record_verified === true/);
-  assert.match(detail, /status\.conference_membership_state/);
-  assert.match(detail, /status\.standings_verified === true/);
-  assert.match(detail, /LocalBleachersPresentation/);
-  assert.match(schoolSchedule, /team_statuses/);
+  assert.match(detail, /LocalBleachersPresentation\?\.teamStatus/);
+  assert.doesNotMatch(detail, /selectedEvents\.find\(event => event\.record\)/);
 });
 
-test("home cards use the same fail-closed backend truth and never calculate substitute records", () => {
-  assert.match(polish, /LocalBleachersLive\?\.getTeamStatus\?\.\(event\.teamId,event\.sport,event\.gender\)/);
-  assert.match(polish, /unified\.record_verified===true/);
-  assert.match(polish, /unified\.conference_membership_state/);
-  assert.match(polish, /unified\.standings_verified===true/);
+test("home cards prefer the same factual team-status contract and batch visible status hydration", () => {
+  assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
-  assert.doesNotMatch(polish, /event\.record/);
-  assert.match(schoolSchedule, /function primeVisibleFollowedStatuses/);
-  assert.match(schoolSchedule, /followedIds\.has\(id\)/);
-  assert.match(schoolSchedule, /await live\.fetchTeamSchedule\(schoolId\)/);
+  assert.match(schoolSchedule, /\/api\/v1\/team-statuses\?/);
+  assert.match(schoolSchedule, /school_ids: pending\.join\(","\)/);
+  assert.match(schoolSchedule, /setStatuses\(schoolId, schoolStatuses\)/);
+  assert.doesNotMatch(schoolSchedule, /Promise\.allSettled/);
   assert.match(schoolSchedule, /localbleachers:nearby-games/);
 });
 
-test("standings fail closed instead of inventing rank or 0-0 records", () => {
-  assert.match(standings, /row\?\.standings_verified === true/);
-  assert.match(standings, /conference\.membership_complete !== true/);
-  assert.match(standings, /conference\.result_evidence_complete !== true/);
-  assert.match(standings, /conference\.source_published_only === true/);
-  assert.match(standings, /function recordDisplay/);
-  assert.match(standings, /function rankDisplay/);
+test("standings render backend display fields without inventing rank or records", () => {
+  assert.match(standings, /LocalBleachersPresentation\?\.standingRow/);
+  assert.match(standings, /row\.display_rank \?\? row\.rank/);
+  assert.match(standings, /row\.display_conference_record \?\? row\.conference_record/);
+  assert.match(standings, /row\.display_overall_record \?\? row\.overall_record/);
+  assert.doesNotMatch(standings, /Published standings are available only as evidence/);
   assert.doesNotMatch(standings, /row\.rank \?\? index \+ 1/);
   assert.doesNotMatch(standings, /row\.conference_record \|\| "0-0"/);
   assert.doesNotMatch(standings, /row\.overall_record \|\| "0-0"/);
