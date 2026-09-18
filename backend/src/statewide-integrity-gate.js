@@ -142,7 +142,7 @@ async function persistIntegrityState(env,result,checkedAt) {
       'localbleachers:statewide-integrity:2026',
       'localbleachers-integrity',
       'internal://statewide-integrity',
-      ?,?,?,?,?,?,?,?,?,?
+      ?,?,?,?,?,?,?,?,?
     )
     ON CONFLICT(id) DO UPDATE SET
       provider=excluded.provider,
