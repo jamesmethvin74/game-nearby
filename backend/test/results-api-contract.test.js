@@ -12,13 +12,11 @@ test("team schedule and record routes recalculate from the shared result engine"
   assert.match(index, /return json\(\{teamId,games,record:/);
 });
 
-test("frontend consumes canonical team status instead of calculating a substitute record", () => {
+test("frontend consumes backend team-status presentation before embedded record fallback", () => {
   assert.match(live, /normalizeRecord/);
   assert.match(live, /const record = normalizeRecord\(payload\?\.record\)/);
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
-  assert.match(polish, /unified\.record_verified===true/);
-  assert.match(polish, /unified\.overall_record/);
-  assert.doesNotMatch(polish, /recordLabel\(/);
-  assert.doesNotMatch(polish, /event\.record/);
+  assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
+  assert.ok(polish.indexOf("if (factual) return factual") < polish.indexOf("const record = event.record || null"));
 });
