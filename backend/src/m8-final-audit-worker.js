@@ -3,11 +3,14 @@ import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-au
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
+import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
+const SCHOOL_DEDUPE_REPAIR_PATH="/api/v1/internal/m15-school-dedupe-repair-20260918-9d2a17";
+const SCHOOL_DEDUPE_REPAIR_FINGERPRINT="m15-school-dedupe-storage-v1-20260918";
 
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token")===env.REFRESH_TOKEN;
@@ -39,6 +42,14 @@ async function runDataIntegrityAudit(env) {
 export default {
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
+    if(url.pathname===SCHOOL_DEDUPE_REPAIR_PATH){
+      if(request.method==="GET") return auditJson({status:"READY",fingerprint:SCHOOL_DEDUPE_REPAIR_FINGERPRINT},200,{integrity:true});
+      if(request.method!=="POST") return auditJson({error:"not_found"},404,{integrity:true});
+      const body=await request.json().catch(()=>({}));
+      if(body.fingerprint!==SCHOOL_DEDUPE_REPAIR_FINGERPRINT) return auditJson({error:"not_found"},404,{integrity:true});
+      const result=await runStatewideIntegrityGate(env,{now:new Date(),reason:"school-schedule-duplicate-cleanup"});
+      return auditJson({status:"EXECUTED",fingerprint:SCHOOL_DEDUPE_REPAIR_FINGERPRINT,result},200,{integrity:true});
+    }
     const coverageView=request.method==="GET" && url.pathname==="/api/v1/coverage-report"
       ? url.searchParams.get("view")
       : null;
