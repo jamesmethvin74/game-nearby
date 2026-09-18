@@ -275,8 +275,9 @@
     tableWrap.hidden = false;
     card.setAttribute("aria-busy", "false");
     updated.textContent = payload?.retrieved_at ? `Updated ${new Date(payload.retrieved_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "";
-    if (conference.source_url) {
-      sourceLink.href = conference.source_url;
+    const presentationSourceUrl = conference.presentation_source_url || conference.source_url || "";
+    if (presentationSourceUrl) {
+      sourceLink.href = presentationSourceUrl;
       source.hidden = false;
     } else {
       source.hidden = true;
