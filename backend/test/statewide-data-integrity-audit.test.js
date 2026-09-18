@@ -299,8 +299,8 @@ test("pre-official and benefit contests are not part of the audited app-visible 
       season:"2026",
       game_id:"benefit-football",
       opponent:"Joe T. Robinson High School",
-      raw_scheduled_at:"2026-09-05T00:00:00.000Z",
-      canonical_scheduled_at:"2026-09-05T00:00:00.000Z",
+      raw_scheduled_at:"2026-08-22T00:00:00.000Z",
+      canonical_scheduled_at:"2026-08-22T00:00:00.000Z",
       status:"SCHEDULED",
       counts_for_record:1,
       parser_type:"dragonfly-public"
