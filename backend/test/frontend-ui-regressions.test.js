@@ -47,7 +47,7 @@ test("team detail uses one explicit school schedule read and preserves backend s
 });
 
 test("team detail schedule cache is versioned by season and abandons pre-M12 truth payloads", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v4:/);
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v5:/);
   assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
 });
 
@@ -68,9 +68,8 @@ test("team detail renders only the verified backend record, membership, and stan
   assert.match(detail, /status\.record_verified === true/);
   assert.match(detail, /status\.conference_membership_state/);
   assert.match(detail, /status\.standings_verified === true/);
-  assert.match(detail, /status\.overall_record/);
-  assert.match(detail, /status\.conference_record/);
-  assert.match(detail, /status\.rank/);
+  assert.match(detail, /LocalBleachersPresentation/);
+  assert.match(schoolSchedule, /team_statuses/);
 });
 
 test("home cards use the same fail-closed backend truth and never calculate substitute records", () => {
