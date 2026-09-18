@@ -11,7 +11,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    name: inspect-baptist-duplicate
+    name: verify-baptist-alias-live
     steps:
       - name: Verify factual team cards and official-season schedules
         shell: bash
@@ -40,8 +40,17 @@ jobs:
             const fb=(nlrRes.body.team_statuses||[]).find(s=>String(s.sport||'').toLowerCase()==='football'&&String(s.gender||'').toLowerCase()==='boys');
             const hasDisplay=fb && Object.prototype.hasOwnProperty.call(fb,'display_conference_record') && Object.prototype.hasOwnProperty.call(fb,'display_rank');
             const shellReady=/team-detail\.js\?v=66/.test(root.text);
-            console.log('VERIFY_WAIT='+JSON.stringify({attempt,http:nlrRes.status,hasDisplay,shellReady,display_conf:fb?.display_conference_record??null,display_rank:fb?.display_rank??null}));
-            if(nlrRes.status===200 && hasDisplay && shellReady){ready=true;break;}
+            const bryantSchool=schools.find(s=>normalize(s.name)===normalize('Bryant High School'));
+            let baptistCount=null,baptistObservations=null;
+            if(bryantSchool){
+              const bryantReady=await get('/api/v1/schools/'+encodeURIComponent(bryantSchool.id)+'/schedule');
+              const baptist=(bryantReady.body.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='volleyball' && String(g.scheduled_at||g.canonical_scheduled_at||'').slice(0,10)==='2026-09-01' && /baptist/i.test(String(g.opponent||'')));
+              baptistCount=baptist.length;
+              baptistObservations=baptist[0]?.schedule_observation_count??null;
+            }
+            const aliasReady=baptistCount===1 && Number(baptistObservations||0)>=2;
+            console.log('VERIFY_WAIT='+JSON.stringify({attempt,http:nlrRes.status,hasDisplay,shellReady,aliasReady,baptistCount,baptistObservations,display_conf:fb?.display_conference_record??null,display_rank:fb?.display_rank??null}));
+            if(nlrRes.status===200 && hasDisplay && shellReady && aliasReady){ready=true;break;}
             await sleep(5000);
           }
           if(!ready) throw new Error('new factual team presentation contract never reached production');
@@ -79,7 +88,9 @@ jobs:
             van_buren_regular_present:hasRow(van,'volleyball','rogers','2026-08-24'),
             nlr_display_overall:Boolean(nlrFootball?.display_overall_record),
             nlr_display_conference:Boolean(nlrFootball?.display_conference_record),
-            nlr_display_fields_present:Boolean(nlrFootball&&Object.prototype.hasOwnProperty.call(nlrFootball,'display_rank'))
+            nlr_display_fields_present:Boolean(nlrFootball&&Object.prototype.hasOwnProperty.call(nlrFootball,'display_rank')),
+            bryant_baptist_collapsed:bryant.rows.filter(g=>String(g.sport||'').toLowerCase()==='volleyball' && dateOf(g)==='2026-09-01' && /baptist/i.test(String(g.opponent||''))).length===1,
+            bryant_baptist_corroborated:Number(bryant.rows.find(g=>String(g.sport||'').toLowerCase()==='volleyball' && dateOf(g)==='2026-09-01' && /baptist/i.test(String(g.opponent||'')))?.schedule_observation_count||0)>=2
           };
           console.log('TEAM_PRESENTATION_CHECKS='+JSON.stringify(checks));
           console.log('NLR_FOOTBALL_STATUS='+JSON.stringify(nlrFootball||null));
