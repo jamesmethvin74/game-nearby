@@ -67,7 +67,7 @@
       return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };
     }
 
-    return { overall:"N/A", conference:"N/A", standing:"N/A", conferenceName:"Conference not available" };
+    return { overall:"—", conference:"—", standing:"—", conferenceName:"Conference not available" };
   }
 
   function ensureDialog() {
