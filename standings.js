@@ -257,14 +257,21 @@
     title.textContent = conference.name || "Conference standings";
     body.innerHTML = rows.map((row, index) => `
       <tr>
-        <td class="rank-col">${escapeHtml(row.rank ?? index + 1)}</td>
+        <td class="rank-col">${escapeHtml(row.rank ?? "—")}</td>
         <td class="standings-team">${escapeHtml(row.school_name)}</td>
         <td class="standings-record conf-col">${escapeHtml(row.conference_record || "0-0")}</td>
         <td class="standings-record overall-col">${escapeHtml(row.overall_record || "0-0")}</td>
         <td class="standings-pct pct-col">${escapeHtml(row.conference_pct || "—")}</td>
       </tr>`).join("");
 
-    status.hidden = true;
+    const notStarted = rows.length > 0 && rows.every(row => row.standing_state === "not-started");
+    if (notStarted) {
+      status.classList.remove("standings-error");
+      status.textContent = "Conference play has not started. Verified members are 0-0 in conference.";
+      status.hidden = false;
+    } else {
+      status.hidden = true;
+    }
     tableWrap.hidden = false;
     card.setAttribute("aria-busy", "false");
     updated.textContent = payload?.retrieved_at ? `Updated ${new Date(payload.retrieved_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "";
