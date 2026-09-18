@@ -183,7 +183,7 @@ export const STATEWIDE_SQL={
       opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
       venue=excluded.venue,location_text=excluded.location_text,latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),
       home_away=excluded.home_away,conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
-      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,source_url=excluded.source_url,
+      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=${suppressionPreservingNotesSql("games","excluded")},source_url=excluded.source_url,
       source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at,canonical_event_id=excluded.canonical_event_id`,
   upsertCanonical:`
     INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
