@@ -6,6 +6,7 @@ export const STATEWIDE_REPAIR_CODES=new Set([
   "SPLIT_CANONICAL_LOGICAL_GAME",
   "STALE_NONTERMINAL_TWIN_OF_FINAL",
   "DUPLICATE_SCHEDULE_ENTRY",
+  "FOOTBALL_SAME_DAY_COLLISION",
   "DISPLAY_FINAL_MISSING_SCORE",
   "PAST_DUE_NONTERMINAL_DISPLAY"
 ]);
@@ -443,7 +444,7 @@ function suppressionTargetsFromAudit(audit={}) {
     } else if(issue.code==="DISPLAY_FINAL_MISSING_SCORE") {
       if(issue.canonical_event_id) unresolvedCanonicalIds.add(String(issue.canonical_event_id));
       else if(issue.game_id) ids.add(String(issue.game_id));
-    } else if(issue.code==="SPLIT_CANONICAL_LOGICAL_GAME" || issue.code==="DUPLICATE_SCHEDULE_ENTRY") {
+    } else if(issue.code==="SPLIT_CANONICAL_LOGICAL_GAME" || issue.code==="DUPLICATE_SCHEDULE_ENTRY" || issue.code==="FOOTBALL_SAME_DAY_COLLISION") {
       if(issue.game_id) ids.add(String(issue.game_id));
     }
   }
