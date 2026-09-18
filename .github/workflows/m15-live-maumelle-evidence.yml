@@ -1,4 +1,4 @@
-name: M15 live Maumelle evidence
+name: M15 final fresh-client proof
 on:
   push:
     branches:
@@ -8,70 +8,76 @@ on:
 permissions:
   contents: read
 jobs:
-  inspect:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    name: inspect-live-maumelle
+    timeout-minutes: 20
+    name: verify-fresh-client-live
     steps:
-      - name: Inspect live Maumelle and 6A Central
+      - name: Verify fresh production client and factual payloads
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
-          const get=async path=>{
-            const r=await fetch(base+path,{headers:{accept:'application/json'},cache:'no-store'});
-            const text=await r.text();
-            let body; try{body=JSON.parse(text);}catch{body=text;}
-            return {status:r.status,headers:Object.fromEntries(r.headers),body};
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          const text=async path=>{
+            const r=await fetch(base+path,{cache:'no-store'});
+            return {status:r.status,body:await r.text()};
           };
-          const normalize=s=>String(s||'').toLowerCase().replace(/\bhigh school\b/g,'').replace(/[^a-z0-9]+/g,' ').trim();
-          const schools=(await get('/api/v1/schools')).body.schools||[];
-          const maumelle=schools.find(s=>normalize(s.name)===normalize('Maumelle High School'));
-          console.log('MAUMELLE_SCHOOL='+JSON.stringify(maumelle||null));
-          if(maumelle){
-            const sched=await get('/api/v1/schools/'+encodeURIComponent(maumelle.id)+'/schedule');
-            console.log('MAUMELLE_SCHEDULE='+JSON.stringify({
-              http:sched.status,
-              team_statuses:(sched.body.team_statuses||[]).map(s=>({
-                team_id:s.team_id,sport:s.sport,gender:s.gender,
-                conference_id:s.conference_id,conference_name:s.conference_name,
-                overall_record:s.overall_record,conference_record:s.conference_record,rank:s.rank,
-                display_overall_record:s.display_overall_record,
-                display_conference_record:s.display_conference_record,
-                display_rank:s.display_rank,
-                display_method:s.display_method,
-                record_verified:s.record_verified,standing_state:s.standing_state,
-                source:s.source
-              })),
-              games:(sched.body.games||[]).slice(0,20).map(g=>({
-                id:g.id,team_id:g.reporting_team_id||g.team_id,sport:g.sport,gender:g.gender,
-                opponent:g.opponent,scheduled_at:g.scheduled_at||g.canonical_scheduled_at,
-                status:g.status,team_score:g.team_score,opponent_score:g.opponent_score,
-                notes:g.notes||null,parser_type:g.parser_type,counts_for_record:g.counts_for_record,
-                source_type:g.source_type
-              }))
-            }));
+          const json=async path=>{
+            const r=await fetch(base+path,{headers:{accept:'application/json'},cache:'no-store'});
+            return {status:r.status,body:await r.json()};
+          };
+          let ready=false;
+          for(let attempt=1;attempt<=120;attempt++){
+            const [sw,index,standingsHtml,standingsJs,scheduleJs]=await Promise.all([
+              text('/service-worker.js'),
+              text('/index.html'),
+              text('/standings.html'),
+              text('/standings.js'),
+              text('/school-schedule.js')
+            ]);
+            const markers={
+              sw67:/localbleachersar-shell-v67/.test(sw.body),
+              navNetworkFirst:/fetch\(event\.request, \{ cache: "no-store" \}\)/.test(sw.body),
+              index67:/team-detail\.js\?v=67/.test(index.body)&&/school-schedule\.js\?v=67/.test(index.body)&&/service-worker\.js\?v=67/.test(index.body),
+              standings67:/standings\.js\?v=67/.test(standingsHtml.body)&&/service-worker\.js\?v=67/.test(standingsHtml.body),
+              scheduleV5:/localBleachersAR:teamSchedule:v5:/.test(scheduleJs.body),
+              displayFields:/display_rank/.test(standingsJs.body)&&/display_conference_record/.test(standingsJs.body)&&/display_overall_record/.test(standingsJs.body),
+              oldMessage:/Published standings are available only as evidence/.test(standingsJs.body)
+            };
+            console.log('FRESH_WAIT='+JSON.stringify({attempt,markers}));
+            if(Object.entries(markers).every(([k,v])=>k==='oldMessage'?!v:v)){ready=true;break;}
+            await sleep(5000);
           }
-          const standings=await get('/api/v1/standings?sport=volleyball&conference=6a-central');
-          console.log('VB_6A_CENTRAL='+JSON.stringify({
-            http:standings.status,
-            conference:standings.body.conference||null,
-            standings:(standings.body.standings||[]).map(r=>({
-              team_id:r.team_id,school_name:r.school_name,rank:r.rank,
-              conference_record:r.conference_record,overall_record:r.overall_record,
-              published_rank:r.published_rank,published_conference_record:r.published_conference_record,published_overall_record:r.published_overall_record,
-              display_rank:r.display_rank,display_conference_record:r.display_conference_record,display_overall_record:r.display_overall_record,
-              display_method:r.display_method
+          if(!ready) throw new Error('fresh client contract did not reach production');
+
+          const schools=(await json('/api/v1/schools')).body.schools||[];
+          const normalize=s=>String(s||'').toLowerCase().replace(/\bhigh school\b/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+          const maumelle=schools.find(s=>normalize(s.name)===normalize('Maumelle High School'));
+          const schedule=await json('/api/v1/schools/'+encodeURIComponent(maumelle.id)+'/schedule');
+          const football=(schedule.body.team_statuses||[]).find(s=>s.sport==='football');
+          const volleyball=(schedule.body.team_statuses||[]).find(s=>s.sport==='volleyball');
+          const standings=await json('/api/v1/standings?sport=volleyball&conference=6a-central');
+
+          console.log('FRESH_RESULT='+JSON.stringify({
+            maumelle_football:{
+              overall:football?.display_overall_record,
+              conference:football?.display_conference_record,
+              rank:football?.display_rank,
+              method:football?.display_method
+            },
+            maumelle_volleyball:{
+              overall:volleyball?.display_overall_record,
+              conference:volleyball?.display_conference_record,
+              rank:volleyball?.display_rank,
+              method:volleyball?.display_method
+            },
+            six_a_central:(standings.body.standings||[]).map(r=>({
+              school:r.school_name,rank:r.display_rank,conference:r.display_conference_record,overall:r.display_overall_record,method:r.display_method
             }))
           }));
-          for(const p of ['/standings.html','/standings.js','/team-detail.js','/service-worker.js']){
-            const r=await fetch(base+p,{cache:'no-store'});
-            const t=await r.text();
-            console.log('ASSET='+JSON.stringify({path:p,http:r.status,len:t.length,head:t.slice(0,500),markers:{
-              hasDisplay:/display_overall_record|display_conference_record|display_rank/.test(t),
-              shellV66:/localbleachersar-shell-v66/.test(t),
-              standingsV65:/standings\.js\?v=65/.test(t)
-            }}));
-          }
+
+          if(!football?.display_overall_record || !volleyball?.display_overall_record) throw new Error('Maumelle factual display records missing');
+          if((standings.body.standings||[]).some(r=>r.display_conference_record==null||r.display_overall_record==null)) throw new Error('6A Central factual display values missing');
           NODE
