@@ -255,14 +255,19 @@
     const conference = payload?.conference || {};
     sportLabel.textContent = String(conference.sport || selectedSport || "sport").toUpperCase();
     title.textContent = conference.name || "Conference standings";
-    body.innerHTML = rows.map((row, index) => `
-      <tr>
-        <td class="rank-col">${escapeHtml(row.rank ?? "—")}</td>
+    body.innerHTML = rows.map(row => {
+      const rank = row.display_rank ?? row.rank ?? "—";
+      const conferenceRecord = row.display_conference_record ?? row.conference_record ?? "—";
+      const overallRecord = row.display_overall_record ?? row.overall_record ?? "—";
+      return `
+      <tr data-display-method="${escapeHtml(row.display_method || "canonical-unverified")}">
+        <td class="rank-col">${escapeHtml(rank)}</td>
         <td class="standings-team">${escapeHtml(row.school_name)}</td>
-        <td class="standings-record conf-col">${escapeHtml(row.conference_record || "0-0")}</td>
-        <td class="standings-record overall-col">${escapeHtml(row.overall_record || "0-0")}</td>
+        <td class="standings-record conf-col">${escapeHtml(conferenceRecord)}</td>
+        <td class="standings-record overall-col">${escapeHtml(overallRecord)}</td>
         <td class="standings-pct pct-col">${escapeHtml(row.conference_pct || "—")}</td>
-      </tr>`).join("");
+      </tr>`;
+    }).join("");
 
     const notStarted = rows.length > 0 && rows.every(row => row.standing_state === "not-started");
     if (notStarted) {
