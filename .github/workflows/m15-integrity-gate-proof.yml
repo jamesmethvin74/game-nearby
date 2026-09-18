@@ -22,7 +22,7 @@ jobs:
           node <<'NODE'
           const BASE='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const PATH='/api/v1/internal/m15-integrity-gate-proof-20260918-7fd31c84';
-          const FP='m15-integrity-gate-v1-proof-20260918';
+          const FP='m15-integrity-gate-v2-proof-20260918';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
           async function call(method,body=null,timeoutMs=1800000){
