@@ -264,26 +264,35 @@
   };
 
   const primedStatusSchools = new Set();
-  const primingStatusSchools = new Set();
-  const MAX_VISIBLE_STATUS_SCHOOLS = 48;
+  const MAX_VISIBLE_STATUS_SCHOOLS = 32;
 
   async function primeVisibleTeamStatuses() {
     const nearby = live.getNearbyEvents?.() || [];
     const schoolIds = [...new Set(nearby.map(event => event?.teamId).filter(Boolean))].slice(0, MAX_VISIBLE_STATUS_SCHOOLS);
-    const pending = schoolIds.filter(schoolId => !primedStatusSchools.has(schoolId) && !primingStatusSchools.has(schoolId));
+    const pending = schoolIds.filter(schoolId => !primedStatusSchools.has(schoolId));
     if (!pending.length) return;
-    await Promise.allSettled(pending.map(async schoolId => {
-      primingStatusSchools.add(schoolId);
-      try {
-        await live.fetchTeamSchedule(schoolId);
-        if ((statusCache.get(memoryCacheKey(schoolId)) || []).length) primedStatusSchools.add(schoolId);
-      } catch (error) {
-        console.warn("Visible team status prime failed", schoolId, error);
-      } finally {
-        primingStatusSchools.delete(schoolId);
+
+    try {
+      const params = new URLSearchParams({ school_ids: pending.join(",") });
+      const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`);
+      const statuses = Array.isArray(payload?.team_statuses) ? payload.team_statuses : [];
+      const bySchool = new Map();
+      for (const status of statuses) {
+        const schoolId = String(status?.school_id || "");
+        if (!schoolId) continue;
+        if (!bySchool.has(schoolId)) bySchool.set(schoolId, []);
+        bySchool.get(schoolId).push(status);
       }
-    }));
-    if (typeof render === "function") render();
+      for (const schoolId of pending) {
+        const schoolStatuses = bySchool.get(schoolId) || [];
+        if (!schoolStatuses.length) continue;
+        setStatuses(schoolId, schoolStatuses);
+        primedStatusSchools.add(schoolId);
+      }
+      if (typeof render === "function") render();
+    } catch (error) {
+      console.warn("Visible team status batch prime failed", error);
+    }
   }
 
   live.primeVisibleTeamStatuses = primeVisibleTeamStatuses;
