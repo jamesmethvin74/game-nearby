@@ -47,6 +47,7 @@ export function highSchoolOfficialSeasonBoundary(row = {}) {
 }
 
 export function rowIsOfficialSeasonContest(row = {}, { timeZone="America/Chicago" } = {}) {
+  if (row.countsForRecord === false || Number(row.counts_for_record) === 0) return false;
   const descriptiveText=[row.notes,row.opponent,row.venue,row.location_text]
     .map(clean)
     .filter(Boolean)
