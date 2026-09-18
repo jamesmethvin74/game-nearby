@@ -37,6 +37,7 @@ function plan(kind, options = {}) {
     // other's source capacity.
     runCollegeLive: Boolean(options.runCollegeLive),
     runCatalogMaintenance: Boolean(options.runCatalogMaintenance),
+    runIntegrityGate: Boolean(options.runIntegrityGate),
     scope: options.scope || "all",
     activeResultMinutes: Number(options.activeResultMinutes || 0) || null
   };
@@ -61,6 +62,7 @@ export function collectionPlanAt(value = new Date()) {
     return plan("weekly-catalog-maintenance", {
       runStatewide: true,
       runCatalogMaintenance: true,
+      runIntegrityGate: true,
       scope: "catalog"
     });
   }
@@ -82,6 +84,7 @@ export function collectionPlanAt(value = new Date()) {
       liveStatewideSports: liveSportKeys({ volleyballSeason, basketballSeason }),
       runCore: true,
       runCollegeLive: true,
+      runIntegrityGate: fridayLate && hour === 1 && minute === 0,
       scope: "football-game-day",
       activeResultMinutes: 30
     });
@@ -128,6 +131,7 @@ export function collectionPlanAt(value = new Date()) {
     return plan("saturday-college-results", {
       liveStatewideSports,
       runCore: true,
+      runIntegrityGate: saturdayLate && hour === 2 && minute === 0,
       scope: "college-game-day",
       activeResultMinutes: 30
     });
@@ -137,6 +141,7 @@ export function collectionPlanAt(value = new Date()) {
     return plan("morning-results", {
       runStatewide: true,
       runCore: true,
+      runIntegrityGate: true,
       scope: "all"
     });
   }
@@ -145,6 +150,7 @@ export function collectionPlanAt(value = new Date()) {
     return plan("afternoon-schedule-check", {
       runStatewide: true,
       runCore: true,
+      runIntegrityGate: true,
       scope: "all"
     });
   }
@@ -153,6 +159,7 @@ export function collectionPlanAt(value = new Date()) {
     return plan("evening-results", {
       runStatewide: true,
       runCore: true,
+      runIntegrityGate: true,
       scope: "all"
     });
   }
