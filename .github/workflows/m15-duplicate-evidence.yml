@@ -12,58 +12,80 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    name: inspect-live-duplicates
+    timeout-minutes: 20
     steps:
-      - name: Inspect live Bryant and North Little Rock schedules
+      - name: Verify live school schedule duplicate cleanup
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
           const get=async path=>{
-            const r=await fetch(base+path,{headers:{accept:'application/json'}});
+            const r=await fetch(base+path,{headers:{accept:'application/json'},cache:'no-store'});
             const text=await r.text();
             let body={};
             try{body=JSON.parse(text);}catch{body={raw:text.slice(0,1000)};}
             return {status:r.status,body};
           };
+          const localDate=iso=>{
+            if(!iso) return '';
+            const parts=new Intl.DateTimeFormat('en-US',{
+              timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'
+            }).formatToParts(new Date(iso));
+            const map=Object.fromEntries(parts.map(p=>[p.type,p.value]));
+            return `${map.year}-${map.month}-${map.day}`;
+          };
+          const summarize=g=>({
+            id:g.id,canonical_event_id:g.canonical_event_id||null,sport:g.sport,gender:g.gender,
+            opponent:g.opponent,opponent_school_id:g.opponent_school_id||null,
+            scheduled_at:g.scheduled_at||g.canonical_scheduled_at,status:g.status,
+            team_score:g.team_score,opponent_score:g.opponent_score,venue:g.venue,
+            source_type:g.source_type,parser_type:g.parser_type,
+            schedule_observation_count:g.schedule_observation_count
+          });
 
-          const schools=(await get('/api/v1/schools')).body.schools||[];
-          const targets=schools.filter(s=>/Bryant High School|North Little Rock High School/i.test(String(s.name||'')));
-          console.log('DUP_SCHOOLS='+JSON.stringify(targets.map(s=>({id:s.id,name:s.name,team_count:s.team_count}))));
-
-          for(const school of targets){
-            for(const sport of ['volleyball','football','basketball','soccer']){
-              const id=`${school.id}-${sport}-2026`;
-              const res=await get('/api/v1/teams/'+encodeURIComponent(id)+'/schedule');
-              if(res.status!==200){
-                console.log('DUP_TEAM='+JSON.stringify({school:school.name,id,http:res.status}));
-                continue;
-              }
-              const games=res.body.games||[];
-              const focus=games.filter(g=>{
-                const d=String(g.scheduled_at||g.canonical_scheduled_at||'');
-                if(/Bryant/i.test(school.name)) return /2026-08-27|2026-08-28|2026-09-04/.test(d);
-                return /2026-08-18|2026-08-21|2026-08-24/.test(d);
-              }).map(g=>({
-                id:g.id,
-                canonical_event_id:g.canonical_event_id||null,
-                sport:g.sport,
-                gender:g.gender,
-                opponent:g.opponent,
-                opponent_school_id:g.opponent_school_id||null,
-                scheduled_at:g.scheduled_at||g.canonical_scheduled_at,
-                status:g.status,
-                team_score:g.team_score,
-                opponent_score:g.opponent_score,
-                venue:g.venue,
-                source_type:g.source_type,
-                parser_type:g.parser_type,
-                authority_rank:g.authority_rank,
-                schedule_observation_count:g.schedule_observation_count
-              }));
-              console.log('DUP_TEAM='+JSON.stringify({school:school.name,id,http:res.status,count:games.length,focus}));
-            }
+          function group(games,{sport,gender,date,opponent}){
+            return games.filter(g=>
+              String(g.sport||'')===sport
+              && String(g.gender||'')===gender
+              && localDate(g.scheduled_at||g.canonical_scheduled_at)===date
+              && opponent.test(String(g.opponent||''))
+            );
           }
+
+          let final=null;
+          for(let attempt=1;attempt<=120;attempt++){
+            const bryant=await get('/api/v1/schools/df-2tr733/schedule');
+            const nlr=await get('/api/v1/schools/df-hrdb8f/schedule');
+            if(bryant.status!==200||nlr.status!==200){
+              console.log('DUP_WAIT='+JSON.stringify({attempt,bryant:bryant.status,nlr:nlr.status}));
+              await sleep(5000);
+              continue;
+            }
+            const bg=bryant.body.games||[];
+            const ng=nlr.body.games||[];
+            const checks={
+              bryant_benton_volleyball:group(bg,{sport:'volleyball',gender:'girls',date:'2026-08-27',opponent:/Benton/i}),
+              bryant_benton_football:group(bg,{sport:'football',gender:'boys',date:'2026-08-28',opponent:/Benton/i}),
+              bryant_alexandria_football:group(bg,{sport:'football',gender:'boys',date:'2026-09-04',opponent:/Alexandria/i}),
+              nlr_pulaski_volleyball:group(ng,{sport:'volleyball',gender:'girls',date:'2026-08-18',opponent:/Pulaski Academy/i}),
+              nlr_beebe_volleyball:group(ng,{sport:'volleyball',gender:'girls',date:'2026-08-24',opponent:/Beebe/i})
+            };
+            const counts=Object.fromEntries(Object.entries(checks).map(([k,v])=>[k,v.length]));
+            console.log('DUP_LIVE='+JSON.stringify({
+              attempt,counts,
+              focus:Object.fromEntries(Object.entries(checks).map(([k,v])=>[k,v.map(summarize)]))
+            }));
+            if(Object.values(counts).every(value=>value===1)){
+              final={counts,checks};
+              break;
+            }
+            await sleep(5000);
+          }
+          if(!final) throw new Error('school schedule duplicate cleanup did not converge');
+          console.log('DUP_LIVE_VERIFIED='+JSON.stringify({
+            counts:final.counts,
+            focus:Object.fromEntries(Object.entries(final.checks).map(([k,v])=>[k,v.map(summarize)]))
+          }));
           NODE
