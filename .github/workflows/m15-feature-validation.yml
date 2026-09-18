@@ -13,7 +13,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: validate-m15
+    name: validate-m15-lifecycle
     defaults:
       run:
         working-directory: backend
