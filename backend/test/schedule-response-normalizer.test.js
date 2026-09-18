@@ -363,3 +363,49 @@ test("legacy bare zero does not hide an otherwise ordinary regular-season final"
   };
   assert.equal(rowIsOfficialSeasonContest(legacy),true);
 });
+
+
+test("Bryant Baptist Prep and The Baptist Preparatory School collapse into one exact final",()=>{
+  const dragonfly={
+    id:"dragonfly-baptist",
+    canonical_event_id:"ce-baptist",
+    school_id:"bryant",
+    sport:"volleyball",
+    gender:"girls",
+    scheduled_at:"2026-09-01T23:00:00.000Z",
+    scheduled_time_known:1,
+    opponent:"The Baptist Preparatory School",
+    opponent_school_id:"df-vc87t4",
+    status:"FINAL",
+    team_score:2,
+    opponent_score:3,
+    result:"L",
+    counts_for_record:1,
+    source_type:"official-conference",
+    parser_type:"dragonfly-public"
+  };
+  const school={
+    id:"school-baptist",
+    school_id:"bryant",
+    sport:"volleyball",
+    gender:"girls",
+    scheduled_at:"2026-09-01T23:00:00.000Z",
+    scheduled_time_known:1,
+    opponent:"Baptist Prep",
+    opponent_school_id:null,
+    status:"FINAL",
+    team_score:2,
+    opponent_score:3,
+    result:"L",
+    counts_for_record:1,
+    source_type:"official-school",
+    parser_type:"mascot-media"
+  };
+  assert.equal(opponentNamesLikelySame(dragonfly.opponent,school.opponent),true);
+  assert.equal(scheduleRowsLikelyDuplicate(dragonfly,school,{reportingSchoolId:"bryant"}),true);
+  const rows=dedupeScheduleRows([dragonfly,school],{reportingSchoolId:"bryant"});
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].team_score,2);
+  assert.equal(rows[0].opponent_score,3);
+  assert.equal(rows[0].schedule_observation_count,2);
+});
