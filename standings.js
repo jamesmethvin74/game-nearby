@@ -256,37 +256,33 @@
     sportLabel.textContent = String(conference.sport || selectedSport || "sport").toUpperCase();
     title.textContent = conference.name || "Conference standings";
     body.innerHTML = rows.map(row => {
-      const rank = row.display_rank ?? row.rank ?? "—";
-      const conferenceRecord = row.display_conference_record ?? row.conference_record ?? "—";
-      const overallRecord = row.display_overall_record ?? row.overall_record ?? "—";
+      const display = window.LocalBleachersPresentation?.standingRow?.(row) || {
+        rank: row.display_rank ?? row.rank ?? "—",
+        conference: row.display_conference_record ?? row.conference_record ?? "—",
+        overall: row.display_overall_record ?? row.overall_record ?? "—",
+        pct: row.conference_pct ?? "—",
+        method: row.display_method || "canonical-unverified"
+      };
       return `
-      <tr data-display-method="${escapeHtml(row.display_method || "canonical-unverified")}">
-        <td class="rank-col">${escapeHtml(rank)}</td>
-        <td class="standings-team">${escapeHtml(row.school_name)}</td>
-        <td class="standings-record conf-col">${escapeHtml(conferenceRecord)}</td>
-        <td class="standings-record overall-col">${escapeHtml(overallRecord)}</td>
-        <td class="standings-pct pct-col">${escapeHtml(row.conference_pct || "—")}</td>
+      <tr data-display-method="${escapeHtml(display.method)}">
+        <td class="rank-col">${escapeHtml(display.rank)}</td>
+        <td class="standings-team">${escapeHtml(row.school_name || "Team")}</td>
+        <td class="standings-record conf-col">${escapeHtml(display.conference)}</td>
+        <td class="standings-record overall-col">${escapeHtml(display.overall)}</td>
+        <td class="standings-pct pct-col">${escapeHtml(display.pct)}</td>
       </tr>`;
     }).join("");
-
     const notStarted = rows.length > 0 && rows.every(row => row.standing_state === "not-started");
     if (notStarted) {
       status.classList.remove("standings-error");
       status.textContent = "Conference play has not started. Verified members are 0-0 in conference.";
       status.hidden = false;
-    } else {
-      status.hidden = true;
-    }
-    tableWrap.hidden = false;
-    card.setAttribute("aria-busy", "false");
-    updated.textContent = payload?.retrieved_at ? `Updated ${new Date(payload.retrieved_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "";
+    } else status.hidden = true;
+    tableWrap.hidden = rows.length === 0;
+    card.setAttribute("aria-busy","false");
+    updated.textContent = payload?.retrieved_at ? `Updated ${new Date(payload.retrieved_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}` : "";
     const presentationSourceUrl = conference.presentation_source_url || conference.source_url || "";
-    if (presentationSourceUrl) {
-      sourceLink.href = presentationSourceUrl;
-      source.hidden = false;
-    } else {
-      source.hidden = true;
-    }
+    if (presentationSourceUrl) { sourceLink.href=presentationSourceUrl; source.hidden=false; } else source.hidden=true;
     renderFavorites();
   }
 
