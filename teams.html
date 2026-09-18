@@ -95,14 +95,26 @@
   </nav>
 
   <script>const SCHOOL_REGISTRY=[];const teams=[];const events=[];</script>
+  <script src="runtime-build.js?v=71"></script>
+  <script src="presentation-status.js?v=71"></script>
   <script src="live-data.js?v=55"></script>
   <script src="teams-catalog-bootstrap.js?v=62"></script>
-  <script src="school-schedule.js?v=55"></script>
-  <script src="team-detail.js?v=55"></script>
+  <script src="school-schedule.js?v=71"></script>
+  <script src="team-detail.js?v=71"></script>
   <script src="school-logo-ui.js?v=61"></script>
   <script src="teams-page.js?v=61"></script>
   <script>
-    if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
+    if("serviceWorker" in navigator){
+      let swReloading=false;
+      navigator.serviceWorker.addEventListener("controllerchange",()=>{
+        if(swReloading) return;
+        swReloading=true;
+        location.reload();
+      });
+      navigator.serviceWorker.register("./service-worker.js?v=71",{scope:"./",updateViaCache:"none"})
+        .then(registration=>registration.update())
+        .catch(err=>console.warn("Service worker registration failed",err));
+    }
   </script>
 </body>
 </html>
