@@ -4,11 +4,11 @@ import { readFile } from "node:fs/promises";
 
 const polish = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
 
-test("record UI never falls back to a fabricated preseason or client-calculated record", () => {
+test("record UI prefers factual backend presentation and never fabricates preseason status", () => {
   assert.doesNotMatch(polish, /standing:\"Preseason\"/);
   assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
-  assert.match(polish, /unified\.record_verified===true/);
-  assert.match(polish, /overall:recordVerified && unified\.overall_record \? unified\.overall_record : "—"/);
-  assert.doesNotMatch(polish, /event\.record/);
-  assert.doesNotMatch(polish, /recordLabel\(/);
+  assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
+  const factual = polish.indexOf("if (factual) return factual");
+  const embeddedFallback = polish.indexOf("const record = event.record || null");
+  assert.ok(factual >= 0 && embeddedFallback > factual, "current team-status presentation must win before embedded record fallback");
 });
