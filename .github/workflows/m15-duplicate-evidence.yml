@@ -1,0 +1,68 @@
+name: One-shot duplicate schedule evidence
+on:
+  push:
+    branches:
+      - m15/statewide-repair-reconciliation-20260917
+    paths:
+      - .github/workflows/m15-duplicate-evidence.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Inspect live Bryant and North Little Rock schedules
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const get=async path=>{
+            const r=await fetch(base+path,{headers:{accept:'application/json'}});
+            const text=await r.text();
+            let body={};
+            try{body=JSON.parse(text);}catch{body={raw:text.slice(0,1000)};}
+            return {status:r.status,body};
+          };
+
+          const schools=(await get('/api/v1/schools')).body.schools||[];
+          const targets=schools.filter(s=>/Bryant High School|North Little Rock High School/i.test(String(s.name||'')));
+          console.log('DUP_SCHOOLS='+JSON.stringify(targets.map(s=>({id:s.id,name:s.name,team_count:s.team_count}))));
+
+          for(const school of targets){
+            for(const sport of ['volleyball','football','basketball','soccer']){
+              const id=`${school.id}-${sport}-2026`;
+              const res=await get('/api/v1/teams/'+encodeURIComponent(id)+'/schedule');
+              if(res.status!==200){
+                console.log('DUP_TEAM='+JSON.stringify({school:school.name,id,http:res.status}));
+                continue;
+              }
+              const games=res.body.games||[];
+              const focus=games.filter(g=>{
+                const d=String(g.scheduled_at||g.canonical_scheduled_at||'');
+                if(/Bryant/i.test(school.name)) return /2026-08-27|2026-08-28|2026-09-04/.test(d);
+                return /2026-08-18|2026-08-21|2026-08-24/.test(d);
+              }).map(g=>({
+                id:g.id,
+                canonical_event_id:g.canonical_event_id||null,
+                sport:g.sport,
+                gender:g.gender,
+                opponent:g.opponent,
+                opponent_school_id:g.opponent_school_id||null,
+                scheduled_at:g.scheduled_at||g.canonical_scheduled_at,
+                status:g.status,
+                team_score:g.team_score,
+                opponent_score:g.opponent_score,
+                venue:g.venue,
+                source_type:g.source_type,
+                parser_type:g.parser_type,
+                authority_rank:g.authority_rank,
+                schedule_observation_count:g.schedule_observation_count
+              }));
+              console.log('DUP_TEAM='+JSON.stringify({school:school.name,id,http:res.status,count:games.length,focus}));
+            }
+          }
+          NODE
