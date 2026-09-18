@@ -18,9 +18,7 @@ jobs:
           node-version: 22
       - name: Full repository check
         working-directory: backend
-        run: |
-          npm ci
-          npm run check
+        run: npm run check
       - name: Verify live client and Worker factual presentation
         shell: bash
         run: |
