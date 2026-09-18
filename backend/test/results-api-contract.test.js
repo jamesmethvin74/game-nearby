@@ -12,9 +12,11 @@ test("team schedule and record routes recalculate from the shared result engine"
   assert.match(index, /return json\(\{teamId,games,record:/);
 });
 
-test("frontend consumes live record payloads instead of preseason placeholders", () => {
+test("frontend consumes backend team-status presentation before embedded record fallback", () => {
   assert.match(live, /normalizeRecord/);
   assert.match(live, /const record = normalizeRecord\(payload\?\.record\)/);
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
-  assert.match(polish, /overall:recordLabel\(record\.wins,record\.losses,record\.ties\)/);
+  assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
+  assert.ok(polish.indexOf("if (factual) return factual") < polish.indexOf("const record = event.record || null"));
 });
