@@ -11,6 +11,7 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    name: inspect-preseason
     steps:
       - name: Inspect live early-season schedule rows
         shell: bash
