@@ -5,6 +5,7 @@ import { PRESENTATION_SUPPRESSED_NOTE } from "./current-schedule-truth.js";
 export const STATEWIDE_REPAIR_CODES=new Set([
   "SPLIT_CANONICAL_LOGICAL_GAME",
   "STALE_NONTERMINAL_TWIN_OF_FINAL",
+  "SAME_DAY_STALE_TWIN_OF_FINAL",
   "DUPLICATE_SCHEDULE_ENTRY",
   "FOOTBALL_SAME_DAY_COLLISION",
   "DISPLAY_FINAL_MISSING_SCORE",
@@ -439,7 +440,7 @@ function suppressionTargetsFromAudit(audit={}) {
   const ids=new Set();
   const unresolvedCanonicalIds=new Set();
   for(const issue of blockingRepairIssues(audit)) {
-    if(issue.code==="PAST_DUE_NONTERMINAL_DISPLAY" || issue.code==="STALE_NONTERMINAL_TWIN_OF_FINAL") {
+    if(issue.code==="PAST_DUE_NONTERMINAL_DISPLAY" || issue.code==="STALE_NONTERMINAL_TWIN_OF_FINAL" || issue.code==="SAME_DAY_STALE_TWIN_OF_FINAL") {
       if(issue.game_id) ids.add(String(issue.game_id));
     } else if(issue.code==="DISPLAY_FINAL_MISSING_SCORE") {
       if(issue.canonical_event_id) unresolvedCanonicalIds.add(String(issue.canonical_event_id));
