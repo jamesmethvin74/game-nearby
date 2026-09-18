@@ -134,3 +134,14 @@ test("ambiguous raw final evidence is never promoted",()=>{
   assert.equal(plan.length,1);
   assert.equal(plan[0].promote_final,null);
 });
+
+
+test("football same-day collision is repairable but never enters canonical merge clusters",()=>{
+  const audit={issues:[
+    issue("FOOTBALL_SAME_DAY_COLLISION",{team:"north-little-rock-football-2026",game:"legacy-robinson",other:"joe-t-robinson"})
+  ]};
+  const plan=buildStatewideRepairPlan(audit,[]);
+  assert.equal(plan.issueCounts.FOOTBALL_SAME_DAY_COLLISION,1);
+  assert.deepEqual(plan.affectedTeamIds,["north-little-rock-football-2026"]);
+  assert.deepEqual(plan.canonicalClusters,[]);
+});
