@@ -1,0 +1,118 @@
+name: One-shot M15 client presentation live proof
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m15-client-presentation-live-proof.yml
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full repository check
+        working-directory: backend
+        run: |
+          npm ci
+          npm run check
+      - name: Verify live client and Worker factual presentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="https://jamesmethvin74.github.io/game-nearby"
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          for attempt in $(seq 1 18); do
+            rm -f runtime.js index.html standings.js schedule.js presentation.js               standings.json maumelle.json nlr.json batch.json
+            curl -fsS --max-time 25 "$APP/runtime-build.js" -o runtime.js || true
+            curl -fsS --max-time 25 "$APP/" -o index.html || true
+            curl -fsS --max-time 25 "$APP/standings.js" -o standings.js || true
+            curl -fsS --max-time 25 "$APP/school-schedule.js" -o schedule.js || true
+            curl -fsS --max-time 25 "$APP/presentation-status.js" -o presentation.js || true
+            curl -fsS --max-time 25 "$API/api/v1/standings?sport=volleyball&conference=6a-central" -o standings.json || true
+            curl -fsS --max-time 25 "$API/api/v1/schools/maumelle/schedule" -o maumelle.json || true
+            curl -fsS --max-time 25 "$API/api/v1/schools/north-little-rock/schedule" -o nlr.json || true
+            curl -fsS --max-time 25 "$API/api/v1/team-statuses?school_ids=maumelle,north-little-rock,morrilton,conway" -o batch.json || true
+
+            if grep -q 'm15-presentation-v71' runtime.js 2>/dev/null               && grep -q 'runtime-build.js?v=71' index.html 2>/dev/null               && grep -q 'LocalBleachersPresentation' standings.js 2>/dev/null               && grep -q '/api/v1/team-statuses?' schedule.js 2>/dev/null               && grep -q 'display_overall_record' presentation.js 2>/dev/null               && ! grep -q 'Published standings are available only as evidence' standings.js 2>/dev/null               && test -s standings.json && test -s maumelle.json && test -s nlr.json && test -s batch.json; then
+              break
+            fi
+
+            if [ "$attempt" -eq 18 ]; then
+              echo "Live client/Worker never reached factual presentation generation."
+              exit 1
+            fi
+            sleep 10
+          done
+
+          python - <<'PY'
+          import json
+
+          def load(path):
+              with open(path, encoding="utf-8") as fh:
+                  return json.load(fh)
+
+          standings = load("standings.json")
+          rows = {row.get("school_name"): row for row in standings.get("standings", [])}
+          expected = {
+              "Conway": ("9-4", "4-0", 1),
+              "Cabot": ("13-4-2", "4-1", 2),
+              "Bryant": ("7-5", "3-1", 3),
+              "Jonesboro": ("3-5-3", "2-2", 4),
+              "Central": ("4-6", "1-3", 5),
+              "North Little Rock": ("2-9-1", "1-3", 6),
+              "Little Rock Southwest": ("1-9", "0-5", 7),
+          }
+          for name, (overall, conference, rank) in expected.items():
+              row = rows.get(name)
+              assert row, f"missing 6A Central row {name}"
+              assert row.get("display_overall_record") == overall, (name, row)
+              assert row.get("display_conference_record") == conference, (name, row)
+              assert int(row.get("display_rank")) == rank, (name, row)
+
+          conference = standings.get("conference", {})
+          assert conference.get("presentation_complete") is True, conference
+
+          def status(payload, sport):
+              matches = [s for s in payload.get("team_statuses", []) if s.get("sport") == sport]
+              assert matches, f"missing {sport} status"
+              return matches[0]
+
+          maumelle = load("maumelle.json")
+          football = status(maumelle, "football")
+          volleyball = status(maumelle, "volleyball")
+          assert football.get("display_overall_record") == "0-3", football
+          assert football.get("display_conference_record") == "0-0", football
+          assert volleyball.get("display_overall_record") == "3-7", volleyball
+          assert volleyball.get("display_conference_record") == "1-7", volleyball
+          assert int(volleyball.get("display_rank")) == 8, volleyball
+
+          nlr = load("nlr.json")
+          nlr_vb = status(nlr, "volleyball")
+          assert nlr_vb.get("display_overall_record") == "2-9-1", nlr_vb
+          assert nlr_vb.get("display_conference_record") == "1-3", nlr_vb
+          assert int(nlr_vb.get("display_rank")) == 6, nlr_vb
+
+          batch = load("batch.json")
+          batch_statuses = batch.get("team_statuses", [])
+          school_ids = {s.get("school_id") for s in batch_statuses}
+          for school_id in ("maumelle", "north-little-rock", "morrilton", "conway"):
+              assert school_id in school_ids, (school_id, sorted(x for x in school_ids if x))
+          batch_maumelle_vb = next(s for s in batch_statuses if s.get("school_id") == "maumelle" and s.get("sport") == "volleyball")
+          assert batch_maumelle_vb.get("display_overall_record") == "3-7", batch_maumelle_vb
+          assert batch_maumelle_vb.get("display_conference_record") == "1-7", batch_maumelle_vb
+          assert int(batch_maumelle_vb.get("display_rank")) == 8, batch_maumelle_vb
+
+          print("LIVE_PRESENTATION_PROOF_OK")
+          print("6A Central:", {k: (v["display_overall_record"], v["display_conference_record"], v["display_rank"]) for k,v in rows.items() if k in expected})
+          print("Maumelle football:", football.get("display_overall_record"), football.get("display_conference_record"), football.get("display_rank"))
+          print("Maumelle volleyball:", volleyball.get("display_overall_record"), volleyball.get("display_conference_record"), volleyball.get("display_rank"))
+          print("NLR volleyball:", nlr_vb.get("display_overall_record"), nlr_vb.get("display_conference_record"), nlr_vb.get("display_rank"))
+          print("Batch schools:", sorted(x for x in school_ids if x))
+          PY
