@@ -11,7 +11,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: validate-fresh-client-v2
+    name: validate-fresh-client-v3
     defaults:
       run:
         working-directory: backend
