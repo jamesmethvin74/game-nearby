@@ -4,7 +4,8 @@ import fs from "node:fs";
 import {
   PRESENTATION_SUPPRESSED_NOTE,
   currentScheduleTruthSql,
-  hasPresentationSuppressedMarker
+  hasPresentationSuppressedMarker,
+  suppressionPreservingNotesSql
 } from "../src/current-schedule-truth.js";
 
 test("presentation suppression marker is explicit and reusable",()=>{
@@ -30,4 +31,18 @@ test("statewide audit preserves active teams with no visible games",()=>{
   const audit=fs.readFileSync(new URL("../src/statewide-data-integrity-audit.js",import.meta.url),"utf8");
   assert.match(audit,/LEFT JOIN visible_games g ON g\.team_id=at\.team_id/);
   assert.doesNotMatch(audit,/WHERE g\.id IS NULL OR/);
+});
+
+
+test("unchanged stale refresh preserves suppression but terminal or future truth can replace it",()=>{
+  const sql=suppressionPreservingNotesSql("games","excluded");
+  assert.match(sql,/Excluded from current LocalBleachers presentation/);
+  assert.match(sql,/excluded\.status/);
+  assert.match(sql,/='SCHEDULED'/);
+  assert.match(sql,/datetime\('now','-6 hours'\)/);
+
+  const canonicalWriter=fs.readFileSync(new URL("../src/canonical-observation-writer.js",import.meta.url),"utf8");
+  const statewideWriter=fs.readFileSync(new URL("../src/dragonfly-statewide.js",import.meta.url),"utf8");
+  assert.match(canonicalWriter,/suppressionPreservingNotesSql\("games","excluded"\)/);
+  assert.match(statewideWriter,/suppressionPreservingNotesSql\("games","excluded"\)/);
 });
