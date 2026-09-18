@@ -38,6 +38,7 @@ function plan(kind, options = {}) {
     runCollegeLive: Boolean(options.runCollegeLive),
     runCatalogMaintenance: Boolean(options.runCatalogMaintenance),
     runIntegrityGate: Boolean(options.runIntegrityGate),
+    runStandingsReadiness: Boolean(options.runStandingsReadiness),
     scope: options.scope || "all",
     activeResultMinutes: Number(options.activeResultMinutes || 0) || null
   };
@@ -63,6 +64,7 @@ export function collectionPlanAt(value = new Date()) {
       runStatewide: true,
       runCatalogMaintenance: true,
       runIntegrityGate: true,
+      runStandingsReadiness: true,
       scope: "catalog"
     });
   }
@@ -142,6 +144,7 @@ export function collectionPlanAt(value = new Date()) {
       runStatewide: true,
       runCore: true,
       runIntegrityGate: true,
+      runStandingsReadiness: true,
       scope: "all"
     });
   }
