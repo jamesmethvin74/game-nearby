@@ -182,7 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           APP="https://jamesmethvin74.github.io/game-nearby"
-          rm -f live-data.js school-follow-logic.js polish.js team-detail.js
+          rm -f live-data.js school-follow-logic.js polish.js team-detail.js standings.js school-schedule.js runtime-build.js presentation-status.js
 
           for attempt in $(seq 1 5); do
             echo "Pages attempt ${attempt}/5"
@@ -190,15 +190,28 @@ jobs:
             curl -fsS --max-time 20 "$APP/school-follow-logic.js" -o follow.tmp || true
             curl -fsS --max-time 20 "$APP/polish.js" -o polish.tmp || true
             curl -fsS --max-time 20 "$APP/team-detail.js" -o detail.tmp || true
+            curl -fsS --max-time 20 "$APP/standings.js" -o standings.tmp || true
+            curl -fsS --max-time 20 "$APP/school-schedule.js" -o schedule.tmp || true
+            curl -fsS --max-time 20 "$APP/runtime-build.js" -o runtime.tmp || true
+            curl -fsS --max-time 20 "$APP/presentation-status.js" -o presentation.tmp || true
             if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
               && grep -q 'normalizeRecord' live-data.tmp 2>/dev/null \
               && grep -q 'orientEventToFollowedSchool' follow.tmp 2>/dev/null \
-              && grep -q 'event.record' polish.tmp 2>/dev/null \
-              && grep -q 'selectedEvents.find(event => event.record)' detail.tmp 2>/dev/null; then
+              && grep -q 'LocalBleachersPresentation' polish.tmp 2>/dev/null \
+              && grep -q 'LocalBleachersPresentation' detail.tmp 2>/dev/null \
+              && grep -q 'LocalBleachersPresentation' standings.tmp 2>/dev/null \
+              && grep -q 'primeVisibleTeamStatuses' schedule.tmp 2>/dev/null \
+              && grep -q 'm15-presentation-v71' runtime.tmp 2>/dev/null \
+              && grep -q 'display_overall_record' presentation.tmp 2>/dev/null \
+              && ! grep -q 'Published standings are available only as evidence' standings.tmp 2>/dev/null; then
               mv live-data.tmp live-data.js
               mv follow.tmp school-follow-logic.js
               mv polish.tmp polish.js
               mv detail.tmp team-detail.js
+              mv standings.tmp standings.js
+              mv schedule.tmp school-schedule.js
+              mv runtime.tmp runtime-build.js
+              mv presentation.tmp presentation-status.js
               break
             fi
             sleep 4
@@ -208,4 +221,6 @@ jobs:
           test -f school-follow-logic.js
           test -f polish.js
           test -f team-detail.js
-          echo "GitHub Pages live-record frontend verified."
+          test -f runtime-build.js
+          test -f presentation-status.js
+          echo "GitHub Pages factual presentation contract m15-presentation-v71 verified."
