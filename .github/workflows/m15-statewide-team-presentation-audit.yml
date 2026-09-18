@@ -11,7 +11,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    name: audit-statewide-team-presentation
+    name: inspect-statewide-duplicate-details
     steps:
       - name: Audit every school presentation surface
         shell: bash
@@ -109,7 +109,18 @@ jobs:
               if(rows.length>1) add('FOOTBALL_SAME_DAY_VISIBLE','blocking',{school_id:school.id,school_name:school.name,key,count:rows.length,opponents:rows.map(r=>r.opponent)});
             }
             for(const [key,rows] of exact){
-              if(rows.length>1) add('EXACT_DUPLICATE_GAME_VISIBLE','blocking',{school_id:school.id,school_name:school.name,key,count:rows.length,ids:rows.map(r=>r.id)});
+              if(rows.length>1) add('EXACT_DUPLICATE_GAME_VISIBLE','blocking',{
+                school_id:school.id,school_name:school.name,key,count:rows.length,
+                rows:rows.map(r=>({
+                  id:r.id,canonical_event_id:r.canonical_event_id||null,
+                  opponent:r.opponent,opponent_school_id:r.opponent_school_id||null,
+                  scheduled_at:r.scheduled_at||r.canonical_scheduled_at,
+                  scheduled_time_known:r.scheduled_time_known,
+                  status:r.status,team_score:r.team_score,opponent_score:r.opponent_score,result:r.result,
+                  source_type:r.source_type,parser_type:r.parser_type,authority_rank:r.authority_rank,
+                  source_url:r.source_url||null,schedule_observation_count:r.schedule_observation_count||1
+                }))
+              });
             }
           };
 
