@@ -5,7 +5,7 @@
   const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const memoryCache = new Map();
   const statusCache = new Map();
-  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v3:";
+  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v4:";
   const SCHEDULE_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
   const NEARBY_CACHE_MAX_AGE_MS = 18 * 60 * 60 * 1000;
