@@ -10,7 +10,7 @@ const DATA_INTEGRITY_VIEW="data-integrity";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const SCHOOL_DEDUPE_REPAIR_PATH="/api/v1/internal/m15-school-dedupe-repair-20260918-9d2a17";
-const SCHOOL_DEDUPE_REPAIR_FINGERPRINT="m15-school-dedupe-storage-v1-20260918";
+const SCHOOL_DEDUPE_REPAIR_FINGERPRINT="m15-school-dedupe-storage-v2-20260918";
 
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token")===env.REFRESH_TOKEN;
