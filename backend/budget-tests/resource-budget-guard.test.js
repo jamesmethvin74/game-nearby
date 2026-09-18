@@ -48,7 +48,7 @@ test("one team-detail open uses one school-level schedule endpoint instead of cl
 });
 
 test("team schedules retain a versioned local last-good fallback", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v4:/);
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v5:/);
   assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
   assert.match(schoolSchedule, /localBleachersAR:nearbyGames:v1/);
   assert.match(schoolSchedule, /saveSchedule\(schoolId, unique/);
