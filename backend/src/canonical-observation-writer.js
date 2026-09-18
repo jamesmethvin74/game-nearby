@@ -1,6 +1,7 @@
 import { observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { normalizeFinalResultTruth, sanitizeFinalForCanonical } from "./final-result-truth.js";
 
+import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 function localDateKey(iso,timeZone="America/Chicago") {
   if (!iso) return "";
   const date=new Date(iso);
