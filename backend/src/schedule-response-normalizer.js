@@ -40,7 +40,8 @@ const HIGH_SCHOOL_FIRST_OFFICIAL = new Map([
 
 
 export function highSchoolOfficialSeasonBoundary(row = {}) {
-  if (clean(row.level).toLowerCase() !== "high-school") return null;
+  const level=clean(row.level).toLowerCase();
+  if (level && level !== "high-school") return null;
   const sport=clean(row.sport).toLowerCase();
   const season=clean(row.season);
   return HIGH_SCHOOL_FIRST_OFFICIAL.get(`${sport}|${season}`) || null;
