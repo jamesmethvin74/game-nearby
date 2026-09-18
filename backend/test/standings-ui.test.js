@@ -57,3 +57,15 @@ test("Standings UI never invents rank and explains verified not-started conferen
   assert.match(js, /Conference play has not started\. Verified members are 0-0 in conference\./);
   assert.doesNotMatch(js, /row\.rank \?\? index \+ 1/);
 });
+
+
+test("Standings UI renders presentation truth fields and never invents missing rank or 0-0", () => {
+  assert.match(js, /row\.display_rank \?\? row\.rank \?\? "—"/);
+  assert.match(js, /row\.display_conference_record \?\? row\.conference_record \?\? "—"/);
+  assert.match(js, /row\.display_overall_record \?\? row\.overall_record \?\? "—"/);
+  assert.doesNotMatch(js, /row\.rank \?\? index \+ 1/);
+  assert.doesNotMatch(js, /row\.conference_record \|\| "0-0"/);
+  assert.doesNotMatch(js, /row\.overall_record \|\| "0-0"/);
+  assert.match(serviceWorker, /localbleachersar-shell-v65/);
+  assert.match(html, /standings\.js\?v=65/);
+});
