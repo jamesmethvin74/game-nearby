@@ -13,6 +13,7 @@ jobs:
   inspect:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    name: inspect-live-standings
     steps:
       - name: Pull live 7A standings truth
         shell: bash
