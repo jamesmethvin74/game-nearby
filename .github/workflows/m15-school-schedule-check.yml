@@ -13,7 +13,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: validate-school-schedule-dedupe-v5
+    name: validate-phased-integrity-gate
     defaults:
       run:
         working-directory: backend
