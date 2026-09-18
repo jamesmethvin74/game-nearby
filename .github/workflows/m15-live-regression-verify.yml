@@ -13,6 +13,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    name: verify-live-regressions
     steps:
       - name: Verify live standings and school schedules
         shell: bash
