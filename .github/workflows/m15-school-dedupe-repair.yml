@@ -1,0 +1,66 @@
+name: One-shot school schedule storage cleanup
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m15-school-dedupe-repair.yml
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Run live school schedule duplicate cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const path='/api/v1/internal/m15-school-dedupe-repair-20260918-9d2a17';
+          const fp='m15-school-dedupe-storage-v1-20260918';
+          const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+          async function call(method,body=null,timeoutMs=1800000){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),timeoutMs);
+            try{
+              const r=await fetch(base+path,{
+                method,
+                headers:body?{'content-type':'application/json'}:{},
+                body:body?JSON.stringify(body):undefined,
+                signal:controller.signal
+              });
+              const text=await r.text();
+              let payload={};
+              try{payload=text?JSON.parse(text):{};}catch{payload={raw:text.slice(0,2000)};}
+              return {status:r.status,payload};
+            }finally{clearTimeout(timer);}
+          }
+          let ready=false;
+          for(let attempt=1;attempt<=120;attempt++){
+            const r=await call('GET',null,300000).catch(error=>({status:0,payload:{error:String(error.message)}}));
+            if(r.status===200&&r.payload?.status==='READY'&&r.payload?.fingerprint===fp){
+              console.log('SCHOOL_DEDUPE_READY='+JSON.stringify(r.payload));
+              ready=true;break;
+            }
+            console.log('SCHOOL_DEDUPE_WAIT='+JSON.stringify({attempt,http:r.status,status:r.payload?.status||null}));
+            await sleep(5000);
+          }
+          if(!ready) throw new Error('school dedupe repair route never became ready');
+          const r=await call('POST',{fingerprint:fp},2400000);
+          if(r.status!==200) throw new Error('repair POST failed HTTP '+r.status+' '+JSON.stringify(r.payload).slice(0,4000));
+          const result=r.payload?.result||{};
+          console.log('SCHOOL_DEDUPE_RESULT='+JSON.stringify({
+            status:result.status,
+            presentation:result.presentation,
+            repairs:result.repairs,
+            record:result.record,
+            fuses:result.fuses,
+            blocker_examples:result.blocker_examples,
+            state_write:result.state_write
+          }));
+          if(result.status!=='CLEAN') throw new Error('school dedupe repair did not finish CLEAN');
+          NODE
