@@ -12,6 +12,13 @@ export const STATEWIDE_REPAIR_CODES=new Set([
   "PAST_DUE_NONTERMINAL_DISPLAY"
 ]);
 
+export const ROUTINE_SUPPRESSION_CODES=new Set([
+  "PAST_DUE_NONTERMINAL_DISPLAY",
+  "STALE_NONTERMINAL_TWIN_OF_FINAL",
+  "SAME_DAY_STALE_TWIN_OF_FINAL",
+  "FOOTBALL_SAME_DAY_COLLISION"
+]);
+
 const CANONICAL_REPAIR_CODES=new Set([
   "SPLIT_CANONICAL_LOGICAL_GAME",
   "STALE_NONTERMINAL_TWIN_OF_FINAL",
@@ -514,6 +521,50 @@ export async function repairAuditedPresentationDefects(env,audit,{
     after_summary:after.summary,
     after_issue_counts:Object.fromEntries(Object.entries(after.summary?.issues_by_code||{})),
     after_audit:after,
+    d1
+  };
+}
+
+
+export async function suppressAuditedRoutineDefects(env,audit,{
+  now=new Date(),
+  rebuildRecords=rebuildTeamRecords
+}={}) {
+  const checkedAt=now.toISOString();
+  const issues=(audit?.issues||[]).filter(issue=>
+    issue?.severity==="blocking"
+    && ROUTINE_SUPPRESSION_CODES.has(String(issue?.code||""))
+    && issue?.game_id
+  );
+  const gameIds=[...new Set(issues.map(issue=>String(issue.game_id)).filter(Boolean))];
+  const d1={statements:0,rows_read:0,rows_written:0,duration_ms:0};
+  if(!gameIds.length) {
+    return {
+      status:"NOOP",
+      issue_count:0,
+      issue_counts:{},
+      game_ids:[],
+      affected_team_ids:[],
+      suppression:{game_ids:[],rows_written:0},
+      record_rebuild:{teams:0,scoredFinals:0,standings:{cohorts:0,standingsRows:0}},
+      d1
+    };
+  }
+  const issueCounts={};
+  for(const issue of issues) issueCounts[issue.code]=(issueCounts[issue.code]||0)+1;
+  const affectedTeamIds=await loadAffectedTeamIdsForGameIds(env,gameIds);
+  const suppression=await suppressPresentationRows(env,gameIds,checkedAt,d1);
+  const recordRebuild=affectedTeamIds.length
+    ? await rebuildRecords(env,affectedTeamIds,checkedAt)
+    : {teams:0,scoredFinals:0,standings:{cohorts:0,standingsRows:0}};
+  return {
+    status:"EXECUTED",
+    issue_count:issues.length,
+    issue_counts:issueCounts,
+    game_ids:gameIds,
+    affected_team_ids:affectedTeamIds,
+    suppression,
+    record_rebuild:recordRebuild,
     d1
   };
 }
