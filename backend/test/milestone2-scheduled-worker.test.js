@@ -12,6 +12,7 @@ test("ordinary statewide windows refresh all six high-school bulk feeds without 
   assert.equal(plan.kind,"afternoon-schedule-check");
   assert.equal(plan.runStatewide,true);
   assert.equal(plan.runCore,true);
+  assert.equal(plan.runIntegrityGate,true);
   assert.deepEqual(m2StatewideKeysForPlan(plan),ALL);
 
   const scoped=fs.readFileSync(fileURLToPath(new URL("../src/scoped-cadence-runner.js",import.meta.url)),"utf8");
@@ -51,6 +52,7 @@ test("Friday result cadence preserves football capacity and adds an independent 
   assert.equal(plan.scope,"football-game-day");
   assert.equal(plan.activeResultMinutes,30);
   assert.equal(plan.runCollegeLive,true);
+  assert.equal(plan.runIntegrityGate,false);
   assert.equal(shouldRunVolleyballLiveResults(plan),true);
   assert.equal(shouldRunHootensTeamPageCatchup(plan),false,"historical team pages must not run every 30 minutes Friday");
   assert.deepEqual(m2StatewideKeysForPlan(plan),["football-boys"]);
@@ -66,6 +68,7 @@ test("Friday result cadence preserves football capacity and adds an independent 
 test("morning results get one bounded historical Hootens team-page catchup",()=>{
   const plan=collectionPlanAt(new Date("2026-09-12T11:00:00.000Z")); // Saturday 6 AM Central
   assert.equal(plan.kind,"morning-results");
+  assert.equal(plan.runIntegrityGate,true);
   assert.equal(shouldRunHootensTeamPageCatchup(plan),true);
 
   const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
@@ -79,6 +82,7 @@ test("Saturday college cadence keeps statewide maintenance off while hourly voll
   assert.equal(plan.scope,"college-game-day");
   assert.equal(plan.runCollegeLive,false);
   assert.equal(plan.runVolleyballLive,true);
+  assert.equal(plan.runIntegrityGate,false);
   assert.equal(shouldRunVolleyballLiveResults(plan),true);
   assert.equal(shouldRunHootensTeamPageCatchup(plan),false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),[]);
@@ -88,6 +92,7 @@ test("Sunday catalog maintenance refreshes all six certified feeds and published
   const plan=collectionPlanAt(new Date("2026-09-06T09:00:00.000Z")); // Sunday 4 AM Central
   assert.equal(plan.kind,"weekly-catalog-maintenance");
   assert.equal(plan.runCatalogMaintenance,true);
+  assert.equal(plan.runIntegrityGate,true);
   assert.equal(shouldRunVolleyballLiveResults(plan),false);
   assert.equal(shouldRunHootensTeamPageCatchup(plan),false);
   assert.deepEqual(m2StatewideKeysForPlan(plan),ALL);
@@ -98,4 +103,19 @@ test("Sunday catalog maintenance refreshes all six certified feeds and published
   const statewideCall=runner.indexOf("await runStatewideSports(env");
   assert.ok(membershipCall>=0,"weekly membership sync must be wired");
   assert.ok(statewideCall>membershipCall,"conference membership must be materialized before statewide record rebuilds");
+});
+
+
+test("closing Friday and Saturday live windows run the integrity gate once after collection",()=>{
+  const fridayClose=collectionPlanAt(new Date("2026-09-05T06:00:00.000Z")); // Saturday 1 AM Central
+  assert.equal(fridayClose.kind,"friday-football-results");
+  assert.equal(fridayClose.runIntegrityGate,true);
+
+  const saturdayClose=collectionPlanAt(new Date("2026-09-06T07:00:00.000Z")); // Sunday 2 AM Central
+  assert.equal(saturdayClose.kind,"saturday-college-results");
+  assert.equal(saturdayClose.runIntegrityGate,true);
+
+  const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  assert.match(runner,/runStatewideIntegrityGate/);
+  assert.match(runner,/runIntegrityGatePass/);
 });
