@@ -14,16 +14,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Run live school schedule duplicate cleanup
+      - name: Run phased school schedule duplicate cleanup
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
           const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
           const path='/api/v1/internal/m15-school-dedupe-repair-20260918-9d2a17';
-          const fp='m15-school-dedupe-storage-v2-20260918';
+          const fp='m15-school-dedupe-storage-v3-20260918';
           const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-          async function call(method,body=null,timeoutMs=1800000){
+          async function call(method,body=null,timeoutMs=900000){
             const controller=new AbortController();
             const timer=setTimeout(()=>controller.abort(),timeoutMs);
             try{
@@ -39,6 +39,7 @@ jobs:
               return {status:r.status,payload};
             }finally{clearTimeout(timer);}
           }
+
           let ready=false;
           for(let attempt=1;attempt<=120;attempt++){
             const r=await call('GET',null,300000).catch(error=>({status:0,payload:{error:String(error.message)}}));
@@ -49,18 +50,36 @@ jobs:
             console.log('SCHOOL_DEDUPE_WAIT='+JSON.stringify({attempt,http:r.status,status:r.payload?.status||null}));
             await sleep(5000);
           }
-          if(!ready) throw new Error('school dedupe repair route never became ready');
-          const r=await call('POST',{fingerprint:fp},2400000);
-          if(r.status!==200) throw new Error('repair POST failed HTTP '+r.status+' '+JSON.stringify(r.payload).slice(0,4000));
-          const result=r.payload?.result||{};
-          console.log('SCHOOL_DEDUPE_RESULT='+JSON.stringify({
-            status:result.status,
-            presentation:result.presentation,
-            repairs:result.repairs,
-            record:result.record,
-            fuses:result.fuses,
-            blocker_examples:result.blocker_examples,
-            state_write:result.state_write
+          if(!ready) throw new Error('school dedupe v3 route never became ready');
+
+          const first=await call('POST',{fingerprint:fp},900000);
+          if(first.status!==200) throw new Error('first phase HTTP '+first.status+' '+JSON.stringify(first.payload).slice(0,4000));
+          const firstResult=first.payload?.result||{};
+          console.log('SCHOOL_DEDUPE_PHASE1='+JSON.stringify(firstResult));
+          if(!['CLEAN','REPAIRED_PENDING_VERIFY'].includes(firstResult.status)){
+            throw new Error('first phase status '+String(firstResult.status));
+          }
+
+          let finalResult=firstResult;
+          if(firstResult.status==='REPAIRED_PENDING_VERIFY'){
+            await sleep(1500);
+            const verify=await call('POST',{fingerprint:fp},900000);
+            if(verify.status!==200) throw new Error('verify phase HTTP '+verify.status+' '+JSON.stringify(verify.payload).slice(0,4000));
+            finalResult=verify.payload?.result||{};
+            console.log('SCHOOL_DEDUPE_VERIFY='+JSON.stringify(finalResult));
+          }
+          if(finalResult.status!=='CLEAN'){
+            throw new Error('phased cleanup did not verify CLEAN: '+JSON.stringify({
+              status:finalResult.status,
+              presentation:finalResult.presentation,
+              fuses:finalResult.fuses,
+              blocker_examples:finalResult.blocker_examples
+            }).slice(0,8000));
+          }
+          console.log('SCHOOL_DEDUPE_CLEAN='+JSON.stringify({
+            status:finalResult.status,
+            presentation:finalResult.presentation,
+            repairs:finalResult.repairs,
+            state_write:finalResult.state_write
           }));
-          if(result.status!=='CLEAN') throw new Error('school dedupe repair did not finish CLEAN');
           NODE
