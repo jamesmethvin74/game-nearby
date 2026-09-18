@@ -32,19 +32,22 @@ function sportSvg(sport){
 function recordLabel(w=0,l=0,t=0){return Number(t)?`${Number(w)||0}-${Number(l)||0}-${Number(t)||0}`:`${Number(w)||0}-${Number(l)||0}`;}
 
 function getTeamStatus(event){
-  const key=`${event.teamId}|${event.sport}|${event.gender}`;
-  const record=event.record || null;
-  const conferenceName=record?.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key] || "Conference";
-  if (!record) return {overall:"—",conference:"—",standing:"Not posted",conferenceName};
-  const hasConference=Boolean(record.conference_id || record.conference_name || event.conferenceName || TEAM_CONFERENCE_FALLBACKS[key]);
-  return {
-    overall:recordLabel(record.wins,record.losses,record.ties),
-    conference:hasConference?recordLabel(record.conference_wins,record.conference_losses,record.conference_ties):"—",
-    standing:record.rank?`#${record.rank}`:"Not posted",
-    conferenceName
-  };
+  const unified = window.LocalBleachersLive?.getTeamStatus?.(event.teamId, event.sport, event.gender);
+  const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
+  if (factual) return factual;
+  const record = event.record || null;
+  if (record) {
+    const conferenceGames = Number(record.conference_wins || 0) + Number(record.conference_losses || 0) + Number(record.conference_ties || 0);
+    const rank = Number(record.rank);
+    return {
+      overall: recordLabel(record.wins, record.losses, record.ties),
+      conference: record.conference_name ? recordLabel(record.conference_wins, record.conference_losses, record.conference_ties) : "—",
+      standing: record.conference_name && conferenceGames > 0 && Number.isFinite(rank) && rank > 0 ? `#${rank}` : "—",
+      conferenceName: record.conference_name || event.conferenceName || "Conference not available"
+    };
+  }
+  return { overall:"—", conference:"—", standing:"—", conferenceName:"Conference not available" };
 }
-
 
 function polishedSourceLabel(event){
   if(event.source!=="official") return "MaxPreps schedule";
