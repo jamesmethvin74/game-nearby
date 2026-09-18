@@ -123,6 +123,73 @@ export function crossCheckPublishedStandings(canonicalRows = [], publishedRows =
   });
 }
 
+
+function hasPublishedPresentation(row={}) {
+  return row.published_rank != null
+    || row.published_conference_record != null
+    || row.published_overall_record != null;
+}
+
+export function attachStandingsPresentation(rows = []) {
+  return (rows || []).map(row => {
+    if (row?.standings_verified === true) {
+      return {
+        ...row,
+        display_rank: row.rank ?? null,
+        display_conference_record: row.conference_record ?? null,
+        display_overall_record: row.overall_record ?? null,
+        display_method: "canonical",
+        display_source_url: null
+      };
+    }
+    if (hasPublishedPresentation(row)) {
+      return {
+        ...row,
+        display_rank: row.published_rank ?? null,
+        display_conference_record: row.published_conference_record ?? row.conference_record ?? null,
+        display_overall_record: row.published_overall_record ?? row.overall_record ?? null,
+        display_method: "published",
+        display_source_url: row.published_source_url ?? null
+      };
+    }
+    return {
+      ...row,
+      display_rank: row.rank ?? null,
+      display_conference_record: row.conference_record ?? null,
+      display_overall_record: row.overall_record ?? null,
+      display_method: "canonical-unverified",
+      display_source_url: null
+    };
+  });
+}
+
+function presentationMethod(rows=[]) {
+  const methods=new Set(rows.map(row=>row.display_method).filter(Boolean));
+  if(methods.size===1) return [...methods][0];
+  if(methods.has("published")) return "mixed";
+  return methods.size ? "canonical-unverified" : "unavailable";
+}
+
+function withPresentationContract(result) {
+  if(!result || !Array.isArray(result.standings)) return result;
+  const standings=attachStandingsPresentation(result.standings);
+  const sourceUrl=standings.find(row=>row.display_method==="published" && row.display_source_url)?.display_source_url
+    || result.conference?.source_url
+    || null;
+  return {
+    ...result,
+    conference:{
+      ...(result.conference||{}),
+      presentation_method:presentationMethod(standings),
+      presentation_source_url:sourceUrl,
+      presentation_complete:standings.length>0 && standings.every(row=>
+        row.display_conference_record != null && row.display_overall_record != null
+      )
+    },
+    standings
+  };
+}
+
 export function reconcileConferenceStandings({
   calculated = null,
   published = null,
@@ -135,7 +202,7 @@ export function reconcileConferenceStandings({
   if (localRows.length) {
     const ranked=rankCanonicalConferenceRows(localRows,{ membershipComplete,resultEvidenceComplete });
     const checked=crossCheckPublishedStandings(ranked,sourceRows);
-    return {
+    return withPresentationContract({
       ...(calculated || {}),
       conference:{
         ...(calculated?.conference || published?.conference || {}),
@@ -146,11 +213,11 @@ export function reconcileConferenceStandings({
         published_cross_check:sourceRows.length ? "available" : "unavailable"
       },
       standings:checked
-    };
+    });
   }
 
   if (sourceRows.length) {
-    return {
+    return withPresentationContract({
       ...(published || {}),
       conference:{
         ...(published?.conference || {}),
@@ -175,7 +242,7 @@ export function reconcileConferenceStandings({
         published_overall_record:row.overall_record ?? null,
         published_source_url:row.source_url ?? published?.conference?.source_url ?? null
       }))
-    };
+    });
   }
 
   return null;
