@@ -1,12 +1,13 @@
 import app from "./d1-usage-public-worker.js";
 import core from "./index.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
-import { conferenceGameCount, evaluateScheduleRecordTruth, parseRecordText, sameOverallRecord } from "./schedule-response-normalizer.js";
+import { conferenceGameCount, dedupeScheduleRows, evaluateScheduleRecordTruth, parseRecordText, sameOverallRecord } from "./schedule-response-normalizer.js";
 import { normalizeFinalResultTruth } from "./final-result-truth.js";
 import { normalizeSchoolAlias } from "./schedule-authority-core.js";
 import { findPublishedConferenceMembership } from "./published-standings.js";
 import { loadStandingsTruth } from "./standings-truth.js";
 import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
+import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
@@ -138,6 +139,29 @@ function standingsRowForTeam(payload, team) {
   const schoolKey = normalizeSchoolAlias(team.school_name);
   if (!schoolKey) return null;
   return rows.find(row => normalizeSchoolAlias(row?.school_name) === schoolKey) || null;
+}
+
+
+
+export function dedupeSchoolScheduleRows(rows = [], schoolId = null) {
+  const byTeam = new Map();
+  for (const row of rows || []) {
+    const teamId = String(row.reporting_team_id || row.team_id || "");
+    if (!teamId) continue;
+    if (!byTeam.has(teamId)) byTeam.set(teamId, []);
+    byTeam.get(teamId).push(row);
+  }
+  const merged = [];
+  for (const teamRows of byTeam.values()) {
+    merged.push(...dedupeScheduleRows(teamRows, { reportingSchoolId: schoolId, maxMinutes: 15 }));
+  }
+  return merged.sort((a,b) => {
+    const sport = String(a.sport || "").localeCompare(String(b.sport || ""));
+    if (sport) return sport;
+    const gender = String(a.gender || "").localeCompare(String(b.gender || ""));
+    if (gender) return gender;
+    return Date.parse(a.scheduled_at || a.canonical_scheduled_at) - Date.parse(b.scheduled_at || b.canonical_scheduled_at);
+  });
 }
 
 export function attachScheduleDerivedRecords(games = []) {
@@ -450,12 +474,14 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     LEFT JOIN schools hs ON hs.id=ce.home_school_id
     LEFT JOIN schools aws ON aws.id=ce.away_school_id
     WHERE t.school_id=? AND t.active=1 AND t.season='2026'
+      AND ${currentScheduleTruthSql("g","src")}
     ORDER BY t.sport,t.gender,COALESCE(ce.scheduled_at,g.scheduled_at)
   `).bind(schoolId).all();
 
   const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
   const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: schoolId });
-  const resolvedRows = attachScheduleDerivedRecords(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)));
+  const displayedRows = dedupeSchoolScheduleRows(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)), schoolId);
+  const resolvedRows = attachScheduleDerivedRecords(displayedRows);
   const statusRows = mergeTeamStatusSeeds(resolvedRows, teamSeedResult.results || []);
   const teamStatuses = await buildUnifiedTeamStatuses(env, statusRows);
   const games = resolvedRows;
