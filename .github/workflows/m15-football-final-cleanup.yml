@@ -13,6 +13,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    name: verify-football-cleanup
     steps:
       - name: Verify production football cleanup
         shell: bash
