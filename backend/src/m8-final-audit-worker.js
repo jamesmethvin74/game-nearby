@@ -47,7 +47,7 @@ export default {
       if(request.method!=="POST") return auditJson({error:"not_found"},404,{integrity:true});
       const body=await request.json().catch(()=>({}));
       if(body.fingerprint!==INTEGRITY_PROOF_FINGERPRINT) return auditJson({error:"not_found"},404,{integrity:true});
-      const result=await runStatewideIntegrityGate(env,{now:new Date(),reason:"m15-automation-proof"});
+      const result=await runStatewideIntegrityGate(env,{now:new Date(),reason:"m15-automation-proof",maxPresentationIssues:500});
       return auditJson({status:"EXECUTED",fingerprint:INTEGRITY_PROOF_FINGERPRINT,result},200,{integrity:true});
     }
     const coverageView=request.method==="GET" && url.pathname==="/api/v1/coverage-report"
