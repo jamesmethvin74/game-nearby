@@ -14,6 +14,7 @@ import { runHootensTeamPageCatchup } from "./hootens-team-page-catchup.js";
 import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 import { syncPublishedFootballConferenceMembership } from "./football-conference-membership.js";
+import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -259,6 +260,18 @@ async function runMaxPrepsVolleyballFallbackPass({env,plan,when}){
   }
 }
 
+
+async function runIntegrityGatePass({env,plan,when}){
+  if(!plan?.runIntegrityGate) return null;
+  try {
+    return await runStatewideIntegrityGate(env,{now:when,reason:plan.kind});
+  } catch(error) {
+    const message=String(error?.message||error).slice(0,1000);
+    console.error("statewide integrity gate failed",{plan:plan.kind,error:message});
+    throw error;
+  }
+}
+
 async function runScheduledPlan(controller,env,ctx){
   const scheduledTime=Number(controller?.scheduledTime);
   const when=Number.isFinite(scheduledTime)?new Date(scheduledTime):new Date();
@@ -290,12 +303,17 @@ async function runScheduledPlan(controller,env,ctx){
 
   if (plan.runCore) {
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
-    if (scoped) return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults};
+    if (scoped) {
+      const integrity=await runIntegrityGatePass({env,plan,when});
+      return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,integrity};
+    }
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,coreResult:result??null};
+    const integrity=await runIntegrityGatePass({env,plan,when});
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,coreResult:result??null,integrity};
   }
 
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults};
+  const integrity=await runIntegrityGatePass({env,plan,when});
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,integrity};
 }
 
 export default {

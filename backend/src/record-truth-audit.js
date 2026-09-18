@@ -9,6 +9,7 @@ import {
   scheduleRowsLikelyDuplicate
 } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth, resultFromTeamScores } from "./final-result-truth.js";
+import { currentScheduleTruthSql } from "./current-schedule-truth.js";
 
 const DEFAULT_SEASON = "2026";
 const RESULT_GRACE_HOURS = 6;
@@ -466,6 +467,13 @@ export async function buildStatewideRecordTruthAudit(env,{
       LEFT JOIN team_records r ON r.team_id=t.id
       WHERE t.active=1 AND t.season=? AND sch.catalog_scope='local'
     ),
+    visible_games AS (
+      SELECT g.*
+      FROM games g INDEXED BY idx_games_team_time
+      JOIN active_teams vat ON vat.team_id=g.team_id
+      JOIN sources src_visible ON src_visible.id=g.source_id
+      WHERE ${currentScheduleTruthSql("g","src_visible")}
+    ),
     source_counts AS (
       SELECT g.source_id,COUNT(*) AS source_stored_game_count
       FROM games g INDEXED BY idx_games_team_time
@@ -497,7 +505,7 @@ export async function buildStatewideRecordTruthAudit(env,{
       ss.published_standing_overall_record,ss.published_standing_conference_record,
       ss.calculated_standing_overall_record,ss.calculated_standing_conference_record,ss.standing_calculated_at
     FROM active_teams at
-    LEFT JOIN games g INDEXED BY idx_games_team_time ON g.team_id=at.team_id
+    LEFT JOIN visible_games g ON g.team_id=at.team_id
       AND (
         g.status='FINAL'
         OR datetime(g.scheduled_at) <= datetime(?,'-${RESULT_GRACE_HOURS} hours')
