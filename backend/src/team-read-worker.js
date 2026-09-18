@@ -1,5 +1,5 @@
 import app from "./catalog-identity-worker.js";
-import { applySchoolDisplayNames, dedupeScheduleRows, evaluateScheduleRecordTruth } from "./schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, evaluateScheduleRecordTruth, officialSeasonScheduleRows } from "./schedule-response-normalizer.js";
 import { normalizeFinalResultTruth } from "./final-result-truth.js";
 import { isSchoolCatalogVisible } from "./high-school-catalog-identity.js";
 import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
@@ -116,7 +116,7 @@ async function displayNamesForGames(env, games, reportingSchoolId) {
 async function normalizeGames(env, games, reportingSchoolId) {
   const names = await displayNamesForGames(env, games, reportingSchoolId);
   const cleaned = games.map(game => applySchoolDisplayNames(game, names, { reportingSchoolId }));
-  return dedupeScheduleRows(cleaned, { reportingSchoolId });
+  return dedupeScheduleRows(officialSeasonScheduleRows(cleaned), { reportingSchoolId });
 }
 
 async function readTeamSchedule(env, teamId) {
