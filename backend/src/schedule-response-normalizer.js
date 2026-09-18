@@ -63,6 +63,12 @@ export function opponentNamesLikelySame(a, b) {
 
 
 
+function scoredFinalSnapshot(row) {
+  return clean(row?.status).toUpperCase()==="FINAL"
+    && row?.team_score!=null
+    && row?.opponent_score!=null;
+}
+
 function sameLocalScheduleDate(a,b,{timeZone="America/Chicago"}={}) {
   const aTime=a?.scheduled_at||a?.canonical_scheduled_at;
   const bTime=b?.scheduled_at||b?.canonical_scheduled_at;
@@ -86,8 +92,8 @@ export function staleSameDayOpponentTwin(a,b,{reportingSchoolId=null,timeZone="A
   if(!reportingSchoolId&&a.school_id&&b.school_id&&a.school_id!==b.school_id) return false;
   if(!sameLocalScheduleDate(a,b,{timeZone})) return false;
   if(!opponentIdentityLikelySame(a,b)) return false;
-  const aFinal=verifiedFinal(a);
-  const bFinal=verifiedFinal(b);
+  const aFinal=scoredFinalSnapshot(a);
+  const bFinal=scoredFinalSnapshot(b);
   if(aFinal===bFinal) return false;
   const stale=aFinal?b:a;
   return !DISPLAY_TERMINAL_STATUSES.has(clean(stale.status).toUpperCase());
