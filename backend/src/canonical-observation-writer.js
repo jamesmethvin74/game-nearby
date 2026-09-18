@@ -1,6 +1,7 @@
 import { observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { normalizeFinalResultTruth, sanitizeFinalForCanonical } from "./final-result-truth.js";
 
+import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 function localDateKey(iso,timeZone="America/Chicago") {
   if (!iso) return "";
   const date=new Date(iso);
@@ -68,7 +69,7 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
       venue=COALESCE(NULLIF(excluded.venue,''),games.venue),location_text=COALESCE(NULLIF(excluded.location_text,''),games.location_text),
       latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),home_away=excluded.home_away,
       conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
-      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,
+      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=${suppressionPreservingNotesSql("games","excluded")},
       source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at`)
     .bind(id,source.team_id,source.id,normalizedGame.sourceEventKey,normalizedGame.opponent,opponentSchoolId,normalizedGame.scheduledAt,normalizedGame.scheduledTimeKnown?1:0,normalizedGame.venue||null,normalizedGame.locationText||null,
       normalizedGame.latitude??null,normalizedGame.longitude??null,normalizedGame.homeAway,normalizedGame.conferenceGame?1:0,normalizedGame.countsForRecord?1:0,normalizedGame.status,normalizedGame.teamScore??null,normalizedGame.opponentScore??null,

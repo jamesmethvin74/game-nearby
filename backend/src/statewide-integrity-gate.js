@@ -92,8 +92,24 @@ function presentationExamples(audit={},limit=20) {
   }));
 }
 
-function recordExamples(audit={},limit=20) {
-  return recordBlockingIssues(audit).slice(0,limit);
+function recordContradictionExamples(audit={},limit=20) {
+  const output=[];
+  for(const team of audit.teams||[]) {
+    for(const issue of team.issues||[]) {
+      const code=String(issue?.code||"");
+      if(issue?.resolved===true) continue;
+      if(!/CONTRADICT/.test(code) && code!=="PUBLISHED_RECORD_BEHIND_FINAL_EVIDENCE") continue;
+      output.push({
+        team_id:team.team_id||null,
+        school_name:team.school_name||null,
+        sport:team.sport||null,
+        gender:team.gender||null,
+        code,
+        detail:issue.detail||""
+      });
+    }
+  }
+  return output.slice(0,limit);
 }
 
 function summarizeRepair(repair={}) {
@@ -115,7 +131,7 @@ async function persistIntegrityState(env,result,checkedAt) {
     ? null
     : (
       "presentation_blockers="+result.presentation.after.blocking_issues+
-      "; record_blocking_issues="+result.record.after.blocking_issue_count+
+      "; record_audit_blocking_issues="+result.record.after.blocking_issue_count+
       "; unexplained_record_contradictions="+Number(result.record.after.unexplained_record_contradictions||0)+
       (result.fuses.length?"; fuses="+result.fuses.join(","):"")
     ).slice(0,1000);
@@ -230,7 +246,6 @@ export async function runStatewideIntegrityGate(env,{
   const recordAfter=recordSummary(recordAudit);
   const unexplainedRecordContradictions=Number(recordAudit.summary?.unexplained_record_contradictions||0);
   const clean=Number(presentationAfter.blocking_issues||0)===0
-    && Number(recordAfter.blocking_issue_count||0)===0
     && unexplainedRecordContradictions===0
     && fuses.length===0;
 
@@ -247,6 +262,7 @@ export async function runStatewideIntegrityGate(env,{
       before:recordBefore,
       after:{
         ...recordAfter,
+        audit_blocking_gap_count:Number(recordAfter.blocking_issue_count||0),
         unexplained_record_contradictions:unexplainedRecordContradictions,
         non_verified:Number(recordAudit.summary?.non_verified||0)
       },
@@ -257,7 +273,8 @@ export async function runStatewideIntegrityGate(env,{
     fuses,
     blocker_examples:{
       presentation:presentationExamples(presentation),
-      record:recordExamples(recordAudit)
+      record_contradictions:recordContradictionExamples(recordAudit),
+      record_gaps:recordBlockingIssues(recordAudit).slice(0,20)
     }
   };
 
@@ -268,7 +285,7 @@ export async function runStatewideIntegrityGate(env,{
     reason,
     presentation_before:Number(presentationBefore.blocking_issues||0),
     presentation_after:Number(presentationAfter.blocking_issues||0),
-    record_blocking:Number(recordAfter.blocking_issue_count||0),
+    record_audit_blocking_gaps:Number(recordAfter.blocking_issue_count||0),
     unexplained_record_contradictions:unexplainedRecordContradictions,
     repair_passes:repairs.length,
     record_rebuild_teams:Number(recordRebuild?.teams||0),

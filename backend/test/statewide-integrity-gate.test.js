@@ -197,3 +197,56 @@ test("integrity state persistence uses one bounded status upsert",async()=>{
   assert.equal(boundArgs.length,9);
   assert.equal(meta.rows_written,1);
 });
+
+
+test("fail-closed record evidence gaps do not make visible presentation truth dirty",async()=>{
+  const gapAudit=recordAudit([{
+    team_id:"gap-team",
+    classification:"INCOMPLETE",
+    public_record_verified:false,
+    issues:[{
+      code:"STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
+      severity:"blocking",
+      resolved:false,
+      detail:"stored conference record is ahead of final evidence"
+    }]
+  }]);
+  const result=await runStatewideIntegrityGate({},{
+    reason:"test-gap",
+    buildPresentationAudit:async()=>presentationAudit([]),
+    buildRecordAudit:async()=>gapAudit,
+    finalizeRecordAudit:value=>value,
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"CLEAN");
+  assert.equal(result.record.after.audit_blocking_gap_count,1);
+  assert.equal(result.record.after.unexplained_record_contradictions,0);
+});
+
+test("unexplained record contradiction blocks a clean presentation gate",async()=>{
+  const contradiction=recordAudit([{
+    team_id:"bad-record",
+    school_name:"Bad Record High",
+    sport:"football",
+    gender:"boys",
+    classification:"CONTRADICTORY",
+    public_record_verified:true,
+    issues:[{
+      code:"PUBLISHED_RECORD_CONTRADICTS_FINAL_EVIDENCE",
+      severity:"warning",
+      resolved:false,
+      detail:"published record disagrees with final evidence"
+    }]
+  }]);
+  contradiction.summary.unexplained_record_contradictions=1;
+  const result=await runStatewideIntegrityGate({},{
+    reason:"test-record-contradiction",
+    buildPresentationAudit:async()=>presentationAudit([]),
+    buildRecordAudit:async()=>contradiction,
+    finalizeRecordAudit:value=>value,
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"BLOCKED");
+  assert.equal(result.record.after.unexplained_record_contradictions,1);
+  assert.equal(result.blocker_examples.record_contradictions[0].team_id,"bad-record");
+});
