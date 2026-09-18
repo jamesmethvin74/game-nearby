@@ -13,7 +13,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: validate-phased-integrity-gate
+    name: validate-date-bucketed-integrity-audit
     defaults:
       run:
         working-directory: backend
