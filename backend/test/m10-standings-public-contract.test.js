@@ -7,7 +7,9 @@ import {
 } from "../src/conference-membership-public-worker.js";
 import {
   calculatedResultEvidenceState,
-  loadDurableConferenceCohortState
+  durableConferenceIdForSport,
+  loadDurableConferenceCohortState,
+  publicConferenceIdForSport
 } from "../src/standings-truth.js";
 
 function status(overrides={}) {
@@ -126,15 +128,59 @@ test("M10 result evidence exposes contradictions without letting published rows 
   assert.equal(verified.result_evidence_complete,true);
   assert.equal(verified.unexplained_record_contradictions,0);
 
-  const contradictory=calculatedResultEvidenceState(calculated,{standings:[
-    {school_name:"Alpha",conference_record:"1-1",overall_record:"3-1"},
+  const overallOnly=calculatedResultEvidenceState(calculated,{standings:[
+    {school_name:"Alpha",conference_record:"2-0",overall_record:"3-1"},
     {school_name:"Beta",conference_record:"1-1",overall_record:"3-1"}
   ]},{expectedMembers:2});
-  assert.equal(contradictory.result_evidence_complete,false);
-  assert.equal(contradictory.unexplained_record_contradictions,1);
+  assert.equal(overallOnly.result_evidence_complete,true);
+  assert.equal(overallOnly.overall_contradictions,1);
+  assert.equal(overallOnly.unexplained_record_contradictions,0);
+
+  const conferenceContradiction=calculatedResultEvidenceState(calculated,{standings:[
+    {school_name:"Alpha",conference_record:"1-1",overall_record:"4-0"},
+    {school_name:"Beta",conference_record:"1-1",overall_record:"3-1"}
+  ]},{expectedMembers:2});
+  assert.equal(conferenceContradiction.result_evidence_complete,false);
+  assert.equal(conferenceContradiction.conference_contradictions,1);
+  assert.equal(conferenceContradiction.unexplained_record_contradictions,1);
 });
 
 test("conference standings route parser is exact", () => {
   assert.equal(conferenceStandingsId("/api/v1/conferences/7a-central-football/standings"),"7a-central-football");
   assert.equal(conferenceStandingsId("/api/v1/conferences/7a-central-football"),null);
+});
+
+
+test("football standings translate public and durable conference ids without ambiguity", () => {
+  assert.equal(publicConferenceIdForSport("football","7a-west"),"7a-west");
+  assert.equal(publicConferenceIdForSport("football","7a-west-football"),"7a-west");
+  assert.equal(durableConferenceIdForSport("football","7a-west"),"7a-west-football");
+  assert.equal(durableConferenceIdForSport("football","7a-west-football"),"7a-west-football");
+  assert.equal(durableConferenceIdForSport("volleyball","6a-central"),"6a-central");
+});
+
+test("durable cohort state is keyed by M9 membership rows, not legacy team conference pointers", async () => {
+  let sqlSeen="";
+  let bindsSeen=[];
+  const env={
+    DB:{
+      prepare(sql){
+        sqlSeen=sql;
+        return {
+          bind(...args){bindsSeen=args;return this;},
+          async first(){
+            return {expected_members:8,explicit_members:8,unknown_members:0,invalid_memberships:0};
+          }
+        };
+      }
+    }
+  };
+  const state=await loadDurableConferenceCohortState(env,{
+    sport:"football",conferenceId:"7a-west",season:"2026"
+  });
+  assert.match(sqlSeen,/FROM conference_memberships cm/);
+  assert.doesNotMatch(sqlSeen,/t\.conference_id=\?/);
+  assert.deepEqual(bindsSeen,["7a-west-football","football","2026"]);
+  assert.equal(state.membership_complete,true);
+  assert.equal(state.expected_members,8);
 });

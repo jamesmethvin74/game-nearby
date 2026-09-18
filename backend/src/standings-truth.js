@@ -57,7 +57,7 @@ export function normalizeNotStartedStandings(result) {
       }
       return {
         ...row,
-        conference_record: "N/A",
+        conference_record: row?.conference_record || "0-0",
         rank: null,
         standing_state: "not-started"
       };
@@ -113,45 +113,62 @@ export async function loadDurableConferenceCohortState(env, {
 export function calculatedResultEvidenceState(calculated, published, { expectedMembers = 0 } = {}) {
   const localRows=Array.isArray(calculated?.standings) ? calculated.standings : [];
   const sourceRows=Array.isArray(published?.standings) ? published.standings : [];
-  const localBySchool=new Map(localRows.map(row=>[schoolKey(row.school_name),row]).filter(([key])=>key));
   const sourceBySchool=new Map(sourceRows.map(row=>[schoolKey(row.school_name),row]).filter(([key])=>key));
-  let missingLocalRows=Math.max(0,Number(expectedMembers||0)-localRows.length);
-  let publishedAhead=0;
-  let unexplainedContradictions=0;
+  const missingLocalRows=Math.max(0,Number(expectedMembers||0)-localRows.length);
+  let conferencePublishedAhead=0;
+  let conferenceContradictions=0;
+  let overallPublishedAhead=0;
+  let overallContradictions=0;
+  let publishedMatches=0;
 
   for (const row of localRows) {
     const source=sourceBySchool.get(schoolKey(row.school_name));
     if (!source) continue;
+    publishedMatches += 1;
+
     const localConference=parseStandingsRecord(row.conference_record);
-    const localOverall=parseStandingsRecord(row.overall_record);
     const sourceConference=parseStandingsRecord(source.conference_record);
+    if (sourceConference.games > localConference.games) {
+      conferencePublishedAhead += 1;
+    } else if (
+      sourceConference.games===localConference.games
+      && sourceConference.games>0
+      && !sameRecord(row.conference_record,source.conference_record)
+    ) {
+      conferenceContradictions += 1;
+    }
+
+    const localOverall=parseStandingsRecord(row.overall_record);
     const sourceOverall=parseStandingsRecord(source.overall_record);
-
-    if (sourceConference.games > localConference.games || sourceOverall.games > localOverall.games) {
-      publishedAhead += 1;
-      continue;
-    }
-    if ((sourceConference.games===localConference.games && sourceConference.games>0 && !sameRecord(row.conference_record,source.conference_record))
-      || (sourceOverall.games===localOverall.games && sourceOverall.games>0 && !sameRecord(row.overall_record,source.overall_record))) {
-      unexplainedContradictions += 1;
+    if (sourceOverall.games > localOverall.games) {
+      overallPublishedAhead += 1;
+    } else if (
+      sourceOverall.games===localOverall.games
+      && sourceOverall.games>0
+      && !sameRecord(row.overall_record,source.overall_record)
+    ) {
+      overallContradictions += 1;
     }
   }
 
-  for (const row of sourceRows) {
-    const key=schoolKey(row.school_name);
-    if (key && !localBySchool.has(key)) missingLocalRows += 1;
-  }
+  const conferenceEvidenceComplete=Number(expectedMembers||0)>0
+    && missingLocalRows===0
+    && conferencePublishedAhead===0
+    && conferenceContradictions===0;
 
   return {
-    result_evidence_complete:Number(expectedMembers||0)>0
-      && missingLocalRows===0
-      && publishedAhead===0
-      && unexplainedContradictions===0,
+    result_evidence_complete:conferenceEvidenceComplete,
+    conference_result_evidence_complete:conferenceEvidenceComplete,
     expected_members:Number(expectedMembers||0),
     calculated_rows:localRows.length,
     missing_local_rows:missingLocalRows,
-    published_ahead_rows:publishedAhead,
-    unexplained_record_contradictions:unexplainedContradictions
+    published_matches:publishedMatches,
+    published_ahead_rows:conferencePublishedAhead,
+    unexplained_record_contradictions:conferenceContradictions,
+    conference_published_ahead_rows:conferencePublishedAhead,
+    conference_contradictions:conferenceContradictions,
+    overall_published_ahead_rows:overallPublishedAhead,
+    overall_contradictions:overallContradictions
   };
 }
 

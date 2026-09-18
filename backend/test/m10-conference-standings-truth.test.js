@@ -34,13 +34,13 @@ test("unresolved result evidence withholds every calculated rank", () => {
   assert.ok(ranked.every(row=>row.standing_state==="unavailable"));
 });
 
-test("zero conference games is known membership but N/A with no rank", () => {
+test("zero conference games is known membership with 0-0 and no rank", () => {
   const ranked=rankCanonicalConferenceRows([
     {team_id:"a",school_name:"Alpha",conference_record:"0-0",overall_record:"1-0"},
     {team_id:"b",school_name:"Beta",conference_record:"0-0",overall_record:"0-1"}
   ],{membershipComplete:true,resultEvidenceComplete:true});
   assert.deepEqual(ranked.map(row=>[row.conference_record,row.rank,row.standing_state]),[
-    ["N/A",null,"not-started"],["N/A",null,"not-started"]
+    ["0-0",null,"not-started"],["0-0",null,"not-started"]
   ]);
 });
 
