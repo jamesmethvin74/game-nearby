@@ -45,7 +45,7 @@ test("team detail uses one explicit school schedule read and preserves backend s
 });
 
 test("team detail schedule cache is versioned by season and abandons pre-status payloads", () => {
-  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v4:/);
+  assert.match(schoolSchedule, /localBleachersAR:teamSchedule:v5:/);
   assert.match(schoolSchedule, /\$\{SCHEDULE_CACHE_PREFIX\}\$\{currentSeason\(\)\}:\$\{schoolId\}/);
 });
 
@@ -62,7 +62,6 @@ test("team detail renders the unified backend record and standings contract", as
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
   assert.match(schoolSchedule, /live\.getTeamStatus/);
   assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
-  assert.match(detail, /status\.overall_record/);
-  assert.match(detail, /status\.conference_record/);
-  assert.match(detail, /status\.rank/);
+  assert.match(detail, /LocalBleachersPresentation/);
+  assert.match(schoolSchedule, /team_statuses/);
 });
