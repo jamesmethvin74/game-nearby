@@ -1,0 +1,38 @@
+name: M15 standings evidence
+
+on:
+  push:
+    branches:
+      - m15/statewide-repair-reconciliation-20260917
+    paths:
+      - .github/workflows/m15-standings-evidence-v2.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Pull live standings truth
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          for (const conference of ['7a-central','7a-west']) {
+            const url=base+'/api/v1/standings?sport=football&conference='+encodeURIComponent(conference);
+            const response=await fetch(url,{headers:{accept:'application/json'}});
+            const text=await response.text();
+            let body={};
+            try { body=JSON.parse(text); } catch { body={raw:text.slice(0,4000)}; }
+            console.log('STANDINGS_EVIDENCE='+JSON.stringify({
+              conference,
+              http:response.status,
+              method:body.method||null,
+              conference_meta:body.conference||null,
+              standings:body.standings||null
+            }));
+          }
+          NODE
