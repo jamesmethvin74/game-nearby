@@ -170,3 +170,39 @@ test("integrity state persistence accepts CLEAN and pending-verify states",async
   assert.equal(calls[1].args.length,9);
   assert.match(calls[1].args[6],/pending_verify=1/);
 });
+
+
+test("standings readiness blockers make the scheduled integrity state BLOCKED",async()=>{
+  const result=await runStatewideIntegrityGate({},{
+    reason:"morning-results",
+    auditStandings:true,
+    buildPresentationAudit:async()=>presentationAudit([]),
+    buildStandingsAudit:async()=>({
+      status:"BLOCKED",
+      summary:{conferences_examined:12,blocking_issues:1,warning_issues:3,issues_by_code:{STANDINGS_EMPTY:1}},
+      issues:[{code:"STANDINGS_EMPTY",severity:"blocking",sport:"football",conference_id:"5a-east"}],
+      checked:[]
+    }),
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"BLOCKED");
+  assert.equal(result.standings.summary.blocking_issues,1);
+  assert.equal(result.blocker_examples.standings[0].code,"STANDINGS_EMPTY");
+});
+
+test("standings readiness warnings do not dirty a factual published fallback",async()=>{
+  const result=await runStatewideIntegrityGate({},{
+    reason:"morning-results",
+    auditStandings:true,
+    buildPresentationAudit:async()=>presentationAudit([]),
+    buildStandingsAudit:async()=>({
+      status:"READY",
+      summary:{conferences_examined:12,blocking_issues:0,warning_issues:4,issues_by_code:{STANDINGS_USING_PUBLISHED_FALLBACK:4}},
+      issues:[{code:"STANDINGS_USING_PUBLISHED_FALLBACK",severity:"warning",sport:"football",conference_id:"7a-west"}],
+      checked:[]
+    }),
+    persistState:async()=>({rows_written:1})
+  });
+  assert.equal(result.status,"CLEAN");
+  assert.equal(result.standings.summary.warning_issues,4);
+});
