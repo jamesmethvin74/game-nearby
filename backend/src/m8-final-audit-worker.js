@@ -10,7 +10,7 @@ const DATA_INTEGRITY_VIEW="data-integrity";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const INTEGRITY_PROOF_PATH="/api/v1/internal/m15-integrity-gate-proof-20260918-7fd31c84";
-const INTEGRITY_PROOF_FINGERPRINT="m15-integrity-gate-v1-proof-20260918";
+const INTEGRITY_PROOF_FINGERPRINT="m15-integrity-gate-v2-proof-20260918";
 
 function authorizedAudit(request,env) {
   return Boolean(env.REFRESH_TOKEN) && request.headers.get("x-refresh-token")===env.REFRESH_TOKEN;
@@ -43,7 +43,7 @@ export default {
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
     if(url.pathname===INTEGRITY_PROOF_PATH){
-      if(request.method==="GET") return auditJson({status:"READY",fingerprint:INTEGRITY_PROOF_FINGERPRINT,version:"statewide-integrity-gate-v1"},200,{integrity:true});
+      if(request.method==="GET") return auditJson({status:"READY",fingerprint:INTEGRITY_PROOF_FINGERPRINT,version:"statewide-integrity-gate-v2-proof"},200,{integrity:true});
       if(request.method!=="POST") return auditJson({error:"not_found"},404,{integrity:true});
       const body=await request.json().catch(()=>({}));
       if(body.fingerprint!==INTEGRITY_PROOF_FINGERPRINT) return auditJson({error:"not_found"},404,{integrity:true});
