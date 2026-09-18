@@ -11,7 +11,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    name: validate-factual-team-presentation
+    name: validate-factual-team-presentation-v2
     defaults:
       run:
         working-directory: backend
