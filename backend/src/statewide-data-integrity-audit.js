@@ -1,6 +1,7 @@
 import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
 import { currentScheduleTruthSql } from "./current-schedule-truth.js";
+import { dateKeyInZone } from "./schedule-authority-core.js";
 
 const DEFAULT_SEASON = "2026";
 const PAST_DUE_GRACE_HOURS = 6;
@@ -52,6 +53,7 @@ function effectiveCandidate(row) {
     opponent: row.opponent || row.opponent_school_id || "Opponent",
     opponent_school_id: row.opponent_school_id || null,
     scheduled_at: row.canonical_scheduled_at || row.raw_scheduled_at,
+    schedule_local_date: dateKeyInZone(row.canonical_scheduled_at || row.raw_scheduled_at,"America/Chicago"),
     scheduled_time_known: canonicalTimeKnown == null ? boolish(row.raw_time_known) : canonicalTimeKnown,
     status: text(row.canonical_status || row.raw_status).toUpperCase() || "SCHEDULED",
     team_score: canonicalTeamScore == null ? nullableNumber(row.raw_team_score) : canonicalTeamScore,
@@ -175,10 +177,18 @@ function auditTeam(rows, { now = new Date() } = {}) {
     }
   }
 
-  for (let i = 0; i < candidates.length; i++) {
-    for (let j = i + 1; j < candidates.length; j++) {
-      const a = candidates[i];
-      const b = candidates[j];
+  const dateBuckets=new Map();
+  for(const candidate of candidates) {
+    const key=candidate.schedule_local_date||String(candidate.scheduled_at||candidate.id||"");
+    if(!dateBuckets.has(key)) dateBuckets.set(key,[]);
+    dateBuckets.get(key).push(candidate);
+  }
+
+  for (const dateCandidates of dateBuckets.values()) {
+    for (let i = 0; i < dateCandidates.length; i++) {
+      for (let j = i + 1; j < dateCandidates.length; j++) {
+        const a = dateCandidates[i];
+        const b = dateCandidates[j];
       const sameLogicalGame = pairLooksLikeOneDisplayedGame(a, b);
       const footballDateCollision = footballRowsConflictSameDay(a,b,{reportingSchoolId:a.school_id});
       const staleSameDayTwin = statusesDifferFinalVsNonterminal(a,b)
@@ -242,6 +252,7 @@ function auditTeam(rows, { now = new Date() } = {}) {
         ));
       }
     }
+  }
   }
 
   const normalized = dedupeScheduleRows(candidates, {
