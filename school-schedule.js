@@ -5,7 +5,7 @@
   const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const memoryCache = new Map();
   const statusCache = new Map();
-  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v4:";
+  const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v5:";
   const SCHEDULE_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
   const NEARBY_CACHE_MAX_AGE_MS = 18 * 60 * 60 * 1000;
@@ -62,7 +62,7 @@
 
   function restoreSavedPayload(schoolId) {
     const saved = readJson(scheduleCacheKey(schoolId));
-    if (!saved || !Array.isArray(saved.events) || !saved.events.length) return { events: [], statuses: [] };
+    if (!saved || saved.schemaVersion !== 5 || !Array.isArray(saved.events) || !saved.events.length) return { events: [], statuses: [] };
     const savedAt = Number(saved.savedAt);
     if (!Number.isFinite(savedAt) || Date.now() - savedAt > SCHEDULE_CACHE_MAX_AGE_MS) return { events: [], statuses: [] };
     return {
@@ -74,6 +74,7 @@
   function saveSchedule(schoolId, events, statuses) {
     if (!Array.isArray(events) || !events.length) return;
     writeJson(scheduleCacheKey(schoolId), {
+      schemaVersion: 5,
       savedAt: Date.now(),
       events: cloneEvents(events),
       statuses: cloneStatuses(statuses)
@@ -262,35 +263,30 @@
     } : null;
   };
 
-  const primedSchools = new Set();
-  const primingSchools = new Set();
+  const primedStatusSchools = new Set();
+  const primingStatusSchools = new Set();
+  const MAX_VISIBLE_STATUS_SCHOOLS = 48;
 
-  async function primeVisibleFollowedStatuses() {
-    const followedIds = new Set(typeof followed !== "undefined" && Array.isArray(followed) ? followed : []);
-    if (!followedIds.size) return;
+  async function primeVisibleTeamStatuses() {
     const nearby = live.getNearbyEvents?.() || [];
-    const schoolIds = [...new Set(nearby.flatMap(event => {
-      const ids = Array.isArray(event.schoolIds) && event.schoolIds.length ? event.schoolIds : [event.teamId];
-      return ids.filter(id => followedIds.has(id));
-    }))];
-    if (!schoolIds.length) return;
-
-    for (const schoolId of schoolIds) {
-      if (primedSchools.has(schoolId) || primingSchools.has(schoolId)) continue;
-      primingSchools.add(schoolId);
+    const schoolIds = [...new Set(nearby.map(event => event?.teamId).filter(Boolean))].slice(0, MAX_VISIBLE_STATUS_SCHOOLS);
+    const pending = schoolIds.filter(schoolId => !primedStatusSchools.has(schoolId) && !primingStatusSchools.has(schoolId));
+    if (!pending.length) return;
+    await Promise.allSettled(pending.map(async schoolId => {
+      primingStatusSchools.add(schoolId);
       try {
         await live.fetchTeamSchedule(schoolId);
-        if ((statusCache.get(memoryCacheKey(schoolId)) || []).length) primedSchools.add(schoolId);
+        if ((statusCache.get(memoryCacheKey(schoolId)) || []).length) primedStatusSchools.add(schoolId);
       } catch (error) {
-        console.warn("Followed team status prime failed", schoolId, error);
+        console.warn("Visible team status prime failed", schoolId, error);
       } finally {
-        primingSchools.delete(schoolId);
+        primingStatusSchools.delete(schoolId);
       }
-    }
-
+    }));
     if (typeof render === "function") render();
   }
 
-  document.addEventListener("localbleachers:nearby-games", () => { void primeVisibleFollowedStatuses(); });
-  queueMicrotask(() => { void primeVisibleFollowedStatuses(); });
+  live.primeVisibleTeamStatuses = primeVisibleTeamStatuses;
+  document.addEventListener("localbleachers:nearby-games", () => { void primeVisibleTeamStatuses(); });
+  queueMicrotask(() => { void primeVisibleTeamStatuses(); });
 })();
