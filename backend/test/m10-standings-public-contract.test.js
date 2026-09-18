@@ -128,12 +128,21 @@ test("M10 result evidence exposes contradictions without letting published rows 
   assert.equal(verified.result_evidence_complete,true);
   assert.equal(verified.unexplained_record_contradictions,0);
 
-  const contradictory=calculatedResultEvidenceState(calculated,{standings:[
-    {school_name:"Alpha",conference_record:"1-1",overall_record:"3-1"},
+  const overallOnly=calculatedResultEvidenceState(calculated,{standings:[
+    {school_name:"Alpha",conference_record:"2-0",overall_record:"3-1"},
     {school_name:"Beta",conference_record:"1-1",overall_record:"3-1"}
   ]},{expectedMembers:2});
-  assert.equal(contradictory.result_evidence_complete,false);
-  assert.equal(contradictory.unexplained_record_contradictions,1);
+  assert.equal(overallOnly.result_evidence_complete,true);
+  assert.equal(overallOnly.overall_contradictions,1);
+  assert.equal(overallOnly.unexplained_record_contradictions,0);
+
+  const conferenceContradiction=calculatedResultEvidenceState(calculated,{standings:[
+    {school_name:"Alpha",conference_record:"1-1",overall_record:"4-0"},
+    {school_name:"Beta",conference_record:"1-1",overall_record:"3-1"}
+  ]},{expectedMembers:2});
+  assert.equal(conferenceContradiction.result_evidence_complete,false);
+  assert.equal(conferenceContradiction.conference_contradictions,1);
+  assert.equal(conferenceContradiction.unexplained_record_contradictions,1);
 });
 
 test("conference standings route parser is exact", () => {
