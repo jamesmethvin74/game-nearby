@@ -62,7 +62,8 @@ export function normalizeModernSidearmHtml(html,source) {
     if(/schedule-table-item--neutral|schedule-event-item--neutral/i.test(row)) homeAway="neutral";
     const parsed=parseResult(resultText);
     const promo=first(row,/<strong\b[^>]*class=["'][^"']*\bschedule-event-item__promo-title\b[^"']*["'][^>]*>([\s\S]*?)<\/strong>/i);
-    const nonCount=/\b(exhibition|scrimmage)\b/i.test(promo);
+    const eventDescriptor=[promo,opponent,resultText,text(row)].filter(Boolean).join(" ");
+    const nonCount=/\b(exhibition|scrimmage|jamboree|benefit(?: game)?)\b/i.test(eventDescriptor);
     const venue=location || (homeAway==="home"?cleanText(source.home_venue):"");
     const nativeId=first(row,/<div\b[^>]*class=["'][^"']*\bschedule-event-item__dashboard-link\b[^"']*["'][^>]*entity-id=["']([^"']+)["']/i) || `${dateText}|${opponent}|${homeAway}`;
 
