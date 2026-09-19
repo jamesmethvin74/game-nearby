@@ -93,3 +93,13 @@ test("home card fallback record formatting is self-contained", async () => {
   assert.match(polishSource, /function recordLabel\(/);
   assert.match(polishSource, /overall: recordLabel\(/);
 });
+
+
+test("home cards resolve the shared presentation object before any record fallback", async () => {
+  const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.match(polishSource, /LocalBleachersLive\?\.getPresentationStatus/);
+  assert.doesNotMatch(polishSource, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(polishSource, /const requiresPresentationTruth = event\?\.level === "high-school"/);
+  assert.match(polishSource, /\["football","volleyball","basketball"\]/);
+  assert.match(polishSource, /if \(requiresPresentationTruth\) \{/);
+});
