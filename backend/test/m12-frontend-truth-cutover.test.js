@@ -44,10 +44,27 @@ function payload(status) {
 
 function createContext(responsePayload) {
   const storage = new Map();
+  const presentationStatuses = new Map();
+  const presentationKey = (schoolId, sport, gender = "") =>
+    `${String(schoolId || "")}|${String(sport || "").toLowerCase()}|${String(gender || "").toLowerCase()}`;
   const live = {
     apiBase: "https://example.test",
     fetchTeamSchedule() {},
-    getNearbyEvents() { return []; }
+    getNearbyEvents() { return []; },
+    ingestPresentationStatuses(statuses = [], _resolutions = [], requestedSchoolIds = []) {
+      for (const status of statuses) {
+        const canonicalSchoolId = String(status?.school_id || requestedSchoolIds[0] || "");
+        if (!canonicalSchoolId) continue;
+        presentationStatuses.set(presentationKey(canonicalSchoolId, status.sport, status.gender), status);
+        for (const requestedSchoolId of requestedSchoolIds) {
+          presentationStatuses.set(presentationKey(requestedSchoolId, status.sport, status.gender), status);
+        }
+      }
+    },
+    getPresentationStatus(schoolId, sport, gender = "") {
+      return presentationStatuses.get(presentationKey(schoolId, sport, gender)) || null;
+    },
+    async primePresentationStatuses() { return new Map(presentationStatuses); }
   };
   const context = {
     window: { LocalBleachersLive: live },
