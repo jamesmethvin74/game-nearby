@@ -1,5 +1,6 @@
 import { fetchPublishedStandings } from "./published-standings.js";
-import { loadMaterializedCalculatedStandings } from "./calculated-standings.js";
+import { buildCalculatedStandings, loadMaterializedCalculatedStandings } from "./calculated-standings.js";
+import { buildRecordsFromInputs, loadRecordInputs } from "./record-rebuild.js";
 import {
   cohortTruthState,
   parseStandingsRecord,
@@ -116,8 +117,10 @@ export function calculatedResultEvidenceState(calculated, published, { expectedM
   const sourceBySchool=new Map(sourceRows.map(row=>[schoolKey(row.school_name),row]).filter(([key])=>key));
   const missingLocalRows=Math.max(0,Number(expectedMembers||0)-localRows.length);
   let conferencePublishedAhead=0;
+  let conferenceCalculatedAhead=0;
   let conferenceContradictions=0;
   let overallPublishedAhead=0;
+  let overallCalculatedAhead=0;
   let overallContradictions=0;
   let publishedMatches=0;
 
@@ -130,6 +133,8 @@ export function calculatedResultEvidenceState(calculated, published, { expectedM
     const sourceConference=parseStandingsRecord(source.conference_record);
     if (sourceConference.games > localConference.games) {
       conferencePublishedAhead += 1;
+    } else if (localConference.games > sourceConference.games) {
+      conferenceCalculatedAhead += 1;
     } else if (
       sourceConference.games===localConference.games
       && sourceConference.games>0
@@ -142,6 +147,8 @@ export function calculatedResultEvidenceState(calculated, published, { expectedM
     const sourceOverall=parseStandingsRecord(source.overall_record);
     if (sourceOverall.games > localOverall.games) {
       overallPublishedAhead += 1;
+    } else if (localOverall.games > sourceOverall.games) {
+      overallCalculatedAhead += 1;
     } else if (
       sourceOverall.games===localOverall.games
       && sourceOverall.games>0
@@ -166,10 +173,74 @@ export function calculatedResultEvidenceState(calculated, published, { expectedM
     published_ahead_rows:conferencePublishedAhead,
     unexplained_record_contradictions:conferenceContradictions,
     conference_published_ahead_rows:conferencePublishedAhead,
+    conference_calculated_ahead_rows:conferenceCalculatedAhead,
     conference_contradictions:conferenceContradictions,
     overall_published_ahead_rows:overallPublishedAhead,
+    overall_calculated_ahead_rows:overallCalculatedAhead,
     overall_contradictions:overallContradictions
   };
+}
+
+async function loadLiveCanonicalCalculatedStandings(env, {
+  sport,
+  conferenceId,
+  season = "2026"
+} = {}) {
+  const cohortResult=await env.DB.prepare(`
+    SELECT t.id AS team_id,s.name AS school_name
+    FROM teams t
+    JOIN schools s ON s.id=t.school_id
+    WHERE t.active=1
+      AND t.conference_id=?
+      AND t.sport=?
+      AND t.season=?
+      AND s.catalog_scope='local'
+    ORDER BY s.name,t.id
+  `).bind(conferenceId,sport,season).all();
+  const cohortRows=cohortResult.results || [];
+  const teamIds=cohortRows.map(row=>String(row.team_id||"")).filter(Boolean);
+  if(!teamIds.length) return null;
+
+  const names=new Map(cohortRows.map(row=>[String(row.team_id),row.school_name]));
+  const inputs=await loadRecordInputs(env,{teamIds});
+  const built=buildRecordsFromInputs(inputs);
+  const rows=built.map(item=>({
+    team_id:item.team.id,
+    school_name:names.get(String(item.team.id)) || item.team.id,
+    ...item.record
+  }));
+  const standings=buildCalculatedStandings(rows);
+  if(!standings.some(row=>recordGameCount(row.overall_record)>0)) return null;
+
+  const conference=await env.DB.prepare(`
+    SELECT id,name,classification,source_url,standings_method,coverage_complete
+    FROM conferences WHERE id=?
+  `).bind(conferenceId).first();
+
+  return {
+    conference:{
+      id:conferenceId,
+      name:conference?.name || conferenceId,
+      sport,
+      standings_method:"canonical-live",
+      coverage_complete:Number(conference?.coverage_complete || 0)===1,
+      source_url:null
+    },
+    standings:standings.map(row=>({
+      ...row,
+      calculated_at:null,
+      method:"canonical-live"
+    }))
+  };
+}
+
+function materializedNeedsCanonicalRefresh(evidence={}) {
+  return Number(evidence.conference_published_ahead_rows||0)>0
+    || Number(evidence.conference_calculated_ahead_rows||0)>0
+    || Number(evidence.conference_contradictions||0)>0
+    || Number(evidence.overall_published_ahead_rows||0)>0
+    || Number(evidence.overall_calculated_ahead_rows||0)>0
+    || Number(evidence.overall_contradictions||0)>0;
 }
 
 /**
@@ -227,11 +298,35 @@ export async function loadStandingsTruth(env, {
     })
   ]);
 
-  const resultEvidence=calculatedResultEvidenceState(calculated,published,{
+  let resultEvidence=calculatedResultEvidenceState(calculated,published,{
     expectedMembers:membershipState.expected_members
   });
+  let effectiveCalculated=calculated;
+
+  if (materializedNeedsCanonicalRefresh(resultEvidence)) {
+    try {
+      const liveCalculated=await loadLiveCanonicalCalculatedStandings(env,{
+        sport:normalizedSport,
+        conferenceId:durableConferenceId,
+        season
+      });
+      if (liveCalculated) {
+        effectiveCalculated=liveCalculated;
+        resultEvidence=calculatedResultEvidenceState(effectiveCalculated,published,{
+          expectedMembers:membershipState.expected_members
+        });
+      }
+    } catch (error) {
+      console.warn("live canonical standings fallback failed",{
+        sport:normalizedSport,
+        conferenceId:durableConferenceId,
+        error:String(error?.message||error)
+      });
+    }
+  }
+
   const result = reconcileConferenceStandings({
-    calculated,
+    calculated:effectiveCalculated,
     published,
     membershipComplete:membershipState.membership_complete,
     resultEvidenceComplete:resultEvidence.result_evidence_complete
