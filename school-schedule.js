@@ -222,10 +222,7 @@
 
     const school = schoolFor(schoolId);
     const restored = restoreSavedPayload(schoolId);
-    if (restored.statuses.length) {
-      setStatuses(schoolId, restored.statuses);
-      if (restored.events.length) memoryCache.set(cacheKey, restored.events);
-    }
+    if (restored.events.length) memoryCache.set(cacheKey, restored.events);
 
     let lastError = null;
     try {

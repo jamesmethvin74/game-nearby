@@ -52,7 +52,16 @@
   <script src="app.js?v=54"></script>
   <script src="live-scores.js?v=2"></script>
   <script>
-    if("serviceWorker" in navigator){navigator.serviceWorker.register("./service-worker.js",{scope:"./"}).catch(err=>console.warn("Service worker registration failed",err));}
+    if("serviceWorker" in navigator){
+      navigator.serviceWorker.register("./service-worker.js?v=76",{scope:"./",updateViaCache:"none"})
+        .then(registration=>{
+          const refreshWorker=()=>registration.update().catch(()=>{});
+          refreshWorker();
+          document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refreshWorker(); });
+          window.addEventListener("pageshow",refreshWorker);
+        })
+        .catch(err=>console.warn("Service worker registration failed",err));
+    }
   </script>
 </body>
 </html>

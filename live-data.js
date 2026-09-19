@@ -130,10 +130,10 @@
 
   function presentationSchoolIdsForGames(games = []) {
     const selected = typeof followed !== "undefined" && Array.isArray(followed)
-      ? [...new Set(followed.map(String).filter(Boolean))]
+      ? followed.map(String).filter(Boolean)
       : [];
-    if (selected.length) return selected;
-    return [...new Set(games.map(game => String(game?.school_id || "")).filter(Boolean))];
+    const reportingSchoolIds = games.map(game => String(game?.school_id || "")).filter(Boolean);
+    return [...new Set([...selected, ...reportingSchoolIds])];
   }
 
   function clearPresentationStatusesForSchoolIds(target, schoolIds = []) {

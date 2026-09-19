@@ -95,11 +95,11 @@
   </nav>
 
   <script>const SCHOOL_REGISTRY=[];const teams=[];const events=[];</script>
-  <script src="runtime-build.js?v=75"></script>
+  <script src="runtime-build.js?v=76"></script>
   <script src="presentation-status.js?v=71"></script>
-  <script src="live-data.js?v=75"></script>
+  <script src="live-data.js?v=76"></script>
   <script src="teams-catalog-bootstrap.js?v=62"></script>
-  <script src="school-schedule.js?v=75"></script>
+  <script src="school-schedule.js?v=76"></script>
   <script src="team-detail.js?v=75"></script>
   <script src="school-logo-ui.js?v=61"></script>
   <script src="teams-page.js?v=61"></script>
@@ -111,8 +111,13 @@
         swReloading=true;
         location.reload();
       });
-      navigator.serviceWorker.register("./service-worker.js?v=75",{scope:"./",updateViaCache:"none"})
-        .then(registration=>registration.update())
+      navigator.serviceWorker.register("./service-worker.js?v=76",{scope:"./",updateViaCache:"none"})
+        .then(registration=>{
+          const refreshWorker=()=>registration.update().catch(()=>{});
+          refreshWorker();
+          document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refreshWorker(); });
+          window.addEventListener("pageshow",refreshWorker);
+        })
         .catch(err=>console.warn("Service worker registration failed",err));
     }
   </script>

@@ -69,12 +69,14 @@ test("team detail and home cards read the same canonical presentation-status sto
   assert.doesNotMatch(detail, /selectedEvents\.find\(event => event\.record\)/);
 });
 
-test("home refresh primes canonical truth only for the school identities its cards present", () => {
+test("home refresh primes canonical truth for every school identity rendered on a nearby card", () => {
   assert.doesNotMatch(polish, /event\?\.presentationStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
   assert.match(live, /presentationSchoolIdsForGames/);
-  assert.match(live, /if \(selected\.length\) return selected/);
+  assert.match(live, /const reportingSchoolIds = games\.map\(game => String\(game\?\.school_id \|\| ""\)\)/);
+  assert.match(live, /return \[\.\.\.new Set\(\[\.\.\.selected, \.\.\.reportingSchoolIds\]\)\]/);
+  assert.doesNotMatch(live, /if \(selected\.length\) return selected/);
   assert.doesNotMatch(live, /game\?\.canonical_home_school_id/);
   assert.doesNotMatch(live, /game\?\.canonical_away_school_id/);
   assert.match(live, /fetchPresentationStatusSnapshot/);
@@ -98,9 +100,9 @@ test("standings render backend display fields without inventing rank or records"
   assert.doesNotMatch(standings, /row\.overall_record \|\| "0-0"/);
 });
 
-test("fallback schedules never create a second presentation-truth cache", () => {
+test("fallback schedules never create or restore a second presentation-truth cache", () => {
   assert.match(schoolSchedule, /if \(memoryCache\.has\(cacheKey\)\)/);
-  assert.match(schoolSchedule, /if \(restored\.statuses\.length\)/);
+  assert.doesNotMatch(schoolSchedule, /if \(restored\.statuses\.length\)/);
   assert.match(schoolSchedule, /if \(unique\.length \|\| payload\.statuses\.length\)/);
   assert.match(schoolSchedule, /ingestPresentationStatuses/);
   assert.doesNotMatch(schoolSchedule, /const statusCache = new Map\(\)/);
@@ -140,7 +142,8 @@ test("home cards resolve the shared presentation object before any record fallba
   const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.match(polishSource, /LocalBleachersLive\?\.getPresentationStatus/);
   assert.doesNotMatch(polishSource, /LocalBleachersLive\?\.getTeamStatus/);
-  assert.match(polishSource, /const normalizedLevel = String\(event\?\.level \|\| ""\)/);
+  assert.match(polishSource, /const registrySchool = typeof SCHOOL_REGISTRY !== "undefined"/);
+  assert.match(polishSource, /registrySchool\?\.level \|\| event\?\.level/);
   assert.match(polishSource, /\["high-school","highschool"\]\.includes\(normalizedLevel\)/);
   assert.match(polishSource, /\["football","volleyball","basketball"\]/);
   assert.match(polishSource, /if \(requiresPresentationTruth\) \{/);

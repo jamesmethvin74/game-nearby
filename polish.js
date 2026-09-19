@@ -16,7 +16,10 @@ function getTeamStatus(event){
   const unified = window.LocalBleachersLive?.getPresentationStatus?.(event.teamId, event.sport, event.gender) || null;
   const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
   if (factual) return factual;
-  const normalizedLevel = String(event?.level || "").toLowerCase().replace(/[_\s]+/g, "-");
+  const registrySchool = typeof SCHOOL_REGISTRY !== "undefined"
+    ? SCHOOL_REGISTRY.find(school => school.id === event?.teamId)
+    : null;
+  const normalizedLevel = String(registrySchool?.level || event?.level || "").toLowerCase().replace(/[_\s]+/g, "-");
   const requiresPresentationTruth = ["high-school","highschool"].includes(normalizedLevel)
     && ["football","volleyball","basketball"].includes(String(event?.sport || "").toLowerCase());
   if (requiresPresentationTruth) {

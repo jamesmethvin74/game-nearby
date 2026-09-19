@@ -1,4 +1,4 @@
-const CACHE_NAME = "localbleachersar-shell-v75";
+const CACHE_NAME = "localbleachersar-shell-v76";
 const CORE_ASSETS = [
   "./",
   "./index.html",
@@ -72,21 +72,17 @@ self.addEventListener("fetch", event => {
         : isLiveScores
           ? "./live-scores.html"
           : "./index.html";
-    const network = fetch(event.request).then(async response => {
-      if (response.ok) {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(cacheKey, response.clone());
-      }
-      return response;
-    });
-
-    event.waitUntil(network.catch(() => undefined));
     event.respondWith((async () => {
-      const cached = await caches.match(cacheKey, {ignoreSearch:true});
-      if (cached) return cached;
       try {
-        return await network;
+        const response = await fetch(event.request);
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(cacheKey, response.clone());
+        }
+        return response;
       } catch {
+        const cached = await caches.match(cacheKey, {ignoreSearch:true});
+        if (cached) return cached;
         return new Response("Offline", {status: 503, headers: {"Content-Type": "text/plain"}});
       }
     })());
