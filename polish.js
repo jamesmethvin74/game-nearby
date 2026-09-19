@@ -7,6 +7,11 @@ function sportSvg(sport){
   return `<svg ${common}><circle cx="24" cy="24" r="15"/><path d="M18 24h12M24 18v12"/></svg>`;
 }
 
+function recordLabel(w=0,l=0,t=0){
+  const wins=Number(w)||0, losses=Number(l)||0, ties=Number(t)||0;
+  return ties ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
+}
+
 function getTeamStatus(event){
   const unified = event?.presentationStatus || window.LocalBleachersLive?.getTeamStatus?.(event.teamId, event.sport, event.gender);
   const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
