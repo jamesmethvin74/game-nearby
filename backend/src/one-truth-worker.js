@@ -245,7 +245,8 @@ async function nearbyTeamIds(env, url) {
 
 async function oneTruthBootstrapBatch(env, url) {
   if (Date.now()>ONE_SHOT_EXPIRES_AT) return json({error:"expired"},410);
-  await ensureOneTruthSchema(env);
+  try {
+    await ensureOneTruthSchema(env);
   const after=String(url.searchParams.get("after")||"");
   const {results=[]}=await env.DB.prepare(`
     SELECT t.id
@@ -262,14 +263,21 @@ async function oneTruthBootstrapBatch(env, url) {
   if(!teamIds.length) return json({status:"SUCCESS",done:true,after,teams:0,truth_table:TABLE});
   const refresh=await rebuildOneTruth(env,{teamIds});
   const next=teamIds[teamIds.length-1];
-  return json({
-    status:"SUCCESS",
-    done:teamIds.length<BOOTSTRAP_BATCH,
-    next_after:next,
-    teams:teamIds.length,
-    refresh,
-    truth_table:TABLE
-  });
+    return json({
+      status:"SUCCESS",
+      done:teamIds.length<BOOTSTRAP_BATCH,
+      next_after:next,
+      teams:teamIds.length,
+      refresh,
+      truth_table:TABLE
+    });
+  } catch (error) {
+    console.error("ONE_TRUTH_TB bootstrap failed",error);
+    return json({
+      error:"one_truth_bootstrap_failed",
+      detail:String(error?.stack || error?.message || error)
+    },500);
+  }
 }
 
 async function oneTruthAudit(env) {

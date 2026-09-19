@@ -1,5 +1,5 @@
 name: ONE_TRUTH_TB proof
-# rerun after complete conference/rank derivation
+# rerun with bootstrap error detail
 
 on:
   push:
@@ -45,6 +45,11 @@ jobs:
           for attempt in $(seq 1 36); do
             code=$(curl --max-time 25 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=" || true)
             if [ "$code" = "200" ]; then ready=1; break; fi
+            if [ "$code" = "500" ]; then
+              echo "ONE_TRUTH_TB bootstrap returned HTTP 500"
+              cat /tmp/bootstrap.json || true
+              exit 1
+            fi
             sleep 5
           done
           if [ "$ready" != "1" ]; then
