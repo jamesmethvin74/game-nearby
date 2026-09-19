@@ -186,25 +186,42 @@
     return new Map(nearbyPresentationStatuses);
   }
 
+  const PRESENTATION_STATUS_BATCH_SIZE = 4;
+
+  async function fetchPresentationStatusChunk(snapshot, schoolIds) {
+    const chunk = [...new Set(schoolIds.map(String).filter(Boolean))];
+    if (!chunk.length) return;
+
+    const params = new URLSearchParams({ school_ids: chunk.join(",") });
+    try {
+      const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`, 15000);
+      replacePresentationStatusesInMap(
+        snapshot,
+        Array.isArray(payload?.team_statuses) ? payload.team_statuses : [],
+        Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [],
+        chunk
+      );
+      return;
+    } catch (error) {
+      if (chunk.length === 1) {
+        console.warn("Presentation status school refresh failed; keeping last-known truth", chunk[0], error);
+        return;
+      }
+
+      const middle = Math.ceil(chunk.length / 2);
+      console.warn("Presentation status batch failed; retrying smaller groups", chunk, error);
+      await fetchPresentationStatusChunk(snapshot, chunk.slice(0, middle));
+      await fetchPresentationStatusChunk(snapshot, chunk.slice(middle));
+    }
+  }
+
   async function fetchPresentationStatusSnapshot(schoolIds = []) {
     const uniqueSchoolIds = [...new Set(schoolIds.map(String).filter(Boolean))];
     const snapshot = new Map(nearbyPresentationStatuses);
 
-    for (let offset = 0; offset < uniqueSchoolIds.length; offset += 8) {
-      const chunk = uniqueSchoolIds.slice(offset, offset + 8);
-      if (!chunk.length) continue;
-      const params = new URLSearchParams({ school_ids: chunk.join(",") });
-      try {
-        const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`, 15000);
-        replacePresentationStatusesInMap(
-          snapshot,
-          Array.isArray(payload?.team_statuses) ? payload.team_statuses : [],
-          Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [],
-          chunk
-        );
-      } catch (error) {
-        console.warn("Presentation status chunk refresh failed; keeping last-known truth", chunk, error);
-      }
+    for (let offset = 0; offset < uniqueSchoolIds.length; offset += PRESENTATION_STATUS_BATCH_SIZE) {
+      const chunk = uniqueSchoolIds.slice(offset, offset + PRESENTATION_STATUS_BATCH_SIZE);
+      await fetchPresentationStatusChunk(snapshot, chunk);
     }
     return snapshot;
   }

@@ -82,7 +82,10 @@ test("home refresh primes canonical truth for every school identity rendered on 
   assert.match(live, /fetchPresentationStatusSnapshot/);
   assert.match(live, /replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
   assert.match(live, /if \(requestId !== state\.nearbyRequest\) return state\.nearbyCount;[\s\S]*replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
-  assert.match(live, /offset \+= 8/);
+  assert.match(live, /const PRESENTATION_STATUS_BATCH_SIZE = 4/);
+  assert.match(live, /offset \+= PRESENTATION_STATUS_BATCH_SIZE/);
+  assert.match(live, /fetchPresentationStatusChunk\(snapshot, chunk\.slice\(0, middle\)\)/);
+  assert.match(live, /fetchPresentationStatusChunk\(snapshot, chunk\.slice\(middle\)\)/);
   assert.match(live, /\/api\/v1\/team-statuses\?/);
   assert.match(live, /getPresentationStatus/);
   assert.doesNotMatch(live, /slice\(0, 24\)/);
