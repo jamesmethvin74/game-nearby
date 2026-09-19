@@ -19,6 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Check exact first team-status chunk
+        run: |
+          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/team-statuses?school_ids=conway,df-ezw3f9,df-xpb38v,df-wlwrfa,df-hrdb8f,df-h73ln2,df-kq5hlr,df-pz2b7r"
+          code=$(curl -sS -o /tmp/chunk.json -w "%{http_code}" "$URL")
+          echo "CM_CHUNK_HTTP=$code"
+          cat /tmp/chunk.json
+          echo
       - run: |
           npm install --no-save playwright@1.55.0
           npx playwright install --with-deps chromium
