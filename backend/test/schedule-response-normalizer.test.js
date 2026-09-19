@@ -409,3 +409,60 @@ test("Bryant Baptist Prep and The Baptist Preparatory School collapse into one e
   assert.equal(rows[0].opponent_score,3);
   assert.equal(rows[0].schedule_observation_count,2);
 });
+
+
+test("certified Sidearm counts_for_record zero is excluded from regular-season presentation",()=>{
+  const exhibition={
+    level:"college",sport:"volleyball",gender:"women",season:"2026",
+    scheduled_at:"2026-08-15T18:00:00.000Z",status:"SCHEDULED",
+    counts_for_record:0,parser_type:"sidearm",opponent:"Opponent University"
+  };
+  assert.equal(rowIsOfficialSeasonContest(exhibition),false);
+  assert.deepEqual(officialSeasonScheduleRows([exhibition]),[]);
+});
+
+test("college regular-season presentation removes unlabeled scoreless pre-season rows before first verified final across schools",()=>{
+  const makeRows=(schoolId,teamId)=>[
+    {
+      school_id:schoolId,reporting_team_id:teamId,level:"college",sport:"volleyball",gender:"women",season:"2026",
+      scheduled_at:"2026-08-18T20:00:00.000Z",status:"SCHEDULED",team_score:null,opponent_score:null,result:null,
+      counts_for_record:1,parser_type:"sidearm",source_type:"official-athletics",opponent:"Preseason Opponent A"
+    },
+    {
+      school_id:schoolId,reporting_team_id:teamId,level:"college",sport:"volleyball",gender:"women",season:"2026",
+      scheduled_at:"2026-08-22T17:00:00.000Z",status:"SCHEDULED",team_score:null,opponent_score:null,result:null,
+      counts_for_record:1,parser_type:"sidearm",source_type:"official-athletics",opponent:"Preseason Opponent B"
+    },
+    {
+      school_id:schoolId,reporting_team_id:teamId,level:"college",sport:"volleyball",gender:"women",season:"2026",
+      scheduled_at:"2026-08-28T21:00:00.000Z",status:"FINAL",team_score:1,opponent_score:3,result:"L",
+      counts_for_record:1,parser_type:"sidearm",source_type:"official-athletics",opponent:"Regular Season Opener"
+    },
+    {
+      school_id:schoolId,reporting_team_id:teamId,level:"college",sport:"volleyball",gender:"women",season:"2026",
+      scheduled_at:"2026-09-01T21:00:00.000Z",status:"SCHEDULED",team_score:null,opponent_score:null,result:null,
+      counts_for_record:1,parser_type:"sidearm",source_type:"official-athletics",opponent:"Future Regular Opponent"
+    }
+  ];
+
+  for (const [schoolId,teamId] of [["uca","uca-volleyball-2026"],["sample-college","sample-college-volleyball-2026"]]) {
+    const shown=officialSeasonScheduleRows(makeRows(schoolId,teamId));
+    assert.deepEqual(shown.map(row=>row.opponent),["Regular Season Opener","Future Regular Opponent"]);
+  }
+});
+
+test("college canceled or postponed rows before first final remain visible as terminal schedule history",()=>{
+  const rows=[
+    {
+      school_id:"sample-college",reporting_team_id:"sample-team",level:"college",sport:"soccer",gender:"women",season:"2026",
+      scheduled_at:"2026-08-10T20:00:00.000Z",status:"CANCELED",team_score:null,opponent_score:null,
+      counts_for_record:1,parser_type:"sidearm",opponent:"Canceled Opener"
+    },
+    {
+      school_id:"sample-college",reporting_team_id:"sample-team",level:"college",sport:"soccer",gender:"women",season:"2026",
+      scheduled_at:"2026-08-15T20:00:00.000Z",status:"FINAL",team_score:2,opponent_score:1,result:"W",
+      counts_for_record:1,parser_type:"sidearm",opponent:"Played Opener"
+    }
+  ];
+  assert.deepEqual(officialSeasonScheduleRows(rows).map(row=>row.opponent),["Canceled Opener","Played Opener"]);
+});
