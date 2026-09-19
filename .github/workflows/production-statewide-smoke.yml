@@ -206,7 +206,7 @@ jobs:
               && grep -q 'LocalBleachersPresentation' detail.tmp 2>/dev/null \
               && grep -q 'LocalBleachersPresentation' standings.tmp 2>/dev/null \
               && grep -q 'primeVisibleTeamStatuses' schedule.tmp 2>/dev/null \
-              && grep -q 'm15-presentation-v73' runtime.tmp 2>/dev/null \
+              && grep -q 'm15-presentation-v74' runtime.tmp 2>/dev/null \
               && ! grep -q 'localbleachers:nearby-games' schedule.tmp 2>/dev/null \
               && grep -q 'display_overall_record' presentation.tmp 2>/dev/null \
               && ! grep -q 'Published standings are available only as evidence' standings.tmp 2>/dev/null; then
@@ -231,4 +231,4 @@ jobs:
           test -f team-detail.js
           test -f runtime-build.js
           test -f presentation-status.js
-          echo "GitHub Pages factual presentation contract m15-presentation-v73 verified."
+          echo "GitHub Pages factual presentation contract m15-presentation-v74 verified."
