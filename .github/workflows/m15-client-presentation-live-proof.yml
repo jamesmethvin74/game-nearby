@@ -116,6 +116,6 @@ jobs:
           pathlib.Path("proof.exit").write_text("0" if ok else "1")
           PY
 
-          gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file proof.md
+          gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file proof.md || true
           cat proof.md
           exit "$(cat proof.exit)"
