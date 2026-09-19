@@ -1,0 +1,110 @@
+name: M15 More From Your Teams proof
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/m15-more-from-teams-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Prove More From Your Teams is complete and chronological
+        env:
+          BASE_URL: https://jamesmethvin74.github.io/game-nearby
+        run: |
+          cat > proof.mjs <<'NODE'
+          import { chromium } from 'playwright';
+
+          const browser = await chromium.launch({headless:true});
+          const context = await browser.newContext({viewport:{width:430,height:932},timezoneId:'America/Chicago'});
+          const page = await context.newPage();
+
+          try {
+            await page.goto(process.env.BASE_URL + '/?more-proof=v81',{waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v81', null, {timeout:45000});
+            await page.waitForFunction(() => typeof SCHOOL_REGISTRY !== 'undefined' && SCHOOL_REGISTRY.length > 100, null, {timeout:45000});
+
+            const ids = await page.evaluate(() => {
+              const uca = SCHOOL_REGISTRY.find(s => /University of Central Arkansas/i.test(String(s.name||'')));
+              return {conway:'conway',uca:uca?.id || 'uca'};
+            });
+            await page.evaluate(ids => localStorage.setItem('followedTeams',JSON.stringify([ids.conway,ids.uca])), ids);
+            await page.reload({waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v81', null, {timeout:45000});
+            await page.waitForFunction(() => window.LocalBleachersLive?.getState?.().nearbyLoadedAt, null, {timeout:45000});
+            await page.waitForFunction(() => document.querySelectorAll('#otherEvents .event-card').length >= 8, null, {timeout:45000});
+            await page.waitForTimeout(500);
+
+            const result = await page.evaluate(() => {
+              const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
+              const keyForCard = card => {
+                const trigger=card.querySelector('.team-detail-trigger');
+                return [
+                  trigger?.dataset.teamId || '',
+                  trigger?.dataset.sport || '',
+                  trigger?.dataset.gender || '',
+                  clean(card.querySelector('.matchup-line')?.textContent),
+                  clean(card.querySelector('.event-meta')?.textContent)
+                ].join('|');
+              };
+              const extractDate = card => {
+                const meta=clean(card.querySelector('.event-meta')?.textContent);
+                const m=meta.match(/◷\s*([^•]+?)\s*•/);
+                if(!m) return null;
+                const normalized=m[1].replace(/\s*·\s*/,' ');
+                const ts=Date.parse(normalized + ' 2026');
+                return Number.isFinite(ts)?ts:null;
+              };
+              const priority=[...document.querySelectorAll('#followedEvents .event-card.priority')];
+              const more=[...document.querySelectorAll('#otherEvents .event-card')];
+              const priorityKeys=priority.map(keyForCard);
+              const moreKeys=more.map(keyForCard);
+              const missingPriority=priorityKeys.filter(key=>!moreKeys.includes(key));
+              const dated=more.map(card=>({
+                key:keyForCard(card),
+                text:clean(card.innerText),
+                time:extractDate(card)
+              })).filter(row=>row.time!=null);
+              const chronologyIssues=[];
+              for(let i=1;i<dated.length;i++){
+                if(dated[i].time < dated[i-1].time){
+                  chronologyIssues.push({before:dated[i-1],after:dated[i]});
+                }
+              }
+              const jonesboro=dated.find(row=>/conway\|volleyball\|girls/i.test(row.key) && /Jonesboro High School/i.test(row.text));
+              const ucaSep24=dated.find(row=>/University of Central Arkansas/i.test(row.text) && /Sep 24/i.test(row.text));
+              return {
+                priorityCount:priority.length,
+                moreCount:more.length,
+                missingPriority,
+                chronologyIssues,
+                firstEight:dated.slice(0,8).map(x=>x.text),
+                jonesboro:jonesboro?.text || null,
+                ucaSep24:ucaSep24?.text || null,
+                jonesboroBeforeUca:Boolean(jonesboro && ucaSep24 && jonesboro.time <= ucaSep24.time)
+              };
+            });
+
+            console.log('MORE_FROM_TEAMS_PROOF='+JSON.stringify(result));
+            if (result.missingPriority.length) throw new Error('Featured games still missing from More: '+JSON.stringify(result.missingPriority));
+            if (result.chronologyIssues.length) throw new Error('More list is not chronological: '+JSON.stringify(result.chronologyIssues.slice(0,3)));
+            if (!result.jonesboro) throw new Error('Conway vs Jonesboro Sep 22 is missing from More From Your Teams');
+            if (!result.jonesboroBeforeUca) throw new Error('Conway Sep 22 does not sort before UCA Sep 24');
+          } finally {
+            await browser.close();
+          }
+          NODE
+          node proof.mjs
