@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS ONE_TRUTH_TB (
   source_url TEXT,
   data_trust TEXT,
   conflict_count INTEGER,
+  row_hash TEXT,
   truth_generation TEXT NOT NULL,
   refreshed_at TEXT NOT NULL
 );
@@ -61,7 +62,3 @@ CREATE INDEX IF NOT EXISTS idx_one_truth_schedule
   ON ONE_TRUTH_TB(row_type,scheduled_at,school_id);
 CREATE INDEX IF NOT EXISTS idx_one_truth_conference
   ON ONE_TRUTH_TB(row_type,conference_id,sport,gender,season,rank);
-
--- Rebuild staging only; no application read is permitted from this table.
-CREATE TABLE IF NOT EXISTS ONE_TRUTH_STAGE_TB AS
-  SELECT * FROM ONE_TRUTH_TB WHERE 0;
