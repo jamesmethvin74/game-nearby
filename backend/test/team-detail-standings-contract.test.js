@@ -27,3 +27,11 @@ test("team detail renders factual presentation fields through the shared client 
 test("standings page does not present request retrieval time as an update timestamp", () => {
   assert.match(standingsHtml, /id="standingsUpdated"[^>]*hidden[^>]*aria-hidden="true"/);
 });
+
+
+test("batched home status hydration honors backend school-id resolutions", () => {
+  assert.match(schedule, /payload\?\.school_id_resolutions/);
+  assert.match(schedule, /resolutions\.get\(schoolId\) \|\| schoolId/);
+  assert.match(schedule, /setStatuses\(schoolId, schoolStatuses\)/);
+  assert.match(schedule, /setStatuses\(resolvedSchoolId, schoolStatuses\)/);
+});
