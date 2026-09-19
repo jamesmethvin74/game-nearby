@@ -208,6 +208,8 @@
     const payload = await fetchJson(`/api/v1/schools/${encodeURIComponent(school.id)}/schedule`);
     if (!Array.isArray(payload?.games)) throw new Error("API returned no school schedule");
     const statuses = setStatuses(school.id, payload?.team_statuses);
+    const canonicalSchoolId = String(payload?.canonicalSchoolId || "");
+    if (canonicalSchoolId && canonicalSchoolId !== school.id) setStatuses(canonicalSchoolId, payload?.team_statuses);
     const events = payload.games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at) && game.sport && game.gender)
       .map(game => mapGame(game, school));
@@ -276,6 +278,11 @@
       const params = new URLSearchParams({ school_ids: pending.join(",") });
       const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`);
       const statuses = Array.isArray(payload?.team_statuses) ? payload.team_statuses : [];
+      const resolutions = new Map(
+        (Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [])
+          .map(row => [String(row?.requested_school_id || ""), String(row?.school_id || "")])
+          .filter(([requestedSchoolId, resolvedSchoolId]) => requestedSchoolId && resolvedSchoolId)
+      );
       const bySchool = new Map();
       for (const status of statuses) {
         const schoolId = String(status?.school_id || "");
@@ -284,9 +291,11 @@
         bySchool.get(schoolId).push(status);
       }
       for (const schoolId of pending) {
-        const schoolStatuses = bySchool.get(schoolId) || [];
+        const resolvedSchoolId = resolutions.get(schoolId) || schoolId;
+        const schoolStatuses = bySchool.get(resolvedSchoolId) || [];
         if (!schoolStatuses.length) continue;
         setStatuses(schoolId, schoolStatuses);
+        if (resolvedSchoolId !== schoolId) setStatuses(resolvedSchoolId, schoolStatuses);
         primedStatusSchools.add(schoolId);
       }
       if (typeof render === "function") render();
