@@ -1,4 +1,5 @@
 name: Statewide presentation truth proof
+# rerun after canonical rank gate
 
 on:
   push:

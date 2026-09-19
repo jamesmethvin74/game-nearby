@@ -441,9 +441,9 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
       ?? null;
     status.display_conference_record = status.conference_record
       ?? (status.conference_id || status.conference_name ? "0-0" : null);
-    status.display_rank = row.display_rank
-      ?? status.rank
-      ?? null;
+    status.display_rank = String(row.display_method || "").startsWith("canonical")
+      ? (row.display_rank ?? status.rank ?? null)
+      : (status.rank ?? null);
     status.display_method = status.record_verified
       ? "canonical"
       : (String(row.display_method || "").startsWith("canonical") ? row.display_method : "canonical-unverified");
