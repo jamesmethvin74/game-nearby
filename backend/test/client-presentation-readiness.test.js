@@ -17,9 +17,9 @@ test("client release presents one factual display contract on all three surfaces
   const teamsHtml = read("teams.html");
   const sw = read("service-worker.js");
 
-  assert.match(runtime, /m15-presentation-v72/);
-  assert.match(runtime, /clientGeneration:\s*72/);
-  assert.match(runtime, /shellGeneration:\s*72/);
+  assert.match(runtime, /m15-presentation-v73/);
+  assert.match(runtime, /clientGeneration:\s*73/);
+  assert.match(runtime, /shellGeneration:\s*73/);
   assert.match(runtime, /scheduleCacheSchema:\s*5/);
 
   for (const field of ["display_overall_record", "display_conference_record", "display_rank"]) {
@@ -36,12 +36,12 @@ test("client release presents one factual display contract on all three surfaces
   assert.match(schedule, /primeVisibleTeamStatuses/);
 
   for (const html of [index, standingsHtml, teamsHtml]) {
-    assert.match(html, /runtime-build\.js\?v=72/);
-    assert.match(html, /service-worker\.js\?v=72/);
+    assert.match(html, /runtime-build\.js\?v=73/);
+    assert.match(html, /service-worker\.js\?v=73/);
     assert.match(html, /updateViaCache:"none"/);
   }
 
-  assert.match(sw, /localbleachersar-shell-v72/);
+  assert.match(sw, /localbleachersar-shell-v73/);
 });
 
 test("zero-game conference records cannot fabricate a number-one standing", () => {
