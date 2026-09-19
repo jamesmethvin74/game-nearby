@@ -8,7 +8,7 @@ function sportSvg(sport){
 }
 
 function getTeamStatus(event){
-  const unified = window.LocalBleachersLive?.getTeamStatus?.(event.teamId, event.sport, event.gender);
+  const unified = event?.presentationStatus || window.LocalBleachersLive?.getTeamStatus?.(event.teamId, event.sport, event.gender);
   const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
   if (factual) return factual;
   const record = event.record || null;
