@@ -1,0 +1,48 @@
+name: M15 UCA non-count diagnosis
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/m15-uca-noncount-diagnosis.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect UCA Sidearm markup and production payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://ucasports.com/sports/womens-volleyball/schedule/2026?grid=true" > /tmp/uca.html
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const html=fs.readFileSync('/tmp/uca.html','utf8');
+          for (const name of ['Arkansas Tech','Purple & Gray Scrimmage','Missouri State','Denver']) {
+            const i=html.toLowerCase().indexOf(name.toLowerCase());
+            console.log('UCA_HTML_EVENT='+JSON.stringify({
+              name,
+              found:i>=0,
+              snippet:i>=0?html.slice(Math.max(0,i-1800),Math.min(html.length,i+2600)).replace(/\s+/g,' '):null
+            }));
+          }
+          JS
+
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsSL "$BASE/api/v1/schools/uca/schedule" > /tmp/schedule.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/schedule.json','utf8'));
+          const rows=(p.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='volleyball' && ['Arkansas Tech','Purple & Gray Scrimmage','Missouri State','Denver'].some(n=>String(g.opponent||'').includes(n)));
+          console.log('UCA_PROD_ROWS='+JSON.stringify(rows.map(g=>({
+            id:g.id,opponent:g.opponent,scheduled_at:g.scheduled_at,status:g.status,result:g.result,
+            counts_for_record:g.counts_for_record,countsForRecord:g.countsForRecord,notes:g.notes,
+            source_id:g.source_id,source_type:g.source_type,parser_type:g.parser_type,level:g.level,
+            season:g.season,venue:g.venue
+          }))));
+          console.log('UCA_TEAM_STATUS='+JSON.stringify((p.team_statuses||[]).filter(s=>String(s.sport||'').toLowerCase()==='volleyball')));
+          JS
