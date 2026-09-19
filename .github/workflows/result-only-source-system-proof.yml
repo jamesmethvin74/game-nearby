@@ -1,4 +1,4 @@
-name: Result-only source system proof
+name: Statewide presentation truth proof
 
 on:
   push:
@@ -12,166 +12,193 @@ permissions:
 jobs:
   prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Run targeted truth tests
+      - name: Run truth-contract tests
         working-directory: backend
         run: |
           npm install --no-audit --no-fund
-          node --test             test/result-only-source-truth.test.js             test/record-rebuild.test.js             test/m10-conference-standings-truth.test.js             test/schedule-response-normalizer.test.js             test/team-read-worker.test.js             test/canonical-game-read.test.js
+          node --test \
+            test/result-only-source-truth.test.js \
+            test/record-rebuild.test.js \
+            test/m10-conference-standings-truth.test.js \
+            test/m15-presentation-truth.test.js \
+            test/unified-team-status.test.js \
+            test/schedule-response-normalizer.test.js \
+            test/team-read-worker.test.js \
+            test/canonical-game-read.test.js
 
-      - name: Audit every school in the result-only source cohort
+      - name: Wait for deployed unified truth contract
         env:
           BASE_URL: https://localbleachersar-sports-api.james-methvin74.workers.dev
         run: |
-          cat > /tmp/audit.mjs <<'NODE'
+          node --input-type=module <<'NODE'
           const base=process.env.BASE_URL;
-          const ids=[
-            "conway","greenbrier","vilonia","df-7rxkjc","df-kq5hlr","df-2tr733","df-bqp5sf",
-            "df-wd92v5","df-d8jj4r","df-s7358s","df-ktpgzc","df-ygav2l","df-8pkud7","df-dxgr8r",
-            "df-lwdshk","df-hrdb8f","df-jbclsd","df-7x4sxh","df-qg2ant","df-bf8zxn","df-bkc4ux"
-          ];
-          const recordText=(w,l,t=0)=>t?`${w}-${l}-${t}`:`${w}-${l}`;
-          const parseRecord=value=>{
+          const rec=rows=>{
+            let w=0,l=0,t=0;
+            for(const g of rows){
+              if(String(g.status||"").toUpperCase()!=="FINAL"||g.team_score==null||g.opponent_score==null||Number(g.counts_for_record)===0) continue;
+              const a=Number(g.team_score),b=Number(g.opponent_score);
+              if(a>b)w++; else if(a<b)l++; else t++;
+            }
+            return t?`${w}-${l}-${t}`:`${w}-${l}`;
+          };
+          let ready=false;
+          for(let attempt=0;attempt<36;attempt++){
+            const p=await fetch(`${base}/api/v1/schools/conway/schedule?deploy=${Date.now()}-${attempt}`,{headers:{"cache-control":"no-cache"}}).then(r=>r.json());
+            const rows=(p.games||[]).filter(g=>g.sport==="volleyball"&&g.gender==="girls");
+            const status=(p.team_statuses||[]).find(s=>s.sport==="volleyball"&&s.gender==="girls");
+            const expected=rec(rows);
+            if(status?.display_overall_record===expected){ ready=true; console.log("DEPLOY_READY="+JSON.stringify({attempt,expected,status:status.display_overall_record})); break; }
+            await new Promise(r=>setTimeout(r,5000));
+          }
+          if(!ready) throw new Error("unified truth deployment did not become ready");
+          NODE
+
+      - name: Audit every high-school presentation surface
+        env:
+          BASE_URL: https://localbleachersar-sports-api.james-methvin74.workers.dev
+        run: |
+          cat > /tmp/statewide.mjs <<'NODE'
+          const base=process.env.BASE_URL;
+          const schoolPayload=await fetch(`${base}/api/v1/schools?audit=${Date.now()}`,{headers:{"cache-control":"no-cache"}}).then(r=>r.json());
+          const schools=(schoolPayload.schools||[]).filter(s=>String(s.level||"").toLowerCase()==="high-school");
+          const ids=[...new Set(schools.map(s=>String(s.id||"")).filter(Boolean))];
+          const problems=[];
+          const statusByKey=new Map();
+          const scheduleStatusByKey=new Map();
+          const conferenceGroups=new Map();
+          let visibleGames=0;
+          let checkedSchedules=0;
+
+          const parse=value=>{
             const p=String(value||"").match(/\d+/g)?.map(Number)||[];
             return p.length>=2?{w:p[0]||0,l:p[1]||0,t:p[2]||0}:null;
           };
-          const sameRecord=(text,w,l,t=0)=>{
-            const p=parseRecord(text);
+          const same=(value,w,l,t=0)=>{
+            const p=parse(value);
             return Boolean(p)&&p.w===w&&p.l===l&&p.t===t;
           };
-          const problems=[];
-          const summaries=[];
-          const statusByConference=new Map();
+          const text=(w,l,t=0)=>t?`${w}-${l}-${t}`:`${w}-${l}`;
+          const teamKey=s=>`${s.school_id}|${String(s.sport||"").toLowerCase()}|${String(s.gender||"").toLowerCase()}`;
 
           for(let offset=0;offset<ids.length;offset+=4){
             const chunk=ids.slice(offset,offset+4);
-            const statusResponse=await fetch(`${base}/api/v1/team-statuses?school_ids=${chunk.join(",")}&audit=${Date.now()}-${offset}`,{headers:{"cache-control":"no-cache"}});
-            if(!statusResponse.ok) throw new Error(`team-statuses HTTP ${statusResponse.status} for ${chunk.join(",")}`);
-            const statusPayload=await statusResponse.json();
-            const statuses=Array.isArray(statusPayload.team_statuses)?statusPayload.team_statuses:[];
-            const statusMap=new Map(statuses.map(s=>[`${s.school_id}|${s.sport}|${s.gender}`,s]));
+            const r=await fetch(`${base}/api/v1/team-statuses?school_ids=${chunk.join(",")}&audit=${Date.now()}-${offset}`,{headers:{"cache-control":"no-cache"}});
+            if(!r.ok) throw new Error(`team-statuses HTTP ${r.status}: ${chunk.join(",")}`);
+            const p=await r.json();
+            for(const s of p.team_statuses||[]) statusByKey.set(teamKey(s),s);
+          }
 
-            for(const schoolId of chunk){
-              const response=await fetch(`${base}/api/v1/schools/${encodeURIComponent(schoolId)}/schedule?audit=${Date.now()}`,{headers:{"cache-control":"no-cache"}});
-              if(response.status===404){
-                summaries.push({school_id:schoolId,not_found:true});
-                continue;
+          async function inspectSchool(schoolId){
+            const r=await fetch(`${base}/api/v1/schools/${encodeURIComponent(schoolId)}/schedule?audit=${Date.now()}`,{headers:{"cache-control":"no-cache"}});
+            if(r.status===404) return;
+            if(!r.ok) throw new Error(`schedule HTTP ${r.status}: ${schoolId}`);
+            const p=await r.json();
+            checkedSchedules++;
+            const games=Array.isArray(p.games)?p.games:[];
+            visibleGames+=games.length;
+            const grouped=new Map();
+
+            for(const game of games){
+              const parser=String(game.parser_type||"").toLowerCase();
+              if(["mascot-media","rankone-public"].includes(parser)){
+                problems.push({code:"RESULT_ONLY_ROW_VISIBLE",school_id:schoolId,game_id:game.id,opponent:game.opponent,parser});
               }
-              if(!response.ok) throw new Error(`schedule HTTP ${response.status} for ${schoolId}`);
-              const payload=await response.json();
-              const games=Array.isArray(payload.games)?payload.games:[];
-              const grouped=new Map();
+              const sport=String(game.sport||"").toLowerCase();
+              if(!["football","volleyball","basketball"].includes(sport)) continue;
+              const key=`${p.canonicalSchoolId||schoolId}|${sport}|${String(game.gender||"").toLowerCase()}`;
+              if(!grouped.has(key)) grouped.set(key,[]);
+              grouped.get(key).push(game);
+            }
 
-              for(const game of games){
-                const parser=String(game.parser_type||"").toLowerCase();
-                if(["mascot-media","rankone-public"].includes(parser)){
-                  problems.push({school_id:schoolId,code:"RESULT_ONLY_ROW_VISIBLE",game});
-                }
-                const sport=String(game.sport||"").toLowerCase();
-                if(!["football","volleyball","basketball"].includes(sport)) continue;
-                const key=`${payload.canonicalSchoolId||schoolId}|${sport}|${String(game.gender||"").toLowerCase()}`;
-                if(!grouped.has(key)) grouped.set(key,[]);
-                grouped.get(key).push(game);
-              }
+            for(const s of p.team_statuses||[]) scheduleStatusByKey.set(teamKey(s),s);
 
-              for(const [key,rows] of grouped){
-                let w=0,l=0,t=0,cw=0,cl=0,ct=0,finals=0,confFinals=0;
-                for(const game of rows){
-                  if(String(game.status||"").toUpperCase()!=="FINAL"||game.team_score==null||game.opponent_score==null) continue;
-                  finals++;
-                  const ts=Number(game.team_score), os=Number(game.opponent_score);
-                  const result=ts>os?"W":ts<os?"L":"T";
-                  if(result==="W")w++; else if(result==="L")l++; else t++;
-                  const conf=Number(game.conference_game??game.canonical_conference_game??0)===1;
-                  if(conf){
-                    confFinals++;
-                    if(result==="W")cw++; else if(result==="L")cl++; else ct++;
-                  }
-                }
-                const [canonicalSchoolId,sport,gender]=key.split("|");
-                const status=statusMap.get(key);
-                if(!status){
-                  problems.push({school_id:schoolId,team:key,code:"TEAM_STATUS_MISSING"});
-                  continue;
-                }
-                if(finals>0 && !sameRecord(status.display_overall_record,w,l,t)){
-                  problems.push({
-                    school_id:schoolId,team:key,code:"DISPLAY_OVERALL_DIFFERS_FROM_VISIBLE_FINALS",
-                    expected:recordText(w,l,t),actual:status.display_overall_record,finals
-                  });
-                }
-                if(confFinals>0 && !sameRecord(status.display_conference_record,cw,cl,ct)){
-                  problems.push({
-                    school_id:schoolId,team:key,code:"DISPLAY_CONFERENCE_DIFFERS_FROM_VISIBLE_FINALS",
-                    expected:recordText(cw,cl,ct),actual:status.display_conference_record,confFinals
-                  });
-                }
-                if((status.record_issues||[]).some(x=>["STORED_RECORD_EXCEEDS_FINAL_EVIDENCE","STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE"].includes(x.code))
-                  && status.record_verified!==true){
-                  problems.push({school_id:schoolId,team:key,code:"STALE_CACHE_STILL_CONTROLS_PRESENTATION",issues:status.record_issues});
-                }
-
-                if(status.conference_id && ["football","volleyball"].includes(sport)){
-                  const publicConference=String(status.conference_id).replace(/-football$/,"").replace(/-volleyball$/,"");
-                  const ckey=`${sport}|${publicConference}`;
-                  if(!statusByConference.has(ckey)) statusByConference.set(ckey,[]);
-                  statusByConference.get(ckey).push(status);
+            for(const [key,rows] of grouped){
+              let w=0,l=0,t=0,cw=0,cl=0,ct=0,finals=0,confFinals=0;
+              for(const g of rows){
+                if(String(g.status||"").toUpperCase()!=="FINAL"||g.team_score==null||g.opponent_score==null||Number(g.counts_for_record)===0) continue;
+                finals++;
+                const a=Number(g.team_score),b=Number(g.opponent_score);
+                const res=a>b?"W":a<b?"L":"T";
+                if(res==="W")w++; else if(res==="L")l++; else t++;
+                if(Number(g.conference_game??g.canonical_conference_game??0)===1){
+                  confFinals++;
+                  if(res==="W")cw++; else if(res==="L")cl++; else ct++;
                 }
               }
+              const status=scheduleStatusByKey.get(key);
+              const homeStatus=statusByKey.get(key);
+              if(!status){ problems.push({code:"SCHEDULE_STATUS_MISSING",team:key}); continue; }
+              if(!homeStatus){ problems.push({code:"HOME_STATUS_MISSING",team:key}); continue; }
 
-              summaries.push({school_id:schoolId,canonical_school_id:payload.canonicalSchoolId||schoolId,games:games.length,statuses:statuses.filter(s=>s.school_id===(payload.canonicalSchoolId||schoolId)).length});
+              if(finals>0 && !same(status.display_overall_record,w,l,t)){
+                problems.push({code:"TEAM_DETAIL_RECORD_MISMATCH",team:key,expected:text(w,l,t),actual:status.display_overall_record,finals});
+              }
+              if(finals>0 && homeStatus.display_overall_record!==status.display_overall_record){
+                problems.push({code:"HOME_TEAM_DETAIL_OVERALL_MISMATCH",team:key,home:homeStatus.display_overall_record,detail:status.display_overall_record});
+              }
+              if(confFinals>0 && !same(status.display_conference_record,cw,cl,ct)){
+                problems.push({code:"TEAM_DETAIL_CONFERENCE_MISMATCH",team:key,expected:text(cw,cl,ct),actual:status.display_conference_record,confFinals});
+              }
+              if(homeStatus.display_conference_record!==status.display_conference_record){
+                problems.push({code:"HOME_TEAM_DETAIL_CONFERENCE_MISMATCH",team:key,home:homeStatus.display_conference_record,detail:status.display_conference_record});
+              }
+              if((homeStatus.display_rank??null)!==(status.display_rank??null)){
+                problems.push({code:"HOME_TEAM_DETAIL_RANK_MISMATCH",team:key,home:homeStatus.display_rank,detail:status.display_rank});
+              }
+
+              const sport=key.split("|")[1];
+              if(["football","volleyball"].includes(sport) && status.conference_id){
+                const conference=String(status.conference_id).replace(/-football(?:-2026)?$/,"").replace(/-volleyball(?:-2026)?$/,"");
+                const ckey=`${sport}|${conference}`;
+                if(!conferenceGroups.has(ckey)) conferenceGroups.set(ckey,[]);
+                conferenceGroups.get(ckey).push(status);
+              }
             }
           }
 
-          for(const [key,statuses] of statusByConference){
-            const [sport,conference]=key.split("|");
-            const response=await fetch(`${base}/api/v1/standings?sport=${sport}&conference=${conference}&audit=${Date.now()}`,{headers:{"cache-control":"no-cache"}});
-            if(!response.ok){
-              problems.push({code:"STANDINGS_FETCH_FAILED",sport,conference,http:response.status});
-              continue;
-            }
-            const payload=await response.json();
+          const concurrency=6;
+          for(let i=0;i<ids.length;i+=concurrency){
+            await Promise.all(ids.slice(i,i+concurrency).map(inspectSchool));
+          }
+
+          for(const [ckey,statuses] of conferenceGroups){
+            const [sport,conference]=ckey.split("|");
+            const r=await fetch(`${base}/api/v1/standings?sport=${sport}&conference=${conference}&audit=${Date.now()}`,{headers:{"cache-control":"no-cache"}});
+            if(!r.ok){ problems.push({code:"STANDINGS_FETCH_FAILED",sport,conference,http:r.status}); continue; }
+            const p=await r.json();
             for(const status of statuses){
-              const row=(payload.standings||[]).find(r=>r.team_id===status.team_id || String(r.school_name||"").toLowerCase()===String(status.school_name||"").toLowerCase());
-              if(!row){
-                problems.push({code:"STANDING_ROW_MISSING",team_id:status.team_id,sport,conference});
-                continue;
-              }
-              if(status.display_overall_record && row.display_overall_record!==status.display_overall_record){
+              const row=(p.standings||[]).find(x=>x.team_id===status.team_id || String(x.school_name||"").toLowerCase()===String(status.school_name||"").toLowerCase());
+              if(!row){ problems.push({code:"STANDING_ROW_MISSING",team_id:status.team_id,sport,conference}); continue; }
+              if((row.display_overall_record??null)!==(status.display_overall_record??null)){
                 problems.push({code:"STATUS_STANDINGS_OVERALL_MISMATCH",team_id:status.team_id,status:status.display_overall_record,standing:row.display_overall_record});
               }
-              if(status.display_conference_record && row.display_conference_record!==status.display_conference_record){
+              if((row.display_conference_record??null)!==(status.display_conference_record??null)){
                 problems.push({code:"STATUS_STANDINGS_CONFERENCE_MISMATCH",team_id:status.team_id,status:status.display_conference_record,standing:row.display_conference_record});
               }
-              if((status.display_rank??null)!==(row.display_rank??null)){
+              if((row.display_rank??null)!==(status.display_rank??null)){
                 problems.push({code:"STATUS_STANDINGS_RANK_MISMATCH",team_id:status.team_id,status:status.display_rank,standing:row.display_rank});
               }
             }
           }
 
-          const peaSchedule=await fetch(`${base}/api/v1/schools/df-7x4sxh/schedule?pea=${Date.now()}`).then(r=>r.json());
-          const peaFootball=(peaSchedule.games||[]).filter(g=>g.sport==="football"&&g.gender==="boys");
-          const peaStatuses=(peaSchedule.team_statuses||[]).filter(s=>s.sport==="football"&&s.gender==="boys");
-          const pea={
-            schedule:peaFootball.map(g=>({scheduled_at:g.scheduled_at,opponent:g.opponent,status:g.status,result:g.result,team_score:g.team_score,opponent_score:g.opponent_score,parser_type:g.parser_type})),
-            status:peaStatuses[0]||null
-          };
-
-          console.log("RESULT_ONLY_SYSTEM_AUDIT="+JSON.stringify({
-            schools_requested:ids.length,
-            summaries,
-            conference_groups:statusByConference.size,
-            problems,
-            pea
+          const counts={};
+          for(const p of problems) counts[p.code]=(counts[p.code]||0)+1;
+          console.log("STATEWIDE_PRESENTATION_TRUTH="+JSON.stringify({
+            high_schools:ids.length,
+            schedules_checked:checkedSchedules,
+            visible_games:visibleGames,
+            statuses:statusByKey.size,
+            conference_groups:conferenceGroups.size,
+            problem_counts:counts,
+            problems:problems.slice(0,100)
           }));
-          if(problems.length) throw new Error(`result-only source integrity defects remain: ${JSON.stringify(problems.slice(0,20))}`);
-          if(pea.schedule.some(g=>["mascot-media","rankone-public"].includes(String(g.parser_type||"").toLowerCase()))) throw new Error("Pea Ridge result-only rows remain");
-          if(pea.status?.display_overall_record!=="1-2"||pea.status?.display_conference_record!=="0-0") throw new Error(`Pea Ridge display still wrong: ${JSON.stringify(pea.status)}`);
+          if(problems.length) throw new Error(`statewide presentation truth defects remain: ${problems.length}`);
           NODE
-          node /tmp/audit.mjs
+          node /tmp/statewide.mjs
