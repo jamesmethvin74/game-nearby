@@ -14,6 +14,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/live-sports-pipeline-m1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Targeted production-chain regression tests
+        working-directory: backend
+        run: |
+          npm install --no-audit --no-fund
+          node --test test/canonical-game-read.test.js test/statewide-nearby-route.test.js test/schedule-response-normalizer.test.js test/sidearm-modern.test.js
       - name: Audit system-wide regular-season presentation
         env:
           BASE_URL: https://localbleachersar-sports-api.james-methvin74.workers.dev
@@ -22,7 +33,7 @@ jobs:
           const base=process.env.BASE_URL;
           const bust=Date.now();
           const get=async path=>{
-            const r=await fetch(base+path,{headers:{'cache-control':'no-cache'}});
+            const r=await fetch(base+path,{headers:{'cache-control':'no-cache','x-localbleachers-diagnostic':'read-v1'}});
             if(!r.ok) throw new Error(path+' HTTP '+r.status);
             return r.json();
           };
