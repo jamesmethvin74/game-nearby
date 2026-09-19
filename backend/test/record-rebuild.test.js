@@ -60,12 +60,12 @@ test("record rebuild recovers an ordinary canonical final carrying a legacy bare
   const canonicals=[{
     id:"ce-searcy",reporting_team_id:"batesville-football-2026",sport:"football",gender:"boys",season:"2026",
     home_school_id:"batesville",away_school_id:"searcy",home_name:"Batesville High School Charter",away_name:"Searcy High School",
-    scheduled_at:"2026-08-29T00:00:00.000Z",status:"FINAL",home_score:13,away_score:54,conference_game:0,counts_for_record:0,
+    scheduled_at:"2026-08-29T00:00:00.000Z",status:"FINAL",home_score:13,away_score:54,conference_game:0,counts_for_record:1,
     member_source_type:"official-conference",member_parser_type:"dragonfly-public",member_notes:null,trust_state:"AUTHORITATIVE_LIVE"
   },{
     id:"ce-newport",reporting_team_id:"batesville-football-2026",sport:"football",gender:"boys",season:"2026",
     home_school_id:"newport",away_school_id:"batesville",home_name:"The Academies At Newport High School",away_name:"Batesville High School Charter",
-    scheduled_at:"2026-09-05T00:00:00.000Z",status:"FINAL",home_score:13,away_score:16,conference_game:0,counts_for_record:0,
+    scheduled_at:"2026-09-05T00:00:00.000Z",status:"FINAL",home_score:13,away_score:16,conference_game:0,counts_for_record:1,
     member_source_type:"official-conference",member_parser_type:"dragonfly-public",member_notes:null,trust_state:"AUTHORITATIVE_LIVE"
   }];
   const [built]=buildRecordsFromInputs({teams,canonicals,raw:[]});
