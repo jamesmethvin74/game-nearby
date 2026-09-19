@@ -170,3 +170,16 @@ test("home Upcoming view is near-term and cards show an unambiguous calendar dat
   assert.match(reference, /month:"short",day:"numeric"/);
   assert.match(reference, /return `\$\{day\} · \$\{time\}`/);
 });
+
+
+test("featured schedule cards follow seasonal sport hierarchy", () => {
+  assert.match(follow, /const FALL_FEATURED_SPORT_PRIORITY = Object\.freeze\(\{/);
+  assert.match(follow, /football:\s*0/);
+  assert.match(follow, /volleyball:\s*1/);
+  assert.match(follow, /soccer:\s*2/);
+  assert.match(follow, /function featuredEventForSchool\(candidates\)/);
+  assert.match(follow, /if \(fallCandidates\.length\)/);
+  assert.match(follow, /String\(event\.sport \|\| ""\)\.toLowerCase\(\) === "basketball"/);
+  assert.match(follow, /return basketball\[0\] \|\| candidates\[0\]/);
+  assert.match(follow, /const nextForSchool = featuredEventForSchool\(candidates\)/);
+});

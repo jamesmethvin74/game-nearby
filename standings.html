@@ -97,7 +97,7 @@
     <a class="nav-item" href="index.html">•••<span>More</span></a>
   </nav>
 
-  <script src="runtime-build.js?v=78"></script>
+  <script src="runtime-build.js?v=79"></script>
   <script src="presentation-status.js?v=71"></script>
   <script src="standings.js?v=71"></script>
   <script src="standings-drag-reorder.js?v=66"></script>
@@ -109,7 +109,7 @@
         swReloading=true;
         location.reload();
       });
-      navigator.serviceWorker.register("./service-worker.js?v=78",{scope:"./",updateViaCache:"none"})
+      navigator.serviceWorker.register("./service-worker.js?v=79",{scope:"./",updateViaCache:"none"})
         .then(registration=>{
           const refreshWorker=()=>registration.update().catch(()=>{});
           refreshWorker();
