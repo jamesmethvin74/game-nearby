@@ -25,41 +25,72 @@ jobs:
           npm install --no-audit --no-fund
           node --check src/one-truth.js
           node --check src/one-truth-worker.js
-          node --test             test/one-truth-contract.test.js             test/result-only-source-truth.test.js             test/record-rebuild.test.js             test/m10-conference-standings-truth.test.js             test/m15-presentation-truth.test.js             test/unified-team-status.test.js
+          node --test \
+            test/one-truth-contract.test.js \
+            test/result-only-source-truth.test.js \
+            test/record-rebuild.test.js \
+            test/m10-conference-standings-truth.test.js \
+            test/m15-presentation-truth.test.js \
+            test/unified-team-status.test.js
 
-      - name: Wait for ONE_TRUTH_TB production deployment and materialize
+      - name: Wait for production and bootstrap ONE_TRUTH_TB in bounded batches
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          PATHNAME="/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e"
+
           ready=0
-          for attempt in $(seq 1 48); do
-            code=$(curl -sS -D /tmp/headers -o /tmp/status.json -w "%{http_code}"               "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh&proof=$attempt")
-            if [ "$code" = "200" ] && grep -qi '^x-localbleachers-truth: ONE_TRUTH_TB' /tmp/headers; then
-              ready=1
-              break
-            fi
+          for attempt in $(seq 1 36); do
+            code=$(curl --max-time 25 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=" || true)
+            if [ "$code" = "200" ]; then ready=1; break; fi
             sleep 5
           done
           if [ "$ready" != "1" ]; then
-            echo "ONE_TRUTH_TB production deployment did not become ready"
-            cat /tmp/headers || true
-            cat /tmp/status.json || true
+            echo "ONE_TRUTH_TB bootstrap endpoint did not become ready"
+            cat /tmp/bootstrap.json || true
             exit 1
           fi
-          echo "ONE_TRUTH_READY=1"
+
+          after=""
+          batches=0
+          teams=0
+          while true; do
+            code=$(curl --max-time 25 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=$after")
+            test "$code" = "200"
+            line=$(node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/bootstrap.json','utf8'));
+          if(p.status!=='SUCCESS') process.exit(1);
+          console.log([p.done?'1':'0',p.next_after||'',Number(p.teams||0)].join('|'));
+          NODE
+            )
+            IFS='|' read -r done next count <<< "$line"
+            batches=$((batches+1))
+            teams=$((teams+count))
+            if [ "$done" = "1" ]; then break; fi
+            after="$next"
+            if [ "$batches" -gt 30 ]; then echo "bootstrap fuse exceeded"; exit 1; fi
+          done
+          echo "ONE_TRUTH_BOOTSTRAP={\"batches\":$batches,\"teams\":$teams}"
+
+          code=$(curl --max-time 25 -sS -o /tmp/audit.json -w "%{http_code}" \
+            "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e")
+          cat /tmp/audit.json
+          echo
+          test "$code" = "200"
 
       - name: Prove Conway and Pea Ridge share one truth across every surface
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh&proof=status" > /tmp/status.json
-          curl -fsS "$BASE/api/v1/schools/conway/schedule?proof=conway" > /tmp/conway.json
-          curl -fsS "$BASE/api/v1/standings?sport=volleyball&conference=6a-central&proof=conway-standings" > /tmp/conway-standings.json
-          curl -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule?proof=pea" > /tmp/pea.json
-          curl -fsS "$BASE/api/v1/standings?sport=football&conference=5a-west&proof=pea-standings" > /tmp/pea-standings.json
-          curl -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-09-19T00:00:00.000Z&until=2026-10-05T00:00:00.000Z&proof=nearby" > /tmp/games.json
+          curl --max-time 25 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh&proof=status" > /tmp/status.json
+          curl --max-time 25 -fsS "$BASE/api/v1/schools/conway/schedule?proof=conway" > /tmp/conway.json
+          curl --max-time 25 -fsS "$BASE/api/v1/standings?sport=volleyball&conference=6a-central&proof=conway-standings" > /tmp/conway-standings.json
+          curl --max-time 25 -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule?proof=pea" > /tmp/pea.json
+          curl --max-time 25 -fsS "$BASE/api/v1/standings?sport=football&conference=5a-west&proof=pea-standings" > /tmp/pea-standings.json
+          curl --max-time 25 -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-09-19T00:00:00.000Z&until=2026-10-05T00:00:00.000Z&proof=nearby" > /tmp/games.json
 
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
@@ -100,7 +131,6 @@ jobs:
           const cStanding=(conwayStandings.standings||[]).find(r=>r.school_id==='conway'||/Conway/i.test(String(r.school_name||'')));
           const pStanding=(peaStandings.standings||[]).find(r=>r.school_id==='df-7x4sxh'||/Pea Ridge/i.test(String(r.school_name||'')));
           const cNearby=nearby.find(g=>g.school_id==='conway'&&g.sport==='volleyball'&&g.gender==='girls');
-
           const resultOnly=(pea.games||[]).filter(g=>['mascot-media','rankone-public'].includes(String(g.parser_type||'').toLowerCase()));
 
           const proof={
