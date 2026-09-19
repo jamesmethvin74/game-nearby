@@ -240,11 +240,12 @@
     return found ? { ...found } : null;
   };
   const primedStatusSchools = new Set();
-  const MAX_VISIBLE_STATUS_SCHOOLS = 32;
+  const MAX_VISIBLE_STATUS_SCHOOLS = 16;
 
   async function primeVisibleTeamStatuses() {
-    const nearby = live.getNearbyEvents?.() || [];
-    const schoolIds = [...new Set(nearby.map(event => event?.teamId).filter(Boolean))].slice(0, MAX_VISIBLE_STATUS_SCHOOLS);
+    const schoolIds = typeof followed !== "undefined" && Array.isArray(followed)
+      ? [...new Set(followed.map(String).filter(Boolean))].slice(0, MAX_VISIBLE_STATUS_SCHOOLS)
+      : [];
     const pending = schoolIds.filter(schoolId => !primedStatusSchools.has(schoolId));
     if (!pending.length) return;
 
@@ -279,6 +280,4 @@
   }
 
   live.primeVisibleTeamStatuses = primeVisibleTeamStatuses;
-  document.addEventListener("localbleachers:nearby-games", () => { void primeVisibleTeamStatuses(); });
-  queueMicrotask(() => { void primeVisibleTeamStatuses(); });
 })();
