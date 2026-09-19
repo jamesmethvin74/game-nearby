@@ -118,7 +118,7 @@ test("cohort truth requires explicit membership and clean final evidence", () =>
 });
 
 
-test("incomplete canonical truth displays factual published values without promoting them to canonical fields", () => {
+test("incomplete canonical truth stays on canonical values and uses published data only as cross-check evidence", () => {
   const result=reconcileConferenceStandings({
     calculated:{conference:{id:"7a-west",name:"7A West"},standings:[
       {team_id:"a",school_name:"Alpha",conference_record:"0-0",overall_record:"1-0",method:"calculated"}
@@ -132,10 +132,10 @@ test("incomplete canonical truth displays factual published values without promo
   const row=result.standings[0];
   assert.equal(row.rank,null,"canonical rank remains withheld");
   assert.equal(row.overall_record,"1-0","canonical local record remains intact");
-  assert.equal(row.display_rank,2,"presentation uses factual published rank");
+  assert.equal(row.display_rank,null,"incomplete canonical rank remains withheld");
   assert.equal(row.display_conference_record,"0-0");
-  assert.equal(row.display_overall_record,"3-0");
-  assert.equal(row.display_method,"published");
-  assert.equal(result.conference.presentation_method,"published");
+  assert.equal(row.display_overall_record,"1-0");
+  assert.equal(row.display_method,"canonical-unverified");
+  assert.equal(result.conference.presentation_method,"canonical-unverified");
   assert.equal(result.conference.presentation_complete,true);
 });

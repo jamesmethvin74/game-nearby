@@ -1,6 +1,6 @@
 import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
 import { rebuildStandingsForTeams } from "./calculated-standings.js";
-import { isResultOnlyObservationSource, resultOnlySourceSql } from "./current-schedule-truth.js";
+import { currentScheduleTruthSql, isResultOnlyObservationSource } from "./current-schedule-truth.js";
 
 function teamKey(team) {
   return `${team.sport}|${team.gender}|${team.season}`;
@@ -131,7 +131,7 @@ export async function loadRecordInputs(env, { teamIds = null } = {}) {
     WHERE ce.status='FINAL'
       AND ce.home_score IS NOT NULL
       AND ce.away_score IS NOT NULL
-      AND ${resultOnlySourceSql("src")}`;
+      AND ${currentScheduleTruthSql("mg","src")}`;
   if (scopedTeamIds) canonicalQuery += " AND cem.reporting_team_id IN (SELECT value FROM json_each(?))";
   let canonicalPrepared = env.DB.prepare(canonicalQuery);
   if (scopedTeamIds) canonicalPrepared = canonicalPrepared.bind(teamIdsJson);
@@ -159,7 +159,7 @@ export async function loadRecordInputs(env, { teamIds = null } = {}) {
       AND g.status='FINAL'
       AND g.team_score IS NOT NULL
       AND g.opponent_score IS NOT NULL
-      AND ${resultOnlySourceSql("src")}`;
+      AND ${currentScheduleTruthSql("g","src")}`;
   if (scopedTeamIds) rawQuery += " AND g.team_id IN (SELECT value FROM json_each(?))";
   let rawPrepared = env.DB.prepare(rawQuery);
   if (scopedTeamIds) rawPrepared = rawPrepared.bind(teamIdsJson);

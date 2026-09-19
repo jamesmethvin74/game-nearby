@@ -269,17 +269,33 @@ export async function loadStandingsTruth(env, {
 
   let calculated = null;
   try {
-    calculated = await loadMaterializedCalculatedStandings(env, {
+    calculated = await loadLiveCanonicalCalculatedStandings(env, {
       sport: normalizedSport,
       conferenceId: durableConferenceId,
       season
     });
   } catch (error) {
-    console.warn("calculated standings read failed", {
+    console.warn("live canonical standings read failed", {
       sport:normalizedSport,
       conferenceId:durableConferenceId,
       error:String(error?.message || error)
     });
+  }
+
+  if (!calculated) {
+    try {
+      calculated = await loadMaterializedCalculatedStandings(env, {
+        sport: normalizedSport,
+        conferenceId: durableConferenceId,
+        season
+      });
+    } catch (error) {
+      console.warn("materialized standings fallback failed", {
+        sport:normalizedSport,
+        conferenceId:durableConferenceId,
+        error:String(error?.message || error)
+      });
+    }
   }
 
   const [published,membershipState] = await Promise.all([
@@ -298,32 +314,10 @@ export async function loadStandingsTruth(env, {
     })
   ]);
 
-  let resultEvidence=calculatedResultEvidenceState(calculated,published,{
+  const resultEvidence=calculatedResultEvidenceState(calculated,published,{
     expectedMembers:membershipState.expected_members
   });
-  let effectiveCalculated=calculated;
-
-  if (materializedNeedsCanonicalRefresh(resultEvidence)) {
-    try {
-      const liveCalculated=await loadLiveCanonicalCalculatedStandings(env,{
-        sport:normalizedSport,
-        conferenceId:durableConferenceId,
-        season
-      });
-      if (liveCalculated) {
-        effectiveCalculated=liveCalculated;
-        resultEvidence=calculatedResultEvidenceState(effectiveCalculated,published,{
-          expectedMembers:membershipState.expected_members
-        });
-      }
-    } catch (error) {
-      console.warn("live canonical standings fallback failed",{
-        sport:normalizedSport,
-        conferenceId:durableConferenceId,
-        error:String(error?.message||error)
-      });
-    }
-  }
+  const effectiveCalculated=calculated;
 
   const result = reconcileConferenceStandings({
     calculated:effectiveCalculated,

@@ -74,3 +74,16 @@ test("suppression SQL survives stale upsert and clears on terminal or future res
   db.prepare(sql).run("g1","provider rescheduled","SCHEDULED","2099-09-01T00:00:00.000Z");
   assert.equal(db.prepare("SELECT notes FROM games WHERE id='g1'").get().notes,"provider rescheduled");
 });
+
+
+test("records, Team Detail and standings share current schedule truth",()=>{
+  const rebuild=fs.readFileSync(new URL("../src/record-rebuild.js",import.meta.url),"utf8");
+  const standings=fs.readFileSync(new URL("../src/standings-truth.js",import.meta.url),"utf8");
+  const status=fs.readFileSync(new URL("../src/m4-public-worker.js",import.meta.url),"utf8");
+  const presentation=fs.readFileSync(new URL("../src/conference-standings-truth.js",import.meta.url),"utf8");
+  assert.match(rebuild,/currentScheduleTruthSql\("mg","src"\)/);
+  assert.match(rebuild,/currentScheduleTruthSql\("g","src"\)/);
+  assert.ok(standings.indexOf("calculated = await loadLiveCanonicalCalculatedStandings") < standings.indexOf("calculated = await loadMaterializedCalculatedStandings"));
+  assert.match(status,/display_overall_record = status\.overall_record/);
+  assert.match(presentation,/display_method: row\?\.standings_verified === true \? "canonical" : "canonical-unverified"/);
+});

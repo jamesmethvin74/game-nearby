@@ -393,13 +393,11 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
     status.conference_name = payload?.conference?.name || status.conference_name;
 
     if (publishedOverallGames > status.overall_games) {
-      status.overall_record = null;
-      status.record_verified = false;
-      status.record_state = "INCOMPLETE";
       status.record_audit_state = "INCOMPLETE";
       recordIssue(status, {
         code:"PUBLISHED_RECORD_EXCEEDS_FINAL_EVIDENCE",
-        detail:`Published record covers ${publishedOverallGames} games; normalized final evidence covers ${status.overall_games}.`
+        detail:`Published record covers ${publishedOverallGames} games; normalized final evidence covers ${status.overall_games}.`,
+        informational:true
       });
     } else if (publishedOverallGames === status.overall_games && publishedOverallGames > 0 && status.overall_record) {
       const localOverall = parseRecordText(status.overall_record);
@@ -414,15 +412,13 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
     }
 
     if (publishedConferenceGames > status.conference_games) {
-      status.conference_record = null;
       status.rank = null;
       status.standing_state = "unavailable";
-      status.record_verified = false;
-      status.record_state = "INCOMPLETE";
       status.record_audit_state = "INCOMPLETE";
       recordIssue(status, {
         code:"PUBLISHED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE",
-        detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${status.conference_games}.`
+        detail:`Published conference record covers ${publishedConferenceGames} games; normalized conference final evidence covers ${status.conference_games}.`,
+        informational:true
       });
     } else if (publishedConferenceGames === status.conference_games && publishedConferenceGames > 0 && status.conference_record && !recordsTextAgree(publishedConferenceText,status.conference_record)) {
       status.rank = null;
@@ -440,25 +436,17 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
         : "not-started";
     }
 
-    status.display_overall_record = status.record_verified && status.overall_record
-      ? status.overall_record
-      : row.display_overall_record
-        ?? row.published_overall_record
-        ?? status.overall_record
-        ?? null;
-    status.display_conference_record = status.record_verified
-      ? (status.conference_record ?? (status.conference_id || status.conference_name ? "0-0" : null))
-      : row.display_conference_record
-        ?? row.published_conference_record
-        ?? status.conference_record
-        ?? (status.conference_id || status.conference_name ? "0-0" : null);
+    status.display_overall_record = status.overall_record
+      ?? (String(row.display_method || "").startsWith("canonical") ? row.display_overall_record : null)
+      ?? null;
+    status.display_conference_record = status.conference_record
+      ?? (status.conference_id || status.conference_name ? "0-0" : null);
     status.display_rank = row.display_rank
-      ?? row.published_rank
       ?? status.rank
       ?? null;
-    status.display_method = row.display_method
-      ?? payload?.conference?.presentation_method
-      ?? (status.record_verified ? "canonical" : "unavailable");
+    status.display_method = status.record_verified
+      ? "canonical"
+      : (String(row.display_method || "").startsWith("canonical") ? row.display_method : "canonical-unverified");
     status.display_source_url = row.display_source_url
       ?? payload?.conference?.presentation_source_url
       ?? null;

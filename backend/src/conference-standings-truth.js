@@ -132,13 +132,13 @@ function hasPublishedPresentation(row={}) {
 
 export function attachStandingsPresentation(rows = []) {
   return (rows || []).map(row => {
-    if (row?.standings_verified === true) {
+    if (row?.method !== "source-published" && (row?.overall_record != null || row?.conference_record != null)) {
       return {
         ...row,
         display_rank: row.rank ?? null,
         display_conference_record: row.conference_record ?? null,
         display_overall_record: row.overall_record ?? null,
-        display_method: "canonical",
+        display_method: row?.standings_verified === true ? "canonical" : "canonical-unverified",
         display_source_url: null
       };
     }
