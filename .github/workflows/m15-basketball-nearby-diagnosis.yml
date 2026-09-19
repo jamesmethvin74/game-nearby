@@ -28,7 +28,7 @@ jobs:
           cat > proof.mjs <<'NODE'
           import { chromium } from 'playwright';
           const browser = await chromium.launch({headless:true});
-          const context = await browser.newContext({viewport:{width:430,height:932}});
+          const context = await browser.newContext({viewport:{width:430,height:932}, timezoneId:'America/Chicago'});
           const page = await context.newPage();
           const followed=['aaa-3qbpwe','aaa-2qzd2q','conway'];
           const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
