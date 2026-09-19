@@ -69,20 +69,20 @@ test("team detail and home cards read the same canonical presentation-status sto
   assert.doesNotMatch(detail, /selectedEvents\.find\(event => event\.record\)/);
 });
 
-test("home refresh primes canonical truth for every nearby school represented on cards", () => {
-  assert.match(polish, /event\?\.presentationStatus/);
+test("home refresh primes canonical truth only for the school identities its cards present", () => {
+  assert.doesNotMatch(polish, /event\?\.presentationStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
   assert.match(live, /presentationSchoolIdsForGames/);
-  assert.match(live, /canonical_home_school_id/);
-  assert.match(live, /canonical_away_school_id/);
+  assert.match(live, /if \(selected\.length\) return selected/);
+  assert.doesNotMatch(live, /game\?\.canonical_home_school_id/);
+  assert.doesNotMatch(live, /game\?\.canonical_away_school_id/);
   assert.match(live, /fetchPresentationStatusSnapshot/);
   assert.match(live, /replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
   assert.match(live, /if \(requestId !== state\.nearbyRequest\) return state\.nearbyCount;[\s\S]*replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
   assert.match(live, /offset \+= 8/);
   assert.match(live, /\/api\/v1\/team-statuses\?/);
   assert.match(live, /getPresentationStatus/);
-  assert.match(follow, /getPresentationStatus/);
   assert.doesNotMatch(live, /slice\(0, 24\)/);
   assert.doesNotMatch(schoolSchedule, /localbleachers:nearby-games/);
 });
@@ -119,13 +119,14 @@ test("front cards expose the in-app schedule and results action without provider
   assert.match(detail, /document\.addEventListener\("keydown"/);
 });
 
-test("nearby game refresh carries factual presentation status into front cards before render", async () => {
+test("nearby game refresh commits canonical presentation truth before rendering cards", async () => {
   const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.match(live, /fetchNearbyPresentationStatuses/);
   assert.match(live, /\/api\/v1\/team-statuses\?/);
-  assert.match(live, /presentationStatus:/);
-  assert.match(live, /applyNearbyGames\(payload\.games, presentationStatuses\)/);
-  assert.match(polishSource, /event\?\.presentationStatus/);
+  assert.doesNotMatch(live, /presentationStatus:/);
+  assert.match(live, /replaceCanonicalPresentationStatuses\(presentationStatuses\);[\s\S]*applyNearbyGames\(payload\.games\)/);
+  assert.match(polishSource, /LocalBleachersLive\?\.getPresentationStatus/);
+  assert.doesNotMatch(polishSource, /event\?\.presentationStatus/);
 });
 
 test("home card fallback record formatting is self-contained", async () => {
@@ -139,7 +140,8 @@ test("home cards resolve the shared presentation object before any record fallba
   const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
   assert.match(polishSource, /LocalBleachersLive\?\.getPresentationStatus/);
   assert.doesNotMatch(polishSource, /LocalBleachersLive\?\.getTeamStatus/);
-  assert.match(polishSource, /const requiresPresentationTruth = event\?\.level === "high-school"/);
+  assert.match(polishSource, /const normalizedLevel = String\(event\?\.level \|\| ""\)/);
+  assert.match(polishSource, /\["high-school","highschool"\]\.includes\(normalizedLevel\)/);
   assert.match(polishSource, /\["football","volleyball","basketball"\]/);
   assert.match(polishSource, /if \(requiresPresentationTruth\) \{/);
 });

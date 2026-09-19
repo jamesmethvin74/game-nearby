@@ -130,14 +130,10 @@
 
   function presentationSchoolIdsForGames(games = []) {
     const selected = typeof followed !== "undefined" && Array.isArray(followed)
-      ? followed.map(String).filter(Boolean)
+      ? [...new Set(followed.map(String).filter(Boolean))]
       : [];
-    const gameSchoolIds = games.flatMap(game => [
-      game?.school_id,
-      game?.canonical_home_school_id,
-      game?.canonical_away_school_id
-    ]).map(String).filter(Boolean);
-    return [...new Set([...selected, ...gameSchoolIds])];
+    if (selected.length) return selected;
+    return [...new Set(games.map(game => String(game?.school_id || "")).filter(Boolean))];
   }
 
   function clearPresentationStatusesForSchoolIds(target, schoolIds = []) {
@@ -228,7 +224,7 @@
     return nearbyPresentationStatuses.get(presentationStatusKey(schoolId, sport, gender)) || null;
   }
 
-  function mapApiGame(game, school = null, recordOverride = null, presentationStatuses = null) {
+  function mapApiGame(game, school = null, recordOverride = null) {
     const schoolId = school?.id || game.school_id;
     const schoolName = school?.name || game.school_name || "Arkansas school";
     const schoolIds = [...new Set([
@@ -255,7 +251,6 @@
       sourceType: game.source_type || "",
       parserType: game.parser_type || "",
       record,
-      presentationStatus: presentationStatuses?.get(presentationStatusKey(schoolId, game.sport, game.gender)) || null,
       conferenceName: record?.conference_name || game.conference_name || null,
       teamId: schoolId,
       schoolIds,
@@ -282,11 +277,11 @@
     };
   }
 
-  function applyNearbyGames(games, presentationStatuses = new Map()) {
+  function applyNearbyGames(games) {
     if (!Array.isArray(games)) return false;
     const mapped = games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
-      .map(game => mapApiGame(game, null, null, presentationStatuses))
+      .map(game => mapApiGame(game))
       .filter(game => Number.isFinite(game.lat) && Number.isFinite(game.lon));
 
     nearbyEvents.splice(0, nearbyEvents.length, ...mapped);
@@ -324,7 +319,7 @@
       }
       if (requestId !== state.nearbyRequest) return state.nearbyCount;
       replaceCanonicalPresentationStatuses(presentationStatuses);
-      applyNearbyGames(payload.games, presentationStatuses);
+      applyNearbyGames(payload.games);
       return state.nearbyCount;
     } catch (error) {
       if (requestId !== state.nearbyRequest) return state.nearbyCount;

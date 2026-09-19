@@ -153,6 +153,7 @@
   function setStatuses(schoolId, statuses) {
     const normalized = (statuses || []).map(normalizeStatus).filter(Boolean);
     live.ingestPresentationStatuses?.(normalized, [], [schoolId]);
+    if (typeof render === "function") render();
     return normalized;
   }
 
