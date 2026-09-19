@@ -47,7 +47,7 @@
   }
 
   function unifiedStatus() {
-    const status = window.LocalBleachersLive?.getTeamStatus?.(state.schoolId, state.sport, state.gender);
+    const status = window.LocalBleachersLive?.getPresentationStatus?.(state.schoolId, state.sport, state.gender);
     const factual = window.LocalBleachersPresentation?.teamStatus?.(status);
     if (factual) return factual;
     if (state.loading) return { overall:"Loading…", conference:"Loading…", standing:"Loading…", conferenceName:"" };

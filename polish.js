@@ -13,7 +13,7 @@ function recordLabel(w=0,l=0,t=0){
 }
 
 function getTeamStatus(event){
-  const unified = event?.presentationStatus || window.LocalBleachersLive?.getPresentationStatus?.(event.teamId, event.sport, event.gender);
+  const unified = window.LocalBleachersLive?.getPresentationStatus?.(event.teamId, event.sport, event.gender) || event?.presentationStatus || null;
   const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
   if (factual) return factual;
   const requiresPresentationTruth = event?.level === "high-school"

@@ -128,43 +128,87 @@
     return `${String(schoolId || "")}|${String(sport || "").toLowerCase()}|${String(gender || "").toLowerCase()}`;
   }
 
-  function followedSchoolIdsForStatus(games = []) {
+  function presentationSchoolIdsForGames(games = []) {
     const selected = typeof followed !== "undefined" && Array.isArray(followed)
       ? followed.map(String).filter(Boolean)
       : [];
-    if (selected.length) return [...new Set(selected)].slice(0, 24);
-    return [...new Set(games.map(game => game?.school_id).filter(Boolean))].slice(0, 8);
+    const gameSchoolIds = games.flatMap(game => [
+      game?.school_id,
+      game?.canonical_home_school_id,
+      game?.canonical_away_school_id
+    ]).map(String).filter(Boolean);
+    return [...new Set([...selected, ...gameSchoolIds])];
   }
 
-  async function fetchNearbyPresentationStatuses(games = []) {
-    const schoolIds = followedSchoolIdsForStatus(games);
-    nearbyPresentationStatuses.clear();
+  function clearPresentationStatusesForSchoolIds(schoolIds = []) {
+    const prefixes = [...new Set(schoolIds.map(String).filter(Boolean))].map(id => `${id}|`);
+    if (!prefixes.length) return;
+    for (const key of [...nearbyPresentationStatuses.keys()]) {
+      if (prefixes.some(prefix => key.startsWith(prefix))) nearbyPresentationStatuses.delete(key);
+    }
+  }
 
-    for (let offset = 0; offset < schoolIds.length; offset += 8) {
-      const chunk = schoolIds.slice(offset, offset + 8);
-      if (!chunk.length) continue;
-      const params = new URLSearchParams({ school_ids: chunk.join(",") });
-      const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`, 15000);
-      const resolutions = Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [];
-      const aliasesByCanonical = new Map();
-      for (const row of resolutions) {
-        const requested = String(row?.requested_school_id || "");
-        const canonical = String(row?.school_id || "");
-        if (!requested || !canonical) continue;
-        if (!aliasesByCanonical.has(canonical)) aliasesByCanonical.set(canonical, []);
-        aliasesByCanonical.get(canonical).push(requested);
+  function ingestPresentationStatuses(statuses = [], resolutions = [], requestedSchoolIds = []) {
+    const aliasesByCanonical = new Map();
+    for (const row of resolutions || []) {
+      const requested = String(row?.requested_school_id || "");
+      const canonical = String(row?.school_id || "");
+      if (!requested || !canonical) continue;
+      if (!aliasesByCanonical.has(canonical)) aliasesByCanonical.set(canonical, []);
+      aliasesByCanonical.get(canonical).push(requested);
+    }
+
+    const clearIds = new Set(requestedSchoolIds.map(String).filter(Boolean));
+    for (const [canonical, aliases] of aliasesByCanonical) {
+      clearIds.add(canonical);
+      aliases.forEach(alias => clearIds.add(alias));
+    }
+    for (const status of statuses || []) {
+      if (status?.school_id) clearIds.add(String(status.school_id));
+    }
+    clearPresentationStatusesForSchoolIds([...clearIds]);
+
+    for (const status of statuses || []) {
+      const canonical = String(status?.school_id || "");
+      if (!canonical) continue;
+      nearbyPresentationStatuses.set(presentationStatusKey(canonical, status.sport, status.gender), status);
+      for (const requested of aliasesByCanonical.get(canonical) || []) {
+        nearbyPresentationStatuses.set(presentationStatusKey(requested, status.sport, status.gender), status);
       }
-
-      for (const status of Array.isArray(payload?.team_statuses) ? payload.team_statuses : []) {
-        const canonical = String(status?.school_id || "");
-        if (!canonical) continue;
+      if (!aliasesByCanonical.size && requestedSchoolIds.map(String).includes(canonical)) {
         nearbyPresentationStatuses.set(presentationStatusKey(canonical, status.sport, status.gender), status);
-        for (const requested of aliasesByCanonical.get(canonical) || []) {
-          nearbyPresentationStatuses.set(presentationStatusKey(requested, status.sport, status.gender), status);
-        }
       }
     }
     return new Map(nearbyPresentationStatuses);
+  }
+
+  async function primePresentationStatuses(schoolIds = [], options = {}) {
+    const uniqueSchoolIds = [...new Set(schoolIds.map(String).filter(Boolean))];
+    let successfulChunks = 0;
+
+    for (let offset = 0; offset < uniqueSchoolIds.length; offset += 8) {
+      const chunk = uniqueSchoolIds.slice(offset, offset + 8);
+      if (!chunk.length) continue;
+      const params = new URLSearchParams({ school_ids: chunk.join(",") });
+      try {
+        const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`, 15000);
+        ingestPresentationStatuses(
+          Array.isArray(payload?.team_statuses) ? payload.team_statuses : [],
+          Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [],
+          chunk
+        );
+        successfulChunks += 1;
+      } catch (error) {
+        console.warn("Presentation status chunk refresh failed; keeping last-known truth", chunk, error);
+      }
+    }
+
+    if (successfulChunks && options.renderAfter !== false && typeof render === "function") render();
+    return new Map(nearbyPresentationStatuses);
+  }
+
+  async function fetchNearbyPresentationStatuses(games = []) {
+    return primePresentationStatuses(presentationSchoolIdsForGames(games), { renderAfter: false });
   }
 
   function getPresentationStatus(schoolId, sport, gender) {
@@ -320,6 +364,8 @@
     refreshNearby,
     fetchTeamSchedule,
     getPresentationStatus,
+    ingestPresentationStatuses,
+    primePresentationStatuses,
     getNearbyEvents: () => nearbyEvents.map(event => ({ ...event, schoolIds: [...event.schoolIds] })),
     getState: () => ({ ...state, failures: { ...state.failures } })
   };

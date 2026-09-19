@@ -4,7 +4,6 @@
 
   const API_BASE = String(window.LocalBleachersTeamsCatalog?.apiBase || live.apiBase || "").replace(/\/$/, "");
   const memoryCache = new Map();
-  const statusCache = new Map();
   const SCHEDULE_CACHE_PREFIX = "localBleachersAR:teamSchedule:v5:";
   const SCHEDULE_CACHE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
   const NEARBY_CACHE_KEY = "localBleachersAR:nearbyGames:v1";
@@ -153,7 +152,7 @@
 
   function setStatuses(schoolId, statuses) {
     const normalized = (statuses || []).map(normalizeStatus).filter(Boolean);
-    statusCache.set(memoryCacheKey(schoolId), normalized);
+    live.ingestPresentationStatuses?.(normalized, [], [schoolId]);
     return normalized;
   }
 
@@ -218,8 +217,7 @@
 
   live.fetchTeamSchedule = async schoolId => {
     const cacheKey = memoryCacheKey(schoolId);
-    const cachedStatuses = statusCache.get(cacheKey) || [];
-    if (memoryCache.has(cacheKey) && cachedStatuses.length) return cloneEvents(memoryCache.get(cacheKey));
+    if (memoryCache.has(cacheKey)) return cloneEvents(memoryCache.get(cacheKey));
 
     const school = schoolFor(schoolId);
     const restored = restoreSavedPayload(schoolId);
@@ -253,56 +251,16 @@
     return [];
   };
 
-  live.getTeamStatus = (schoolId, sport, gender = "") => {
-    const statuses = statusCache.get(memoryCacheKey(schoolId)) || [];
-    const found = statuses.find(status =>
-      String(status.sport || "") === String(sport || "")
-      && String(status.gender || "") === String(gender || "")
-    );
-    return found ? {
-      ...found,
-      record_issues: (found.record_issues || []).map(issue => ({ ...issue }))
-    } : null;
-  };
-
-  const primedStatusSchools = new Set();
-  const MAX_VISIBLE_STATUS_SCHOOLS = 16;
+  // Compatibility alias only. There is one presentation-status store: LocalBleachersLive.getPresentationStatus.
+  live.getTeamStatus = (schoolId, sport, gender = "") =>
+    live.getPresentationStatus?.(schoolId, sport, gender) || null;
 
   async function primeVisibleTeamStatuses() {
     const schoolIds = typeof followed !== "undefined" && Array.isArray(followed)
-      ? [...new Set(followed.map(String).filter(Boolean))].slice(0, MAX_VISIBLE_STATUS_SCHOOLS)
+      ? [...new Set(followed.map(String).filter(Boolean))]
       : [];
-    const pending = schoolIds.filter(schoolId => !primedStatusSchools.has(schoolId));
-    if (!pending.length) return;
-
-    try {
-      const params = new URLSearchParams({ school_ids: pending.join(",") });
-      const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`);
-      const statuses = Array.isArray(payload?.team_statuses) ? payload.team_statuses : [];
-      const resolutions = new Map(
-        (Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [])
-          .map(row => [String(row?.requested_school_id || ""), String(row?.school_id || "")])
-          .filter(([requestedSchoolId, resolvedSchoolId]) => requestedSchoolId && resolvedSchoolId)
-      );
-      const bySchool = new Map();
-      for (const status of statuses) {
-        const schoolId = String(status?.school_id || "");
-        if (!schoolId) continue;
-        if (!bySchool.has(schoolId)) bySchool.set(schoolId, []);
-        bySchool.get(schoolId).push(status);
-      }
-      for (const schoolId of pending) {
-        const resolvedSchoolId = resolutions.get(schoolId) || schoolId;
-        const schoolStatuses = bySchool.get(resolvedSchoolId) || [];
-        if (!schoolStatuses.length) continue;
-        setStatuses(schoolId, schoolStatuses);
-        if (resolvedSchoolId !== schoolId) setStatuses(resolvedSchoolId, schoolStatuses);
-        primedStatusSchools.add(schoolId);
-      }
-      if (typeof render === "function") render();
-    } catch (error) {
-      console.warn("Visible team status batch prime failed", error);
-    }
+    if (!schoolIds.length) return new Map();
+    return live.primePresentationStatuses?.(schoolIds) || new Map();
   }
 
   live.primeVisibleTeamStatuses = primeVisibleTeamStatuses;

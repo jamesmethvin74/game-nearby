@@ -58,26 +58,31 @@ test("live schedule sources override the legacy MaxPreps label", () => {
   assert.match(live, /event\.sourceLabel \|\| legacyPolishedSourceLabel\(event\)/);
 });
 
-test("team detail renders the backend factual presentation contract", () => {
+test("team detail and home cards read the same canonical presentation-status store", () => {
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(schoolSchedule, /payload\?\.team_statuses/);
-  assert.match(schoolSchedule, /live\.getTeamStatus/);
-  assert.match(detail, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(schoolSchedule, /ingestPresentationStatuses/);
+  assert.doesNotMatch(schoolSchedule, /const statusCache = new Map\(\)/);
+  assert.match(polish, /LocalBleachersLive\?\.getPresentationStatus/);
+  assert.match(detail, /LocalBleachersLive\?\.getPresentationStatus/);
   assert.match(detail, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(detail, /selectedEvents\.find\(event => event\.record\)/);
 });
 
-test("home cards use one bounded followed-team status read in the nearby refresh", () => {
+test("home refresh primes canonical truth for every nearby school represented on cards", () => {
   assert.match(polish, /event\?\.presentationStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
-  assert.match(live, /followedSchoolIdsForStatus/);
+  assert.match(live, /presentationSchoolIdsForGames/);
+  assert.match(live, /canonical_home_school_id/);
+  assert.match(live, /canonical_away_school_id/);
+  assert.match(live, /primePresentationStatuses/);
   assert.match(live, /offset \+= 8/);
   assert.match(live, /\/api\/v1\/team-statuses\?/);
   assert.match(live, /getPresentationStatus/);
   assert.match(follow, /getPresentationStatus/);
+  assert.doesNotMatch(live, /slice\(0, 24\)/);
   assert.doesNotMatch(schoolSchedule, /localbleachers:nearby-games/);
-  assert.doesNotMatch(schoolSchedule, /queueMicrotask\(\(\) => \{ void primeVisibleTeamStatuses/);
 });
 
 test("standings render backend display fields without inventing rank or records", () => {
@@ -91,10 +96,12 @@ test("standings render backend display fields without inventing rank or records"
   assert.doesNotMatch(standings, /row\.overall_record \|\| "0-0"/);
 });
 
-test("fallback schedules never poison the authoritative team-status memory cache", () => {
-  assert.match(schoolSchedule, /memoryCache\.has\(cacheKey\) && cachedStatuses\.length/);
+test("fallback schedules never create a second presentation-truth cache", () => {
+  assert.match(schoolSchedule, /if \(memoryCache\.has\(cacheKey\)\)/);
   assert.match(schoolSchedule, /if \(restored\.statuses\.length\)/);
   assert.match(schoolSchedule, /if \(unique\.length \|\| payload\.statuses\.length\)/);
+  assert.match(schoolSchedule, /ingestPresentationStatuses/);
+  assert.doesNotMatch(schoolSchedule, /const statusCache = new Map\(\)/);
   assert.doesNotMatch(schoolSchedule, /memoryCache\.set\(cacheKey, fallback\)/);
 });
 

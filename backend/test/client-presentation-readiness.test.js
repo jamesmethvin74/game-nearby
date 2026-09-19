@@ -17,9 +17,9 @@ test("client release presents one factual display contract on all three surfaces
   const teamsHtml = read("teams.html");
   const sw = read("service-worker.js");
 
-  assert.match(runtime, /m15-presentation-v74/);
-  assert.match(runtime, /clientGeneration:\s*74/);
-  assert.match(runtime, /shellGeneration:\s*74/);
+  assert.match(runtime, /m15-presentation-v75/);
+  assert.match(runtime, /clientGeneration:\s*75/);
+  assert.match(runtime, /shellGeneration:\s*75/);
   assert.match(runtime, /scheduleCacheSchema:\s*5/);
 
   for (const field of ["display_overall_record", "display_conference_record", "display_rank"]) {
@@ -29,6 +29,7 @@ test("client release presents one factual display contract on all three surfaces
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.match(polish, /LocalBleachersLive\?\.getPresentationStatus/);
   assert.doesNotMatch(polish, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(detail, /LocalBleachersLive\?\.getPresentationStatus/);
   assert.match(detail, /LocalBleachersPresentation\?\.teamStatus/);
   assert.match(standings, /LocalBleachersPresentation\?\.standingRow/);
   assert.doesNotMatch(standings, /Published standings are available only as evidence/);
@@ -36,14 +37,16 @@ test("client release presents one factual display contract on all three surfaces
   assert.match(schedule, /localBleachersAR:teamSchedule:v5:/);
   assert.match(schedule, /schemaVersion:\s*5/);
   assert.match(schedule, /primeVisibleTeamStatuses/);
+  assert.match(schedule, /ingestPresentationStatuses/);
+  assert.doesNotMatch(schedule, /const statusCache = new Map\(\)/);
 
   for (const html of [index, standingsHtml, teamsHtml]) {
-    assert.match(html, /runtime-build\.js\?v=74/);
-    assert.match(html, /service-worker\.js\?v=74/);
+    assert.match(html, /runtime-build\.js\?v=75/);
+    assert.match(html, /service-worker\.js\?v=75/);
     assert.match(html, /updateViaCache:"none"/);
   }
 
-  assert.match(sw, /localbleachersar-shell-v74/);
+  assert.match(sw, /localbleachersar-shell-v75/);
 });
 
 test("zero-game conference records cannot fabricate a number-one standing", () => {

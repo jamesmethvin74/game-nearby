@@ -1,7 +1,7 @@
 window.LocalBleachersRuntime = Object.freeze({
-  releaseGeneration: "m15-presentation-v74",
-  clientGeneration: 74,
-  shellGeneration: 74,
+  releaseGeneration: "m15-presentation-v75",
+  clientGeneration: 75,
+  shellGeneration: 75,
   scheduleCacheSchema: 5,
   standingsAssetGeneration: 71,
   presentationContract: "display-v1",
