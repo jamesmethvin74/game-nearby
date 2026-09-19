@@ -1,0 +1,132 @@
+name: ONE_TRUTH_TB proof
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - .github/workflows/one-truth-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run truth-contract tests
+        working-directory: backend
+        run: |
+          npm install --no-audit --no-fund
+          node --check src/one-truth.js
+          node --check src/one-truth-worker.js
+          node --test             test/one-truth-contract.test.js             test/result-only-source-truth.test.js             test/record-rebuild.test.js             test/m10-conference-standings-truth.test.js             test/m15-presentation-truth.test.js             test/unified-team-status.test.js
+
+      - name: Wait for ONE_TRUTH_TB production deployment and materialize
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          ready=0
+          for attempt in $(seq 1 48); do
+            code=$(curl -sS -D /tmp/headers -o /tmp/status.json -w "%{http_code}"               "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh&proof=$attempt")
+            if [ "$code" = "200" ] && grep -qi '^x-localbleachers-truth: ONE_TRUTH_TB' /tmp/headers; then
+              ready=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ready" != "1" ]; then
+            echo "ONE_TRUTH_TB production deployment did not become ready"
+            cat /tmp/headers || true
+            cat /tmp/status.json || true
+            exit 1
+          fi
+          echo "ONE_TRUTH_READY=1"
+
+      - name: Prove Conway and Pea Ridge share one truth across every surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh&proof=status" > /tmp/status.json
+          curl -fsS "$BASE/api/v1/schools/conway/schedule?proof=conway" > /tmp/conway.json
+          curl -fsS "$BASE/api/v1/standings?sport=volleyball&conference=6a-central&proof=conway-standings" > /tmp/conway-standings.json
+          curl -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule?proof=pea" > /tmp/pea.json
+          curl -fsS "$BASE/api/v1/standings?sport=football&conference=5a-west&proof=pea-standings" > /tmp/pea-standings.json
+          curl -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-09-19T00:00:00.000Z&until=2026-10-05T00:00:00.000Z&proof=nearby" > /tmp/games.json
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const statuses=read('/tmp/status.json').team_statuses||[];
+          const conway=read('/tmp/conway.json');
+          const conwayStandings=read('/tmp/conway-standings.json');
+          const pea=read('/tmp/pea.json');
+          const peaStandings=read('/tmp/pea-standings.json');
+          const nearby=read('/tmp/games.json').games||[];
+
+          const recordFromGames=(games,sport,gender)=>{
+            let w=0,l=0,t=0,cw=0,cl=0,ct=0;
+            for(const g of games.filter(x=>x.sport===sport&&x.gender===gender)){
+              if(String(g.status||'').toUpperCase()!=='FINAL'||g.team_score==null||g.opponent_score==null||Number(g.counts_for_record)===0) continue;
+              const a=Number(g.team_score),b=Number(g.opponent_score);
+              const r=a>b?'W':a<b?'L':'T';
+              if(r==='W')w++; else if(r==='L')l++; else t++;
+              if(Number(g.conference_game||0)===1){
+                if(r==='W')cw++; else if(r==='L')cl++; else ct++;
+              }
+            }
+            return {
+              overall:t?`${w}-${l}-${t}`:`${w}-${l}`,
+              conference:ct?`${cw}-${cl}-${ct}`:`${cw}-${cl}`
+            };
+          };
+
+          const findStatus=(school,sport,gender)=>statuses.find(s=>s.school_id===school&&s.sport===sport&&s.gender===gender);
+          const cs=findStatus('conway','volleyball','girls');
+          const ps=findStatus('df-7x4sxh','football','boys');
+          if(!cs||!ps) throw new Error('Required ONE_TRUTH_TB statuses missing');
+
+          const conwayRecord=recordFromGames(conway.games||[],'volleyball','girls');
+          const peaRecord=recordFromGames(pea.games||[],'football','boys');
+
+          const cStanding=(conwayStandings.standings||[]).find(r=>r.school_id==='conway'||/Conway/i.test(String(r.school_name||'')));
+          const pStanding=(peaStandings.standings||[]).find(r=>r.school_id==='df-7x4sxh'||/Pea Ridge/i.test(String(r.school_name||'')));
+          const cNearby=nearby.find(g=>g.school_id==='conway'&&g.sport==='volleyball'&&g.gender==='girls');
+
+          const resultOnly=(pea.games||[]).filter(g=>['mascot-media','rankone-public'].includes(String(g.parser_type||'').toLowerCase()));
+
+          const proof={
+            conway:{
+              schedule:conwayRecord,
+              status:{overall:cs.display_overall_record,conference:cs.display_conference_record,rank:cs.display_rank},
+              standings:cStanding&&{overall:cStanding.display_overall_record,conference:cStanding.display_conference_record,rank:cStanding.display_rank},
+              nearby:cNearby&&{overall:`${cNearby.wins}-${cNearby.losses}`,conference:`${cNearby.conference_wins}-${cNearby.conference_losses}`,rank:cNearby.rank}
+            },
+            pea:{
+              schedule:peaRecord,
+              status:{overall:ps.display_overall_record,conference:ps.display_conference_record,rank:ps.display_rank},
+              standings:pStanding&&{overall:pStanding.display_overall_record,conference:pStanding.display_conference_record,rank:pStanding.display_rank},
+              resultOnlyVisible:resultOnly.length,
+              games:(pea.games||[]).length
+            }
+          };
+          console.log('ONE_TRUTH_PROOF='+JSON.stringify(proof));
+
+          if(cs.display_overall_record!==conwayRecord.overall) throw new Error('Conway status != schedule');
+          if(cs.display_conference_record!==conwayRecord.conference) throw new Error('Conway conference status != schedule');
+          if(!cStanding||cStanding.display_overall_record!==cs.display_overall_record||cStanding.display_conference_record!==cs.display_conference_record||cStanding.display_rank!==cs.display_rank) throw new Error('Conway standings != status');
+          if(cNearby && (`${cNearby.wins}-${cNearby.losses}`!==cs.display_overall_record || cNearby.rank!==cs.display_rank)) throw new Error('Conway nearby != status');
+
+          if(ps.display_overall_record!==peaRecord.overall) throw new Error('Pea Ridge status != schedule');
+          if(ps.display_conference_record!==peaRecord.conference) throw new Error('Pea Ridge conference status != schedule');
+          if(!pStanding||pStanding.display_overall_record!==ps.display_overall_record||pStanding.display_conference_record!==ps.display_conference_record||pStanding.display_rank!==ps.display_rank) throw new Error('Pea Ridge standings != status');
+          if(resultOnly.length) throw new Error('Result-only observations remain visible in Pea Ridge schedule');
+          NODE
