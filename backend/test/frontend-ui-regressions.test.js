@@ -67,15 +67,17 @@ test("team detail renders the backend factual presentation contract", () => {
   assert.doesNotMatch(detail, /selectedEvents\.find\(event => event\.record\)/);
 });
 
-test("home cards prefer the same factual team-status contract and batch visible status hydration", () => {
-  assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
+test("home cards use one bounded followed-team status read in the nearby refresh", () => {
+  assert.match(polish, /event\?\.presentationStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
-  assert.match(schoolSchedule, /\/api\/v1\/team-statuses\?/);
-  assert.match(schoolSchedule, /school_ids: pending\.join\(","\)/);
-  assert.match(schoolSchedule, /setStatuses\(schoolId, schoolStatuses\)/);
-  assert.doesNotMatch(schoolSchedule, /Promise\.allSettled/);
-  assert.match(schoolSchedule, /localbleachers:nearby-games/);
+  assert.match(live, /followedSchoolIdsForStatus/);
+  assert.match(live, /offset \+= 8/);
+  assert.match(live, /\/api\/v1\/team-statuses\?/);
+  assert.match(live, /getPresentationStatus/);
+  assert.match(follow, /getPresentationStatus/);
+  assert.doesNotMatch(schoolSchedule, /localbleachers:nearby-games/);
+  assert.doesNotMatch(schoolSchedule, /queueMicrotask\(\(\) => \{ void primeVisibleTeamStatuses/);
 });
 
 test("standings render backend display fields without inventing rank or records", () => {
@@ -115,4 +117,10 @@ test("nearby game refresh carries factual presentation status into front cards b
   assert.match(live, /presentationStatus:/);
   assert.match(live, /applyNearbyGames\(payload\.games, presentationStatuses\)/);
   assert.match(polishSource, /event\?\.presentationStatus/);
+});
+
+test("home card fallback record formatting is self-contained", async () => {
+  const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.match(polishSource, /function recordLabel\(/);
+  assert.match(polishSource, /overall: recordLabel\(/);
 });
