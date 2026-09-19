@@ -186,3 +186,12 @@ test("home featured cards stay chronological while Team Schedule tabs carry the 
   assert.match(detail, /function scheduleSeason\(now = new Date\(\)\)/);
   assert.match(detail, /return groups\.sort\(\(a, b\) =>/);
 });
+
+
+test("More From Your Teams is the complete chronological stream and never drops spotlight games", () => {
+  assert.match(follow, /const priority = featuredEventsFor\(visible\)/);
+  assert.match(follow, /const others = visible/);
+  assert.doesNotMatch(follow, /const featuredIds = new Set\(priority\.map/);
+  assert.doesNotMatch(follow, /visible\.filter\(e => !featuredIds\.has\(e\.id\)\)/);
+  assert.match(follow, /sort\(\(a,b\) => new Date\(a\.date\)-new Date\(b\.date\) \|\| a\.distance-b\.distance\)/);
+});

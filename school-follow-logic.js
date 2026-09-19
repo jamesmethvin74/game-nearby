@@ -200,8 +200,11 @@ render = function() {
     .sort((a,b) => new Date(a.date)-new Date(b.date) || a.distance-b.distance);
 
   const priority = featuredEventsFor(visible);
-  const featuredIds = new Set(priority.map(e => e.id));
-  const others = visible.filter(e => !featuredIds.has(e.id));
+
+  // The large "Your Teams Nearby" carousel is a spotlight, not a removal
+  // queue. "More From Your Teams" is the complete chronological stream for
+  // every followed team, including games that are also spotlighted above.
+  const others = visible;
 
   followedEventsEl.innerHTML = priority.length
     ? priority.map(e => eventCard(e,true)).join("")
