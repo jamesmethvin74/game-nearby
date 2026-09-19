@@ -1,0 +1,401 @@
+import app from "./m8-worker.js";
+import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth } from "./one-truth.js";
+
+const TABLE = oneTruthTableName();
+
+function json(body, status = 200, extraHeaders = {}) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers:{
+      "content-type":"application/json; charset=utf-8",
+      "cache-control":"no-store",
+      "x-localbleachers-truth":"ONE_TRUTH_TB",
+      ...extraHeaders
+    }
+  });
+}
+
+function recordParts(row) {
+  return {
+    wins:Number(row.overall_wins || 0),
+    losses:Number(row.overall_losses || 0),
+    ties:Number(row.overall_ties || 0),
+    conference_wins:Number(row.conference_wins || 0),
+    conference_losses:Number(row.conference_losses || 0),
+    conference_ties:Number(row.conference_ties || 0)
+  };
+}
+
+function statusFromRow(row) {
+  const record = recordParts(row);
+  const member = row.conference_membership_state === "member" && Boolean(row.conference_id);
+  const verified = row.truth_state === "VERIFIED";
+  const conferenceGames = Number(row.conference_scored_finals || 0);
+  return {
+    team_id:row.team_id,
+    reporting_team_id:row.team_id,
+    school_id:row.school_id,
+    school_name:row.school_name,
+    level:row.school_level,
+    sport:row.sport,
+    gender:row.gender,
+    season:row.season,
+    conference_membership_state:row.conference_membership_state || (member ? "member" : "unknown"),
+    conference_id:member ? row.conference_id : null,
+    conference_name:member ? row.conference_name : null,
+    ...record,
+    overall_record:row.overall_record,
+    conference_record:member ? row.conference_record : null,
+    rank:row.rank == null ? null : Number(row.rank),
+    overall_games:Number(row.scored_finals || 0),
+    conference_games:conferenceGames,
+    record_verified:verified,
+    standings_verified:member && row.rank != null,
+    record_state:row.truth_state || "UNVERIFIED",
+    record_audit_state:row.truth_state || "UNVERIFIED",
+    record_source:"ONE_TRUTH_TB",
+    source:"ONE_TRUTH_TB",
+    standing_state:member
+      ? (conferenceGames > 0 ? (row.rank == null ? "unavailable" : "verified") : "not-started")
+      : (row.conference_membership_state || "unknown"),
+    display_overall_record:row.overall_record,
+    display_conference_record:member ? (row.conference_record || "0-0") : null,
+    display_rank:row.rank == null ? null : Number(row.rank),
+    display_method:"one-truth",
+    display_source_url:null,
+    calculated_at:row.refreshed_at,
+    record_issues:[]
+  };
+}
+
+function gameFromRow(row) {
+  const record = recordParts(row);
+  return {
+    id:row.canonical_event_id || row.game_id || row.truth_id,
+    canonical_event_id:row.canonical_event_id || null,
+    reporting_team_id:row.team_id,
+    team_id:row.team_id,
+    school_id:row.school_id,
+    school_name:row.school_name,
+    level:row.school_level,
+    sport:row.sport,
+    gender:row.gender,
+    season:row.season,
+    conference_id:row.conference_id || null,
+    conference_name:row.conference_name || null,
+    rank:row.rank == null ? null : Number(row.rank),
+    ...record,
+    canonical_home_school_id:row.canonical_home_school_id || null,
+    canonical_away_school_id:row.canonical_away_school_id || null,
+    canonical_home_name:row.canonical_home_name || null,
+    canonical_away_name:row.canonical_away_name || null,
+    opponent_school_id:row.opponent_school_id || null,
+    opponent:row.opponent || "Opponent TBA",
+    scheduled_at:row.scheduled_at,
+    canonical_scheduled_at:row.scheduled_at,
+    scheduled_time_known:Number(row.scheduled_time_known ?? 1),
+    canonical_time_known:Number(row.scheduled_time_known ?? 1),
+    venue:row.venue || null,
+    canonical_venue:row.venue || null,
+    latitude:row.latitude == null ? null : Number(row.latitude),
+    longitude:row.longitude == null ? null : Number(row.longitude),
+    home_away:row.home_away || "unknown",
+    conference_game:Number(row.conference_game || 0),
+    canonical_conference_game:Number(row.conference_game || 0),
+    counts_for_record:Number(row.counts_for_record ?? 1),
+    status:row.status || "SCHEDULED",
+    canonical_status:row.status || "SCHEDULED",
+    team_score:row.team_score == null ? null : Number(row.team_score),
+    opponent_score:row.opponent_score == null ? null : Number(row.opponent_score),
+    result:row.result || null,
+    source_id:row.source_id || null,
+    source_type:row.source_type || null,
+    parser_type:row.parser_type || null,
+    source_url:row.source_url || null,
+    data_trust:row.data_trust || "ONE_TRUTH",
+    conflict_count:Number(row.conflict_count || 0),
+    calculated_at:row.refreshed_at
+  };
+}
+
+function haversineMiles(lat1, lon1, lat2, lon2) {
+  if (![lat1,lon1,lat2,lon2].every(Number.isFinite)) return null;
+  const r = 3958.7613;
+  const rad = value => value * Math.PI / 180;
+  const dLat = rad(lat2-lat1);
+  const dLon = rad(lon2-lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(rad(lat1))*Math.cos(rad(lat2))*Math.sin(dLon/2)**2;
+  return 2*r*Math.asin(Math.sqrt(a));
+}
+
+async function teamRowsForSchools(env, schoolIds) {
+  const ids=[...new Set((schoolIds || []).map(String).filter(Boolean))];
+  if (!ids.length) return [];
+  const {results=[]}=await env.DB.prepare(`
+    SELECT * FROM ${TABLE}
+    WHERE row_type='TEAM'
+      AND school_id IN (SELECT value FROM json_each(?))
+    ORDER BY school_name,sport,gender,team_id
+  `).bind(JSON.stringify(ids)).all();
+  return results;
+}
+
+async function gamesForSchool(env, schoolId) {
+  const {results=[]}=await env.DB.prepare(`
+    SELECT * FROM ${TABLE}
+    WHERE row_type='GAME' AND school_id=?
+    ORDER BY scheduled_at,sport,gender,truth_id
+  `).bind(schoolId).all();
+  return results;
+}
+
+async function gameRowsForTeam(env, teamId) {
+  const {results=[]}=await env.DB.prepare(`
+    SELECT * FROM ${TABLE}
+    WHERE row_type='GAME' AND team_id=?
+    ORDER BY scheduled_at,truth_id
+  `).bind(teamId).all();
+  return results;
+}
+
+async function summaryForTeam(env, teamId) {
+  return env.DB.prepare(`
+    SELECT * FROM ${TABLE}
+    WHERE row_type='TEAM' AND team_id=?
+  `).bind(teamId).first();
+}
+
+async function nearbyGames(env, url) {
+  const lat=Number(url.searchParams.get("lat"));
+  const lon=Number(url.searchParams.get("lon"));
+  const radius=Math.max(1,Number(url.searchParams.get("radius")||25));
+  const since=url.searchParams.get("since")||new Date(Date.now()-6*60*60*1000).toISOString();
+  const until=url.searchParams.get("until")||new Date(Date.now()+30*24*60*60*1000).toISOString();
+  const hasGeo=[lat,lon,radius].every(Number.isFinite);
+  const binds=[since,until];
+  let geoSql="";
+
+  if (hasGeo) {
+    const latDelta=radius/69;
+    const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
+    const lonDelta=radius/(69*lonScale);
+    geoSql=" AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?";
+    binds.push(lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta);
+  }
+
+  const {results=[]}=await env.DB.prepare(`
+    SELECT * FROM ${TABLE}
+    WHERE row_type='GAME'
+      AND scheduled_at BETWEEN ? AND ?
+      ${geoSql}
+    ORDER BY scheduled_at,school_name,sport,gender,truth_id
+  `).bind(...binds).all();
+
+  return results
+    .map(row => {
+      const game=gameFromRow(row);
+      if (hasGeo) {
+        const distance=haversineMiles(lat,lon,Number(game.latitude),Number(game.longitude));
+        if (distance==null || distance>radius) return null;
+        game.distance_miles=distance;
+      }
+      return game;
+    })
+    .filter(Boolean);
+}
+
+async function teamStatusesResponse(request, env, url) {
+  const requested=String(url.searchParams.get("school_ids")||"")
+    .split(",").map(value=>value.trim()).filter(Boolean);
+  const rows=await teamRowsForSchools(env,requested);
+  const found=new Set(rows.map(row=>row.school_id));
+  return json({
+    team_statuses:rows.map(statusFromRow),
+    school_id_resolutions:requested.map(id=>({
+      requested_school_id:id,
+      school_id:found.has(id)?id:null,
+      resolution_method:found.has(id)?"one-truth-exact":"unresolved"
+    })).filter(row=>row.school_id)
+  });
+}
+
+async function schoolScheduleResponse(request, env, ctx, schoolId) {
+  const upstream=await app.fetch(request,env,ctx);
+  if (!upstream.ok) return upstream;
+  let body={};
+  try { body=await upstream.clone().json(); } catch {}
+  const canonicalSchoolId=String(body?.canonicalSchoolId || schoolId);
+  const [games,statusRows]=await Promise.all([
+    gamesForSchool(env,canonicalSchoolId),
+    teamRowsForSchools(env,[canonicalSchoolId])
+  ]);
+  return json({
+    ...body,
+    canonicalSchoolId,
+    games:games.map(gameFromRow),
+    team_statuses:statusRows.map(statusFromRow),
+    truth_table:TABLE
+  },upstream.status);
+}
+
+async function teamScheduleResponse(env, teamId) {
+  const [games,summary]=await Promise.all([
+    gameRowsForTeam(env,teamId),
+    summaryForTeam(env,teamId)
+  ]);
+  if (!summary) return json({error:"team_not_found"},404);
+  return json({
+    teamId,
+    games:games.map(gameFromRow),
+    record:statusFromRow(summary),
+    record_truth:{
+      state:summary.truth_state,
+      verified:summary.truth_state==="VERIFIED",
+      evidence_games:Number(summary.scored_finals||0),
+      evidence_conference_games:Number(summary.conference_scored_finals||0),
+      issues:[]
+    },
+    truth_table:TABLE
+  });
+}
+
+async function teamRecordResponse(env, teamId) {
+  const summary=await summaryForTeam(env,teamId);
+  if (!summary) return json({error:"team_not_found"},404);
+  const status=statusFromRow(summary);
+  return json({
+    record:status,
+    record_truth:{
+      state:summary.truth_state,
+      verified:summary.truth_state==="VERIFIED",
+      evidence_games:Number(summary.scored_finals||0),
+      evidence_conference_games:Number(summary.conference_scored_finals||0),
+      issues:[]
+    },
+    truth_table:TABLE
+  });
+}
+
+async function standingsResponse(request, env, ctx, url) {
+  const upstream=await app.fetch(request,env,ctx);
+  if (!upstream.ok) return upstream;
+  let body={};
+  try { body=await upstream.clone().json(); } catch {}
+  const sport=String(url.searchParams.get("sport")||body?.conference?.sport||"").toLowerCase();
+  const requested=String(url.searchParams.get("conference")||"").toLowerCase();
+  const upstreamId=String(body?.conference?.id||"").toLowerCase();
+  const upstreamName=String(body?.conference?.name||"").toLowerCase();
+
+  const {results=[]}=await env.DB.prepare(`
+    SELECT * FROM ${TABLE}
+    WHERE row_type='TEAM'
+      AND LOWER(sport)=?
+      AND conference_membership_state='member'
+      AND (
+        LOWER(COALESCE(conference_id,'')) IN (?,?,?)
+        OR LOWER(REPLACE(COALESCE(conference_name,''),' ','-'))=?
+      )
+    ORDER BY rank IS NULL,rank,school_name
+  `).bind(sport,requested,upstreamId,requested+"-"+sport,requested).all();
+
+  const standings=results.map(row=>{
+    const status=statusFromRow(row);
+    const games=Number(row.conference_scored_finals||0);
+    const pct=games
+      ? ((Number(row.conference_wins||0)+0.5*Number(row.conference_ties||0))/games).toFixed(3).replace(/^0/,"")
+      : ".000";
+    return {
+      rank:status.rank,
+      team_id:row.team_id,
+      school_id:row.school_id,
+      school_name:row.school_name,
+      conference_record:status.conference_record,
+      overall_record:status.overall_record,
+      conference_pct:pct,
+      method:"one-truth",
+      calculated_at:row.refreshed_at,
+      standing_state:status.standing_state,
+      display_rank:status.display_rank,
+      display_conference_record:status.display_conference_record,
+      display_overall_record:status.display_overall_record,
+      display_method:"one-truth",
+      display_source_url:null
+    };
+  });
+
+  return json({
+    ...body,
+    conference:{
+      ...(body?.conference||{}),
+      id:body?.conference?.id||requested,
+      name:body?.conference?.name||upstreamName||requested,
+      sport,
+      standings_method:"one-truth",
+      presentation_method:"one-truth",
+      presentation_source_url:null
+    },
+    standings,
+    retrieved_at:new Date().toISOString(),
+    truth_table:TABLE
+  },upstream.status);
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    const url=new URL(request.url);
+    const path=url.pathname;
+
+    if (request.method!=="GET") return app.fetch(request,env,ctx);
+
+    const usesTruth =
+      path==="/api/v1/games"
+      || path==="/api/v1/team-statuses"
+      || /^\/api\/v1\/schools\/[^/]+\/schedule$/.test(path)
+      || /^\/api\/v1\/teams\/[^/]+\/(?:schedule|record)$/.test(path)
+      || path==="/api/v1/standings";
+
+    if (!usesTruth) return app.fetch(request,env,ctx);
+
+    try {
+      await ensureOneTruthFresh(env);
+
+      if (path==="/api/v1/games") return json({games:await nearbyGames(env,url)});
+      if (path==="/api/v1/team-statuses") return teamStatusesResponse(request,env,url);
+
+      const schoolMatch=path.match(/^\/api\/v1\/schools\/([^/]+)\/schedule$/);
+      if (schoolMatch) return schoolScheduleResponse(request,env,ctx,decodeURIComponent(schoolMatch[1]));
+
+      const teamMatch=path.match(/^\/api\/v1\/teams\/([^/]+)\/(schedule|record)$/);
+      if (teamMatch) {
+        const teamId=decodeURIComponent(teamMatch[1]);
+        return teamMatch[2]==="schedule" ? teamScheduleResponse(env,teamId) : teamRecordResponse(env,teamId);
+      }
+
+      if (path==="/api/v1/standings") return standingsResponse(request,env,ctx,url);
+    } catch (error) {
+      console.error("ONE_TRUTH_TB read failed",error);
+      return json({
+        error:"one_truth_unavailable",
+        message:"Canonical presentation truth is temporarily unavailable.",
+        detail:String(error?.message||error)
+      },503);
+    }
+
+    return app.fetch(request,env,ctx);
+  },
+
+  async scheduled(controller, env, ctx) {
+    const result=await app.scheduled(controller,env,ctx);
+    try {
+      await ensureOneTruthSchema(env);
+      const refresh=await rebuildOneTruth(env);
+      console.log("ONE_TRUTH_TB refreshed after collection",refresh);
+    } catch (error) {
+      console.error("ONE_TRUTH_TB scheduled refresh failed",error);
+      throw error;
+    }
+    return result;
+  }
+};
+
+export { TABLE as ONE_TRUTH_TABLE };
