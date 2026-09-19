@@ -1,0 +1,49 @@
+name: Pea Ridge integrity diagnosis
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - .github/workflows/pea-ridge-integrity-diagnosis.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect production Pea Ridge identity and football rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          curl -fsS "$BASE/api/v1/schools?diag=$(date +%s)" > /tmp/schools.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/schools.json','utf8'));
+          const rows=(p.schools||[]).filter(s=>/Pea Ridge/i.test(String(s.name||'')) || /Pea Ridge/i.test(String(s.location_matched_name||'')));
+          console.log('PEA_SCHOOLS='+JSON.stringify(rows));
+          const target=rows.find(s=>/High School/i.test(String(s.name||'')))||rows[0];
+          if(!target?.id) throw new Error('Pea Ridge school id not found');
+          fs.writeFileSync('/tmp/school-id',target.id);
+          JS
+
+          ID=$(cat /tmp/school-id)
+          curl -fsS "$BASE/api/v1/schools/$ID/schedule?diag=$(date +%s)" > /tmp/schedule.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/schedule.json','utf8'));
+          const rows=(p.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='football' && String(g.gender||'').toLowerCase()==='boys');
+          console.log('PEA_FOOTBALL='+JSON.stringify(rows.map(g=>({
+            id:g.id,canonical_event_id:g.canonical_event_id,scheduled_at:g.scheduled_at,opponent:g.opponent,
+            home_away:g.home_away,status:g.status,result:g.result,team_score:g.team_score,opponent_score:g.opponent_score,
+            source_id:g.source_id,source_type:g.source_type,parser_type:g.parser_type,authority_rank:g.authority_rank,
+            source_url:g.source_url,notes:g.notes,level:g.level,team_id:g.team_id,reporting_team_id:g.reporting_team_id,
+            canonical_home_school_id:g.canonical_home_school_id,canonical_away_school_id:g.canonical_away_school_id,
+            counts_for_record:g.counts_for_record,season:g.season
+          }))));
+          console.log('PEA_STATUS='+JSON.stringify((p.team_statuses||[]).filter(s=>String(s.sport||'').toLowerCase()==='football')));
+          JS
