@@ -48,7 +48,7 @@ jobs:
                 headers: { 'cache-control': 'no-cache' }
               });
               const body = response.ok() ? await response.text() : '';
-              if (body.includes('fetchPresentationStatusSnapshot') && body.includes('replaceCanonicalPresentationStatuses(presentationStatuses)')) {
+              if (body.includes('fetchPresentationStatusSnapshot') && body.includes('replaceCanonicalPresentationStatuses(presentationStatuses)') && body.includes('if (selected.length) return selected')) {
                 deployed = true;
                 break;
               }
@@ -56,7 +56,7 @@ jobs:
             }
             if (!deployed) throw new Error('Latest presentation snapshot code was not deployed within proof window');
 
-            await page.goto(base + '/?sharedproof=75b', { waitUntil:'domcontentloaded', timeout:45000 });
+            await page.goto(base + '/?sharedproof=75c', { waitUntil:'domcontentloaded', timeout:45000 });
             await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, { timeout:45000 });
             await page.waitForFunction(() => typeof SCHOOL_REGISTRY !== 'undefined' && Array.isArray(SCHOOL_REGISTRY) && SCHOOL_REGISTRY.length > 100, null, { timeout:45000 });
 
@@ -140,7 +140,7 @@ jobs:
             }, null, {timeout:30000});
             result.detail = normalize(await dialog.locator('#teamDetailStatus').innerText());
 
-            await page.goto(base + '/standings.html?sharedproof=75b', {waitUntil:'domcontentloaded',timeout:45000});
+            await page.goto(base + '/standings.html?sharedproof=75c', {waitUntil:'domcontentloaded',timeout:45000});
             await page.waitForFunction(() => [...document.querySelectorAll('#standingsBody tr')].some(row => /Conway/i.test(row.innerText)), null, {timeout:45000});
             const row = page.locator('#standingsBody tr').filter({hasText:/Conway/i}).first();
             result.standings = normalize(await row.innerText());
