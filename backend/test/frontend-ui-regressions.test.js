@@ -83,8 +83,8 @@ test("home refresh primes canonical truth for every followed school rendered on 
   assert.match(live, /if \(requestId !== state\.nearbyRequest\) return state\.nearbyCount;[\s\S]*replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
   assert.match(live, /const PRESENTATION_STATUS_BATCH_SIZE = 4/);
   assert.match(live, /offset \+= PRESENTATION_STATUS_BATCH_SIZE/);
-  assert.match(live, /fetchPresentationStatusChunk\(snapshot, chunk\.slice\(0, middle\)\)/);
-  assert.match(live, /fetchPresentationStatusChunk\(snapshot, chunk\.slice\(middle\)\)/);
+  assert.match(live, /Promise\.all\(chunks\.map\(chunk => fetchPresentationStatusChunk\(snapshot, chunk\)\)\)/);
+  assert.match(live, /Promise\.all\(\[[\s\S]*fetchPresentationStatusChunk\(snapshot, chunk\.slice\(0, middle\)\)[\s\S]*fetchPresentationStatusChunk\(snapshot, chunk\.slice\(middle\)\)/);
   assert.match(live, /\/api\/v1\/team-statuses\?/);
   assert.match(live, /getPresentationStatus/);
   assert.doesNotMatch(live, /slice\(0, 24\)/);
@@ -149,4 +149,13 @@ test("home cards resolve the shared presentation object before any record fallba
   assert.match(polishSource, /\["high-school","highschool"\]\.includes\(normalizedLevel\)/);
   assert.match(polishSource, /\["football","volleyball","basketball"\]/);
   assert.match(polishSource, /if \(requiresPresentationTruth\) \{/);
+});
+
+
+test("nearby games and followed-team presentation truth load concurrently", () => {
+  assert.match(live, /const gamesPromise = fetchJson\(/);
+  assert.match(live, /const earlyStatusPromise = followedSchoolIds\.length/);
+  assert.match(live, /fetchPresentationStatusSnapshot\(followedSchoolIds\)/);
+  assert.match(live, /const payload = await gamesPromise/);
+  assert.match(live, /earlyStatusPromise[\s\S]*await earlyStatusPromise/);
 });

@@ -214,19 +214,23 @@
 
       const middle = Math.ceil(chunk.length / 2);
       console.warn("Presentation status batch failed; retrying smaller groups", chunk, error);
-      await fetchPresentationStatusChunk(snapshot, chunk.slice(0, middle));
-      await fetchPresentationStatusChunk(snapshot, chunk.slice(middle));
+      await Promise.all([
+        fetchPresentationStatusChunk(snapshot, chunk.slice(0, middle)),
+        fetchPresentationStatusChunk(snapshot, chunk.slice(middle))
+      ]);
     }
   }
 
   async function fetchPresentationStatusSnapshot(schoolIds = []) {
     const uniqueSchoolIds = [...new Set(schoolIds.map(String).filter(Boolean))];
     const snapshot = new Map(nearbyPresentationStatuses);
+    const chunks = [];
 
     for (let offset = 0; offset < uniqueSchoolIds.length; offset += PRESENTATION_STATUS_BATCH_SIZE) {
-      const chunk = uniqueSchoolIds.slice(offset, offset + PRESENTATION_STATUS_BATCH_SIZE);
-      await fetchPresentationStatusChunk(snapshot, chunk);
+      chunks.push(uniqueSchoolIds.slice(offset, offset + PRESENTATION_STATUS_BATCH_SIZE));
     }
+
+    await Promise.all(chunks.map(chunk => fetchPresentationStatusChunk(snapshot, chunk)));
     return snapshot;
   }
 
@@ -329,15 +333,27 @@
     });
 
     try {
-      const payload = await fetchJson(`/api/v1/games?${params.toString()}`);
+      const followedSchoolIds = typeof followed !== "undefined" && Array.isArray(followed)
+        ? [...new Set(followed.map(String).filter(Boolean))]
+        : [];
+      const gamesPromise = fetchJson(`/api/v1/games?${params.toString()}`);
+      const earlyStatusPromise = followedSchoolIds.length
+        ? fetchPresentationStatusSnapshot(followedSchoolIds)
+        : null;
+
+      const payload = await gamesPromise;
       if (requestId !== state.nearbyRequest) return state.nearbyCount;
       if (!Array.isArray(payload?.games)) throw new Error("API returned no games array");
-      let presentationStatuses = new Map();
+
+      let presentationStatuses = new Map(nearbyPresentationStatuses);
       try {
-        presentationStatuses = await fetchNearbyPresentationStatuses(payload.games);
+        presentationStatuses = earlyStatusPromise
+          ? await earlyStatusPromise
+          : await fetchNearbyPresentationStatuses(payload.games);
       } catch (statusError) {
-        console.warn("Nearby presentation status refresh failed; rendering games without status", statusError);
+        console.warn("Nearby presentation status refresh failed; keeping last-known truth", statusError);
       }
+
       if (requestId !== state.nearbyRequest) return state.nearbyCount;
       replaceCanonicalPresentationStatuses(presentationStatuses);
       applyNearbyGames(payload.games);
