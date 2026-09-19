@@ -5,8 +5,8 @@ const root=new URL("../../",import.meta.url);
 const read=name=>fs.readFileSync(new URL(name,root),"utf8");
 test("client release presents one factual display contract on all three surfaces",()=>{
   const runtime=read("runtime-build.js"),presentation=read("presentation-status.js"),polish=read("polish.js"),detail=read("team-detail.js"),standings=read("standings.js"),schedule=read("school-schedule.js"),index=read("index.html"),standingsHtml=read("standings.html"),teamsHtml=read("teams.html"),sw=read("service-worker.js");
-  assert.match(runtime,/m15-presentation-v71/);
-  assert.match(runtime,/clientGeneration:\s*71/);
+  assert.match(runtime,/m15-presentation-v72/);
+  assert.match(runtime,/clientGeneration:\\s*72/);
   assert.match(runtime,/scheduleCacheSchema:\s*5/);
   for(const field of ["display_overall_record","display_conference_record","display_rank"]) assert.match(presentation,new RegExp(field));
   assert.match(polish,/LocalBleachersPresentation\?\.teamStatus/);
@@ -17,12 +17,12 @@ test("client release presents one factual display contract on all three surfaces
   assert.match(schedule,/schemaVersion:\s*5/);
   assert.match(schedule,/primeVisibleTeamStatuses/);
   for(const html of [index,standingsHtml,teamsHtml]) {
-    assert.match(html,/runtime-build\.js\?v=71/);
-    assert.match(html,/presentation-status\.js\?v=71/);
-    assert.match(html,/service-worker\.js\?v=71/);
+    assert.match(html,/runtime-build\\.js\\?v=72/);
+    assert.match(html,/presentation-status\\.js\\?v=71/);
+    assert.match(html,/service-worker\\.js\\?v=72/);
     assert.match(html,/updateViaCache:"none"/);
   }
-  assert.match(sw,/localbleachersar-shell-v71/);
+  assert.match(sw,/localbleachersar-shell-v72/);
 });
 test("zero-game conference records cannot fabricate a number-one standing",()=>{
   assert.match(read("presentation-status.js"),/gamesInRecord\(conference\) > 0/);
