@@ -1,4 +1,5 @@
 name: Pea Ridge fix verification
+# rerun after targeted test correction
 
 on:
   push:
