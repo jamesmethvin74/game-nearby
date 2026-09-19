@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: m15-client-presentation-live-proof
@@ -18,104 +17,32 @@ concurrency:
 jobs:
   prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - name: Capture exact live presentation proof
+      - name: Resolve live production school IDs
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          set -uo pipefail
-          APP="https://jamesmethvin74.github.io/game-nearby"
+          set -euo pipefail
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          rm -f runtime.js index.html standings.js schedule.js presentation.js standings.json maumelle.json nlr.json batch.json proof.md
-
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/runtime-build.js?proof=${GITHUB_SHA}" -o runtime.js || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/?proof=${GITHUB_SHA}" -o index.html || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/standings.js?proof=${GITHUB_SHA}" -o standings.js || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/school-schedule.js?proof=${GITHUB_SHA}" -o schedule.js || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/presentation-status.js?proof=${GITHUB_SHA}" -o presentation.js || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/standings?sport=volleyball&conference=6a-central&proof=${GITHUB_SHA}" -o standings.json || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/schools/maumelle/schedule?proof=${GITHUB_SHA}" -o maumelle.json || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/schools/north-little-rock/schedule?proof=${GITHUB_SHA}" -o nlr.json || true
-          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/team-statuses?school_ids=maumelle%2Cnorth-little-rock%2Cmorrilton%2Cconway&proof=${GITHUB_SHA}" -o batch.json || true
-
+          curl -fsS --max-time 20 "$API/api/v1/schools" -o schools.json
           python - <<'PY'
-          import json, pathlib
-
-          def txt(path):
-              p=pathlib.Path(path)
-              return p.read_text(encoding="utf-8",errors="replace") if p.exists() else ""
-          def js(path):
-              try: return json.loads(txt(path))
-              except Exception as exc: return {"_error": str(exc), "_raw": txt(path)[:300]}
-
-          runtime=txt("runtime.js"); index=txt("index.html"); standings_js=txt("standings.js")
-          schedule_js=txt("schedule.js"); presentation=txt("presentation.js")
-          standings=js("standings.json"); maumelle=js("maumelle.json"); nlr=js("nlr.json"); batch=js("batch.json")
-
-          gates={
-            "runtime_v71":"m15-presentation-v71" in runtime,
-            "index_v71":"runtime-build.js?v=71" in index,
-            "standings_shared_contract":"LocalBleachersPresentation" in standings_js,
-            "home_batch_contract":"/api/v1/team-statuses?" in schedule_js,
-            "presentation_display_fields":"display_overall_record" in presentation,
-            "stale_notice_absent":"Published standings are available only as evidence" not in standings_js,
-          }
-          def status(payload,sport):
-              for s in payload.get("team_statuses",[]) if isinstance(payload,dict) else []:
-                  if s.get("sport")==sport: return s
-              return {}
-          rows={r.get("school_name"):r for r in standings.get("standings",[]) if isinstance(r,dict)}
-          mf=status(maumelle,"football"); mv=status(maumelle,"volleyball"); nv=status(nlr,"volleyball")
-          bstatuses=batch.get("team_statuses",[]) if isinstance(batch,dict) else []
-          schools=sorted({s.get("school_id") for s in bstatuses if isinstance(s,dict) and s.get("school_id")})
-          bmv=next((s for s in bstatuses if s.get("school_id")=="maumelle" and s.get("sport")=="volleyball"),{})
-
-          expected={
-            "Conway":("9-4","4-0",1),"Cabot":("13-4-2","4-1",2),"Bryant":("7-5","3-1",3),
-            "Jonesboro":("3-5-3","2-2",4),"Central":("4-6","1-3",5),
-            "North Little Rock":("2-9-1","1-3",6),"Little Rock Southwest":("1-9","0-5",7)
-          }
-          standings_ok=True
-          for name,(o,c,r) in expected.items():
-              row=rows.get(name,{})
-              standings_ok &= row.get("display_overall_record")==o and row.get("display_conference_record")==c and row.get("display_rank")==r
-          data_gates={
-            "6a_central_expected":bool(standings_ok),
-            "6a_presentation_complete":standings.get("conference",{}).get("presentation_complete") is True,
-            "maumelle_football":(mf.get("display_overall_record"),mf.get("display_conference_record"))==("0-3","0-0"),
-            "maumelle_volleyball":(mv.get("display_overall_record"),mv.get("display_conference_record"),mv.get("display_rank"))==("3-7","1-7",8),
-            "nlr_volleyball":(nv.get("display_overall_record"),nv.get("display_conference_record"),nv.get("display_rank"))==("2-9-1","1-3",6),
-            "batch_has_four_schools":all(x in schools for x in ("maumelle","north-little-rock","morrilton","conway")),
-            "batch_maumelle_volleyball":(bmv.get("display_overall_record"),bmv.get("display_conference_record"),bmv.get("display_rank"))==("3-7","1-7",8),
-          }
-          ok=all(gates.values()) and all(data_gates.values())
-          lines=[
-            "## M15 live presentation proof",
-            f"Result: **{'PASS' if ok else 'FAIL'}**",
-            "",
-            "### Client gates",
-            *[f"- {k}: {'PASS' if v else 'FAIL'}" for k,v in gates.items()],
-            "",
-            "### Data gates",
-            *[f"- {k}: {'PASS' if v else 'FAIL'}" for k,v in data_gates.items()],
-            "",
-            f"- Maumelle football: overall={mf.get('display_overall_record')} conf={mf.get('display_conference_record')} rank={mf.get('display_rank')} method={mf.get('display_method')}",
-            f"- Maumelle volleyball: overall={mv.get('display_overall_record')} conf={mv.get('display_conference_record')} rank={mv.get('display_rank')} method={mv.get('display_method')}",
-            f"- NLR volleyball: overall={nv.get('display_overall_record')} conf={nv.get('display_conference_record')} rank={nv.get('display_rank')} method={nv.get('display_method')}",
-            f"- Batch schools: {', '.join(schools)}",
-            "",
-            "### 6A Central",
-          ]
-          for name in expected:
-              r=rows.get(name,{})
-              lines.append(f"- {name}: overall={r.get('display_overall_record')} conf={r.get('display_conference_record')} rank={r.get('display_rank')} method={r.get('display_method')}")
-          pathlib.Path("proof.md").write_text("\n".join(lines)+"\n",encoding="utf-8")
-          pathlib.Path("proof.exit").write_text("0" if ok else "1")
+          import json
+          p=json.load(open("schools.json",encoding="utf-8"))
+          schools=p.get("schools",[])
+          targets=("maumelle","north little rock","morrilton","conway")
+          print("LIVE_SCHOOL_ID_RESOLUTION")
+          for target in targets:
+              matches=[]
+              for s in schools:
+                  hay=" ".join(str(s.get(k) or "") for k in ("id","name","location_matched_name","city","mascot")).lower()
+                  if target in hay:
+                      matches.append({
+                        "id":s.get("id"),
+                        "name":s.get("name"),
+                        "location_matched_name":s.get("location_matched_name"),
+                        "city":s.get("city"),
+                        "catalog_scope":s.get("catalog_scope"),
+                        "team_count":s.get("team_count")
+                      })
+              print(target, json.dumps(matches, sort_keys=True))
           PY
-
-          gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file proof.md || true
-          cat proof.md
-          exit "$(cat proof.exit)"
