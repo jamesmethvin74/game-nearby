@@ -1,0 +1,68 @@
+name: M15 basketball nearby diagnosis
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/m15-basketball-nearby-diagnosis.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect production nearby basketball rows and team schedules
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          curl -fsS "$BASE/api/v1/schools" > /tmp/schools.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/schools.json','utf8'));
+          const wanted=/Bradford High School|Gurdon High School|Conway High School/i;
+          const rows=(p.schools||[]).filter(s=>wanted.test(String(s.name||''))||wanted.test(String(s.location_matched_name||'')));
+          console.log("BB_SCHOOLS="+JSON.stringify(rows.map(s=>({id:s.id,name:s.name,display:s.location_matched_name,level:s.level}))));
+          fs.writeFileSync('/tmp/ids.json',JSON.stringify(rows));
+          JS
+
+          curl -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-09-19T00:00:00.000Z&until=2026-10-05T00:00:00.000Z" > /tmp/games.json
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/games.json','utf8'));
+          const rows=(p.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='basketball');
+          console.log("BB_NEARBY="+JSON.stringify(rows.map(g=>({
+            id:g.id,canonical_event_id:g.canonical_event_id,school_id:g.school_id,school_name:g.school_name,
+            sport:g.sport,gender:g.gender,season:g.season,scheduled_at:g.scheduled_at,canonical_scheduled_at:g.canonical_scheduled_at,
+            opponent:g.opponent,home_away:g.home_away,status:g.status,canonical_status:g.canonical_status,
+            source_id:g.source_id,source_type:g.source_type,parser_type:g.parser_type,authority_rank:g.authority_rank,
+            notes:g.notes,canonical_home_school_id:g.canonical_home_school_id,canonical_away_school_id:g.canonical_away_school_id
+          }))));
+          JS
+
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const rows=JSON.parse(fs.readFileSync('/tmp/ids.json','utf8'));
+          for(const s of rows){
+            const url=`${base}/api/v1/schools/${encodeURIComponent(s.id)}/schedule`;
+            const body=execFileSync('curl',['-fsS',url],{encoding:'utf8'});
+            const p=JSON.parse(body);
+            const games=(p.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='basketball');
+            console.log("BB_SCHEDULE="+JSON.stringify({
+              school:{id:s.id,name:s.name,display:s.location_matched_name},
+              team_statuses:(p.team_statuses||[]).filter(x=>String(x.sport||'').toLowerCase()==='basketball'),
+              games:games.map(g=>({
+                id:g.id,canonical_event_id:g.canonical_event_id,sport:g.sport,gender:g.gender,scheduled_at:g.scheduled_at,
+                canonical_scheduled_at:g.canonical_scheduled_at,opponent:g.opponent,home_away:g.home_away,status:g.status,
+                source_id:g.source_id,source_type:g.source_type,parser_type:g.parser_type,authority_rank:g.authority_rank,
+                notes:g.notes,canonical_home_school_id:g.canonical_home_school_id,canonical_away_school_id:g.canonical_away_school_id
+              }))
+            }));
+          }
+          JS
