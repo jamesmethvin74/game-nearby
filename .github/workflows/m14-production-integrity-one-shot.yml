@@ -1,0 +1,42 @@
+name: M14 production integrity one-shot
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m14-production-integrity-one-shot.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call deployed read-only statewide integrity audit once
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/m14-statewide-data-integrity-audit-20260916-4d8c7a2f"
+          code="$(curl -sS --max-time 120 -D audit.headers -o audit.json -w '%{http_code}' "$URL")"
+          echo "HTTP $code"
+          test "$code" = "200"
+          grep -qi '^x-localbleachers-data-integrity-audit: statewide-data-integrity-v1' audit.headers
+          node <<'NODE'
+          const fs=require('fs');
+          const audit=JSON.parse(fs.readFileSync('audit.json','utf8'));
+          console.log('M14_AUDIT_RESULT_START');
+          console.log(JSON.stringify(audit,null,2));
+          console.log('M14_AUDIT_RESULT_END');
+          if (!audit.summary || audit.d1?.rows_written !== 0) {
+            throw new Error('Invalid audit response or unexpected D1 write telemetry');
+          }
+          NODE
+      - name: Upload audit result
+        uses: actions/upload-artifact@v4
+        with:
+          name: m14-production-integrity-audit
+          path: audit.json
+          retention-days: 1
