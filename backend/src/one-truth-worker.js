@@ -1,5 +1,5 @@
 import app from "./m8-worker.js";
-import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth } from "./one-truth.js";
+import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 
 const TABLE = oneTruthTableName();
 
@@ -165,6 +165,80 @@ async function summaryForTeam(env, teamId) {
   `).bind(teamId).first();
 }
 
+
+async function activeTeamIdsForSchools(env, schoolIds = []) {
+  const ids=[...new Set((schoolIds||[]).map(String).filter(Boolean))];
+  if(!ids.length) return [];
+  const {results=[]}=await env.DB.prepare(`
+    SELECT t.id
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id
+    WHERE t.active=1
+      AND t.season='2026'
+      AND sch.catalog_scope='local'
+      AND t.school_id IN (SELECT value FROM json_each(?))
+    ORDER BY t.id
+  `).bind(JSON.stringify(ids)).all();
+  return results.map(row=>String(row.id||"")).filter(Boolean);
+}
+
+async function teamIdsForConference(env, sport, conferenceCandidates = []) {
+  const candidates=[...new Set((conferenceCandidates||[]).map(value=>String(value||"").toLowerCase()).filter(Boolean))];
+  if(!sport||!candidates.length) return [];
+  const {results=[]}=await env.DB.prepare(`
+    SELECT DISTINCT t.id
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id
+    LEFT JOIN conference_memberships cm ON cm.team_id=t.id
+    LEFT JOIN conferences vc ON vc.id=cm.conference_id
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    WHERE t.active=1
+      AND t.season='2026'
+      AND sch.catalog_scope='local'
+      AND LOWER(t.sport)=?
+      AND (
+        LOWER(COALESCE(cm.conference_id,t.conference_id,'')) IN (SELECT value FROM json_each(?))
+        OR LOWER(REPLACE(COALESCE(vc.name,c.name,''),' ','-')) IN (SELECT value FROM json_each(?))
+      )
+    ORDER BY t.id
+  `).bind(String(sport).toLowerCase(),JSON.stringify(candidates),JSON.stringify(candidates)).all();
+  return results.map(row=>String(row.id||"")).filter(Boolean);
+}
+
+async function nearbyTeamIds(env, url) {
+  const lat=Number(url.searchParams.get("lat"));
+  const lon=Number(url.searchParams.get("lon"));
+  const radius=Math.max(1,Number(url.searchParams.get("radius")||25));
+  const since=url.searchParams.get("since")||new Date(Date.now()-6*60*60*1000).toISOString();
+  const until=url.searchParams.get("until")||new Date(Date.now()+30*24*60*60*1000).toISOString();
+  const hasGeo=[lat,lon,radius].every(Number.isFinite);
+  const binds=[since,until];
+  let geoSql="";
+
+  if(hasGeo){
+    const latDelta=radius/69;
+    const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
+    const lonDelta=radius/(69*lonScale);
+    geoSql=" AND g.latitude BETWEEN ? AND ? AND g.longitude BETWEEN ? AND ?";
+    binds.push(lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta);
+  }
+
+  const {results=[]}=await env.DB.prepare(`
+    SELECT DISTINCT g.team_id
+    FROM games g
+    JOIN teams t ON t.id=g.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    WHERE t.active=1
+      AND t.season='2026'
+      AND sch.catalog_scope='local'
+      AND g.scheduled_at BETWEEN ? AND ?
+      ${geoSql}
+    ORDER BY g.team_id
+    LIMIT 256
+  `).bind(...binds).all();
+  return results.map(row=>String(row.team_id||"")).filter(Boolean);
+}
+
 async function nearbyGames(env, url) {
   const lat=Number(url.searchParams.get("lat"));
   const lon=Number(url.searchParams.get("lon"));
@@ -204,19 +278,30 @@ async function nearbyGames(env, url) {
     .filter(Boolean);
 }
 
-async function teamStatusesResponse(request, env, url) {
+async function teamStatusesResponse(request, env, ctx, url) {
   const requested=String(url.searchParams.get("school_ids")||"")
     .split(",").map(value=>value.trim()).filter(Boolean);
-  const rows=await teamRowsForSchools(env,requested);
-  const found=new Set(rows.map(row=>row.school_id));
+  const upstream=await app.fetch(request,env,ctx);
+  let upstreamBody={};
+  try { upstreamBody=await upstream.clone().json(); } catch {}
+  const resolutions=Array.isArray(upstreamBody?.school_id_resolutions) ? upstreamBody.school_id_resolutions : [];
+  const canonicalIds=[...new Set([
+    ...requested,
+    ...resolutions.map(row=>String(row?.school_id||"")).filter(Boolean)
+  ])];
+  const teamIds=await activeTeamIdsForSchools(env,canonicalIds);
+  await ensureOneTruthFresh(env,{teamIds});
+  const rows=await teamRowsForSchools(env,canonicalIds);
   return json({
+    ...upstreamBody,
     team_statuses:rows.map(statusFromRow),
-    school_id_resolutions:requested.map(id=>({
+    school_id_resolutions:resolutions.length ? resolutions : requested.map(id=>({
       requested_school_id:id,
-      school_id:found.has(id)?id:null,
-      resolution_method:found.has(id)?"one-truth-exact":"unresolved"
-    })).filter(row=>row.school_id)
-  });
+      school_id:rows.some(row=>row.school_id===id)?id:null,
+      resolution_method:rows.some(row=>row.school_id===id)?"one-truth-exact":"unresolved"
+    })).filter(row=>row.school_id),
+    truth_table:TABLE
+  },upstream.ok?upstream.status:200);
 }
 
 async function schoolScheduleResponse(request, env, ctx, schoolId) {
@@ -225,6 +310,8 @@ async function schoolScheduleResponse(request, env, ctx, schoolId) {
   let body={};
   try { body=await upstream.clone().json(); } catch {}
   const canonicalSchoolId=String(body?.canonicalSchoolId || schoolId);
+  const teamIds=await activeTeamIdsForSchools(env,[canonicalSchoolId]);
+  await ensureOneTruthFresh(env,{teamIds});
   const [games,statusRows]=await Promise.all([
     gamesForSchool(env,canonicalSchoolId),
     teamRowsForSchools(env,[canonicalSchoolId])
@@ -285,6 +372,10 @@ async function standingsResponse(request, env, ctx, url) {
   const requested=String(url.searchParams.get("conference")||"").toLowerCase();
   const upstreamId=String(body?.conference?.id||"").toLowerCase();
   const upstreamName=String(body?.conference?.name||"").toLowerCase();
+  const conferenceCandidates=[requested,upstreamId,requested+"-"+sport,
+    String(body?.conference?.name||"").toLowerCase().replace(/\s+/g,"-")].filter(Boolean);
+  const teamIds=await teamIdsForConference(env,sport,conferenceCandidates);
+  await ensureOneTruthFresh(env,{teamIds});
 
   const {results=[]}=await env.DB.prepare(`
     SELECT * FROM ${TABLE}
@@ -357,10 +448,14 @@ export default {
     if (!usesTruth) return app.fetch(request,env,ctx);
 
     try {
-      await ensureOneTruthFresh(env);
+      await ensureOneTruthSchema(env);
 
-      if (path==="/api/v1/games") return json({games:await nearbyGames(env,url)});
-      if (path==="/api/v1/team-statuses") return teamStatusesResponse(request,env,url);
+      if (path==="/api/v1/games") {
+        const teamIds=await nearbyTeamIds(env,url);
+        await ensureOneTruthFresh(env,{teamIds});
+        return json({games:await nearbyGames(env,url),truth_table:TABLE});
+      }
+      if (path==="/api/v1/team-statuses") return teamStatusesResponse(request,env,ctx,url);
 
       const schoolMatch=path.match(/^\/api\/v1\/schools\/([^/]+)\/schedule$/);
       if (schoolMatch) return schoolScheduleResponse(request,env,ctx,decodeURIComponent(schoolMatch[1]));
@@ -368,6 +463,7 @@ export default {
       const teamMatch=path.match(/^\/api\/v1\/teams\/([^/]+)\/(schedule|record)$/);
       if (teamMatch) {
         const teamId=decodeURIComponent(teamMatch[1]);
+        await ensureOneTruthFresh(env,{teamIds:[teamId]});
         return teamMatch[2]==="schedule" ? teamScheduleResponse(env,teamId) : teamRecordResponse(env,teamId);
       }
 
@@ -388,8 +484,11 @@ export default {
     const result=await app.scheduled(controller,env,ctx);
     try {
       await ensureOneTruthSchema(env);
-      const refresh=await rebuildOneTruth(env);
-      console.log("ONE_TRUTH_TB refreshed after collection",refresh);
+      const stale=await staleOneTruthTeamIds(env,{limit:64});
+      if(stale.length){
+        const refresh=await rebuildOneTruth(env,{teamIds:stale});
+        console.log("ONE_TRUTH_TB refreshed after collection",refresh);
+      }
     } catch (error) {
       console.error("ONE_TRUTH_TB scheduled refresh failed",error);
       throw error;
