@@ -1,0 +1,137 @@
+name: M15 shared presentation truth proof
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/m15-shared-presentation-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Chromium proof dependency
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Prove every rendered card uses canonical presentation truth
+        env:
+          BASE_URL: https://jamesmethvin74.github.io/game-nearby
+        run: |
+          cat > m15-shared-proof.mjs <<'NODE'
+          import { chromium } from 'playwright';
+
+          const base = process.env.BASE_URL;
+          const browser = await chromium.launch({ headless: true });
+          const context = await browser.newContext({ viewport: { width: 430, height: 932 } });
+          const page = await context.newPage();
+          const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+          const result = { release:'', followed:[], cards:[], mismatches:[], detail:'', standings:'' };
+
+          try {
+            await page.goto(base + '/?sharedproof=75a', { waitUntil:'domcontentloaded', timeout:45000 });
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, { timeout:45000 });
+            await page.waitForFunction(() => Array.isArray(window.SCHOOL_REGISTRY) && window.SCHOOL_REGISTRY.length > 100, null, { timeout:45000 });
+
+            const chosen = await page.evaluate(() => {
+              const wanted = [
+                /Conway High School/i,
+                /Maumelle High School/i,
+                /Morrilton.*High School/i,
+                /North Little Rock High School/i
+              ];
+              const rows = window.SCHOOL_REGISTRY || [];
+              return wanted.map(rx => rows.find(s => rx.test(String(s.name || '')))?.id).filter(Boolean);
+            });
+            if (!chosen.includes('conway')) chosen.unshift('conway');
+            if (chosen.length < 3) throw new Error('Could not resolve enough screenshot schools: ' + JSON.stringify(chosen));
+            result.followed = chosen;
+
+            await page.evaluate(ids => {
+              localStorage.setItem('followedTeams', JSON.stringify(ids));
+              localStorage.setItem('localBleachersAR:standings:lastSport', 'volleyball');
+              localStorage.setItem('localBleachersAR:standings:lastConferenceBySport', JSON.stringify({ volleyball:'6a-central' }));
+            }, chosen);
+            await page.reload({ waitUntil:'domcontentloaded', timeout:45000 });
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, { timeout:45000 });
+            result.release = await page.evaluate(() => window.LocalBleachersRuntime?.releaseGeneration || '');
+
+            await page.evaluate(async () => {
+              await window.LocalBleachersLive?.refreshNearby?.();
+            });
+            await page.waitForFunction(() => document.querySelectorAll('.event-card .team-detail-trigger').length >= 4, null, { timeout:45000 });
+            await page.waitForTimeout(750);
+
+            const cards = await page.evaluate(() => {
+              const clean = value => String(value || '').replace(/\s+/g,' ').trim();
+              return [...document.querySelectorAll('.event-card .team-detail-trigger')].map(trigger => {
+                const card = trigger.closest('.event-card');
+                const teamId = trigger.dataset.teamId || '';
+                const sport = trigger.dataset.sport || '';
+                const gender = trigger.dataset.gender || '';
+                const raw = window.LocalBleachersLive?.getPresentationStatus?.(teamId, sport, gender) || null;
+                const expected = window.LocalBleachersPresentation?.teamStatus?.(raw) || null;
+                return { teamId, sport, gender, text:clean(card?.innerText), expected };
+              });
+            });
+            result.cards = cards;
+
+            for (const card of cards) {
+              if (!['football','volleyball','basketball'].includes(String(card.sport).toLowerCase())) continue;
+              if (!card.expected) {
+                result.mismatches.push(`${card.teamId} ${card.sport}/${card.gender}: canonical status missing`);
+                continue;
+              }
+              const expectedValues = [
+                ['overall', card.expected.overall],
+                ['conference', card.expected.conference],
+                ['standing', card.expected.standing]
+              ];
+              for (const [field, value] of expectedValues) {
+                if (value && value !== '—' && !card.text.includes(String(value))) {
+                  result.mismatches.push(`${card.teamId} ${card.sport}/${card.gender}: card missing canonical ${field} ${value}; text=${card.text}`);
+                }
+              }
+            }
+
+            const conway = page.locator('.event-card .team-detail-trigger')
+              .filter({hasText:/Conway/i}).filter({hasText:/Volleyball/i}).first();
+            await conway.waitFor({state:'visible',timeout:15000});
+            const conwayCard = normalize(await conway.locator('..').innerText().catch(async()=>await conway.innerText()));
+            if (!/9-4/.test(conwayCard) || !/4-0/.test(conwayCard) || !/#1/.test(conwayCard)) {
+              result.mismatches.push('Conway home card did not render 9-4 / 4-0 / #1: ' + conwayCard);
+            }
+            await conway.click();
+            const dialog = page.locator('#teamDetailDialog');
+            await dialog.waitFor({state:'visible',timeout:15000});
+            await page.waitForFunction(() => {
+              const el=document.querySelector('#teamDetailStatus');
+              return el && /9-4/.test(el.innerText) && /4-0/.test(el.innerText) && /#1/.test(el.innerText);
+            }, null, {timeout:30000});
+            result.detail = normalize(await dialog.locator('#teamDetailStatus').innerText());
+
+            await page.goto(base + '/standings.html?sharedproof=75a', {waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForFunction(() => [...document.querySelectorAll('#standingsBody tr')].some(row => /Conway/i.test(row.innerText)), null, {timeout:45000});
+            const row = page.locator('#standingsBody tr').filter({hasText:/Conway/i}).first();
+            result.standings = normalize(await row.innerText());
+            const cells = (await row.locator('td').allInnerTexts()).map(normalize);
+            if (!(cells[0] === '1' || cells[0] === '#1')) result.mismatches.push('Conway standings rank mismatch: ' + result.standings);
+            if (cells[2] !== '4-0') result.mismatches.push('Conway standings conference mismatch: ' + result.standings);
+            if (cells[3] !== '9-4') result.mismatches.push('Conway standings overall mismatch: ' + result.standings);
+
+            console.log('M15_SHARED_PRESENTATION_PROOF=' + JSON.stringify(result));
+            if (result.mismatches.length) throw new Error(result.mismatches.join('\n'));
+          } finally {
+            await browser.close();
+          }
+          NODE
+          node m15-shared-proof.mjs
