@@ -53,6 +53,7 @@ jobs:
 
             const card = page.locator('#followedEvents .event-card').filter({ hasText: /Conway/i }).filter({ hasText: /Volleyball/i }).first();
             result.home = normalize(await card.innerText());
+            console.log('M15_HOME=' + JSON.stringify(result.home));
             const wholeHome = normalize(await page.locator('body').innerText());
             result.maxPrepsSchedulePresent = /MaxPreps schedule/i.test(wholeHome);
 
@@ -63,11 +64,12 @@ jobs:
             if (!/View schedule & results/i.test(result.home)) result.errors.push('HOME missing View schedule & results');
             if (result.maxPrepsSchedulePresent) result.errors.push('Page contains MaxPreps schedule');
 
-            await card.getByText('View schedule & results', { exact: true }).click();
+            await card.locator('.team-detail-trigger').click();
             const dialog = page.locator('#teamDetailDialog');
             await dialog.waitFor({ state: 'visible', timeout: 15000 });
             await page.waitForTimeout(2500);
             result.detail = normalize(await dialog.innerText());
+            console.log('M15_DETAIL=' + JSON.stringify(result.detail));
 
             if (!/Overall\s+9-4/i.test(result.detail)) result.errors.push('DETAIL overall is not 9-4');
             if (!/Conference\s+4-0/i.test(result.detail)) result.errors.push('DETAIL conference is not 4-0');
@@ -77,6 +79,7 @@ jobs:
             await page.waitForFunction(() => [...document.querySelectorAll('#standingsBody tr')].some(row => /Conway/i.test(row.innerText)), null, { timeout: 45000 });
             const row = page.locator('#standingsBody tr').filter({ hasText: /Conway/i }).first();
             result.standings = normalize(await row.innerText());
+            console.log('M15_STANDINGS=' + JSON.stringify(result.standings));
             const cells = await row.locator('td').allInnerTexts();
             const c = cells.map(normalize);
             if (!(c[0] === '1' || c[0] === '#1')) result.errors.push('STANDINGS rank is not 1/#1');
