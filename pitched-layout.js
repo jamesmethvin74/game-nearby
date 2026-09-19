@@ -2,6 +2,7 @@
   const THEME_KEY = "localBleachersAR:theme";
   let currentDateFilter = "upcoming";
   let pickedDate = "";
+  const UPCOMING_WINDOW_DAYS = 30;
 
   const sameLocalDate = (a, b) => (
     a.getFullYear() === b.getFullYear()
@@ -30,9 +31,13 @@
   };
 
   const matchesDateFilter = (event) => {
-    if (currentDateFilter === "upcoming") return true;
     const eventDate = new Date(event.date);
     const now = new Date();
+    if (currentDateFilter === "upcoming") {
+      const end = new Date(now);
+      end.setDate(end.getDate() + UPCOMING_WINDOW_DAYS);
+      return eventDate <= end;
+    }
     if (currentDateFilter === "today") return sameLocalDate(eventDate, now);
     if (currentDateFilter === "tomorrow") {
       const tomorrow = new Date(now);
@@ -61,11 +66,12 @@
     return categoryMatch && matchesDateFilter(event);
   };
 
-  const compactDate = (iso) => new Date(iso).toLocaleString([], {
-    weekday: "short",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  const compactDate = (iso) => {
+    const date = new Date(iso);
+    const day = date.toLocaleDateString([], { weekday:"short", month:"short", day:"numeric" });
+    const time = date.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+    return `${day} · ${time}`;
+  };
 
   const timingLabel = (event) => {
     const date = new Date(event.date);

@@ -10,7 +10,12 @@
     maumelle: { icon: "🐝", label: "Hornets", className: "maumelle", mark: "https://3290e177b2fd5f573818-64f3acf27ad03d71638c9614decd2d36.ssl.cf1.rackcdn.com/article/image/large_f944a35a-5c3d-4a03-9b29-e149a444cc25.png" },
     morrilton: { icon: "Ⓜ", label: "Devil Dogs", className: "morrilton", mark: "https://5starassets.blob.core.windows.net/article-photos/2484894/6B78332D565A552A1FF8D9B8613ADBCC.png" }
   };
-  const compactDate = (iso) => new Date(iso).toLocaleString([], {weekday:"short",hour:"numeric",minute:"2-digit"});
+  const compactDate = (iso) => {
+    const date = new Date(iso);
+    const day = date.toLocaleDateString([], {weekday:"short",month:"short",day:"numeric"});
+    const time = date.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+    return `${day} · ${time}`;
+  };
   const sameLocalDate = (a,b) => a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
   const timingLabel = (event) => {const date=new Date(event.date),today=new Date();if(sameLocalDate(date,today))return "GAME TODAY";const tomorrow=new Date(today);tomorrow.setDate(tomorrow.getDate()+1);if(sameLocalDate(date,tomorrow))return "GAME TOMORROW";return "NEXT GAME";};
   const mascotBadge = (event) => {

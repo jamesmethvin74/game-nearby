@@ -159,3 +159,14 @@ test("nearby games and followed-team presentation truth load concurrently", () =
   assert.match(live, /const payload = await gamesPromise/);
   assert.match(live, /earlyStatusPromise[\s\S]*await earlyStatusPromise/);
 });
+
+
+test("home Upcoming view is near-term and cards show an unambiguous calendar date", async () => {
+  const pitched = await readFile(new URL("../../pitched-layout.js", import.meta.url), "utf8");
+  const reference = await readFile(new URL("../../reference-layout.js", import.meta.url), "utf8");
+  assert.match(pitched, /const UPCOMING_WINDOW_DAYS = 30/);
+  assert.match(pitched, /currentDateFilter === "upcoming"[\s\S]*end\.setDate\(end\.getDate\(\) \+ UPCOMING_WINDOW_DAYS\)[\s\S]*return eventDate <= end/);
+  assert.match(pitched, /month:"short", day:"numeric"/);
+  assert.match(reference, /month:"short",day:"numeric"/);
+  assert.match(reference, /return `\$\{day\} · \$\{time\}`/);
+});

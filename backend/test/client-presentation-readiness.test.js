@@ -17,9 +17,9 @@ test("client release presents one factual display contract on all three surfaces
   const teamsHtml = read("teams.html");
   const sw = read("service-worker.js");
 
-  assert.match(runtime, /m15-presentation-v77/);
-  assert.match(runtime, /clientGeneration:\s*77/);
-  assert.match(runtime, /shellGeneration:\s*77/);
+  assert.match(runtime, /m15-presentation-v78/);
+  assert.match(runtime, /clientGeneration:\s*78/);
+  assert.match(runtime, /shellGeneration:\s*78/);
   assert.match(runtime, /scheduleCacheSchema:\s*5/);
 
   for (const field of ["display_overall_record", "display_conference_record", "display_rank"]) {
@@ -41,17 +41,17 @@ test("client release presents one factual display contract on all three surfaces
   assert.doesNotMatch(schedule, /const statusCache = new Map\(\)/);
 
   for (const html of [index, standingsHtml, teamsHtml]) {
-    assert.match(html, /runtime-build\.js\?v=77/);
-    assert.match(html, /service-worker\.js\?v=77/);
+    assert.match(html, /runtime-build\.js\?v=78/);
+    assert.match(html, /service-worker\.js\?v=78/);
     assert.match(html, /updateViaCache:"none"/);
     assert.match(html, /visibilitychange/);
     assert.match(html, /pageshow/);
   }
 
   const liveScoresHtml = read("live-scores.html");
-  assert.match(liveScoresHtml, /service-worker\.js\?v=77/);
+  assert.match(liveScoresHtml, /service-worker\.js\?v=78/);
   assert.match(liveScoresHtml, /updateViaCache:"none"/);
-  assert.match(sw, /localbleachersar-shell-v77/);
+  assert.match(sw, /localbleachersar-shell-v78/);
   assert.match(sw, /const response = await fetch\(event\.request\);[\s\S]*caches\.match\(cacheKey/);
   assert.doesNotMatch(sw, /const cached = await caches\.match\(cacheKey[\s\S]*if \(cached\) return cached;[\s\S]*return await network/);
 });
