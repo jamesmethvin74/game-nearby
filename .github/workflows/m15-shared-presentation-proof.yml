@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Probe production team-status truth
+        run: |
+          curl -fsS "https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/team-statuses?school_ids=conway,df-xpb38v,df-wlwrfa,df-hrdb8f" > /tmp/status.json
+          node -e 'const p=require("/tmp/status.json"); console.log("M15_TEAM_STATUS_PROBE="+JSON.stringify({resolutions:p.school_id_resolutions,statuses:(p.team_statuses||[]).map(s=>({school_id:s.school_id,sport:s.sport,gender:s.gender,display_overall_record:s.display_overall_record,display_conference_record:s.display_conference_record,display_rank:s.display_rank,conference_name:s.conference_name}))}))'
       - name: Install Chromium proof dependency
         run: |
           npm install --no-save playwright@1.55.0
