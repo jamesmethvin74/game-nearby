@@ -11,6 +11,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: m15-client-presentation-live-proof
+  cancel-in-progress: true
+
 jobs:
   prove:
     runs-on: ubuntu-latest
@@ -27,19 +31,15 @@ jobs:
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           rm -f runtime.js index.html standings.js schedule.js presentation.js standings.json maumelle.json nlr.json batch.json proof.md
 
-          for attempt in $(seq 1 12); do
-            curl -fsS --max-time 25 "$APP/runtime-build.js?proof=${GITHUB_SHA}" -o runtime.js || true
-            curl -fsS --max-time 25 "$APP/?proof=${GITHUB_SHA}" -o index.html || true
-            curl -fsS --max-time 25 "$APP/standings.js?proof=${GITHUB_SHA}" -o standings.js || true
-            curl -fsS --max-time 25 "$APP/school-schedule.js?proof=${GITHUB_SHA}" -o schedule.js || true
-            curl -fsS --max-time 25 "$APP/presentation-status.js?proof=${GITHUB_SHA}" -o presentation.js || true
-            curl -fsS --max-time 25 "$API/api/v1/standings?sport=volleyball&conference=6a-central&proof=${GITHUB_SHA}" -o standings.json || true
-            curl -fsS --max-time 25 "$API/api/v1/schools/maumelle/schedule?proof=${GITHUB_SHA}" -o maumelle.json || true
-            curl -fsS --max-time 25 "$API/api/v1/schools/north-little-rock/schedule?proof=${GITHUB_SHA}" -o nlr.json || true
-            curl -fsS --max-time 25 "$API/api/v1/team-statuses?school_ids=maumelle%2Cnorth-little-rock%2Cmorrilton%2Cconway&proof=${GITHUB_SHA}" -o batch.json || true
-            if test -s runtime.js && test -s index.html && test -s standings.js && test -s schedule.js && test -s presentation.js && test -s standings.json && test -s maumelle.json && test -s nlr.json && test -s batch.json; then break; fi
-            sleep 8
-          done
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/runtime-build.js?proof=${GITHUB_SHA}" -o runtime.js || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/?proof=${GITHUB_SHA}" -o index.html || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/standings.js?proof=${GITHUB_SHA}" -o standings.js || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/school-schedule.js?proof=${GITHUB_SHA}" -o schedule.js || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$APP/presentation-status.js?proof=${GITHUB_SHA}" -o presentation.js || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/standings?sport=volleyball&conference=6a-central&proof=${GITHUB_SHA}" -o standings.json || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/schools/maumelle/schedule?proof=${GITHUB_SHA}" -o maumelle.json || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/schools/north-little-rock/schedule?proof=${GITHUB_SHA}" -o nlr.json || true
+          curl -fsS --retry 1 --retry-delay 2 --max-time 12 "$API/api/v1/team-statuses?school_ids=maumelle%2Cnorth-little-rock%2Cmorrilton%2Cconway&proof=${GITHUB_SHA}" -o batch.json || true
 
           python - <<'PY'
           import json, pathlib
