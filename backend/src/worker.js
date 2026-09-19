@@ -3,7 +3,7 @@ import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js"
 import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
-import { applySchoolDisplayNames, dedupeScheduleRows } from "./schedule-response-normalizer.js";
+import { applySchoolDisplayNames, dedupeScheduleRows, officialSeasonScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
 import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoolBranding } from "./school-branding.js";
 import { reconcileFootballGameRecords } from "./football-record-reconciliation.js";
 import { collectionPlanAt } from "./collection-cadence.js";
@@ -80,7 +80,50 @@ async function displayNamesForGames(env, games, extraSchoolIds = []) {
 async function normalizePublicGames(env, games, { reportingSchoolId = null } = {}) {
   const displayNames = await displayNamesForGames(env, games, reportingSchoolId ? [reportingSchoolId] : []);
   const cleaned = games.map(game => applySchoolDisplayNames(game, displayNames, { reportingSchoolId }));
-  return dedupeScheduleRows(cleaned, { reportingSchoolId });
+  return dedupeScheduleRows(officialSeasonScheduleRows(cleaned), { reportingSchoolId });
+}
+
+async function collegeFirstVerifiedFinalTimes(env, games = []) {
+  const now=Date.now();
+  const teamIds=[...new Set((games || [])
+    .filter(game =>
+      String(game.level || "").toLowerCase()==="college"
+      && !["FINAL","CANCELED","CANCELLED","POSTPONED"].includes(String(game.status || "").toUpperCase())
+      && game.team_score==null
+      && game.opponent_score==null
+      && !String(game.result || "").trim()
+      && Date.parse(game.scheduled_at || game.canonical_scheduled_at) < now
+    )
+    .map(game => String(game.team_id || "").trim())
+    .filter(Boolean))];
+
+  if (!teamIds.length) return new Map();
+
+  const {results}=await env.DB.prepare(`
+    SELECT g.team_id, MIN(g.scheduled_at) AS first_verified_final_at
+    FROM games g
+    JOIN teams t ON t.id=g.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    JOIN sources src ON src.id=g.source_id
+    WHERE g.team_id IN (SELECT value FROM json_each(?))
+      AND sch.level='college'
+      AND g.status='FINAL'
+      AND g.team_score IS NOT NULL
+      AND g.opponent_score IS NOT NULL
+      AND NOT (
+        g.counts_for_record=0
+        AND LOWER(COALESCE(src.parser_type,'')) IN ('sidearm','dragonfly-public')
+      )
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%scrimmage%'
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%exhibition%'
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%jamboree%'
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%benefit game%'
+    GROUP BY g.team_id
+  `).bind(JSON.stringify(teamIds)).all();
+
+  return new Map((results || [])
+    .filter(row => row.team_id && row.first_verified_final_at)
+    .map(row => [String(row.team_id), row.first_verified_final_at]));
 }
 
 async function listNearbyGamesBounded(request,env,url){
@@ -158,8 +201,14 @@ async function listNearbyGamesBounded(request,env,url){
     chosen.push(game);
   }
 
-  await reconcileFootballGameRecords(chosen);
-  return {games:chosen};
+  const official=officialSeasonScheduleRows(chosen);
+  const firstFinals=await collegeFirstVerifiedFinalTimes(env,official);
+  const visible=official.filter(game => !rowIsCollegePreseasonGhost(game, {
+    firstVerifiedFinalAt:firstFinals.get(String(game.team_id || ""))
+  }));
+
+  await reconcileFootballGameRecords(visible);
+  return {games:visible};
 }
 
 async function publicCatalogResponse(request,response,env){
