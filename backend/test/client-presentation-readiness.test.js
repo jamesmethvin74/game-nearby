@@ -27,6 +27,8 @@ test("client release presents one factual display contract on all three surfaces
   }
 
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
+  assert.match(polish, /LocalBleachersLive\?\.getPresentationStatus/);
+  assert.doesNotMatch(polish, /LocalBleachersLive\?\.getTeamStatus/);
   assert.match(detail, /LocalBleachersPresentation\?\.teamStatus/);
   assert.match(standings, /LocalBleachersPresentation\?\.standingRow/);
   assert.doesNotMatch(standings, /Published standings are available only as evidence/);
@@ -36,8 +38,8 @@ test("client release presents one factual display contract on all three surfaces
   assert.match(schedule, /primeVisibleTeamStatuses/);
 
   for (const html of [index, standingsHtml, teamsHtml]) {
-    assert.match(html, /runtime-build\.js\?v=73/);
-    assert.match(html, /service-worker\.js\?v=73/);
+    assert.match(html, /runtime-build\.js\?v=74/);
+    assert.match(html, /service-worker\.js\?v=74/);
     assert.match(html, /updateViaCache:"none"/);
   }
 
