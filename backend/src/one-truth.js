@@ -233,6 +233,7 @@ async function loadAuthorityGames(env, season, teamIds = []) {
         COALESCE(NULLIF(hs.location_matched_name,''),hs.name) AS canonical_home_name,
         COALESCE(NULLIF(aws.location_matched_name,''),aws.name) AS canonical_away_name,
         COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) AS raw_opponent_name,
+        COALESCE(ocm.conference_id,ot.conference_id) AS opponent_conference_id,
         ROW_NUMBER() OVER (
           PARTITION BY g.team_id,COALESCE(g.canonical_event_id,g.id)
           ORDER BY src.authority_rank,src.source_priority,src.id
@@ -245,6 +246,17 @@ async function loadAuthorityGames(env, season, teamIds = []) {
       LEFT JOIN schools hs ON hs.id=ce.home_school_id
       LEFT JOIN schools aws ON aws.id=ce.away_school_id
       LEFT JOIN schools opp ON opp.id=g.opponent_school_id
+      LEFT JOIN teams ot
+        ON ot.school_id=CASE
+          WHEN ce.id IS NOT NULL AND ce.home_school_id=t.school_id THEN ce.away_school_id
+          WHEN ce.id IS NOT NULL AND ce.away_school_id=t.school_id THEN ce.home_school_id
+          ELSE g.opponent_school_id
+        END
+       AND ot.sport=t.sport
+       AND ot.gender=t.gender
+       AND ot.season=t.season
+       AND ot.active=1
+      LEFT JOIN conference_memberships ocm ON ocm.team_id=ot.id
       WHERE t.active=1
         AND t.season=?
         AND sch.catalog_scope='local'
@@ -278,9 +290,10 @@ function resolveGame(row, team, conferenceBySchoolTeam) {
     ? (isHome ? row.canonical_away_score : isAway ? row.canonical_home_score : row.opponent_score)
     : row.opponent_score;
 
-  const opponentConferenceId = opponentSchoolId
-    ? conferenceBySchoolTeam.get(keyForSchoolTeam(opponentSchoolId, team.sport, team.gender, team.season))
-    : null;
+  const opponentConferenceId = row.opponent_conference_id
+    || (opponentSchoolId
+      ? conferenceBySchoolTeam.get(keyForSchoolTeam(opponentSchoolId, team.sport, team.gender, team.season))
+      : null);
   const conferenceGame = Number(row.canonical_conference_game ?? row.conference_game ?? 0) === 1
     || Boolean(team.conference_id && opponentConferenceId && team.conference_id === opponentConferenceId);
 
@@ -448,7 +461,6 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
     summaries.push(summary);
   }
 
-  rankSummaries(summaries);
   const summaryByTeam = new Map(summaries.map(row => [row.team_id, row]));
   const rows = [];
 
@@ -497,6 +509,75 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
   }
 
   return rows;
+}
+
+async function refreshRanksForCohorts(env, summaries = []) {
+  const seen=new Set();
+  const cohorts=[];
+  for(const row of summaries){
+    if(!row.conference_id || row.conference_membership_state!=="member") continue;
+    const key=[row.conference_id,row.sport,row.gender,row.season].join("|");
+    if(seen.has(key)) continue;
+    seen.add(key);
+    cohorts.push({
+      conference_id:row.conference_id,
+      sport:row.sport,
+      gender:row.gender,
+      season:row.season
+    });
+  }
+  if(!cohorts.length) return { rows_written:0, cohorts:0 };
+
+  const result=await env.DB.prepare(`
+    WITH requested AS (
+      SELECT
+        json_extract(value,'$.conference_id') AS conference_id,
+        json_extract(value,'$.sport') AS sport,
+        json_extract(value,'$.gender') AS gender,
+        json_extract(value,'$.season') AS season
+      FROM json_each(?)
+    ),
+    base AS (
+      SELECT
+        t.team_id,t.conference_id,t.sport,t.gender,t.season,
+        COALESCE(t.conference_wins,0) AS cw,
+        COALESCE(t.conference_losses,0) AS cl,
+        COALESCE(t.conference_ties,0) AS ct,
+        SUM(COALESCE(t.conference_scored_finals,0)) OVER (
+          PARTITION BY t.conference_id,t.sport,t.gender,t.season
+        ) AS cohort_games
+      FROM ${TABLE} t
+      JOIN requested r
+        ON r.conference_id=t.conference_id
+       AND r.sport=t.sport
+       AND r.gender=t.gender
+       AND r.season=t.season
+      WHERE t.row_type='TEAM'
+        AND t.conference_membership_state='member'
+    ),
+    ranked AS (
+      SELECT team_id,
+        CASE WHEN cohort_games=0 THEN NULL ELSE
+          RANK() OVER (
+            PARTITION BY conference_id,sport,gender,season
+            ORDER BY
+              CASE WHEN (cw+cl+ct)>0 THEN (CAST(cw AS REAL)+0.5*ct)/(cw+cl+ct) ELSE 0 END DESC,
+              cw DESC,cl ASC,ct ASC
+          )
+        END AS new_rank
+      FROM base
+    )
+    UPDATE ${TABLE} AS target
+    SET rank=(SELECT new_rank FROM ranked WHERE ranked.team_id=target.team_id)
+    WHERE target.row_type IN ('TEAM','GAME')
+      AND target.team_id IN (SELECT team_id FROM ranked)
+      AND target.rank IS NOT (SELECT new_rank FROM ranked WHERE ranked.team_id=target.team_id)
+  `).bind(JSON.stringify(cohorts)).run();
+
+  return {
+    rows_written:Number(result?.meta?.changes || result?.changes || 0),
+    cohorts:cohorts.length
+  };
 }
 
 function upsertStatement(env, rows) {
@@ -561,6 +642,7 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = 
   statements.push(upsertStatement(env, [meta]));
 
   const results = await env.DB.batch(statements);
+  const rankRefresh=await refreshRanksForCohorts(env, summaries);
   return {
     status:"SUCCESS",
     season,
@@ -569,7 +651,9 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = 
     games:rows.filter(row => row.row_type === "GAME").length,
     rows:rows.length + 1,
     statements:statements.length,
-    rows_written:results.reduce((sum, result) => sum + Number(result?.meta?.changes || result?.changes || 0), 0),
+    rows_written:results.reduce((sum, result) => sum + Number(result?.meta?.changes || result?.changes || 0), 0)
+      + Number(rankRefresh.rows_written || 0),
+    rank_cohorts:rankRefresh.cohorts,
     refreshed_at:refreshedAt
   };
 }
