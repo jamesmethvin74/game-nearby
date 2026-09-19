@@ -45,13 +45,28 @@ jobs:
           try {
             await page.goto(base + '/?m15proof=74', { waitUntil: 'domcontentloaded', timeout: 45000 });
             await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v74', null, { timeout: 45000 });
+            await page.waitForFunction(() => !('serviceWorker' in navigator) || !!navigator.serviceWorker.controller, null, { timeout: 45000 }).catch(() => {});
+            await page.waitForTimeout(1500);
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v74', null, { timeout: 45000 });
             result.release = await page.evaluate(() => window.LocalBleachersRuntime?.releaseGeneration || '');
 
-            await page.waitForFunction(() => {
-              return [...document.querySelectorAll('#followedEvents .event-card')].some(card => /Conway/i.test(card.innerText) && /Volleyball/i.test(card.innerText));
-            }, null, { timeout: 45000 });
+            try {
+              await page.waitForFunction(() => {
+                return [...document.querySelectorAll('#followedEvents .event-card')].some(card => {
+                  const t = card.innerText.replace(/\s+/g, ' ');
+                  return /Conway/i.test(t) && /Volleyball/i.test(t)
+                    && /Overall\s+9-4/i.test(t)
+                    && /Conference\s+4-0/i.test(t)
+                    && /Standing\s+#1\s*[·•]\s*6A Central/i.test(t);
+                });
+              }, null, { timeout: 45000 });
+            } catch (error) {
+              const cards = await page.locator('#followedEvents .event-card').allInnerTexts().catch(() => []);
+              console.log('M15_HOME_CARDS_AT_FAILURE=' + JSON.stringify(cards.map(normalize)));
+              throw error;
+            }
 
-            const card = page.locator('#followedEvents .event-card').filter({ hasText: /Conway/i }).filter({ hasText: /Volleyball/i }).first();
+            let card = page.locator('#followedEvents .event-card').filter({ hasText: /Conway/i }).filter({ hasText: /Volleyball/i }).first();
             result.home = normalize(await card.innerText());
             console.log('M15_HOME=' + JSON.stringify(result.home));
             const wholeHome = normalize(await page.locator('body').innerText());
@@ -64,11 +79,15 @@ jobs:
             if (!/View schedule & results/i.test(result.home)) result.errors.push('HOME missing View schedule & results');
             if (result.maxPrepsSchedulePresent) result.errors.push('Page contains MaxPreps schedule');
 
+            card = page.locator('#followedEvents .event-card').filter({ hasText: /Conway/i }).filter({ hasText: /Volleyball/i }).first();
             await card.locator('.team-detail-trigger').click();
             const dialog = page.locator('#teamDetailDialog');
             await dialog.waitFor({ state: 'visible', timeout: 15000 });
-            await page.waitForTimeout(2500);
-            result.detail = normalize(await dialog.innerText());
+            await page.waitForFunction(() => {
+              const schedule = document.querySelector('#teamDetailSchedule');
+              return schedule && !/Loading full schedule/i.test(schedule.innerText);
+            }, null, { timeout: 30000 }).catch(() => {});
+            result.detail = normalize(await dialog.innerText({ timeout: 15000 }));
             console.log('M15_DETAIL=' + JSON.stringify(result.detail));
 
             if (!/Overall\s+9-4/i.test(result.detail)) result.errors.push('DETAIL overall is not 9-4');
@@ -80,11 +99,10 @@ jobs:
             const row = page.locator('#standingsBody tr').filter({ hasText: /Conway/i }).first();
             result.standings = normalize(await row.innerText());
             console.log('M15_STANDINGS=' + JSON.stringify(result.standings));
-            const cells = await row.locator('td').allInnerTexts();
-            const c = cells.map(normalize);
-            if (!(c[0] === '1' || c[0] === '#1')) result.errors.push('STANDINGS rank is not 1/#1');
-            if (c[2] !== '4-0') result.errors.push('STANDINGS conference is not 4-0');
-            if (c[3] !== '9-4') result.errors.push('STANDINGS overall is not 9-4');
+            const cells = (await row.locator('td').allInnerTexts()).map(normalize);
+            if (!(cells[0] === '1' || cells[0] === '#1')) result.errors.push('STANDINGS rank is not 1/#1');
+            if (cells[2] !== '4-0') result.errors.push('STANDINGS conference is not 4-0');
+            if (cells[3] !== '9-4') result.errors.push('STANDINGS overall is not 9-4');
 
             console.log('M15_RENDERED_PROOF=' + JSON.stringify(result));
             if (result.errors.length) throw new Error(result.errors.join('; '));
