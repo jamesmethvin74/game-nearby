@@ -14,9 +14,11 @@ test("team schedule and record routes recalculate from the shared result engine"
 
 test("frontend consumes backend team-status presentation before embedded record fallback", () => {
   assert.match(live, /normalizeRecord/);
-  assert.match(live, /const record = normalizeRecord\(payload\?\.record\)/);
+  assert.match(live, /getPresentationStatus/);
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
-  assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
+  assert.match(polish, /LocalBleachersLive\?\.getPresentationStatus/);
+  assert.doesNotMatch(polish, /LocalBleachersLive\?\.getTeamStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
-  assert.ok(polish.indexOf("if (factual) return factual") < polish.indexOf("const requiresPresentationTruth"));\n  assert.ok(polish.indexOf("const requiresPresentationTruth") < polish.indexOf("const record = event.record || null"));
+  assert.ok(polish.indexOf("if (factual) return factual") < polish.indexOf("const requiresPresentationTruth"));
+  assert.ok(polish.indexOf("const requiresPresentationTruth") < polish.indexOf("const record = event.record || null"));
 });
