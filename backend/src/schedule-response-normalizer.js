@@ -507,9 +507,8 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
   let auditClass = unresolvedFinals > 0 ? "UNRESOLVED" : "VERIFIED";
 
   if (stored && storedGames > evidenceGames) {
-    if (state !== "UNRESOLVED") state = "INCOMPLETE";
-    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
-    pushIssue(issues, "STORED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`);
+    if (auditClass !== "UNRESOLVED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STORED_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored record covers ${storedGames} games; normalized final evidence covers ${evidenceGames}.`, { informational: true });
   } else if (stored && storedGames === evidenceGames && evidenceGames > 0 && !sameOverallRecord(stored, derived)) {
     auditClass = "CONTRADICTORY";
     pushIssue(issues, "STALE_STORED_RECORD_CONTRADICTS_FINAL_EVIDENCE", `Stored ${stored.wins}-${stored.losses}-${stored.ties}; normalized finals ${derived.wins}-${derived.losses}-${derived.ties}.`, { informational: true });
@@ -519,9 +518,8 @@ export function evaluateScheduleRecordTruth(games, options = {}) {
   }
 
   if (stored && storedConferenceGames > evidenceConferenceGames) {
-    if (state !== "UNRESOLVED") state = "INCOMPLETE";
-    if (auditClass !== "UNRESOLVED") auditClass = "INCOMPLETE";
-    pushIssue(issues, "STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored conference record covers ${storedConferenceGames} games; normalized conference final evidence covers ${evidenceConferenceGames}.`);
+    if (auditClass !== "UNRESOLVED") auditClass = "CONTRADICTORY";
+    pushIssue(issues, "STORED_CONFERENCE_RECORD_EXCEEDS_FINAL_EVIDENCE", `Stored conference record covers ${storedConferenceGames} games; normalized conference final evidence covers ${evidenceConferenceGames}.`, { informational: true });
   } else if (stored && storedConferenceGames === evidenceConferenceGames && evidenceConferenceGames > 0 && !sameConferenceRecord(stored, derived)) {
     if (auditClass === "VERIFIED") auditClass = "CONTRADICTORY";
     pushIssue(issues, "STALE_STORED_CONFERENCE_RECORD_CONTRADICTS_FINAL_EVIDENCE", "Stored conference record disagrees with normalized conference finals.", { informational: true });
