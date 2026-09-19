@@ -32,6 +32,22 @@ jobs:
           }
           JS
 
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          const html=fs.readFileSync('/tmp/uca.html','utf8');
+          for (const id of ['12397','12398','12399','12400']) {
+            const marker='entity-id="'+id+'"';
+            const i=html.indexOf(marker);
+            const trStart=i>=0?html.lastIndexOf('<tr',i):-1;
+            const trEnd=i>=0?html.indexOf('</tr>',i):-1;
+            console.log('UCA_ROW='+JSON.stringify({
+              id,
+              found:i>=0,
+              row:i>=0&&trStart>=0&&trEnd>=0?html.slice(trStart,trEnd+5).replace(/\s+/g,' '):null
+            }));
+          }
+          JS
+
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           curl -fsSL "$BASE/api/v1/schools/uca/schedule" > /tmp/schedule.json
           node --input-type=module <<'JS'
