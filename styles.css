@@ -73,3 +73,8 @@ dialog::backdrop { background: rgba(0,5,12,.72); backdrop-filter: blur(5px); }
 .team-choice { display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--line); background: #0b1d33; border-radius: 14px; padding: 12px; }
 .primary-btn { width: 100%; border: 0; border-radius: 14px; background: linear-gradient(135deg,#2563eb,#3b82f6); color: #fff; font-weight: 800; padding: 13px; box-shadow: 0 10px 22px rgba(37,99,235,.22); }
 @media (min-width:700px) { main { padding-top: 24px; } .event-list { grid-template-columns: repeat(2,minmax(0,1fr)); } .followed .event-list { grid-template-columns: 1fr; } }
+.event-main.team-detail-trigger { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.event-main.team-detail-trigger:active { background: rgba(77,163,255,.06); }
+.event-main.team-detail-trigger:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+.card-schedule-link { margin-top: 7px; color: var(--blue); font-size: .74rem; font-weight: 800; line-height: 1.2; }
+.card-schedule-link span { display: inline-block; margin-left: 3px; font-size: 1rem; line-height: .7; vertical-align: -1px; }
