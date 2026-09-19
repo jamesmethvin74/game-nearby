@@ -85,6 +85,22 @@ function verifiedScoredFinal(row = {}) {
   return evaluateFinalResultTruth(row).state === "VERIFIED";
 }
 
+export function rowIsCollegePreseasonGhost(row = {}, { firstVerifiedFinalAt = null } = {}) {
+  if (clean(row.level).toLowerCase() !== "college") return false;
+
+  const firstFinal=typeof firstVerifiedFinalAt === "number"
+    ? firstVerifiedFinalAt
+    : Date.parse(firstVerifiedFinalAt || "");
+  if (!Number.isFinite(firstFinal)) return false;
+
+  const when=Date.parse(row.scheduled_at || row.canonical_scheduled_at);
+  if (!Number.isFinite(when) || when >= firstFinal) return false;
+  if (terminalScheduleStatus(row)) return false;
+  if (row.team_score != null || row.opponent_score != null || clean(row.result)) return false;
+
+  return true;
+}
+
 function removeCollegePreseasonGhostRows(rows = []) {
   const firstVerifiedFinalByGroup = new Map();
 
@@ -97,18 +113,9 @@ function removeCollegePreseasonGhostRows(rows = []) {
     if (current == null || when < current) firstVerifiedFinalByGroup.set(key,when);
   }
 
-  return rows.filter(row => {
-    if (clean(row.level).toLowerCase() !== "college") return true;
-    const firstFinal=firstVerifiedFinalByGroup.get(collegeScheduleGroupKey(row));
-    if (firstFinal == null) return true;
-
-    const when=Date.parse(row.scheduled_at || row.canonical_scheduled_at);
-    if (!Number.isFinite(when) || when >= firstFinal) return true;
-    if (terminalScheduleStatus(row)) return true;
-    if (row.team_score != null || row.opponent_score != null || clean(row.result)) return true;
-
-    return false;
-  });
+  return rows.filter(row => !rowIsCollegePreseasonGhost(row, {
+    firstVerifiedFinalAt:firstVerifiedFinalByGroup.get(collegeScheduleGroupKey(row))
+  }));
 }
 
 export function officialSeasonScheduleRows(rows = [], options = {}) {
