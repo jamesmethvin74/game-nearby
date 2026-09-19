@@ -50,7 +50,7 @@ function getTeamStatus(event){
 }
 
 function polishedSourceLabel(event){
-  if(event.source!=="official") return "MaxPreps schedule";
+  if(event.source!=="official") return "Schedule source";
   if(event.teamId==="uca") return "UCA Athletics";
   if(event.teamId==="hendrix") return "Hendrix Athletics";
   if(event.teamId==="cbc") return "CBC Athletics";
