@@ -169,8 +169,10 @@ export async function ensureOneTruthSchema(env) {
   return schemaPromise;
 }
 
-async function loadTeams(env, season) {
-  const { results = [] } = await env.DB.prepare(`
+async function loadTeams(env, season, teamIds = []) {
+  const ids=[...new Set((teamIds || []).map(String).filter(Boolean))];
+  const teamFilter=ids.length ? " AND t.id IN (SELECT value FROM json_each(?))" : "";
+  const statement=env.DB.prepare(`
     SELECT
       t.id AS team_id,
       t.school_id,
@@ -190,13 +192,19 @@ async function loadTeams(env, season) {
     WHERE t.active=1
       AND t.season=?
       AND sch.catalog_scope='local'
+      ${teamFilter}
     ORDER BY t.id
-  `).bind(season).all();
+  `);
+  const {results=[]}=await (ids.length
+    ? statement.bind(season,JSON.stringify(ids)).all()
+    : statement.bind(season).all());
   return results;
 }
 
-async function loadAuthorityGames(env, season) {
-  const { results = [] } = await env.DB.prepare(`
+async function loadAuthorityGames(env, season, teamIds = []) {
+  const ids=[...new Set((teamIds || []).map(String).filter(Boolean))];
+  const teamFilter=ids.length ? " AND t.id IN (SELECT value FROM json_each(?))" : "";
+  const statement=env.DB.prepare(`
     SELECT *
     FROM (
       SELECT
@@ -240,11 +248,15 @@ async function loadAuthorityGames(env, season) {
       WHERE t.active=1
         AND t.season=?
         AND sch.catalog_scope='local'
+        ${teamFilter}
         AND ${currentScheduleTruthSql("g","src")}
     ) ranked
     WHERE authority_row=1
     ORDER BY team_id,COALESCE(canonical_scheduled_at,scheduled_at),COALESCE(canonical_event_id,game_id)
-  `).bind(season).all();
+  `);
+  const {results=[]}=await (ids.length
+    ? statement.bind(season,JSON.stringify(ids)).all()
+    : statement.bind(season).all());
   return results;
 }
 
@@ -503,12 +515,13 @@ function upsertStatement(env, rows) {
   `).bind(JSON.stringify(rows));
 }
 
-export async function rebuildOneTruth(env, { season = DEFAULT_SEASON } = {}) {
+export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = [] } = {}) {
   await ensureOneTruthSchema(env);
+  const requested=[...new Set((teamIds || []).map(String).filter(Boolean))];
   const refreshedAt = new Date().toISOString();
   const [teams, rawGames] = await Promise.all([
-    loadTeams(env, season),
-    loadAuthorityGames(env, season)
+    loadTeams(env, season, requested),
+    loadAuthorityGames(env, season, requested)
   ]);
   const rows = buildTruthRows(teams, rawGames, refreshedAt);
   const ids = rows.map(row => row.truth_id);
@@ -518,11 +531,20 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON } = {}) {
     statements.push(upsertStatement(env, rows.slice(index, index + WRITE_CHUNK)));
   }
 
-  statements.push(env.DB.prepare(`
-    DELETE FROM ${TABLE}
-    WHERE truth_id<>?
-      AND truth_id NOT IN (SELECT value FROM json_each(?))
-  `).bind(META_ID, JSON.stringify(ids)));
+  if (requested.length) {
+    statements.push(env.DB.prepare(`
+      DELETE FROM ${TABLE}
+      WHERE row_type<>'META'
+        AND team_id IN (SELECT value FROM json_each(?))
+        AND truth_id NOT IN (SELECT value FROM json_each(?))
+    `).bind(JSON.stringify(requested),JSON.stringify(ids)));
+  } else {
+    statements.push(env.DB.prepare(`
+      DELETE FROM ${TABLE}
+      WHERE truth_id<>?
+        AND truth_id NOT IN (SELECT value FROM json_each(?))
+    `).bind(META_ID, JSON.stringify(ids)));
+  }
 
   const meta = {
     truth_id:META_ID,row_type:"META",team_id:null,school_id:null,school_name:null,school_level:null,
@@ -542,6 +564,7 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON } = {}) {
   return {
     status:"SUCCESS",
     season,
+    requested_teams:requested.length,
     teams:teams.length,
     games:rows.filter(row => row.row_type === "GAME").length,
     rows:rows.length + 1,
@@ -551,27 +574,56 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON } = {}) {
   };
 }
 
-async function sourceFreshness(env) {
-  return env.DB.prepare(`
-    SELECT MAX(COALESCE(last_successful_fetch_at,updated_at,created_at)) AS newest_source_at
-    FROM sources
-    WHERE enabled=1
-  `).first();
+async function staleRequestedTeamIds(env, teamIds = [], { season = DEFAULT_SEASON, limit = 128 } = {}) {
+  const ids=[...new Set((teamIds || []).map(String).filter(Boolean))];
+  const binds=[season];
+  let requestedSql="";
+  if (ids.length) {
+    requestedSql=" AND t.id IN (SELECT value FROM json_each(?))";
+    binds.push(JSON.stringify(ids));
+  }
+  binds.push(Number(limit));
+  const {results=[]}=await env.DB.prepare(`
+    SELECT t.id AS team_id,
+      MAX(COALESCE(src.last_successful_fetch_at,src.updated_at,src.created_at)) AS newest_source_at,
+      ot.refreshed_at AS truth_refreshed_at
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id
+    LEFT JOIN sources src ON src.team_id=t.id AND src.enabled=1
+    LEFT JOIN ${TABLE} ot ON ot.truth_id='TEAM:'||t.id
+    WHERE t.active=1
+      AND t.season=?
+      AND sch.catalog_scope='local'
+      ${requestedSql}
+    GROUP BY t.id,ot.refreshed_at
+    HAVING ot.refreshed_at IS NULL
+       OR MAX(COALESCE(src.last_successful_fetch_at,src.updated_at,src.created_at)) > ot.refreshed_at
+    ORDER BY t.id
+    LIMIT ?
+  `).bind(...binds).all();
+  return results.map(row=>String(row.team_id||"")).filter(Boolean);
 }
 
-export async function ensureOneTruthFresh(env, { season = DEFAULT_SEASON, force = false } = {}) {
+export async function staleOneTruthTeamIds(env, options = {}) {
   await ensureOneTruthSchema(env);
-  const [meta, source] = await Promise.all([
-    env.DB.prepare(`SELECT refreshed_at FROM ${TABLE} WHERE truth_id=?`).bind(META_ID).first(),
-    sourceFreshness(env)
-  ]);
-  const truthTime = Date.parse(meta?.refreshed_at || "");
-  const sourceTime = Date.parse(source?.newest_source_at || "");
-  const stale = force || !Number.isFinite(truthTime) || (Number.isFinite(sourceTime) && sourceTime > truthTime);
-  if (!stale) return { status:"FRESH", refreshed_at:meta.refreshed_at };
+  return staleRequestedTeamIds(env, [], options);
+}
 
-  if (!rebuildPromise) {
-    rebuildPromise = rebuildOneTruth(env, { season }).finally(() => { rebuildPromise = null; });
+export async function ensureOneTruthFresh(env, { season = DEFAULT_SEASON, teamIds = [], force = false } = {}) {
+  await ensureOneTruthSchema(env);
+  const ids=[...new Set((teamIds || []).map(String).filter(Boolean))];
+  if (!ids.length) return { status:"SCHEMA_READY", teams:0 };
+
+  const stale=force ? ids : await staleRequestedTeamIds(env,ids,{season,limit:Math.max(ids.length,1)});
+  if (!stale.length) return { status:"FRESH", teams:ids.length };
+
+  const key=stale.slice().sort().join(",");
+  if (!rebuildPromise || rebuildPromise.key!==key) {
+    const promise=rebuildOneTruth(env,{season,teamIds:stale}).finally(()=>{
+      if (rebuildPromise?.key===key) rebuildPromise=null;
+    });
+    promise.key=key;
+    rebuildPromise=promise;
   }
   return rebuildPromise;
 }
