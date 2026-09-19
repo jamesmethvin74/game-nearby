@@ -50,7 +50,12 @@ function orientEventToFollowedSchool(event) {
     teamId: followedSchoolId,
     team: school?.name || event.team,
     opponent: opponentSchool?.name || canonicalOpponent || event.opponent,
-    home: isHome
+    home: isHome,
+    presentationStatus: window.LocalBleachersLive?.getPresentationStatus?.(
+      followedSchoolId,
+      event.sport,
+      event.gender
+    ) || event.presentationStatus || null
   };
 }
 
