@@ -15,6 +15,35 @@ const COLLEGE_BOOTSTRAP_SEASON = "2026";
 const STANDINGS_SPORTS = new Set(["football", "volleyball"]);
 const TEAM_STATUS_BATCH_MAX = 32;
 
+const LEGACY_PUBLIC_SCHOOL_ID_ALIASES = new Map([
+  ["maumelle", "df-xpb38v"],
+  ["north little rock", "df-hrdb8f"],
+  ["nlr", "df-hrdb8f"],
+  ["morrilton", "df-wlwrfa"],
+  ["morrilton senior", "df-wlwrfa"]
+]);
+
+function publicSchoolAliasKey(value) {
+  return normalizeSchoolAlias(String(value ?? "").replace(/-/g, " "));
+}
+
+export function canonicalPublicSchoolId(schoolId) {
+  const requested = String(schoolId ?? "").trim();
+  if (!requested) return "";
+  return LEGACY_PUBLIC_SCHOOL_ID_ALIASES.get(publicSchoolAliasKey(requested)) || requested;
+}
+
+function resolveRequestedSchoolIds(schoolIds = []) {
+  const resolutions = schoolIds.map(requestedSchoolId => ({
+    requested_school_id: requestedSchoolId,
+    school_id: canonicalPublicSchoolId(requestedSchoolId)
+  }));
+  return {
+    resolutions,
+    canonicalSchoolIds: [...new Set(resolutions.map(row => row.school_id).filter(Boolean))]
+  };
+}
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -443,8 +472,9 @@ function requestedSchoolIds(url) {
 }
 
 async function batchTeamStatuses(env, schoolIds = []) {
-  if (!schoolIds.length) return { school_ids: [], team_statuses: [] };
-  const placeholders = schoolIds.map(() => "?").join(",");
+  if (!schoolIds.length) return { school_ids: [], resolved_school_ids: [], school_id_resolutions: [], team_statuses: [] };
+  const { resolutions, canonicalSchoolIds } = resolveRequestedSchoolIds(schoolIds);
+  const placeholders = canonicalSchoolIds.map(() => "?").join(",");
 
   const teamSeedResult = await env.DB.prepare(`
     SELECT
@@ -458,7 +488,7 @@ async function batchTeamStatuses(env, schoolIds = []) {
     LEFT JOIN team_records r ON r.team_id=t.id
     WHERE t.school_id IN (${placeholders}) AND t.active=1 AND t.season='2026'
     ORDER BY t.school_id,t.sport,t.gender,t.id
-  `).bind(...schoolIds).all();
+  `).bind(...canonicalSchoolIds).all();
 
   const result = await env.DB.prepare(`
     SELECT
@@ -501,7 +531,7 @@ async function batchTeamStatuses(env, schoolIds = []) {
     WHERE t.school_id IN (${placeholders}) AND t.active=1 AND t.season='2026'
       AND ${currentScheduleTruthSql("g","src")}
     ORDER BY t.school_id,t.sport,t.gender,COALESCE(ce.scheduled_at,g.scheduled_at)
-  `).bind(...schoolIds).all();
+  `).bind(...canonicalSchoolIds).all();
 
   const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
   const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows);
@@ -511,12 +541,18 @@ async function batchTeamStatuses(env, schoolIds = []) {
   const teamStatuses = await buildUnifiedTeamStatuses(env, statusRows);
 
   console.log("batched team presentation status read", {
-    schools: schoolIds.length,
+    requestedSchools: schoolIds.length,
+    schools: canonicalSchoolIds.length,
     teamStatuses: teamStatuses.length,
     rowsRead: Number(result.meta?.rows_read || 0) + Number(teamSeedResult.meta?.rows_read || 0),
     rowsWritten: Number(result.meta?.rows_written || 0) + Number(teamSeedResult.meta?.rows_written || 0)
   });
-  return { school_ids: schoolIds, team_statuses: teamStatuses };
+  return {
+    school_ids: schoolIds,
+    resolved_school_ids: canonicalSchoolIds,
+    school_id_resolutions: resolutions,
+    team_statuses: teamStatuses
+  };
 }
 
 async function teamStatusesResponse(env, url) {
@@ -526,11 +562,13 @@ async function teamStatusesResponse(env, url) {
 }
 
 async function localSchoolSchedule(request, env, schoolId, { requiredLevel = null } = {}) {
+  const requestedSchoolId = String(schoolId || "");
+  const canonicalSchoolId = canonicalPublicSchoolId(requestedSchoolId);
   const school = await env.DB.prepare(`
     SELECT id,name,level,catalog_scope
     FROM schools
     WHERE id=?
-  `).bind(schoolId).first();
+  `).bind(canonicalSchoolId).first();
 
   if (!school || school.catalog_scope !== "local") return null;
   if (requiredLevel && school.level !== requiredLevel) return null;
@@ -547,7 +585,7 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     LEFT JOIN team_records r ON r.team_id=t.id
     WHERE t.school_id=? AND t.active=1 AND t.season='2026'
     ORDER BY t.sport,t.gender,t.id
-  `).bind(schoolId).all();
+  `).bind(canonicalSchoolId).all();
 
   const result = await env.DB.prepare(`
     SELECT
@@ -590,18 +628,19 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     WHERE t.school_id=? AND t.active=1 AND t.season='2026'
       AND ${currentScheduleTruthSql("g","src")}
     ORDER BY t.sport,t.gender,COALESCE(ce.scheduled_at,g.scheduled_at)
-  `).bind(schoolId).all();
+  `).bind(canonicalSchoolId).all();
 
   const authorityRows = (result.results || []).filter(row => Number(row.authority_row) === 1);
-  const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: schoolId });
-  const displayedRows = dedupeSchoolScheduleRows(conferenceRows.map(row => resolvedGameForSchool(row, schoolId)), schoolId);
+  const conferenceRows = await attachEffectiveConferenceGames(env, authorityRows, { reportingSchoolId: canonicalSchoolId });
+  const displayedRows = dedupeSchoolScheduleRows(conferenceRows.map(row => resolvedGameForSchool(row, canonicalSchoolId)), canonicalSchoolId);
   const resolvedRows = attachScheduleDerivedRecords(displayedRows);
   const statusRows = mergeTeamStatusSeeds(resolvedRows, teamSeedResult.results || []);
   const teamStatuses = await buildUnifiedTeamStatuses(env, statusRows);
   const games = resolvedRows;
 
   console.log("school schedule read", {
-    schoolId,
+    requestedSchoolId,
+    schoolId: canonicalSchoolId,
     schoolLevel: school.level,
     games: games.length,
     teamStatuses: teamStatuses.length,
@@ -610,7 +649,13 @@ async function localSchoolSchedule(request, env, schoolId, { requiredLevel = nul
     durationMs: (Number(result.meta?.duration || 0) || 0) + (Number(teamSeedResult.meta?.duration || 0) || 0) || null
   });
 
-  return json({ schoolId, schoolLevel: school.level, games, team_statuses: teamStatuses });
+  return json({
+    schoolId: requestedSchoolId,
+    canonicalSchoolId,
+    schoolLevel: school.level,
+    games,
+    team_statuses: teamStatuses
+  });
 }
 
 async function collegeSchoolSchedule(request, env, schoolId) {
