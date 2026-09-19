@@ -76,7 +76,9 @@ test("home refresh primes canonical truth for every nearby school represented on
   assert.match(live, /presentationSchoolIdsForGames/);
   assert.match(live, /canonical_home_school_id/);
   assert.match(live, /canonical_away_school_id/);
-  assert.match(live, /primePresentationStatuses/);
+  assert.match(live, /fetchPresentationStatusSnapshot/);
+  assert.match(live, /replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
+  assert.match(live, /if \(requestId !== state\.nearbyRequest\) return state\.nearbyCount;[\s\S]*replaceCanonicalPresentationStatuses\(presentationStatuses\)/);
   assert.match(live, /offset \+= 8/);
   assert.match(live, /\/api\/v1\/team-statuses\?/);
   assert.match(live, /getPresentationStatus/);
