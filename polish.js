@@ -35,6 +35,17 @@ function getTeamStatus(event){
   const unified = event?.presentationStatus || window.LocalBleachersLive?.getPresentationStatus?.(event.teamId, event.sport, event.gender);
   const factual = window.LocalBleachersPresentation?.teamStatus?.(unified);
   if (factual) return factual;
+  const requiresPresentationTruth = event?.level === "high-school"
+    && ["football","volleyball","basketball"].includes(String(event?.sport || "").toLowerCase());
+  if (requiresPresentationTruth) {
+    return {
+      overall:"—",
+      conference:"—",
+      standing:"—",
+      conferenceName:event.conferenceName || "Conference"
+    };
+  }
+
   const record = event.record || null;
   if (record) {
     const conferenceGames = Number(record.conference_wins || 0) + Number(record.conference_losses || 0) + Number(record.conference_ties || 0);
