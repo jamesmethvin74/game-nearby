@@ -54,51 +54,15 @@ function orientEventToFollowedSchool(event) {
   };
 }
 
-const FALL_FEATURED_SPORT_PRIORITY = Object.freeze({
-  football: 0,
-  volleyball: 1,
-  soccer: 2
-});
-
-function featuredEventForSchool(candidates) {
-  if (!candidates.length) return null;
-
-  // Treat the presence of an upcoming fall sport as the season signal instead
-  // of hard-coding calendar cutover dates. While fall sports are active, the
-  // featured card hierarchy is Football > Volleyball > Soccer. Once no fall
-  // sport remains in the visible Upcoming window, winter takes over and
-  // Basketball is always first.
-  const fallCandidates = candidates.filter(event =>
-    Object.hasOwn(FALL_FEATURED_SPORT_PRIORITY, String(event.sport || "").toLowerCase())
-  );
-
-  if (fallCandidates.length) {
-    return [...fallCandidates].sort((a, b) => {
-      const sportDelta =
-        FALL_FEATURED_SPORT_PRIORITY[String(a.sport || "").toLowerCase()]
-        - FALL_FEATURED_SPORT_PRIORITY[String(b.sport || "").toLowerCase()];
-      if (sportDelta) return sportDelta;
-      return new Date(a.date) - new Date(b.date);
-    })[0];
-  }
-
-  const basketball = candidates
-    .filter(event => String(event.sport || "").toLowerCase() === "basketball")
-    .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-  return basketball[0] || candidates[0];
-}
-
 function featuredEventsFor(visible) {
   const featured = [];
   const usedEventIds = new Set();
 
   for (const schoolId of followed) {
-    const candidates = visible.filter(event => {
+    const nextForSchool = visible.find(event => {
       const ids = event.schoolIds || [event.teamId];
       return ids.includes(schoolId) && !usedEventIds.has(event.id);
     });
-    const nextForSchool = featuredEventForSchool(candidates);
     if (!nextForSchool) continue;
     featured.push(nextForSchool);
     usedEventIds.add(nextForSchool.id);

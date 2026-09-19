@@ -102,6 +102,43 @@
     return dialog;
   }
 
+  const FALL_SCHEDULE_SPORT_PRIORITY = Object.freeze({
+    football: 0,
+    volleyball: 1,
+    soccer: 2
+  });
+  const WINTER_SCHEDULE_SPORT_PRIORITY = Object.freeze({
+    basketball: 0
+  });
+
+  function scheduleSeason(now = new Date()) {
+    const month = now.getMonth();
+    if (month >= 7 && month <= 10) return "fall";
+    if (month === 11 || month <= 1) return "winter";
+    return "other";
+  }
+
+  function scheduleGroupRank(group, season) {
+    const sport = String(group.sport || "").toLowerCase();
+    if (season === "fall") {
+      return Object.hasOwn(FALL_SCHEDULE_SPORT_PRIORITY, sport)
+        ? FALL_SCHEDULE_SPORT_PRIORITY[sport]
+        : sport === "basketball" ? 10 : 20;
+    }
+    if (season === "winter") {
+      return Object.hasOwn(WINTER_SCHEDULE_SPORT_PRIORITY, sport)
+        ? WINTER_SCHEDULE_SPORT_PRIORITY[sport]
+        : Object.hasOwn(FALL_SCHEDULE_SPORT_PRIORITY, sport)
+          ? 10 + FALL_SCHEDULE_SPORT_PRIORITY[sport]
+          : 20;
+    }
+    return sport === "basketball"
+      ? 0
+      : Object.hasOwn(FALL_SCHEDULE_SPORT_PRIORITY, sport)
+        ? 10 + FALL_SCHEDULE_SPORT_PRIORITY[sport]
+        : 20;
+  }
+
   function groupsFor(all) {
     const groups = [];
     const seen = new Set();
@@ -109,11 +146,18 @@
       const key = keyFor(event);
       if (!seen.has(key)) {
         seen.add(key);
-        groups.push({ key, sport: event.sport, gender: event.gender || "" });
+        groups.push({ key, sport: event.sport, gender: event.gender || "", sourceOrder: groups.length });
       }
     });
-    if (!groups.length && state.sport) groups.push({ key: `${state.sport}|${state.gender || ""}`, sport: state.sport, gender: state.gender || "" });
-    return groups;
+    if (!groups.length && state.sport) {
+      groups.push({ key: `${state.sport}|${state.gender || ""}`, sport: state.sport, gender: state.gender || "", sourceOrder: 0 });
+    }
+
+    const season = scheduleSeason();
+    return groups.sort((a, b) => {
+      const rankDelta = scheduleGroupRank(a, season) - scheduleGroupRank(b, season);
+      return rankDelta || a.sourceOrder - b.sourceOrder;
+    });
   }
 
   function renderDetail() {

@@ -172,14 +172,17 @@ test("home Upcoming view is near-term and cards show an unambiguous calendar dat
 });
 
 
-test("featured schedule cards follow seasonal sport hierarchy", () => {
-  assert.match(follow, /const FALL_FEATURED_SPORT_PRIORITY = Object\.freeze\(\{/);
-  assert.match(follow, /football:\s*0/);
-  assert.match(follow, /volleyball:\s*1/);
-  assert.match(follow, /soccer:\s*2/);
-  assert.match(follow, /function featuredEventForSchool\(candidates\)/);
-  assert.match(follow, /if \(fallCandidates\.length\)/);
-  assert.match(follow, /String\(event\.sport \|\| ""\)\.toLowerCase\(\) === "basketball"/);
-  assert.match(follow, /return basketball\[0\] \|\| candidates\[0\]/);
-  assert.match(follow, /const nextForSchool = featuredEventForSchool\(candidates\)/);
+test("home featured cards stay chronological while Team Schedule tabs carry the sport hierarchy", () => {
+  assert.doesNotMatch(follow, /FALL_FEATURED_SPORT_PRIORITY/);
+  assert.doesNotMatch(follow, /featuredEventForSchool/);
+  assert.match(follow, /const nextForSchool = visible\.find\(event =>/);
+
+  assert.match(detail, /const FALL_SCHEDULE_SPORT_PRIORITY = Object\.freeze\(\{/);
+  assert.match(detail, /football:\s*0/);
+  assert.match(detail, /volleyball:\s*1/);
+  assert.match(detail, /soccer:\s*2/);
+  assert.match(detail, /const WINTER_SCHEDULE_SPORT_PRIORITY = Object\.freeze\(\{/);
+  assert.match(detail, /basketball:\s*0/);
+  assert.match(detail, /function scheduleSeason\(now = new Date\(\)\)/);
+  assert.match(detail, /return groups\.sort\(\(a, b\) =>/);
 });
