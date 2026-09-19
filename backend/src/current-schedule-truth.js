@@ -1,13 +1,28 @@
 export const DRAGONFLY_STATEWIDE_REMOVED_NOTE = "Removed from current statewide DragonFly schedule";
 export const PRESENTATION_SUPPRESSED_NOTE = "Excluded from current LocalBleachers presentation";
+export const RESULT_ONLY_PARSERS = Object.freeze(["mascot-media","rankone-public"]);
 
-export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") => `NOT (
+export function isResultOnlyObservationSource(source = {}) {
+  const sourceType = String(source.source_type || "").trim().toLowerCase();
+  const parserType = String(source.parser_type || "").trim().toLowerCase();
+  return sourceType === "official-school" && RESULT_ONLY_PARSERS.includes(parserType);
+}
+
+export const resultOnlySourceSql = (sourceAlias = "src") => `NOT (
+  LOWER(COALESCE(${sourceAlias}.source_type,''))='official-school'
+  AND LOWER(COALESCE(${sourceAlias}.parser_type,'')) IN ('mascot-media','rankone-public')
+)`;
+
+export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") => `(
+  ${resultOnlySourceSql(sourceAlias)}
+  AND NOT (
   (
     ${sourceAlias}.collection_mode='statewide'
     AND ${sourceAlias}.parser_type='dragonfly-public'
     AND instr(COALESCE(${gameAlias}.notes,''),'${DRAGONFLY_STATEWIDE_REMOVED_NOTE}')>0
   )
   OR instr(COALESCE(${gameAlias}.notes,''),'${PRESENTATION_SUPPRESSED_NOTE}')>0
+  )
 )`;
 
 export function hasRetiredStatewideMarker(game = {}) {

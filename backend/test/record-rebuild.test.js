@@ -34,9 +34,9 @@ test("record rebuild combines canonical and school-feed finals without double co
   const built = buildRecordsFromInputs({teams,canonicals,raw});
   assert.equal(built.length,1);
   assert.deepEqual(built[0].record,{
-    wins:2,losses:1,ties:0,
+    wins:1,losses:1,ties:0,
     conference_wins:0,conference_losses:1,conference_ties:0,
-    scored_finals:3
+    scored_finals:2
   });
 });
 
@@ -61,12 +61,12 @@ test("record rebuild recovers an ordinary canonical final carrying a legacy bare
     id:"ce-searcy",reporting_team_id:"batesville-football-2026",sport:"football",gender:"boys",season:"2026",
     home_school_id:"batesville",away_school_id:"searcy",home_name:"Batesville High School Charter",away_name:"Searcy High School",
     scheduled_at:"2026-08-29T00:00:00.000Z",status:"FINAL",home_score:13,away_score:54,conference_game:0,counts_for_record:0,
-    member_source_type:"official-school",member_parser_type:"mascot-media",member_notes:null,trust_state:"AUTHORITATIVE_LIVE"
+    member_source_type:"official-conference",member_parser_type:"dragonfly-public",member_notes:null,trust_state:"AUTHORITATIVE_LIVE"
   },{
     id:"ce-newport",reporting_team_id:"batesville-football-2026",sport:"football",gender:"boys",season:"2026",
     home_school_id:"newport",away_school_id:"batesville",home_name:"The Academies At Newport High School",away_name:"Batesville High School Charter",
     scheduled_at:"2026-09-05T00:00:00.000Z",status:"FINAL",home_score:13,away_score:16,conference_game:0,counts_for_record:0,
-    member_source_type:"official-school",member_parser_type:"mascot-media",member_notes:null,trust_state:"AUTHORITATIVE_LIVE"
+    member_source_type:"official-conference",member_parser_type:"dragonfly-public",member_notes:null,trust_state:"AUTHORITATIVE_LIVE"
   }];
   const [built]=buildRecordsFromInputs({teams,canonicals,raw:[]});
   assert.equal(built.record.wins,1);
@@ -100,4 +100,16 @@ test("a canonical final involving the school does not count without membership f
     conference_wins:0,conference_losses:0,conference_ties:0,
     scored_finals:0
   });
+});
+
+test("result-only school feeds never create standalone record wins", () => {
+  const teams=[{id:"pea-ridge-football-2026",school_id:"pea-ridge",sport:"football",gender:"boys",season:"2026",conference_id:"5a-west"}];
+  const raw=[{
+    id:"mascot-jv",team_id:"pea-ridge-football-2026",school_id:"pea-ridge",opponent:"Gentry High School",opponent_school_id:"gentry",
+    scheduled_at:"2026-09-02T00:00:00.000Z",status:"FINAL",team_score:48,opponent_score:13,conference_game:0,counts_for_record:1,
+    source_type:"official-school",parser_type:"mascot-media"
+  }];
+  const [built]=buildRecordsFromInputs({teams,canonicals:[],raw});
+  assert.equal(built.record.scored_finals,0);
+  assert.equal(built.record.wins,0);
 });

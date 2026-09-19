@@ -1,7 +1,7 @@
 import { observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { normalizeFinalResultTruth, sanitizeFinalForCanonical } from "./final-result-truth.js";
 
-import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
+import { isResultOnlyObservationSource, suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 function localDateKey(iso,timeZone="America/Chicago") {
   if (!iso) return "";
   const date=new Date(iso);
@@ -133,6 +133,12 @@ export async function reconcileResolvedObservation(env,gameId) {
       seed.reporting_school_id,seed.opponent_school_id,seed.opponent_school_id,seed.reporting_school_id,seed.scheduled_at,seed.scheduled_at).all();
   const related=relatedObservationsForReconciliation(seed,candidates,{timeZone});
   if(!related.length) return null;
+
+  // Mascot Media and RankOne are result observations only. They can supply
+  // a score to an independently scheduled event, but cannot create a varsity
+  // schedule event by themselves.
+  if (!related.some(observation => !isResultOnlyObservationSource(observation))) return null;
+
   const canonicalEvidence=related.map(sanitizeFinalForCanonical);
   let resolved;
   try { resolved=resolveCanonicalEvent(canonicalEvidence,{timeZone}); }
