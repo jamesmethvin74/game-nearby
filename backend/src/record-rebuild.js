@@ -84,7 +84,7 @@ function upsertRecordStatement(env, teamId, record, calculatedAt) {
     );
 }
 
-async function loadRecordInputs(env, { teamIds = null } = {}) {
+export async function loadRecordInputs(env, { teamIds = null } = {}) {
   const scopedTeamIds = teamIds?.length ? [...new Set(teamIds.filter(Boolean))] : null;
   const teamIdsJson = scopedTeamIds ? JSON.stringify(scopedTeamIds) : null;
   const metaContext = { scopedTeamCount: scopedTeamIds?.length ?? null };
