@@ -40,9 +40,9 @@ test("standings factual release advances the PWA shell", async () => {
   const sw = await read("service-worker.js");
 
   assert.match(html, /standings\.js\?v=71/);
-  assert.match(html, /runtime-build\.js\?v=71/);
-  assert.match(html, /presentation-status\.js\?v=71/);
+  assert.match(html, /runtime-build\\.js\\?v=72/);
+  assert.match(html, /presentation-status\\.js\\?v=71/);
   assert.match(html, /standings-favorites\.css\?v=67/);
-  assert.match(sw, /localbleachersar-shell-v71/);
+  assert.match(sw, /localbleachersar-shell-v72/);
   assert.match(sw, /\.\/standings-favorites\.css/);
 });
