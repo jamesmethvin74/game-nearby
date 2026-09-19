@@ -18,5 +18,5 @@ test("frontend consumes backend team-status presentation before embedded record 
   assert.doesNotMatch(polish, /const TEAM_STATUS/);
   assert.match(polish, /LocalBleachersLive\?\.getTeamStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
-  assert.ok(polish.indexOf("if (factual) return factual") < polish.indexOf("const record = event.record || null"));
+  assert.ok(polish.indexOf("if (factual) return factual") < polish.indexOf("const requiresPresentationTruth"));\n  assert.ok(polish.indexOf("const requiresPresentationTruth") < polish.indexOf("const record = event.record || null"));
 });
