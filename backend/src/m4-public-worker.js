@@ -440,14 +440,18 @@ export async function buildUnifiedTeamStatuses(env, games = []) {
         : "not-started";
     }
 
-    status.display_overall_record = row.display_overall_record
-      ?? row.published_overall_record
-      ?? status.overall_record
-      ?? null;
-    status.display_conference_record = row.display_conference_record
-      ?? row.published_conference_record
-      ?? status.conference_record
-      ?? (status.conference_id || status.conference_name ? "0-0" : null);
+    status.display_overall_record = status.record_verified && status.overall_record
+      ? status.overall_record
+      : row.display_overall_record
+        ?? row.published_overall_record
+        ?? status.overall_record
+        ?? null;
+    status.display_conference_record = status.record_verified
+      ? (status.conference_record ?? (status.conference_id || status.conference_name ? "0-0" : null))
+      : row.display_conference_record
+        ?? row.published_conference_record
+        ?? status.conference_record
+        ?? (status.conference_id || status.conference_name ? "0-0" : null);
     status.display_rank = row.display_rank
       ?? row.published_rank
       ?? status.rank
