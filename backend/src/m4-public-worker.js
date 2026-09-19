@@ -8,10 +8,12 @@ import { findPublishedConferenceMembership } from "./published-standings.js";
 import { loadStandingsTruth } from "./standings-truth.js";
 import { attachEffectiveConferenceGames } from "./conference-game-inference.js";
 import { currentScheduleTruthSql } from "./current-schedule-truth.js";
+import { executeResultOnlyRecordRepair } from "./result-only-record-repair.js";
 
 const LEGACY_VOLLEYBALL_SUFFIX = "-volleyball-2026";
 const COLLEGE_BOOTSTRAP_PATH = "/api/v1/m4/college-bootstrap";
 const COLLEGE_BOOTSTRAP_SEASON = "2026";
+const RESULT_ONLY_RECORD_REBUILD_PATH = "/api/v1/internal/result-only-record-rebuild";
 const STANDINGS_SPORTS = new Set(["football", "volleyball"]);
 const TEAM_STATUS_BATCH_MAX = 32;
 
@@ -662,6 +664,15 @@ async function collegeSchoolSchedule(request, env, schoolId) {
   return localSchoolSchedule(request, env, schoolId, { requiredLevel: "college" });
 }
 
+async function runResultOnlyRecordRebuild(request, env) {
+  if (!authorizedWrite(request, env)) return privateJson({ error:"not_found" }, 404);
+  try {
+    return privateJson(await executeResultOnlyRecordRepair(env));
+  } catch (error) {
+    return privateJson({ error:"result_only_record_rebuild_failed", detail:String(error?.message || error) }, 500);
+  }
+}
+
 async function runCollegeBootstrap(request, env, ctx) {
   if (!authorizedWrite(request, env)) return privateJson({ error:"not_found" }, 404);
   const result = await runScopedCadence({
@@ -681,6 +692,9 @@ async function runCollegeBootstrap(request, env, ctx) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (request.method === "POST" && url.pathname === RESULT_ONLY_RECORD_REBUILD_PATH) {
+      return runResultOnlyRecordRebuild(request, env);
+    }
     if (request.method === "POST" && url.pathname === COLLEGE_BOOTSTRAP_PATH) {
       return runCollegeBootstrap(request, env, ctx);
     }
@@ -713,5 +727,7 @@ export {
   localSchoolId,
   localSchoolSchedule,
   resolvedGameForSchool,
-  runCollegeBootstrap
+  runCollegeBootstrap,
+  runResultOnlyRecordRebuild,
+  RESULT_ONLY_RECORD_REBUILD_PATH
 };
