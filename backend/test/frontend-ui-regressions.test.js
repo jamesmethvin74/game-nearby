@@ -87,3 +87,9 @@ test("nearby game refresh carries factual presentation status into front cards b
   assert.match(live, /applyNearbyGames\(payload\.games, presentationStatuses\)/);
   assert.match(polishSource, /event\?\.presentationStatus/);
 });
+
+test("home card fallback record formatting is self-contained", async () => {
+  const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.match(polishSource, /function recordLabel\(/);
+  assert.match(polishSource, /overall: recordLabel\(/);
+});
