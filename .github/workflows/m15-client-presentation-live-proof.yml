@@ -17,32 +17,113 @@ concurrency:
 jobs:
   prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Resolve live production school IDs
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Full repository check
+        working-directory: backend
+        run: npm run check
+      - name: Prove live factual client and alias presentation
         shell: bash
         run: |
           set -euo pipefail
+          APP="https://jamesmethvin74.github.io/game-nearby"
           API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl -fsS --max-time 20 "$API/api/v1/schools" -o schools.json
-          python - <<'PY'
-          import json
-          p=json.load(open("schools.json",encoding="utf-8"))
-          schools=p.get("schools",[])
-          targets=("maumelle","north little rock","morrilton","conway")
-          print("LIVE_SCHOOL_ID_RESOLUTION")
-          for target in targets:
-              matches=[]
-              for s in schools:
-                  hay=" ".join(str(s.get(k) or "") for k in ("id","name","location_matched_name","city","mascot")).lower()
-                  if target in hay:
-                      matches.append({
-                        "id":s.get("id"),
-                        "name":s.get("name"),
-                        "location_matched_name":s.get("location_matched_name"),
-                        "city":s.get("city"),
-                        "catalog_scope":s.get("catalog_scope"),
-                        "team_count":s.get("team_count")
-                      })
-              print(target, json.dumps(matches, sort_keys=True))
-          PY
+
+          curl -fsS --max-time 20 "$APP/runtime-build.js?proof=${GITHUB_SHA}" -o runtime.js
+          curl -fsS --max-time 20 "$APP/?proof=${GITHUB_SHA}" -o index.html
+          curl -fsS --max-time 20 "$APP/standings.js?proof=${GITHUB_SHA}" -o standings.js
+          curl -fsS --max-time 20 "$APP/school-schedule.js?proof=${GITHUB_SHA}" -o schedule.js
+          curl -fsS --max-time 20 "$APP/presentation-status.js?proof=${GITHUB_SHA}" -o presentation.js
+
+          grep -q 'm15-presentation-v71' runtime.js
+          grep -q 'runtime-build.js?v=71' index.html
+          grep -q 'LocalBleachersPresentation' standings.js
+          grep -q 'school_id_resolutions' schedule.js
+          grep -q 'display_overall_record' presentation.js
+          ! grep -q 'Published standings are available only as evidence' standings.js
+
+          curl -fsS --max-time 30 "$API/api/v1/standings?sport=volleyball&conference=6a-central&proof=${GITHUB_SHA}" -o standings.json
+          curl -fsS --max-time 30 "$API/api/v1/schools/maumelle/schedule?proof=${GITHUB_SHA}" -o maumelle.json
+          curl -fsS --max-time 30 "$API/api/v1/schools/north-little-rock/schedule?proof=${GITHUB_SHA}" -o nlr.json
+          curl -fsS --max-time 30 "$API/api/v1/schools/morrilton/schedule?proof=${GITHUB_SHA}" -o morrilton.json
+          curl -fsS --max-time 30 "$API/api/v1/team-statuses?school_ids=maumelle%2Cnorth-little-rock%2Cmorrilton%2Cconway&proof=${GITHUB_SHA}" -o batch.json
+
+          node <<'JS'
+          const fs=require("fs");
+          const vm=require("vm");
+          const load=p=>JSON.parse(fs.readFileSync(p,"utf8"));
+          const standings=load("standings.json");
+          const maumelle=load("maumelle.json");
+          const nlr=load("nlr.json");
+          const morrilton=load("morrilton.json");
+          const batch=load("batch.json");
+
+          const expected={
+            "Conway":["9-4","4-0",1],
+            "Cabot":["13-4-2","4-1",2],
+            "Bryant":["7-5","3-1",3],
+            "Jonesboro":["3-5-3","2-2",4],
+            "Central":["4-6","1-3",5],
+            "North Little Rock":["2-9-1","1-3",6],
+            "Little Rock Southwest":["1-9","0-5",7]
+          };
+          const rows=new Map((standings.standings||[]).map(r=>[r.school_name,r]));
+          for(const [name,[overall,conf,rank]] of Object.entries(expected)){
+            const r=rows.get(name);
+            if(!r) throw new Error("missing 6A row "+name);
+            if(r.display_overall_record!==overall||r.display_conference_record!==conf||Number(r.display_rank)!==rank) throw new Error("wrong 6A row "+name+" "+JSON.stringify(r));
+          }
+          if(standings.conference?.presentation_complete!==true) throw new Error("6A presentation incomplete");
+
+          const status=(payload,sport)=>{
+            const row=(payload.team_statuses||[]).find(s=>s.sport===sport);
+            if(!row) throw new Error("missing "+sport+" status for "+payload.schoolId);
+            return row;
+          };
+          if(maumelle.schoolId!=="maumelle"||maumelle.canonicalSchoolId!=="df-xpb38v") throw new Error("Maumelle alias resolution failed "+JSON.stringify({schoolId:maumelle.schoolId,canonicalSchoolId:maumelle.canonicalSchoolId}));
+          if(nlr.schoolId!=="north-little-rock"||nlr.canonicalSchoolId!=="df-hrdb8f") throw new Error("NLR alias resolution failed");
+          if(morrilton.schoolId!=="morrilton"||morrilton.canonicalSchoolId!=="df-wlwrfa") throw new Error("Morrilton alias resolution failed");
+
+          const mf=status(maumelle,"football");
+          const mv=status(maumelle,"volleyball");
+          const nv=status(nlr,"volleyball");
+          if(mf.display_overall_record!=="0-3"||mf.display_conference_record!=="0-0") throw new Error("Maumelle football presentation wrong "+JSON.stringify(mf));
+          if(mv.display_overall_record!=="3-7"||mv.display_conference_record!=="1-7"||Number(mv.display_rank)!==8) throw new Error("Maumelle volleyball presentation wrong "+JSON.stringify(mv));
+          if(nv.display_overall_record!=="2-9-1"||nv.display_conference_record!=="1-3"||Number(nv.display_rank)!==6) throw new Error("NLR volleyball presentation wrong "+JSON.stringify(nv));
+
+          const mr=(morrilton.team_statuses||[]).filter(s=>s.display_overall_record);
+          if(!mr.length) throw new Error("Morrilton has no factual display status "+JSON.stringify(morrilton.team_statuses||[]));
+
+          const resolutions=new Map((batch.school_id_resolutions||[]).map(r=>[r.requested_school_id,r.school_id]));
+          const wanted={maumelle:"df-xpb38v","north-little-rock":"df-hrdb8f",morrilton:"df-wlwrfa",conway:"conway"};
+          for(const [requested,canonical] of Object.entries(wanted)){
+            if(resolutions.get(requested)!==canonical) throw new Error("batch alias resolution failed "+requested+" -> "+resolutions.get(requested));
+          }
+          const batchStatuses=batch.team_statuses||[];
+          for(const canonical of Object.values(wanted)){
+            if(!batchStatuses.some(s=>s.school_id===canonical)) throw new Error("batch missing school "+canonical);
+          }
+
+          const context={window:{}};
+          vm.createContext(context);
+          vm.runInContext(fs.readFileSync("presentation.js","utf8"),context);
+          const shownFootball=context.window.LocalBleachersPresentation.teamStatus(mf);
+          const shownVolleyball=context.window.LocalBleachersPresentation.teamStatus(mv);
+          if(shownFootball.overall!=="0-3"||shownFootball.conference!=="0-0"||shownFootball.standing!=="—") throw new Error("Maumelle football client display wrong "+JSON.stringify(shownFootball));
+          if(shownVolleyball.overall!=="3-7"||shownVolleyball.conference!=="1-7"||shownVolleyball.standing!=="#8") throw new Error("Maumelle volleyball client display wrong "+JSON.stringify(shownVolleyball));
+
+          const nlrBenefit=(nlr.games||[]).find(g=>g.sport==="football" && /Joe T Robinson/i.test(String(g.opponent||"")) && String(g.scheduled_at||"")<"2026-08-27");
+          if(nlrBenefit) throw new Error("preseason NLR/Joe T Robinson leaked into presentation "+JSON.stringify(nlrBenefit));
+
+          console.log("LIVE_PRESENTATION_PROOF_OK");
+          console.log("6A Central",Object.fromEntries([...rows].filter(([name])=>expected[name]).map(([name,r])=>[name,[r.display_overall_record,r.display_conference_record,r.display_rank]])));
+          console.log("Maumelle football",shownFootball);
+          console.log("Maumelle volleyball",shownVolleyball);
+          console.log("NLR volleyball",{overall:nv.display_overall_record,conference:nv.display_conference_record,standing:"#"+nv.display_rank});
+          console.log("Morrilton factual statuses",mr.map(s=>({sport:s.sport,overall:s.display_overall_record,conference:s.display_conference_record,rank:s.display_rank,method:s.display_method})));
+          console.log("Batch resolutions",Object.fromEntries(resolutions));
+          JS
