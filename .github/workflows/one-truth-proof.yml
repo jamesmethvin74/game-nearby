@@ -1,4 +1,5 @@
 name: ONE_TRUTH_TB proof
+# rerun after complete conference/rank derivation
 
 on:
   push:
@@ -161,6 +162,8 @@ jobs:
 
           if(cs.display_overall_record!==conwayRecord.overall) throw new Error('Conway status != schedule');
           if(cs.display_conference_record!==conwayRecord.conference) throw new Error('Conway conference status != schedule');
+          if(cs.display_conference_record!=='4-0') throw new Error('Conway canonical conference record is not 4-0');
+          if(cs.display_rank!==1) throw new Error('Conway canonical rank is not #1');
           if(!cStanding||cStanding.display_overall_record!==cs.display_overall_record||cStanding.display_conference_record!==cs.display_conference_record||cStanding.display_rank!==cs.display_rank) throw new Error('Conway standings != status');
           if(cNearby && (`${cNearby.wins}-${cNearby.losses}`!==cs.display_overall_record || cNearby.rank!==cs.display_rank)) throw new Error('Conway nearby != status');
 

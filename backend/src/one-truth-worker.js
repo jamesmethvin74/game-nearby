@@ -275,7 +275,7 @@ async function oneTruthBootstrapBatch(env, url) {
 async function oneTruthAudit(env) {
   if (Date.now()>ONE_SHOT_EXPIRES_AT) return json({error:"expired"},410);
   await ensureOneTruthSchema(env);
-  const [coverage,resultOnly,recordMismatch]=await Promise.all([
+  const [coverage,resultOnly,recordMismatch,conferenceMismatch,rankMismatch]=await Promise.all([
     env.DB.prepare(`
       SELECT
         (SELECT COUNT(*) FROM teams t JOIN schools s ON s.id=t.school_id
@@ -315,12 +315,60 @@ async function oneTruthAudit(env) {
           OR COALESCE(t.conference_losses,0)<>COALESCE(a.cl,0)
           OR COALESCE(t.conference_ties,0)<>COALESCE(a.ct,0)
         )
+    `).first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ${TABLE} g
+      JOIN teams ot
+        ON ot.school_id=g.opponent_school_id
+       AND ot.sport=g.sport
+       AND ot.gender=g.gender
+       AND ot.season=g.season
+       AND ot.active=1
+      LEFT JOIN conference_memberships ocm ON ocm.team_id=ot.id
+      WHERE g.row_type='GAME'
+        AND g.conference_membership_state='member'
+        AND g.conference_id IS NOT NULL
+        AND COALESCE(ocm.conference_id,ot.conference_id)=g.conference_id
+        AND COALESCE(g.conference_game,0)<>1
+    `).first(),
+    env.DB.prepare(`
+      WITH base AS (
+        SELECT team_id,conference_id,sport,gender,season,rank,
+          COALESCE(conference_wins,0) AS cw,
+          COALESCE(conference_losses,0) AS cl,
+          COALESCE(conference_ties,0) AS ct,
+          SUM(COALESCE(conference_scored_finals,0)) OVER (
+            PARTITION BY conference_id,sport,gender,season
+          ) AS cohort_games
+        FROM ${TABLE}
+        WHERE row_type='TEAM'
+          AND conference_membership_state='member'
+          AND conference_id IS NOT NULL
+      ),
+      ranked AS (
+        SELECT team_id,rank,
+          CASE WHEN cohort_games=0 THEN NULL ELSE
+            RANK() OVER (
+              PARTITION BY conference_id,sport,gender,season
+              ORDER BY
+                CASE WHEN (cw+cl+ct)>0 THEN (CAST(cw AS REAL)+0.5*ct)/(cw+cl+ct) ELSE 0 END DESC,
+                cw DESC,cl ASC,ct ASC
+            )
+          END AS expected_rank
+        FROM base
+      )
+      SELECT COUNT(*) AS count
+      FROM ranked
+      WHERE rank IS NOT expected_rank
     `).first()
   ]);
   const problems={
     missing_team_rows:Math.max(0,Number(coverage?.active_teams||0)-Number(coverage?.truth_teams||0)),
     result_only_games:Number(resultOnly?.count||0),
-    record_mismatches:Number(recordMismatch?.count||0)
+    record_mismatches:Number(recordMismatch?.count||0),
+    conference_flag_mismatches:Number(conferenceMismatch?.count||0),
+    rank_mismatches:Number(rankMismatch?.count||0)
   };
   return json({
     status:Object.values(problems).some(Boolean)?"FAIL":"PASS",

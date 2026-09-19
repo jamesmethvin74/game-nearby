@@ -33,3 +33,11 @@ test("records in ONE_TRUTH_TB are calculated only from visible countable finals"
   assert.match(truth,/overall_record:record\.scored_finals \? recordText/);
   assert.match(truth,/conference_record:team\.conference_id/);
 });
+
+
+test("ONE_TRUTH_TB conference truth does not depend on rebuild batch composition",()=>{
+  assert.match(truth,/COALESCE\(ocm\.conference_id,ot\.conference_id\) AS opponent_conference_id/);
+  assert.match(truth,/row\.opponent_conference_id/);
+  assert.match(truth,/refreshRanksForCohorts\(env, summaries\)/);
+  assert.doesNotMatch(truth,/rankSummaries\(summaries\);/);
+});
