@@ -11,7 +11,9 @@ test("statewide data-integrity audit is protected, manual, all-team, and read-on
   assert.match(worker, /!authorizedAudit\(request,env\)/);
   assert.match(worker, /buildStatewideDataIntegrityAudit\(env,\{season:"2026",sampleLimit:\d+\}\)/);
   assert.match(worker, /"cache-control":"no-store"/);
-  assert.doesNotMatch(worker, /access-control-allow-origin/);
+  assert.match(worker, /url\.pathname\.startsWith\("\/api\/v1\/internal\/"\)\) return response/);
+  assert.match(worker, /url\.pathname\.startsWith\("\/api\/v1\/internal\/"\)\) return null/);
+  assert.match(worker, /headers\.set\("access-control-allow-origin","\*"\)/);
 
   assert.match(audit, /WHERE t\.active=1 AND t\.season=\? AND sch\.catalog_scope='local'/);
   assert.match(audit, /visible_games AS/);
