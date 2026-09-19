@@ -18,7 +18,7 @@ test("standings defaults to football and persists the last viewed sport/conferen
   assert.match(js, /localStorage\.setItem\(LAST_SPORT_KEY, selectedSport\)/);
   assert.match(js, /\[selectedSport\]: selectedConference/);
   assert.match(html, /data-value="football"/);
-  assert.match(html, /id="standingsSportValue">Football</);
+  assert.match(html, /id="standingsSportValue">Football/);
 });
 
 test("standings supports persisted sport+conference favorites below the live card", async () => {
@@ -31,7 +31,7 @@ test("standings supports persisted sport+conference favorites below the live car
   assert.match(js, /toggleCurrentFavorite/);
   assert.match(js, /openFavorite/);
   assert.match(html, /id="standingsFavoriteToggle"/);
-  assert.match(html, /id="favoriteStandingsTitle">My Standings</);
+  assert.match(html, /id="favoriteStandingsTitle">My Standings/);
   assert.match(html, /id="favoriteStandingsGrid"/);
 });
 
@@ -40,8 +40,8 @@ test("standings factual release advances the PWA shell", async () => {
   const sw = await read("service-worker.js");
 
   assert.match(html, /standings\.js\?v=71/);
-  assert.match(html, /runtime-build\\.js\\?v=72/);
-  assert.match(html, /presentation-status\\.js\\?v=71/);
+  assert.match(html, /runtime-build\.js\?v=72/);
+  assert.match(html, /presentation-status\.js\?v=71/);
   assert.match(html, /standings-favorites\.css\?v=67/);
   assert.match(sw, /localbleachersar-shell-v72/);
   assert.match(sw, /\.\/standings-favorites\.css/);
