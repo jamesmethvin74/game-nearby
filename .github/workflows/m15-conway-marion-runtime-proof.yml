@@ -34,7 +34,7 @@ jobs:
           const page = await context.newPage();
           const clean = v => String(v || '').replace(/\s+/g,' ').trim();
 
-          await page.goto(process.env.BASE_URL + '/?cmproof=76', {waitUntil:'domcontentloaded', timeout:45000});
+          await page.goto(process.env.BASE_URL + '/?cmproof=76final', {waitUntil:'domcontentloaded', timeout:45000});
           await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v76', null, {timeout:45000});
           await page.waitForFunction(() => typeof SCHOOL_REGISTRY !== 'undefined' && SCHOOL_REGISTRY.some(s => /Marion High School/i.test(String(s.name||''))), null, {timeout:45000});
           await page.waitForFunction(() => window.LocalBleachersLive?.getState?.().nearbyLoadedAt, null, {timeout:45000});
