@@ -1,5 +1,6 @@
 import app from "./team-read-worker.js";
 import { currentScheduleTruthSql } from "./current-schedule-truth.js";
+import { officialSeasonScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
 
 const MAX_SCORES_WINDOW_MS = 72 * 60 * 60 * 1000;
 const MAX_SCORES_ROWS = 500;
@@ -64,6 +65,42 @@ function resolvedNearbyGame(row) {
     data_trust:row.data_trust||"SINGLE_SOURCE_LIVE",
     conflict_count:Number(row.conflict_count||0)
   };
+}
+
+async function collegeFirstVerifiedFinalTimes(env, games = []) {
+  const teamIds=[...new Set((games || [])
+    .filter(game=>String(game.level || "").toLowerCase()==="college")
+    .map(game=>String(game.team_id || "").trim())
+    .filter(Boolean))];
+
+  if (!teamIds.length) return new Map();
+
+  const {results}=await env.DB.prepare(`
+    SELECT g.team_id, MIN(g.scheduled_at) AS first_verified_final_at
+    FROM games g
+    JOIN teams t ON t.id=g.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    JOIN sources src ON src.id=g.source_id
+    WHERE g.team_id IN (SELECT value FROM json_each(?))
+      AND sch.level='college'
+      AND g.status='FINAL'
+      AND g.team_score IS NOT NULL
+      AND g.opponent_score IS NOT NULL
+      AND ${currentScheduleTruthSql("g","src")}
+      AND NOT (
+        g.counts_for_record=0
+        AND LOWER(COALESCE(src.parser_type,'')) IN ('sidearm','dragonfly-public')
+      )
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%scrimmage%'
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%exhibition%'
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%jamboree%'
+      AND LOWER(COALESCE(g.notes,'')) NOT LIKE '%benefit game%'
+    GROUP BY g.team_id
+  `).bind(JSON.stringify(teamIds)).all();
+
+  return new Map((results || [])
+    .filter(row=>row.team_id && row.first_verified_final_at)
+    .map(row=>[String(row.team_id),row.first_verified_final_at]));
 }
 
 function dateRange(url, { defaultPastHours = 6, defaultFutureDays = 30 } = {}) {
@@ -141,6 +178,15 @@ async function nearbyGames(request, env, url) {
     games=games.map(game=>({...game,distance_miles:haversineMiles(lat,lon,finiteNumber(game.latitude),finiteNumber(game.longitude))}))
       .filter(game=>game.distance_miles!=null&&game.distance_miles<=radius);
   }
+
+  // This is the production /api/v1/games presentation gate. Team Schedule and
+  // Home/Nearby must consume the same regular-season truth contract.
+  games=officialSeasonScheduleRows(games);
+  const firstFinals=await collegeFirstVerifiedFinalTimes(env,games);
+  games=games.filter(game=>!rowIsCollegePreseasonGhost(game,{
+    firstVerifiedFinalAt:firstFinals.get(String(game.team_id || ""))
+  }));
+
   console.log("canonical nearby read", {
     games:games.length,
     geo:useGeo,

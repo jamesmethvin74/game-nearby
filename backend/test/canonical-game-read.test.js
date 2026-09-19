@@ -44,3 +44,12 @@ test("nearby numeric helpers reject missing values instead of treating them as z
   assert.equal(finiteNumber("34.75"),34.75);
   assert.ok(haversineMiles(35.09,-92.44,35.10,-92.45) < 2);
 });
+
+
+test("canonical /games source enforces the shared regular-season presentation contract", () => {
+  const source=fs.readFileSync(new URL("../src/canonical-game-read-worker.js",import.meta.url),"utf8");
+  assert.match(source,/officialSeasonScheduleRows\(games\)/);
+  assert.match(source,/collegeFirstVerifiedFinalTimes\(env,games\)/);
+  assert.match(source,/rowIsCollegePreseasonGhost/);
+  assert.match(source,/Team Schedule and[\s\S]*Home\/Nearby must consume the same regular-season truth contract/);
+});

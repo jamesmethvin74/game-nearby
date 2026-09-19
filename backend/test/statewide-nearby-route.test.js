@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import worker from "../src/worker.js";
+import worker from "../src/m8-final-audit-worker.js";
 
 function d1FromSqlite(db){
   const prepare=sql=>{
@@ -26,13 +26,13 @@ function applyMigrations(db){
   for (const file of fs.readdirSync(migrations).filter(name=>name.endsWith(".sql")).sort()) db.exec(fs.readFileSync(`${migrations}/${file}`,"utf8"));
 }
 
-function seedScopedEvent(db,{prefix,homeName,awayName,latitude,longitude,scope="local",active=1}){
+function seedScopedEvent(db,{prefix,homeName,awayName,latitude,longitude,scope="local",active=1,scheduled="2026-09-10T23:00:00.000Z",countsForRecord=1}){
   const now="2026-08-31T20:00:00.000Z";
   const home=`${prefix}-home`,away=`${prefix}-away`;
   const homeTeam=`${home}-volleyball-2026`,awayTeam=`${away}-volleyball-2026`;
   const homeSource=`${homeTeam}-dragonfly`,awaySource=`${awayTeam}-dragonfly`;
-  const canonical=`ce:volleyball:girls:2026:${away}:${home}:20260910:df-${prefix}`;
-  const scheduled="2026-09-10T23:00:00.000Z";
+  const dateKey=scheduled.slice(0,10).replace(/-/g,"");
+  const canonical=`ce:volleyball:girls:2026:${away}:${home}:${dateKey}:df-${prefix}`;
   const schoolInsert=db.prepare(`INSERT INTO schools(id,name,city,state,level,latitude,longitude,catalog_scope,membership_source,membership_verified_at,updated_at)
     VALUES(?,?,?,'AR','high-school',?,?,?,'arkansas-gis',?,?)`);
   schoolInsert.run(home,homeName,homeName.replace(/ High School$/,""),latitude,longitude,scope,now,now);
@@ -46,9 +46,9 @@ function seedScopedEvent(db,{prefix,homeName,awayName,latitude,longitude,scope="
     VALUES(?,'volleyball','girls','2026',?,?,?,?,?,1,?,?,?, ?,0,'SCHEDULED',?,'CORROBORATED',0,'{}',?,?)`)
     .run(canonical,[home,away].sort()[0],[home,away].sort()[1],home,away,scheduled,homeName,homeName,latitude,longitude,homeSource,now,now);
   const gameInsert=db.prepare(`INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,1,'SCHEDULED','https://example.test/dragonfly',?,?,?,?)`);
-  gameInsert.run(`${homeSource}:native:${prefix}`,homeTeam,homeSource,`native:${prefix}`,awayName,away,scheduled,1,homeName,homeName,latitude,longitude,"home",now,now,now,canonical);
-  gameInsert.run(`${awaySource}:native:${prefix}`,awayTeam,awaySource,`native:${prefix}`,homeName,home,scheduled,1,homeName,homeName,latitude,longitude,"away",now,now,now,canonical);
+    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,'SCHEDULED','https://example.test/dragonfly',?,?,?,?)`);
+  gameInsert.run(`${homeSource}:native:${prefix}`,homeTeam,homeSource,`native:${prefix}`,awayName,away,scheduled,1,homeName,homeName,latitude,longitude,"home",countsForRecord,now,now,now,canonical);
+  gameInsert.run(`${awaySource}:native:${prefix}`,awayTeam,awaySource,`native:${prefix}`,homeName,home,scheduled,1,homeName,homeName,latitude,longitude,"away",countsForRecord,now,now,now,canonical);
   return {canonical,homeTeam,home,away};
 }
 
@@ -85,4 +85,34 @@ test("public school and team routes enforce catalog scope",async()=>{
 
   const hiddenTeamResponse=await worker.fetch(new Request(`https://local.test/api/v1/teams/${hidden.homeTeam}`),env,{});
   assert.equal(hiddenTeamResponse.status,404);
+});
+
+
+test("actual deployed /games chain excludes preseason and explicit non-record high-school rows",async()=>{
+  const db=new DatabaseSync(":memory:");
+  applyMigrations(db);
+  seedScopedEvent(db,{
+    prefix:"preseason-boundary",
+    homeName:"Boundary High School",
+    awayName:"Boundary Opponent High School",
+    latitude:35.1,
+    longitude:-92.4,
+    scheduled:"2026-08-17T23:00:00.000Z",
+    countsForRecord:1
+  });
+  seedScopedEvent(db,{
+    prefix:"explicit-nonrecord",
+    homeName:"Nonrecord High School",
+    awayName:"Nonrecord Opponent High School",
+    latitude:35.1,
+    longitude:-92.4,
+    scheduled:"2026-09-10T23:00:00.000Z",
+    countsForRecord:0
+  });
+  const env={DB:d1FromSqlite(db)};
+  const request=new Request("https://local.test/api/v1/games?lat=35.1&lon=-92.4&radius=5&since=2026-08-01T00:00:00.000Z&until=2026-09-20T00:00:00.000Z");
+  const response=await worker.fetch(request,env,{});
+  assert.equal(response.status,200);
+  const body=await response.json();
+  assert.deepEqual(body.games,[]);
 });
