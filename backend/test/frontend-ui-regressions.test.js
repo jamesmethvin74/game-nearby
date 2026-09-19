@@ -65,3 +65,25 @@ test("team detail renders the unified backend record and standings contract", as
   assert.match(detail, /LocalBleachersPresentation/);
   assert.match(schoolSchedule, /team_statuses/);
 });
+
+
+test("front cards expose the in-app schedule and results action without provider branding", async () => {
+  const reference = await readFile(new URL("../../reference-layout.js", import.meta.url), "utf8");
+  const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.match(reference, /View schedule &amp; results/);
+  assert.match(reference, /event-main team-detail-trigger/);
+  assert.match(reference, /data-team-id=/);
+  assert.doesNotMatch(reference, /source-row/);
+  assert.doesNotMatch(reference, /MaxPreps schedule/);
+  assert.doesNotMatch(polishSource, /MaxPreps schedule/);
+  assert.match(detail, /document\.addEventListener\("keydown"/);
+});
+
+test("nearby game refresh carries factual presentation status into front cards before render", async () => {
+  const polishSource = await readFile(new URL("../../polish.js", import.meta.url), "utf8");
+  assert.match(live, /fetchNearbyPresentationStatuses/);
+  assert.match(live, /\/api\/v1\/team-statuses\?/);
+  assert.match(live, /presentationStatus:/);
+  assert.match(live, /applyNearbyGames\(payload\.games, presentationStatuses\)/);
+  assert.match(polishSource, /event\?\.presentationStatus/);
+});
