@@ -6,6 +6,7 @@ const TRAILING_STATE_QUALIFIER_RE = /\s*\((?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID
 const GENERIC_SCHOOL_QUALIFIER_RE = /\b(?:senior|sr)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
 const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet the cats)\b/i;
+const EXPLICIT_COUNT_FLAG_PARSERS = new Set(["dragonfly-public","sidearm"]);
 
 const FOOTBALL_NON_GAME_STATUSES = new Set(["CANCELED","CANCELLED","POSTPONED"]);
 const DISPLAY_TERMINAL_STATUSES = new Set(["FINAL","CANCELED","CANCELLED","POSTPONED"]);
@@ -49,7 +50,8 @@ export function highSchoolOfficialSeasonBoundary(row = {}) {
 
 export function rowIsOfficialSeasonContest(row = {}, { timeZone="America/Chicago" } = {}) {
   if (row.countsForRecord === false) return false;
-  if (Number(row.counts_for_record) === 0 && clean(row.parser_type).toLowerCase() === "dragonfly-public") return false;
+  const parserType=clean(row.parser_type).toLowerCase();
+  if (Number(row.counts_for_record) === 0 && EXPLICIT_COUNT_FLAG_PARSERS.has(parserType)) return false;
   const descriptiveText=[row.notes,row.opponent,row.venue,row.location_text]
     .map(clean)
     .filter(Boolean)
@@ -64,8 +66,54 @@ export function rowIsOfficialSeasonContest(row = {}, { timeZone="America/Chicago
   return !localDate || localDate >= boundary;
 }
 
+function collegeScheduleGroupKey(row = {}) {
+  return [
+    clean(row.reporting_team_id || row.team_id || row.school_id),
+    clean(row.sport).toLowerCase(),
+    clean(row.gender).toLowerCase(),
+    clean(row.season)
+  ].join("|");
+}
+
+function terminalScheduleStatus(row = {}) {
+  return DISPLAY_TERMINAL_STATUSES.has(clean(row.status).toUpperCase());
+}
+
+function verifiedScoredFinal(row = {}) {
+  if (clean(row.status).toUpperCase() !== "FINAL") return false;
+  if (row.team_score == null || row.opponent_score == null) return false;
+  return evaluateFinalResultTruth(row).state === "VERIFIED";
+}
+
+function removeCollegePreseasonGhostRows(rows = []) {
+  const firstVerifiedFinalByGroup = new Map();
+
+  for (const row of rows) {
+    if (clean(row.level).toLowerCase() !== "college" || !verifiedScoredFinal(row)) continue;
+    const when=Date.parse(row.scheduled_at || row.canonical_scheduled_at);
+    if (!Number.isFinite(when)) continue;
+    const key=collegeScheduleGroupKey(row);
+    const current=firstVerifiedFinalByGroup.get(key);
+    if (current == null || when < current) firstVerifiedFinalByGroup.set(key,when);
+  }
+
+  return rows.filter(row => {
+    if (clean(row.level).toLowerCase() !== "college") return true;
+    const firstFinal=firstVerifiedFinalByGroup.get(collegeScheduleGroupKey(row));
+    if (firstFinal == null) return true;
+
+    const when=Date.parse(row.scheduled_at || row.canonical_scheduled_at);
+    if (!Number.isFinite(when) || when >= firstFinal) return true;
+    if (terminalScheduleStatus(row)) return true;
+    if (row.team_score != null || row.opponent_score != null || clean(row.result)) return true;
+
+    return false;
+  });
+}
+
 export function officialSeasonScheduleRows(rows = [], options = {}) {
-  return (Array.isArray(rows)?rows:[]).filter(row=>rowIsOfficialSeasonContest(row,options));
+  const official=(Array.isArray(rows)?rows:[]).filter(row=>rowIsOfficialSeasonContest(row,options));
+  return removeCollegePreseasonGhostRows(official);
 }
 
 function clean(value) {
