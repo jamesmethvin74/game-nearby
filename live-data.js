@@ -123,7 +123,26 @@
     };
   }
 
-  function mapApiGame(game, school = null, recordOverride = null) {
+  function presentationStatusKey(schoolId, sport, gender) {
+    return `${String(schoolId || "")}|${String(sport || "").toLowerCase()}|${String(gender || "").toLowerCase()}`;
+  }
+
+  async function fetchNearbyPresentationStatuses(games = []) {
+    const schoolIds = [...new Set(games.map(game => game?.school_id).filter(Boolean))];
+    const statuses = new Map();
+    for (let offset = 0; offset < schoolIds.length; offset += 32) {
+      const chunk = schoolIds.slice(offset, offset + 32);
+      if (!chunk.length) continue;
+      const params = new URLSearchParams({ school_ids: chunk.join(",") });
+      const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`, 15000);
+      for (const status of Array.isArray(payload?.team_statuses) ? payload.team_statuses : []) {
+        statuses.set(presentationStatusKey(status.school_id, status.sport, status.gender), status);
+      }
+    }
+    return statuses;
+  }
+
+  function mapApiGame(game, school = null, recordOverride = null, presentationStatuses = null) {
     const schoolId = school?.id || game.school_id;
     const schoolName = school?.name || game.school_name || "Arkansas school";
     const schoolIds = [...new Set([
@@ -150,6 +169,7 @@
       sourceType: game.source_type || "",
       parserType: game.parser_type || "",
       record,
+      presentationStatus: presentationStatuses?.get(presentationStatusKey(schoolId, game.sport, game.gender)) || null,
       conferenceName: record?.conference_name || game.conference_name || null,
       teamId: schoolId,
       schoolIds,
@@ -176,11 +196,11 @@
     };
   }
 
-  function applyNearbyGames(games) {
+  function applyNearbyGames(games, presentationStatuses = new Map()) {
     if (!Array.isArray(games)) return false;
     const mapped = games
       .filter(game => game && (game.scheduled_at || game.canonical_scheduled_at))
-      .map(game => mapApiGame(game))
+      .map(game => mapApiGame(game, null, null, presentationStatuses))
       .filter(game => Number.isFinite(game.lat) && Number.isFinite(game.lon));
 
     nearbyEvents.splice(0, nearbyEvents.length, ...mapped);
@@ -210,7 +230,14 @@
       const payload = await fetchJson(`/api/v1/games?${params.toString()}`);
       if (requestId !== state.nearbyRequest) return state.nearbyCount;
       if (!Array.isArray(payload?.games)) throw new Error("API returned no games array");
-      applyNearbyGames(payload.games);
+      let presentationStatuses = new Map();
+      try {
+        presentationStatuses = await fetchNearbyPresentationStatuses(payload.games);
+      } catch (statusError) {
+        console.warn("Nearby presentation status refresh failed; rendering games without status", statusError);
+      }
+      if (requestId !== state.nearbyRequest) return state.nearbyCount;
+      applyNearbyGames(payload.games, presentationStatuses);
       return state.nearbyCount;
     } catch (error) {
       if (requestId !== state.nearbyRequest) return state.nearbyCount;
