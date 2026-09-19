@@ -2,6 +2,10 @@ import app from "./m8-worker.js";
 import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 
 const TABLE = oneTruthTableName();
+const BOOTSTRAP_PATH = "/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e";
+const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e";
+const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T03:00:00Z");
+const BOOTSTRAP_BATCH = 32;
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -239,6 +243,95 @@ async function nearbyTeamIds(env, url) {
   return results.map(row=>String(row.team_id||"")).filter(Boolean);
 }
 
+async function oneTruthBootstrapBatch(env, url) {
+  if (Date.now()>ONE_SHOT_EXPIRES_AT) return json({error:"expired"},410);
+  await ensureOneTruthSchema(env);
+  const after=String(url.searchParams.get("after")||"");
+  const {results=[]}=await env.DB.prepare(`
+    SELECT t.id
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id
+    WHERE t.active=1
+      AND t.season='2026'
+      AND sch.catalog_scope='local'
+      AND t.id>?
+    ORDER BY t.id
+    LIMIT ?
+  `).bind(after,BOOTSTRAP_BATCH).all();
+  const teamIds=results.map(row=>String(row.id||"")).filter(Boolean);
+  if(!teamIds.length) return json({status:"SUCCESS",done:true,after,teams:0,truth_table:TABLE});
+  const refresh=await rebuildOneTruth(env,{teamIds});
+  const next=teamIds[teamIds.length-1];
+  return json({
+    status:"SUCCESS",
+    done:teamIds.length<BOOTSTRAP_BATCH,
+    next_after:next,
+    teams:teamIds.length,
+    refresh,
+    truth_table:TABLE
+  });
+}
+
+async function oneTruthAudit(env) {
+  if (Date.now()>ONE_SHOT_EXPIRES_AT) return json({error:"expired"},410);
+  await ensureOneTruthSchema(env);
+  const [coverage,resultOnly,recordMismatch]=await Promise.all([
+    env.DB.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM teams t JOIN schools s ON s.id=t.school_id
+          WHERE t.active=1 AND t.season='2026' AND s.catalog_scope='local') AS active_teams,
+        (SELECT COUNT(*) FROM ${TABLE} WHERE row_type='TEAM') AS truth_teams,
+        (SELECT COUNT(*) FROM ${TABLE} WHERE row_type='GAME') AS truth_games
+    `).first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ${TABLE}
+      WHERE row_type='GAME'
+        AND LOWER(COALESCE(parser_type,'')) IN ('mascot-media','rankone-public')
+        AND LOWER(COALESCE(source_type,''))='official-school'
+    `).first(),
+    env.DB.prepare(`
+      WITH agg AS (
+        SELECT team_id,
+          SUM(CASE WHEN status='FINAL' AND counts_for_record<>0 AND team_score IS NOT NULL AND opponent_score IS NOT NULL AND team_score>opponent_score THEN 1 ELSE 0 END) AS wins,
+          SUM(CASE WHEN status='FINAL' AND counts_for_record<>0 AND team_score IS NOT NULL AND opponent_score IS NOT NULL AND team_score<opponent_score THEN 1 ELSE 0 END) AS losses,
+          SUM(CASE WHEN status='FINAL' AND counts_for_record<>0 AND team_score IS NOT NULL AND opponent_score IS NOT NULL AND team_score=opponent_score THEN 1 ELSE 0 END) AS ties,
+          SUM(CASE WHEN status='FINAL' AND counts_for_record<>0 AND conference_game=1 AND team_score IS NOT NULL AND opponent_score IS NOT NULL AND team_score>opponent_score THEN 1 ELSE 0 END) AS cw,
+          SUM(CASE WHEN status='FINAL' AND counts_for_record<>0 AND conference_game=1 AND team_score IS NOT NULL AND opponent_score IS NOT NULL AND team_score<opponent_score THEN 1 ELSE 0 END) AS cl,
+          SUM(CASE WHEN status='FINAL' AND counts_for_record<>0 AND conference_game=1 AND team_score IS NOT NULL AND opponent_score IS NOT NULL AND team_score=opponent_score THEN 1 ELSE 0 END) AS ct
+        FROM ${TABLE}
+        WHERE row_type='GAME'
+        GROUP BY team_id
+      )
+      SELECT COUNT(*) AS count
+      FROM ${TABLE} t
+      LEFT JOIN agg a ON a.team_id=t.team_id
+      WHERE t.row_type='TEAM'
+        AND (
+          COALESCE(t.overall_wins,0)<>COALESCE(a.wins,0)
+          OR COALESCE(t.overall_losses,0)<>COALESCE(a.losses,0)
+          OR COALESCE(t.overall_ties,0)<>COALESCE(a.ties,0)
+          OR COALESCE(t.conference_wins,0)<>COALESCE(a.cw,0)
+          OR COALESCE(t.conference_losses,0)<>COALESCE(a.cl,0)
+          OR COALESCE(t.conference_ties,0)<>COALESCE(a.ct,0)
+        )
+    `).first()
+  ]);
+  const problems={
+    missing_team_rows:Math.max(0,Number(coverage?.active_teams||0)-Number(coverage?.truth_teams||0)),
+    result_only_games:Number(resultOnly?.count||0),
+    record_mismatches:Number(recordMismatch?.count||0)
+  };
+  return json({
+    status:Object.values(problems).some(Boolean)?"FAIL":"PASS",
+    truth_table:TABLE,
+    active_teams:Number(coverage?.active_teams||0),
+    truth_teams:Number(coverage?.truth_teams||0),
+    truth_games:Number(coverage?.truth_games||0),
+    problems
+  },Object.values(problems).some(Boolean)?409:200);
+}
+
 async function nearbyGames(env, url) {
   const lat=Number(url.searchParams.get("lat"));
   const lon=Number(url.searchParams.get("lon"));
@@ -436,6 +529,8 @@ export default {
     const url=new URL(request.url);
     const path=url.pathname;
 
+    if (request.method==="POST" && path===BOOTSTRAP_PATH) return oneTruthBootstrapBatch(env,url);
+    if (request.method==="GET" && path===AUDIT_PATH) return oneTruthAudit(env);
     if (request.method!=="GET") return app.fetch(request,env,ctx);
 
     const usesTruth =
@@ -497,4 +592,4 @@ export default {
   }
 };
 
-export { TABLE as ONE_TRUTH_TABLE };
+export { TABLE as ONE_TRUTH_TABLE, BOOTSTRAP_PATH, AUDIT_PATH, ONE_SHOT_EXPIRES_AT };
