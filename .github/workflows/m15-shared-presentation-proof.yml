@@ -40,7 +40,7 @@ jobs:
           try {
             await page.goto(base + '/?sharedproof=75a', { waitUntil:'domcontentloaded', timeout:45000 });
             await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, { timeout:45000 });
-            await page.waitForFunction(() => Array.isArray(window.SCHOOL_REGISTRY) && window.SCHOOL_REGISTRY.length > 100, null, { timeout:45000 });
+            await page.waitForFunction(() => typeof SCHOOL_REGISTRY !== 'undefined' && Array.isArray(SCHOOL_REGISTRY) && SCHOOL_REGISTRY.length > 100, null, { timeout:45000 });
 
             const chosen = await page.evaluate(() => {
               const wanted = [
@@ -49,7 +49,7 @@ jobs:
                 /Morrilton.*High School/i,
                 /North Little Rock High School/i
               ];
-              const rows = window.SCHOOL_REGISTRY || [];
+              const rows = typeof SCHOOL_REGISTRY !== 'undefined' ? SCHOOL_REGISTRY : [];
               return wanted.map(rx => rows.find(s => rx.test(String(s.name || '')))?.id).filter(Boolean);
             });
             if (!chosen.includes('conway')) chosen.unshift('conway');
