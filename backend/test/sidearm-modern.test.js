@@ -56,3 +56,13 @@ test("modern Sidearm parser honors an explicit neutral modifier",()=>{
   assert.equal(game.homeAway,"neutral");
   assert.equal(game.latitude,null);
 });
+
+
+test("modern Sidearm parser detects non-counting descriptors anywhere in the event row",()=>{
+  const scrimmage=normalizeModernSidearmHtml(row({date:"Aug 20",opponent:"Purple & Gray Scrimmage",result:"6:00 PM CDT",promo:"",id:"12398"}),soccer)[0];
+  assert.equal(scrimmage.countsForRecord,0);
+  assert.match(scrimmage.notes,/scrimmage/i);
+
+  const benefit=normalizeModernSidearmHtml(row({date:"Aug 21",opponent:"Opponent",result:"6:00 PM CDT",promo:"Benefit Game",id:"12399"}),soccer)[0];
+  assert.equal(benefit.countsForRecord,0);
+});
