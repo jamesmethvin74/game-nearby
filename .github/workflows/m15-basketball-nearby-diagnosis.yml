@@ -10,59 +10,70 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  prove:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Inspect production nearby basketball rows and team schedules
-        shell: bash
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Prove basketball is hidden from near-term Upcoming and dates are explicit
+        env:
+          BASE_URL: https://jamesmethvin74.github.io/game-nearby
         run: |
-          set -euo pipefail
-          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          cat > proof.mjs <<'NODE'
+          import { chromium } from 'playwright';
+          const browser = await chromium.launch({headless:true});
+          const context = await browser.newContext({viewport:{width:430,height:932}});
+          const page = await context.newPage();
+          const followed=['aaa-3qbpwe','aaa-2qzd2q','conway'];
+          const clean=v=>String(v||'').replace(/\s+/g,' ').trim();
 
-          curl -fsS "$BASE/api/v1/schools" > /tmp/schools.json
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const p=JSON.parse(fs.readFileSync('/tmp/schools.json','utf8'));
-          const wanted=/Bradford High School|Gurdon High School|Conway High School/i;
-          const rows=(p.schools||[]).filter(s=>wanted.test(String(s.name||''))||wanted.test(String(s.location_matched_name||'')));
-          console.log("BB_SCHOOLS="+JSON.stringify(rows.map(s=>({id:s.id,name:s.name,display:s.location_matched_name,level:s.level}))));
-          fs.writeFileSync('/tmp/ids.json',JSON.stringify(rows));
-          JS
+          try {
+            await page.goto(process.env.BASE_URL + '/?basketball-proof=v78',{waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v78', null, {timeout:45000});
+            await page.evaluate(ids=>localStorage.setItem('followedTeams',JSON.stringify(ids)), followed);
+            await page.reload({waitUntil:'domcontentloaded',timeout:45000});
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v78', null, {timeout:45000});
+            await page.waitForFunction(() => window.LocalBleachersLive?.getState?.().nearbyLoadedAt, null, {timeout:45000});
+            await page.waitForTimeout(750);
 
-          curl -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=25&since=2026-09-19T00:00:00.000Z&until=2026-10-05T00:00:00.000Z" > /tmp/games.json
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          const p=JSON.parse(fs.readFileSync('/tmp/games.json','utf8'));
-          const rows=(p.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='basketball');
-          console.log("BB_NEARBY="+JSON.stringify(rows.map(g=>({
-            id:g.id,canonical_event_id:g.canonical_event_id,school_id:g.school_id,school_name:g.school_name,
-            sport:g.sport,gender:g.gender,season:g.season,scheduled_at:g.scheduled_at,canonical_scheduled_at:g.canonical_scheduled_at,
-            opponent:g.opponent,home_away:g.home_away,status:g.status,canonical_status:g.canonical_status,
-            source_id:g.source_id,source_type:g.source_type,parser_type:g.parser_type,authority_rank:g.authority_rank,
-            notes:g.notes,canonical_home_school_id:g.canonical_home_school_id,canonical_away_school_id:g.canonical_away_school_id
-          }))));
-          JS
+            const upcoming = await page.evaluate(() => [...document.querySelectorAll('.event-card .team-detail-trigger')].map(t=>({
+              teamId:t.dataset.teamId,
+              sport:t.dataset.sport,
+              gender:t.dataset.gender,
+              text:String(t.closest('.event-card')?.innerText||'').replace(/\s+/g,' ').trim()
+            })));
+            const badUpcoming = upcoming.filter(x=>['aaa-3qbpwe','aaa-2qzd2q','conway'].includes(x.teamId) && x.sport==='basketball');
+            console.log('BB_UPCOMING='+JSON.stringify({count:upcoming.length,badUpcoming}));
+            if (badUpcoming.length) throw new Error('Far-future basketball leaked into Upcoming: '+JSON.stringify(badUpcoming));
 
-          node --input-type=module <<'JS'
-          import fs from 'node:fs';
-          import {execFileSync} from 'node:child_process';
-          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
-          const rows=JSON.parse(fs.readFileSync('/tmp/ids.json','utf8'));
-          for(const s of rows){
-            const url=`${base}/api/v1/schools/${encodeURIComponent(s.id)}/schedule`;
-            const body=execFileSync('curl',['-fsS',url],{encoding:'utf8'});
-            const p=JSON.parse(body);
-            const games=(p.games||[]).filter(g=>String(g.sport||'').toLowerCase()==='basketball');
-            console.log("BB_SCHEDULE="+JSON.stringify({
-              school:{id:s.id,name:s.name,display:s.location_matched_name},
-              team_statuses:(p.team_statuses||[]).filter(x=>String(x.sport||'').toLowerCase()==='basketball'),
-              games:games.map(g=>({
-                id:g.id,canonical_event_id:g.canonical_event_id,sport:g.sport,gender:g.gender,scheduled_at:g.scheduled_at,
-                canonical_scheduled_at:g.canonical_scheduled_at,opponent:g.opponent,home_away:g.home_away,status:g.status,
-                source_id:g.source_id,source_type:g.source_type,parser_type:g.parser_type,authority_rank:g.authority_rank,
-                notes:g.notes,canonical_home_school_id:g.canonical_home_school_id,canonical_away_school_id:g.canonical_away_school_id
-              }))
-            }));
+            await page.evaluate(() => {
+              const input=document.querySelector('#datePicker');
+              input.value='2026-12-08';
+              input.dispatchEvent(new Event('change',{bubbles:true}));
+            });
+            await page.waitForTimeout(250);
+            const picked = await page.evaluate(() => [...document.querySelectorAll('.event-card .team-detail-trigger')].map(t=>({
+              teamId:t.dataset.teamId,
+              sport:t.dataset.sport,
+              gender:t.dataset.gender,
+              text:String(t.closest('.event-card')?.innerText||'').replace(/\s+/g,' ').trim()
+            })));
+            const basketball=picked.filter(x=>x.sport==='basketball');
+            console.log('BB_PICKED_DEC8='+JSON.stringify(basketball));
+            if (!basketball.some(x=>x.teamId==='aaa-3qbpwe' && x.gender==='girls' && /Dec 8/.test(x.text))) {
+              throw new Error('Bradford Dec 8 girls basketball card missing explicit date');
+            }
+            if (!basketball.some(x=>x.teamId==='conway' && x.gender==='boys' && /Dec 8/.test(x.text))) {
+              throw new Error('Conway Dec 8 boys basketball card missing explicit date');
+            }
+          } finally {
+            await browser.close();
           }
-          JS
+          NODE
+          node proof.mjs
