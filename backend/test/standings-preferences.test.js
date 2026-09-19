@@ -43,6 +43,6 @@ test("standings factual release advances the PWA shell", async () => {
   assert.match(html, /runtime-build\.js\?v=73/);
   assert.match(html, /presentation-status\.js\?v=71/);
   assert.match(html, /standings-favorites\.css\?v=67/);
-  assert.match(sw, /localbleachersar-shell-v73/);
+  assert.match(sw, /localbleachersar-shell-v74/);
   assert.match(sw, /\.\/standings-favorites\.css/);
 });
