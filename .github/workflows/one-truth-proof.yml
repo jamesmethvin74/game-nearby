@@ -127,6 +127,11 @@ jobs:
 
           const conwayRecord=recordFromGames(conway.games||[],'volleyball','girls');
           const peaRecord=recordFromGames(pea.games||[],'football','boys');
+          console.log('CONWAY_VB_FINALS='+JSON.stringify((conway.games||[])
+            .filter(g=>g.sport==='volleyball'&&g.gender==='girls'&&String(g.status||'').toUpperCase()==='FINAL')
+            .map(g=>({date:g.scheduled_at,opponent:g.opponent,opponent_school_id:g.opponent_school_id,
+              conference_game:g.conference_game,conference_id:g.conference_id,result:g.result,
+              team_score:g.team_score,opponent_score:g.opponent_score}))));
 
           const cStanding=(conwayStandings.standings||[]).find(r=>r.school_id==='conway'||/Conway/i.test(String(r.school_name||'')));
           const pStanding=(peaStandings.standings||[]).find(r=>r.school_id==='df-7x4sxh'||/Pea Ridge/i.test(String(r.school_name||'')));
