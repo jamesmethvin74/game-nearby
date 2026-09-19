@@ -1,4 +1,4 @@
-import app from "./m8-worker.js";
+import app from "./one-truth-worker.js";
 import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
