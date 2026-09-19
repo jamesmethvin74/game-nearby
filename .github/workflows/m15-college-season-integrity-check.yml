@@ -1,0 +1,26 @@
+name: M15 college season integrity check
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/m15-college-season-integrity-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Backend check
+        working-directory: backend
+        run: |
+          npm install --no-audit --no-fund
+          npm run check
