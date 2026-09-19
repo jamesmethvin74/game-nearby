@@ -8,6 +8,7 @@
   const DRAGONFLY_VOLLEYBALL_URL = "https://maxinfosite-api-live.dragonflyathletics.com/states/ArkAA/schedules/2026/WVB_Varsity/0";
 
   const nearbyEvents = [];
+  const nearbyPresentationStatuses = new Map();
   const state = {
     apiBase: API_BASE,
     catalogLoadedAt: null,
@@ -127,19 +128,47 @@
     return `${String(schoolId || "")}|${String(sport || "").toLowerCase()}|${String(gender || "").toLowerCase()}`;
   }
 
+  function followedSchoolIdsForStatus(games = []) {
+    const selected = typeof followed !== "undefined" && Array.isArray(followed)
+      ? followed.map(String).filter(Boolean)
+      : [];
+    if (selected.length) return [...new Set(selected)].slice(0, 24);
+    return [...new Set(games.map(game => game?.school_id).filter(Boolean))].slice(0, 8);
+  }
+
   async function fetchNearbyPresentationStatuses(games = []) {
-    const schoolIds = [...new Set(games.map(game => game?.school_id).filter(Boolean))];
-    const statuses = new Map();
-    for (let offset = 0; offset < schoolIds.length; offset += 32) {
-      const chunk = schoolIds.slice(offset, offset + 32);
+    const schoolIds = followedSchoolIdsForStatus(games);
+    nearbyPresentationStatuses.clear();
+
+    for (let offset = 0; offset < schoolIds.length; offset += 8) {
+      const chunk = schoolIds.slice(offset, offset + 8);
       if (!chunk.length) continue;
       const params = new URLSearchParams({ school_ids: chunk.join(",") });
       const payload = await fetchJson(`/api/v1/team-statuses?${params.toString()}`, 15000);
+      const resolutions = Array.isArray(payload?.school_id_resolutions) ? payload.school_id_resolutions : [];
+      const aliasesByCanonical = new Map();
+      for (const row of resolutions) {
+        const requested = String(row?.requested_school_id || "");
+        const canonical = String(row?.school_id || "");
+        if (!requested || !canonical) continue;
+        if (!aliasesByCanonical.has(canonical)) aliasesByCanonical.set(canonical, []);
+        aliasesByCanonical.get(canonical).push(requested);
+      }
+
       for (const status of Array.isArray(payload?.team_statuses) ? payload.team_statuses : []) {
-        statuses.set(presentationStatusKey(status.school_id, status.sport, status.gender), status);
+        const canonical = String(status?.school_id || "");
+        if (!canonical) continue;
+        nearbyPresentationStatuses.set(presentationStatusKey(canonical, status.sport, status.gender), status);
+        for (const requested of aliasesByCanonical.get(canonical) || []) {
+          nearbyPresentationStatuses.set(presentationStatusKey(requested, status.sport, status.gender), status);
+        }
       }
     }
-    return statuses;
+    return new Map(nearbyPresentationStatuses);
+  }
+
+  function getPresentationStatus(schoolId, sport, gender) {
+    return nearbyPresentationStatuses.get(presentationStatusKey(schoolId, sport, gender)) || null;
   }
 
   function mapApiGame(game, school = null, recordOverride = null, presentationStatuses = null) {
@@ -290,6 +319,7 @@
     refreshCatalog,
     refreshNearby,
     fetchTeamSchedule,
+    getPresentationStatus,
     getNearbyEvents: () => nearbyEvents.map(event => ({ ...event, schoolIds: [...event.schoolIds] })),
     getState: () => ({ ...state, failures: { ...state.failures } })
   };
