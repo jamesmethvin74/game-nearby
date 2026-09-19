@@ -185,13 +185,14 @@ jobs:
         run: |
           set -euo pipefail
           APP="https://jamesmethvin74.github.io/game-nearby"
-          rm -f live-data.js school-follow-logic.js polish.js team-detail.js standings.js school-schedule.js runtime-build.js presentation-status.js
+          rm -f live-data.js school-follow-logic.js polish.js reference-layout.js team-detail.js standings.js school-schedule.js runtime-build.js presentation-status.js
 
           for attempt in $(seq 1 5); do
             echo "Pages attempt ${attempt}/5"
             curl -fsS --max-time 20 "$APP/live-data.js" -o live-data.tmp || true
             curl -fsS --max-time 20 "$APP/school-follow-logic.js" -o follow.tmp || true
             curl -fsS --max-time 20 "$APP/polish.js" -o polish.tmp || true
+            curl -fsS --max-time 20 "$APP/reference-layout.js" -o reference.tmp || true
             curl -fsS --max-time 20 "$APP/team-detail.js" -o detail.tmp || true
             curl -fsS --max-time 20 "$APP/standings.js" -o standings.tmp || true
             curl -fsS --max-time 20 "$APP/school-schedule.js" -o schedule.tmp || true
@@ -199,17 +200,23 @@ jobs:
             curl -fsS --max-time 20 "$APP/presentation-status.js" -o presentation.tmp || true
             if grep -q '/api/v1/schools' live-data.tmp 2>/dev/null \
               && grep -q 'normalizeRecord' live-data.tmp 2>/dev/null \
+              && grep -q 'followedSchoolIdsForStatus' live-data.tmp 2>/dev/null \
               && grep -q 'orientEventToFollowedSchool' follow.tmp 2>/dev/null \
               && grep -q 'LocalBleachersPresentation' polish.tmp 2>/dev/null \
+              && grep -q 'function recordLabel' polish.tmp 2>/dev/null \
+              && grep -q 'View schedule &amp; results' reference.tmp 2>/dev/null \
+              && ! grep -q 'MaxPreps schedule' reference.tmp 2>/dev/null \
               && grep -q 'LocalBleachersPresentation' detail.tmp 2>/dev/null \
               && grep -q 'LocalBleachersPresentation' standings.tmp 2>/dev/null \
               && grep -q 'primeVisibleTeamStatuses' schedule.tmp 2>/dev/null \
-              && grep -q 'm15-presentation-v71' runtime.tmp 2>/dev/null \
+              && grep -q 'm15-presentation-v73' runtime.tmp 2>/dev/null \
+              && ! grep -q 'localbleachers:nearby-games' schedule.tmp 2>/dev/null \
               && grep -q 'display_overall_record' presentation.tmp 2>/dev/null \
               && ! grep -q 'Published standings are available only as evidence' standings.tmp 2>/dev/null; then
               mv live-data.tmp live-data.js
               mv follow.tmp school-follow-logic.js
               mv polish.tmp polish.js
+              mv reference.tmp reference-layout.js
               mv detail.tmp team-detail.js
               mv standings.tmp standings.js
               mv schedule.tmp school-schedule.js
@@ -223,7 +230,8 @@ jobs:
           test -f live-data.js
           test -f school-follow-logic.js
           test -f polish.js
+          test -f reference-layout.js
           test -f team-detail.js
           test -f runtime-build.js
           test -f presentation-status.js
-          echo "GitHub Pages factual presentation contract m15-presentation-v71 verified."
+          echo "GitHub Pages factual presentation contract m15-presentation-v73 verified."
