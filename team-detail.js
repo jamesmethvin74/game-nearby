@@ -202,6 +202,14 @@
     void loadFullSchedule(state.schoolId);
   }
 
+  document.addEventListener("keydown", event => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const trigger = event.target.closest?.(".team-detail-trigger");
+    if (!trigger) return;
+    event.preventDefault();
+    openFromTrigger(trigger);
+  });
+
   document.addEventListener("click", event => {
     const trigger = event.target.closest(".team-detail-trigger");
     if (trigger) {
