@@ -63,6 +63,9 @@ jobs:
             }, chosen);
             await page.reload({ waitUntil:'domcontentloaded', timeout:45000 });
             await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, { timeout:45000 });
+            await page.waitForFunction(() => !('serviceWorker' in navigator) || !!navigator.serviceWorker.controller, null, { timeout:45000 }).catch(() => {});
+            await page.waitForTimeout(1500);
+            await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, { timeout:45000 });
             result.release = await page.evaluate(() => window.LocalBleachersRuntime?.releaseGeneration || '');
 
             await page.evaluate(async () => {
