@@ -1,0 +1,89 @@
+name: M15 Conway Marion runtime proof
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/m15-conway-marion-runtime-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Reproduce Conway and Marion followed-team runtime
+        env:
+          BASE_URL: https://jamesmethvin74.github.io/game-nearby
+        run: |
+          cat > proof.mjs <<'NODE'
+          import { chromium } from 'playwright';
+
+          const browser = await chromium.launch({headless:true});
+          const context = await browser.newContext({viewport:{width:430,height:932}});
+          const page = await context.newPage();
+          const clean = v => String(v || '').replace(/\s+/g,' ').trim();
+
+          await page.goto(process.env.BASE_URL + '/?cmproof=1', {waitUntil:'domcontentloaded', timeout:45000});
+          await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, {timeout:45000});
+          await page.waitForFunction(() => typeof SCHOOL_REGISTRY !== 'undefined' && SCHOOL_REGISTRY.some(s => /Marion High School/i.test(String(s.name||''))), null, {timeout:45000});
+
+          const ids = await page.evaluate(() => {
+            const marion = SCHOOL_REGISTRY.find(s => /Marion High School/i.test(String(s.name||'')));
+            return {conway:'conway', marion:marion?.id || null, marionName:marion?.name || null};
+          });
+          console.log('CM_IDS=' + JSON.stringify(ids));
+          if (!ids.marion) throw new Error('Marion school id not resolved');
+
+          await page.evaluate(ids => localStorage.setItem('followedTeams', JSON.stringify([ids.conway, ids.marion])), ids);
+          await page.reload({waitUntil:'domcontentloaded', timeout:45000});
+          await page.waitForFunction(() => window.LocalBleachersRuntime?.releaseGeneration === 'm15-presentation-v75', null, {timeout:45000});
+          await page.waitForFunction(() => window.LocalBleachersLive?.getState?.().nearbyLoadedAt, null, {timeout:45000});
+          await page.waitForTimeout(1500);
+
+          const snap = async label => {
+            const data = await page.evaluate((ids) => {
+              const status = (id,sport,gender) => window.LocalBleachersLive?.getPresentationStatus?.(id,sport,gender) || null;
+              const cards = [...document.querySelectorAll('.event-card .team-detail-trigger')].map(t => ({
+                teamId:t.dataset.teamId || '',
+                sport:t.dataset.sport || '',
+                gender:t.dataset.gender || '',
+                text:String(t.closest('.event-card')?.innerText || '').replace(/\s+/g,' ').trim()
+              }));
+              return {
+                state:window.LocalBleachersLive?.getState?.(),
+                conwayVolleyball:status(ids.conway,'volleyball','girls'),
+                marionBasketball:status(ids.marion,'basketball','girls'),
+                followed:JSON.parse(localStorage.getItem('followedTeams') || '[]'),
+                cards
+              };
+            }, ids);
+            console.log(label + '=' + JSON.stringify(data));
+            return data;
+          };
+
+          const startup = await snap('CM_STARTUP');
+          await page.evaluate(async () => { await window.LocalBleachersLive.refreshNearby(); });
+          await page.waitForTimeout(750);
+          const refreshed = await snap('CM_REFRESHED');
+
+          const conwayCards = refreshed.cards.filter(c => c.teamId === 'conway' && c.sport === 'volleyball');
+          if (!refreshed.conwayVolleyball) throw new Error('Conway canonical volleyball status is missing after current-main refresh');
+          if (!conwayCards.length) throw new Error('No Conway volleyball cards rendered');
+          if (conwayCards.some(c => !/9-4/.test(c.text) || !/4-0/.test(c.text) || !/#1/.test(c.text))) {
+            throw new Error('At least one Conway volleyball card is not rendering canonical truth: ' + JSON.stringify(conwayCards));
+          }
+
+          await browser.close();
+          NODE
+          node proof.mjs
