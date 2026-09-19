@@ -1,0 +1,35 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+
+const truth=fs.readFileSync(new URL("../src/one-truth.js",import.meta.url),"utf8");
+const worker=fs.readFileSync(new URL("../src/one-truth-worker.js",import.meta.url),"utf8");
+const top=fs.readFileSync(new URL("../src/m8-final-audit-worker.js",import.meta.url),"utf8");
+const migration=fs.readFileSync(new URL("../migrations/0017_one_truth_tb.sql",import.meta.url),"utf8");
+
+test("ONE_TRUTH_TB is the final presentation read model",()=>{
+  assert.match(migration,/CREATE TABLE IF NOT EXISTS ONE_TRUTH_TB/);
+  assert.match(truth,/const TABLE = "ONE_TRUTH_TB"/);
+  assert.match(truth,/currentScheduleTruthSql\("g","src"\)/);
+  assert.match(truth,/officialSeasonScheduleRows\(resolved\)/);
+  assert.match(truth,/rowIsCollegePreseasonGhost/);
+  assert.match(truth,/rankSummaries\(summaries\)/);
+  assert.match(worker,/x-localbleachers-truth":"ONE_TRUTH_TB"/);
+});
+
+test("all user-facing result surfaces route through ONE_TRUTH_TB",()=>{
+  assert.match(top,/import app from "\.\/one-truth-worker\.js"/);
+  assert.match(worker,/path==="\/api\/v1\/games"/);
+  assert.match(worker,/path==="\/api\/v1\/team-statuses"/);
+  assert.match(worker,/schools\\\/\[\^\/\]\+\\\/schedule/);
+  assert.match(worker,/teams\\\/\[\^\/\]\+\\\/\(\?:schedule\|record\)/);
+  assert.match(worker,/path==="\/api\/v1\/standings"/);
+  assert.doesNotMatch(worker,/display_method:"published"/);
+});
+
+test("records in ONE_TRUTH_TB are calculated only from visible countable finals",()=>{
+  assert.match(truth,/Number\(game\.counts_for_record \?\? 1\) === 0/);
+  assert.match(truth,/String\(game\.status \|\| ""\)\.toUpperCase\(\) !== "FINAL"/);
+  assert.match(truth,/overall_record:record\.scored_finals \? recordText/);
+  assert.match(truth,/conference_record:team\.conference_id/);
+});
