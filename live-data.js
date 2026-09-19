@@ -230,6 +230,7 @@
       chunks.push(uniqueSchoolIds.slice(offset, offset + PRESENTATION_STATUS_BATCH_SIZE));
     }
 
+    // Keep total presentation latency bounded by the slowest safe batch, not the sum of every batch.
     await Promise.all(chunks.map(chunk => fetchPresentationStatusChunk(snapshot, chunk)));
     return snapshot;
   }
