@@ -69,14 +69,13 @@ test("team detail and home cards read the same canonical presentation-status sto
   assert.doesNotMatch(detail, /selectedEvents\.find\(event => event\.record\)/);
 });
 
-test("home refresh primes canonical truth for every school identity rendered on a nearby card", () => {
+test("home refresh primes canonical truth for every followed school rendered on a card without statewide fan-out", () => {
   assert.doesNotMatch(polish, /event\?\.presentationStatus/);
   assert.match(polish, /LocalBleachersPresentation\?\.teamStatus/);
   assert.doesNotMatch(polish, /TEAM_CONFERENCE_FALLBACKS/);
   assert.match(live, /presentationSchoolIdsForGames/);
-  assert.match(live, /const reportingSchoolIds = games\.map\(game => String\(game\?\.school_id \|\| ""\)\)/);
-  assert.match(live, /return \[\.\.\.new Set\(\[\.\.\.selected, \.\.\.reportingSchoolIds\]\)\]/);
-  assert.doesNotMatch(live, /if \(selected\.length\) return selected/);
+  assert.match(live, /if \(selected\.length\) return selected/);
+  assert.match(live, /games\.map\(game => String\(game\?\.school_id \|\| ""\)\)/);
   assert.doesNotMatch(live, /game\?\.canonical_home_school_id/);
   assert.doesNotMatch(live, /game\?\.canonical_away_school_id/);
   assert.match(live, /fetchPresentationStatusSnapshot/);

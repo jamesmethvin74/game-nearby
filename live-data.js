@@ -130,10 +130,14 @@
 
   function presentationSchoolIdsForGames(games = []) {
     const selected = typeof followed !== "undefined" && Array.isArray(followed)
-      ? followed.map(String).filter(Boolean)
+      ? [...new Set(followed.map(String).filter(Boolean))]
       : [];
-    const reportingSchoolIds = games.map(game => String(game?.school_id || "")).filter(Boolean);
-    return [...new Set([...selected, ...reportingSchoolIds])];
+    if (selected.length) return selected;
+
+    // Home renders only followed-team games. The game-school fallback is for
+    // startup/empty-follow states so we never fan out across every nearby game
+    // once the user has chosen teams.
+    return [...new Set(games.map(game => String(game?.school_id || "")).filter(Boolean))];
   }
 
   function clearPresentationStatusesForSchoolIds(target, schoolIds = []) {
