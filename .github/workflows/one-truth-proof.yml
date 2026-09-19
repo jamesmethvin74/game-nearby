@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl --max-time 25 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh&proof=status" > /tmp/status.json
+          curl --max-time 25 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh,df-bkc4ux,df-hrdb8f,df-kq5hlr,df-t2mq54&proof=status" > /tmp/status.json
           curl --max-time 25 -fsS "$BASE/api/v1/schools/conway/schedule?proof=conway" > /tmp/conway.json
           curl --max-time 25 -fsS "$BASE/api/v1/standings?sport=volleyball&conference=6a-central&proof=conway-standings" > /tmp/conway-standings.json
           curl --max-time 25 -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule?proof=pea" > /tmp/pea.json
@@ -123,6 +123,10 @@ jobs:
           const findStatus=(school,sport,gender)=>statuses.find(s=>s.school_id===school&&s.sport===sport&&s.gender===gender);
           const cs=findStatus('conway','volleyball','girls');
           const ps=findStatus('df-7x4sxh','football','boys');
+          console.log('CONFERENCE_STATUS_DIAG='+JSON.stringify(statuses
+            .filter(x=>x.sport==='volleyball'&&x.gender==='girls')
+            .map(x=>({school_id:x.school_id,conference_id:x.conference_id,conference_name:x.conference_name,
+              membership:x.conference_membership_state,record:x.display_conference_record,rank:x.display_rank}))));
           if(!cs||!ps) throw new Error('Required ONE_TRUTH_TB statuses missing');
 
           const conwayRecord=recordFromGames(conway.games||[],'volleyball','girls');
