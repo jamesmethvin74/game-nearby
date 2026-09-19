@@ -35,16 +35,22 @@ jobs:
           node --input-type=module <<'JS'
           import fs from 'node:fs';
           const html=fs.readFileSync('/tmp/uca.html','utf8');
-          for (const id of ['12397','12398','12399','12400']) {
-            const marker='entity-id="'+id+'"';
-            const i=html.indexOf(marker);
-            const trStart=i>=0?html.lastIndexOf('<tr',i):-1;
-            const trEnd=i>=0?html.indexOf('</tr>',i):-1;
-            console.log('UCA_ROW='+JSON.stringify({
-              id,
-              found:i>=0,
-              row:i>=0&&trStart>=0&&trEnd>=0?html.slice(trStart,trEnd+5).replace(/\s+/g,' '):null
-            }));
+          for (const needle of ['Arkansas Tech','Purple & Gray Scrimmage','Missouri State','Denver']) {
+            const occurrences=[];
+            let from=0;
+            while(true){
+              const i=html.toLowerCase().indexOf(needle.toLowerCase(),from);
+              if(i<0) break;
+              occurrences.push(i);
+              from=i+needle.length;
+            }
+            const snippets=occurrences.slice(-4).map(i=>{
+              const start=Math.max(0,html.lastIndexOf('<li',i),html.lastIndexOf('<tr',i),i-1400);
+              const endCandidates=[html.indexOf('</li>',i),html.indexOf('</tr>',i)].filter(x=>x>=0);
+              const end=endCandidates.length?Math.min(...endCandidates)+5:Math.min(html.length,i+2600);
+              return html.slice(start,end).replace(/\s+/g,' ');
+            });
+            console.log('UCA_OCCURRENCES='+JSON.stringify({needle,count:occurrences.length,snippets}));
           }
           JS
 
