@@ -605,6 +605,7 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = 
     loadAuthorityGames(env, season, requested)
   ]);
   const rows = buildTruthRows(teams, rawGames, refreshedAt);
+  const summaries = rows.filter(row => row.row_type === "TEAM");
   const ids = rows.map(row => row.truth_id);
   const statements = [];
 

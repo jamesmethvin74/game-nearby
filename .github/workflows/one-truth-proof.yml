@@ -1,5 +1,5 @@
 name: ONE_TRUTH_TB proof
-# deploy-gated bootstrap v2
+# deploy-gated bootstrap v3
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          PATHNAME="/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e2"
+          PATHNAME="/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3"
 
           ready=0
           for attempt in $(seq 1 36); do
@@ -81,7 +81,7 @@ jobs:
           echo "ONE_TRUTH_BOOTSTRAP={\"batches\":$batches,\"teams\":$teams}"
 
           code=$(curl --max-time 25 -sS -o /tmp/audit.json -w "%{http_code}" \
-            "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e2")
+            "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3")
           cat /tmp/audit.json
           echo
           test "$code" = "200"

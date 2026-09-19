@@ -2,8 +2,8 @@ import app from "./m8-worker.js";
 import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 
 const TABLE = oneTruthTableName();
-const BOOTSTRAP_PATH = "/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e2";
-const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e2";
+const BOOTSTRAP_PATH = "/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3";
+const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3";
 const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T03:00:00Z");
 const BOOTSTRAP_BATCH = 64;
 
