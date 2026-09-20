@@ -2,6 +2,7 @@ import { choosePreferredScheduleRow, dedupeScheduleRows, enrichScheduleRowsWithR
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
 import { currentObservationEvidenceSql, currentScheduleTruthSql, resultOnlyObservationSql, RESULT_ONLY_SOURCE_SUFFIX } from "./current-schedule-truth.js";
 import { dateKeyInZone } from "./schedule-authority-core.js";
+import { auditOneTruthSourceCompleteness } from "./one-truth-source-integrity-audit.js";
 
 const DEFAULT_SEASON = "2026";
 const PAST_DUE_GRACE_HOURS = 6;
@@ -329,52 +330,173 @@ export function auditPresentationRows(rows, {
   };
 }
 
+function truthRowsAsAuditInput(rows = []) {
+  return rows.map(row => {
+    if (row.row_type === "TEAM") {
+      return {
+        team_id:row.team_id,school_id:row.school_id,school_name:row.school_name,
+        level:row.school_level,sport:row.sport,gender:row.gender,season:row.season,
+        game_id:null
+      };
+    }
+    const homeAway=text(row.home_away).toLowerCase();
+    const teamScore=nullableNumber(row.team_score);
+    const opponentScore=nullableNumber(row.opponent_score);
+    return {
+      team_id:row.team_id,school_id:row.school_id,school_name:row.school_name,
+      level:row.school_level,sport:row.sport,gender:row.gender,season:row.season,
+      game_id:row.game_id || row.truth_id,
+      source_id:row.source_id,source_type:row.source_type,parser_type:row.parser_type,
+      opponent:row.opponent,opponent_school_id:row.opponent_school_id,
+      raw_scheduled_at:row.scheduled_at,raw_time_known:row.scheduled_time_known,
+      raw_status:row.status,raw_team_score:teamScore,raw_opponent_score:opponentScore,
+      raw_result:row.result,counts_for_record:row.counts_for_record,home_away:row.home_away,
+      conference_game:row.conference_game,canonical_event_id:row.canonical_event_id,
+      canonical_scheduled_at:row.scheduled_at,canonical_time_known:row.scheduled_time_known,
+      canonical_status:row.status,
+      canonical_home_score:homeAway==="home" ? teamScore : homeAway==="away" ? opponentScore : null,
+      canonical_away_score:homeAway==="away" ? teamScore : homeAway==="home" ? opponentScore : null,
+      canonical_home_school_id:row.canonical_home_school_id,
+      canonical_away_school_id:row.canonical_away_school_id,
+      canonical_trust_state:row.data_trust,
+      conflict_count:row.conflict_count
+    };
+  });
+}
+
+function queryMeta(result) {
+  const meta=result?.meta || {};
+  return {
+    rows_read:meta.rows_read == null ? 0 : Number(meta.rows_read),
+    rows_written:meta.rows_written == null ? 0 : Number(meta.rows_written),
+    duration_ms:meta.duration == null ? 0 : Number(meta.duration)
+  };
+}
+
+function combineIssueCounts(issues = []) {
+  const counts={};
+  for(const value of issues) counts[value.code]=Number(counts[value.code]||0)+1;
+  return counts;
+}
+
 export async function buildStatewideDataIntegrityAudit(env, {
   season = DEFAULT_SEASON,
   now = new Date(),
-  sampleLimit = 100
+  sampleLimit = 1000
 } = {}) {
-  const query = await env.DB.prepare(`
-    WITH active_teams AS (
-      SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,
-        sch.name AS school_name,sch.level
-      FROM teams t
-      JOIN schools sch ON sch.id=t.school_id
-      WHERE t.active=1 AND t.season=? AND sch.catalog_scope='local'
-    ),
+  const activeTeamsSql = `
+    SELECT t.id AS team_id,t.school_id,t.sport,t.gender,t.season,
+      sch.name AS school_name,sch.level
+    FROM teams t
+    JOIN schools sch ON sch.id=t.school_id
+    WHERE t.active=1 AND t.season=? AND sch.catalog_scope='local'
+  `;
+
+  const sourceSelect = `
+    SELECT
+      at.team_id,at.school_id,at.school_name,at.level,at.sport,at.gender,at.season,
+      g.id AS game_id,g.source_id,g.opponent,g.opponent_school_id,
+      g.scheduled_at AS raw_scheduled_at,g.scheduled_time_known AS raw_time_known,
+      g.status AS raw_status,g.team_score AS raw_team_score,g.opponent_score AS raw_opponent_score,
+      g.result AS raw_result,g.counts_for_record,g.home_away,g.conference_game,g.canonical_event_id,
+      src.source_type,src.parser_type,
+      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
+      ce.trust_state AS canonical_trust_state,ce.conflict_count
+    FROM active_teams at
+  `;
+
+  const scheduleStatement=env.DB.prepare(`
+    WITH active_teams AS (${activeTeamsSql}),
     visible_games AS (
       SELECT g.*
       FROM games g
       JOIN sources src_visible ON src_visible.id=g.source_id
       WHERE ${currentScheduleTruthSql("g","src_visible")}
     )
-    SELECT
-      at.team_id,at.school_id,at.school_name,at.level,at.sport,at.gender,at.season,
-      g.id AS game_id,g.source_id,g.opponent,g.opponent_school_id,
-      g.scheduled_at AS raw_scheduled_at,g.scheduled_time_known AS raw_time_known,
-      g.status AS raw_status,g.team_score AS raw_team_score,g.opponent_score AS raw_opponent_score,
-      g.result AS raw_result,g.counts_for_record,g.home_away,g.canonical_event_id,
-      src.source_type,src.parser_type,
-      ce.scheduled_at AS canonical_scheduled_at,ce.scheduled_time_known AS canonical_time_known,
-      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
-      ce.home_school_id AS canonical_home_school_id,ce.away_school_id AS canonical_away_school_id,
-      ce.trust_state AS canonical_trust_state
-    FROM active_teams at
+    ${sourceSelect}
     LEFT JOIN visible_games g ON g.team_id=at.team_id
     LEFT JOIN sources src ON src.id=g.source_id
     LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
     ORDER BY at.team_id,g.scheduled_at,g.id
-  `).bind(String(season)).all();
+  `).bind(String(season));
 
-  const meta = query?.meta || {};
-  return auditPresentationRows(query?.results || [], {
-    now,
-    season,
-    sampleLimit,
-    d1: {
-      rows_read: meta.rows_read == null ? null : Number(meta.rows_read),
-      rows_written: meta.rows_written == null ? 0 : Number(meta.rows_written),
-      duration_ms: meta.duration == null ? null : Number(meta.duration)
-    }
-  });
+  const resultOnlyStatement=env.DB.prepare(`
+    WITH active_teams AS (${activeTeamsSql})
+    ${sourceSelect}
+    JOIN games g ON g.team_id=at.team_id
+    JOIN sources src ON src.id=g.source_id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    WHERE ${resultOnlyObservationSql("src")}
+      AND ${currentObservationEvidenceSql("g","src")}
+    ORDER BY at.team_id,g.scheduled_at,g.id
+  `).bind(String(season));
+
+  const truthStatement=env.DB.prepare(`
+    SELECT *
+    FROM ONE_TRUTH_TB
+    WHERE row_type IN ('TEAM','GAME')
+      AND season=?
+    ORDER BY team_id,row_type,scheduled_at,truth_id
+  `).bind(String(season));
+
+  const [scheduleQuery,resultOnlyQuery,truthQuery]=await env.DB.batch([
+    scheduleStatement,resultOnlyStatement,truthStatement
+  ]);
+
+  const scheduleRows=scheduleQuery?.results || [];
+  const resultOnlyRows=resultOnlyQuery?.results || [];
+  const truthRows=truthQuery?.results || [];
+
+  const sourceSurface=auditPresentationRows(scheduleRows,{now,season,sampleLimit});
+  const truthSurface=auditPresentationRows(truthRowsAsAuditInput(truthRows),{now,season,sampleLimit});
+  const sourceVsTruth=auditOneTruthSourceCompleteness(scheduleRows,resultOnlyRows,truthRows);
+
+  const combinedIssues=[
+    ...(sourceSurface.issues||[]).map(value=>({...value,surface:"source-schedule"})),
+    ...(truthSurface.issues||[]).map(value=>({...value,surface:"ONE_TRUTH_TB"})),
+    ...(sourceVsTruth.issues||[]).map(value=>({...value,surface:"source-vs-truth"}))
+  ];
+  const blockingIssues=combinedIssues.filter(value=>value.severity==="blocking");
+  const warningIssues=combinedIssues.filter(value=>value.severity==="warning");
+  const meta=[scheduleQuery,resultOnlyQuery,truthQuery].map(queryMeta);
+  const d1={
+    rows_read:meta.reduce((sum,value)=>sum+value.rows_read,0),
+    rows_written:meta.reduce((sum,value)=>sum+value.rows_written,0),
+    duration_ms:meta.reduce((sum,value)=>sum+value.duration_ms,0)
+  };
+
+  return {
+    audit_version:"statewide-data-integrity-v2",
+    generated_at:now.toISOString(),
+    season:String(season),
+    clean:blockingIssues.length===0,
+    contract:{
+      scope:"Every active local-catalog 2026 team/sport, all schedule-authority observations, explicit result-only evidence, and the actual ONE_TRUTH_TB presentation rows.",
+      rules:[
+        ...(sourceSurface.contract?.rules||[]),
+        "Result-only observations may enrich a matching independently established schedule contest but may never create a standalone ONE_TRUTH game.",
+        "Source-derived scored-final counts must equal ONE_TRUTH scored_finals for every active team.",
+        "ONE_TRUTH TEAM records must equal the visible countable FINAL rows stored in ONE_TRUTH_TB.",
+        "Conference ranks must be reproducible from ONE_TRUTH conference records.",
+        "Parser family alone must never classify a full official-school schedule source as result-only."
+      ]
+    },
+    summary:{
+      ...sourceSurface.summary,
+      source_surface_blocking_issues:Number(sourceSurface.summary?.blocking_issues||0),
+      one_truth_surface_blocking_issues:Number(truthSurface.summary?.blocking_issues||0),
+      source_vs_truth_blocking_issues:Number(sourceVsTruth.summary?.blocking_issues||0),
+      combined_blocking_issues:blockingIssues.length,
+      combined_warning_issues:warningIssues.length,
+      issues_by_code:combineIssueCounts(combinedIssues),
+      source_vs_truth:sourceVsTruth.summary
+    },
+    issues:combinedIssues.slice(0,Math.max(1,Number(sampleLimit)||1000)),
+    source_surface:sourceSurface.summary,
+    one_truth_surface:truthSurface.summary,
+    source_vs_truth:sourceVsTruth,
+    d1
+  };
 }
