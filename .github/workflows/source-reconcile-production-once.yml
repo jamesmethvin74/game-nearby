@@ -57,8 +57,6 @@ jobs:
           exit 1
 
       - name: Execute bounded source reconciliation
-        env:
-          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -66,7 +64,6 @@ jobs:
           http=$(curl --retry 2 --retry-all-errors --retry-delay 2 --max-time 420 -sS \
             -o /tmp/repair.json -w '%{http_code}' \
             -X POST \
-            -H "x-refresh-token: $REFRESH_TOKEN" \
             "$BASE/api/v1/internal/source-reconcile-20260920-6e8d4b2a")
           echo "HTTP=$http"
           if [ "$http" != "200" ]; then
