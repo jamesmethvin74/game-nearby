@@ -295,8 +295,7 @@ async function oneTruthAudit(env) {
       SELECT COUNT(*) AS count
       FROM ${TABLE}
       WHERE row_type='GAME'
-        AND LOWER(COALESCE(parser_type,'')) IN ('mascot-media','rankone-public')
-        AND LOWER(COALESCE(source_type,''))='official-school'
+        AND LOWER(COALESCE(source_id,'')) LIKE '%-official-school-results'
     `).first(),
     env.DB.prepare(`
       WITH agg AS (
