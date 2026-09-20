@@ -154,23 +154,27 @@ function canonicalScore(observation) {
 export function observationsLikelySameEvent(a,b,{timeZone="America/Chicago",maxDateDistanceHours=36,maxTimeDisagreementMinutes=90}={}) {
   const pa=canonicalParticipants(a), pb=canonicalParticipants(b);
   if (!pa || !pb) return false;
-  if (String(a.sport||"").toLowerCase() !== String(b.sport||"").toLowerCase()) return false;
+  const sport=String(a.sport||"").toLowerCase();
+  if (sport !== String(b.sport||"").toLowerCase()) return false;
   if (String(a.gender||"").toLowerCase() !== String(b.gender||"").toLowerCase()) return false;
   if (String(a.season||"") !== String(b.season||"")) return false;
   if (pa.participants.join("|") !== pb.participants.join("|")) return false;
 
+  const sameDate=dateKeyInZone(a.scheduled_at,timeZone) === dateKeyInZone(b.scheduled_at,timeZone);
+  const singleContestLocalDate = sport === "football" && sameDate;
+
   const aDragonFly=dragonFlyNativeEventKey(a), bDragonFly=dragonFlyNativeEventKey(b);
-  if (aDragonFly && bDragonFly) return aDragonFly===bDragonFly;
+  if (aDragonFly && bDragonFly && aDragonFly!==bDragonFly && !singleContestLocalDate) return false;
   const aMaxPreps=maxPrepsNativeEventKey(a), bMaxPreps=maxPrepsNativeEventKey(b);
-  if (aMaxPreps && bMaxPreps) return aMaxPreps===bMaxPreps;
+  if (aMaxPreps && bMaxPreps && aMaxPreps!==bMaxPreps && !singleContestLocalDate) return false;
 
   const aSource=cleanAuthorityText(a.source_id), bSource=cleanAuthorityText(b.source_id);
   const aEvent=observationSourceEventKey(a), bEvent=observationSourceEventKey(b);
-  if (aSource && aSource===bSource && aEvent && bEvent && aEvent!==bEvent) return false;
+  if (aSource && aSource===bSource && aEvent && bEvent && aEvent!==bEvent && !singleContestLocalDate) return false;
 
-  const sameDate=dateKeyInZone(a.scheduled_at,timeZone) === dateKeyInZone(b.scheduled_at,timeZone);
   const bothTimed=Boolean(a.scheduled_time_known && b.scheduled_time_known && a.scheduled_at && b.scheduled_at);
   if (sameDate) {
+    if (singleContestLocalDate) return true;
     if (!bothTimed) return true;
     return minutesBetween(a.scheduled_at,b.scheduled_at) <= maxTimeDisagreementMinutes;
   }
@@ -219,7 +223,13 @@ function bestObservation(observations,predicate=()=>true) {
 }
 
 function canonicalEventSlot(observations,selected,timeSelected,timeZone) {
-  const dragonFly=bestObservation(observations,o=>Boolean(dragonFlyNativeEventKey(o)));
+  const dragonFlyFinal=bestObservation(observations,o=>
+    Boolean(dragonFlyNativeEventKey(o))
+    && String(o.status||"").toUpperCase()==="FINAL"
+    && o.team_score!=null
+    && o.opponent_score!=null
+  );
+  const dragonFly=dragonFlyFinal || bestObservation(observations,o=>Boolean(dragonFlyNativeEventKey(o)));
   if (dragonFly) return observationSlot(dragonFly,timeZone);
   if (timeSelected?.scheduled_time_known) return observationSlot(timeSelected,timeZone);
   return observationSlot(selected,timeZone);
