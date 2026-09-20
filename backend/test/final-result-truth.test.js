@@ -156,3 +156,17 @@ test("fresher normalized evidence wins over a lower stale stored count", () => {
   assert.deepEqual(truth.trusted_record,{wins:1,losses:1,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored_finals:2});
   assert.ok(truth.issues.some(issue => issue.code === "STALE_STORED_RECORD"));
 });
+
+
+test("quarantined ambiguous scored final is excluded from record math", () => {
+  const row = final("T",1,1,{
+    sport:"volleyball",
+    gender:"girls",
+    opponent:"Batesville High School",
+    canonical_event_id:"ce:volleyball:girls:2026:df-7ds5mt:df-rpnt3m:20260829:mp-68e6ca03-cd54-40c8-9bff-4abd5d8871f6"
+  });
+  const evaluated=evaluateFinalResultTruth(row);
+  assert.equal(evaluated.state,"QUARANTINED");
+  const record=recordFromScheduleRows([row]);
+  assert.deepEqual(record,{wins:0,losses:0,ties:0,conference_wins:0,conference_losses:0,conference_ties:0,scored_finals:0});
+});
