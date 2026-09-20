@@ -438,7 +438,7 @@ async function oneTruthAudit(env) {
     source_final_count_mismatches:Number(sourceVsTruth.teams_with_final_count_mismatch||0),
     result_enrichment_missing_from_truth:Number(sourceVsTruth.result_enrichment_missing_from_truth||0),
     one_truth_surface_blocking_issues:Number(statewide?.summary?.one_truth_surface_blocking_issues||0),
-    source_surface_blocking_issues:Number(statewide?.summary?.source_surface_blocking_issues||0)
+    statewide_presentation_blocking_issues:Number(statewide?.summary?.blocking_issues||0)
   };
   return json({
     status:Object.values(problems).some(Boolean)?"FAIL":"PASS",
@@ -447,6 +447,11 @@ async function oneTruthAudit(env) {
     truth_teams:Number(coverage?.truth_teams||0),
     truth_games:Number(coverage?.truth_games||0),
     problems,
+    upstream_observations:{
+      detected_issues:Number(statewide?.summary?.upstream_source_observation_issues||0),
+      detected_blocking_by_source_rules:Number(statewide?.summary?.source_surface_blocking_issues||0),
+      issues_by_code:statewide?.summary?.upstream_source_issues_by_code||{}
+    },
     statewide_audit:statewide
   },200);
 }
