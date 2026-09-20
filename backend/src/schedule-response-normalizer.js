@@ -262,6 +262,75 @@ function sameDayVerifiedFinalObservationTwin(a, b, options = {}) {
     && Number(aTruth.row.opponent_score) === Number(bTruth.row.opponent_score);
 }
 
+export function resultEvidenceMatchesScheduleRow(scheduleRow, evidenceRow, options = {}) {
+  if (!scheduleRow || !evidenceRow) return false;
+  if (clean(scheduleRow.sport).toLowerCase() !== clean(evidenceRow.sport).toLowerCase()) return false;
+  if (clean(scheduleRow.gender).toLowerCase() !== clean(evidenceRow.gender).toLowerCase()) return false;
+
+  const scheduleTeam = clean(scheduleRow.team_id || scheduleRow.reporting_team_id);
+  const evidenceTeam = clean(evidenceRow.team_id || evidenceRow.reporting_team_id);
+  if (scheduleTeam && evidenceTeam && scheduleTeam !== evidenceTeam) return false;
+
+  const scheduleCanonical = clean(scheduleRow.canonical_event_id);
+  const evidenceCanonical = clean(evidenceRow.canonical_event_id);
+  if (scheduleCanonical && evidenceCanonical) return scheduleCanonical === evidenceCanonical;
+
+  return sameLocalScheduleDate(scheduleRow, evidenceRow, options)
+    && opponentIdentityLikelySame(scheduleRow, evidenceRow);
+}
+
+export function enrichScheduleRowsWithResultEvidence(scheduleRows = [], resultRows = [], options = {}) {
+  const rows = (Array.isArray(scheduleRows) ? scheduleRows : []).map(row => ({ ...row }));
+
+  for (const sourceEvidence of Array.isArray(resultRows) ? resultRows : []) {
+    const evaluated = evaluateFinalResultTruth(sourceEvidence);
+    if (evaluated.state !== "VERIFIED") continue;
+    const evidence = evaluated.row;
+    if (clean(evidence.status).toUpperCase() !== "FINAL") continue;
+    if (nullableScore(evidence.team_score) == null || nullableScore(evidence.opponent_score) == null) continue;
+
+    const candidates = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      if (!resultEvidenceMatchesScheduleRow(rows[index], evidence, options)) continue;
+      const exactCanonical = clean(rows[index].canonical_event_id)
+        && clean(rows[index].canonical_event_id) === clean(evidence.canonical_event_id);
+      candidates.push({ index, exactCanonical: exactCanonical ? 1 : 0, score: rowScore(rows[index]) });
+    }
+    if (!candidates.length) continue;
+    candidates.sort((a, b) => b.exactCanonical - a.exactCanonical || b.score - a.score || a.index - b.index);
+
+    const index = candidates[0].index;
+    const schedule = rows[index];
+    const scheduleTruth = evaluateFinalResultTruth(schedule);
+    const scheduleAlreadyVerified = clean(schedule.status).toUpperCase() === "FINAL"
+      && nullableScore(schedule.team_score) != null
+      && nullableScore(schedule.opponent_score) != null
+      && scheduleTruth.state === "VERIFIED";
+
+    if (scheduleAlreadyVerified) continue;
+
+    rows[index] = {
+      ...schedule,
+      status: "FINAL",
+      team_score: nullableScore(evidence.team_score),
+      opponent_score: nullableScore(evidence.opponent_score),
+      result: evidence.result || resultFromTeamScores(evidence.team_score, evidence.opponent_score),
+      data_trust: evidence.data_trust || schedule.data_trust,
+      conflict_count: Math.max(Number(schedule.conflict_count || 0), Number(evidence.conflict_count || 0)),
+      result_evidence_source_id: evidence.source_id || null,
+      result_evidence_parser_type: evidence.parser_type || null
+    };
+  }
+
+  return rows;
+}
+
+function nullableScore(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function identicalVerifiedFinalSnapshot(a, b, options = {}) {
   const aCanonical=clean(a?.canonical_event_id);
   const bCanonical=clean(b?.canonical_event_id);
