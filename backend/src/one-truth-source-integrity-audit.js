@@ -203,6 +203,10 @@ function groupByTeam(rows) {
 }
 
 function matchRow(rows, target, schoolId) {
+  const sameId = clean(target.id)
+    ? rows.find(row => clean(row.id) === clean(target.id))
+    : null;
+  if (sameId) return sameId;
   const exact = clean(target.canonical_event_id)
     ? rows.find(row => clean(row.canonical_event_id) === clean(target.canonical_event_id))
     : null;
