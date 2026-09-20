@@ -1,5 +1,5 @@
-import { currentScheduleTruthSql } from "./current-schedule-truth.js";
-import { dedupeScheduleRows, officialSeasonScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
+import { currentObservationEvidenceSql, resultOnlyObservationSql } from "./current-schedule-truth.js";
+import { dedupeScheduleRows, enrichScheduleRowsWithResultEvidence, officialSeasonScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
 
 const TABLE = "ONE_TRUTH_TB";
 const META_ID = "META:CURRENT";
@@ -24,6 +24,7 @@ let schemaPromise = null;
 let rebuildPromise = null;
 
 function numeric(value) {
+  if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
@@ -217,6 +218,7 @@ async function loadAuthorityGames(env, season, teamIds = []) {
         sch.level AS school_level,
         COALESCE(NULLIF(sch.location_matched_name,''),sch.name) AS school_name,
         src.source_type,src.parser_type,src.authority_rank,src.source_priority,
+        CASE WHEN ${resultOnlyObservationSql("src")} THEN 1 ELSE 0 END AS result_only_source,
         ce.scheduled_at AS canonical_scheduled_at,
         ce.scheduled_time_known AS canonical_time_known,
         ce.venue AS canonical_venue,
@@ -235,7 +237,8 @@ async function loadAuthorityGames(env, season, teamIds = []) {
         COALESCE(NULLIF(opp.location_matched_name,''),opp.name,g.opponent) AS raw_opponent_name,
         COALESCE(ocm.conference_id,ot.conference_id) AS opponent_conference_id,
         ROW_NUMBER() OVER (
-          PARTITION BY g.team_id,COALESCE(g.canonical_event_id,g.id)
+          PARTITION BY g.team_id,COALESCE(g.canonical_event_id,g.id),
+            CASE WHEN ${resultOnlyObservationSql("src")} THEN 1 ELSE 0 END
           ORDER BY src.authority_rank,src.source_priority,src.id
         ) AS authority_row
       FROM games g
@@ -261,7 +264,7 @@ async function loadAuthorityGames(env, season, teamIds = []) {
         AND t.season=?
         AND sch.catalog_scope='local'
         ${teamFilter}
-        AND ${currentScheduleTruthSql("g","src")}
+        AND ${currentObservationEvidenceSql("g","src")}
     ) ranked
     WHERE authority_row=1
     ORDER BY team_id,COALESCE(canonical_scheduled_at,scheduled_at),COALESCE(canonical_event_id,game_id)
@@ -282,13 +285,30 @@ function resolveGame(row, team, conferenceBySchoolTeam) {
   const opponent = hasCanonical
     ? (isHome ? row.canonical_away_name : isAway ? row.canonical_home_name : row.raw_opponent_name)
     : row.raw_opponent_name;
-  const status = hasCanonical ? (row.canonical_status || row.status) : row.status;
-  const teamScore = hasCanonical
-    ? (isHome ? row.canonical_home_score : isAway ? row.canonical_away_score : row.team_score)
-    : row.team_score;
-  const opponentScore = hasCanonical
-    ? (isHome ? row.canonical_away_score : isAway ? row.canonical_home_score : row.opponent_score)
-    : row.opponent_score;
+  const canonicalTeamScore = hasCanonical
+    ? (isHome ? row.canonical_home_score : isAway ? row.canonical_away_score : null)
+    : null;
+  const canonicalOpponentScore = hasCanonical
+    ? (isHome ? row.canonical_away_score : isAway ? row.canonical_home_score : null)
+    : null;
+  const rawResultEvidence = Number(row.result_only_source || 0) === 1
+    && String(row.status || "").toUpperCase() === "FINAL"
+    && numeric(row.team_score) != null
+    && numeric(row.opponent_score) != null;
+  const canonicalScoredFinal = hasCanonical
+    && String(row.canonical_status || "").toUpperCase() === "FINAL"
+    && numeric(canonicalTeamScore) != null
+    && numeric(canonicalOpponentScore) != null;
+  const useRawResultEvidence = rawResultEvidence && !canonicalScoredFinal;
+  const status = useRawResultEvidence
+    ? row.status
+    : hasCanonical ? (row.canonical_status || row.status) : row.status;
+  const teamScore = useRawResultEvidence
+    ? row.team_score
+    : hasCanonical ? (canonicalTeamScore ?? row.team_score) : row.team_score;
+  const opponentScore = useRawResultEvidence
+    ? row.opponent_score
+    : hasCanonical ? (canonicalOpponentScore ?? row.opponent_score) : row.opponent_score;
 
   const opponentConferenceId = row.opponent_conference_id
     || (opponentSchoolId
@@ -333,6 +353,7 @@ function resolveGame(row, team, conferenceBySchoolTeam) {
     source_id: row.source_id || null,
     source_type: row.source_type || null,
     parser_type: row.parser_type || null,
+    result_only_source:Number(row.result_only_source || 0),
     source_url: row.source_url || null,
     data_trust: row.data_trust || "SINGLE_SOURCE_LIVE",
     conflict_count: Number(row.conflict_count || 0)
@@ -388,19 +409,27 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
     }
   }
 
-  const gamesByTeam = new Map();
+  const scheduleGamesByTeam = new Map();
+  const resultEvidenceByTeam = new Map();
   for (const row of rawGames) {
     const team = teamById.get(row.team_id);
     if (!team) continue;
-    if (!gamesByTeam.has(team.team_id)) gamesByTeam.set(team.team_id, []);
-    gamesByTeam.get(team.team_id).push(resolveGame(row, team, conferenceBySchoolTeam));
+    const target = Number(row.result_only_source || 0) === 1 ? resultEvidenceByTeam : scheduleGamesByTeam;
+    if (!target.has(team.team_id)) target.set(team.team_id, []);
+    target.get(team.team_id).push(resolveGame(row, team, conferenceBySchoolTeam));
   }
 
   const summaries = [];
   const visibleGamesByTeam = new Map();
 
   for (const team of teams) {
-    const resolved = gamesByTeam.get(team.team_id) || [];
+    const scheduleResolved = scheduleGamesByTeam.get(team.team_id) || [];
+    const resultEvidence = resultEvidenceByTeam.get(team.team_id) || [];
+    const resolved = enrichScheduleRowsWithResultEvidence(
+      scheduleResolved,
+      resultEvidence,
+      { reportingSchoolId: team.school_id }
+    );
     const official = dedupeScheduleRows(
       officialSeasonScheduleRows(resolved),
       { reportingSchoolId: team.school_id }
