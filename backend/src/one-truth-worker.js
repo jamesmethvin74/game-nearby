@@ -243,20 +243,43 @@ async function teamIdsForConference(env, sport, conferenceCandidates = []) {
   const candidates=[...new Set((conferenceCandidates||[]).map(conferenceSlug).filter(Boolean))];
   if(!sport||!candidates.length) return [];
   const {results=[]}=await env.DB.prepare(`
-    SELECT team_id,conference_id,conference_name
+    SELECT team_id,school_id,sport,conference_id,conference_name
     FROM ${TABLE}
     WHERE row_type='TEAM'
-      AND LOWER(sport)=?
       AND conference_membership_state='member'
       AND conference_id IS NOT NULL
-    ORDER BY team_id
-  `).bind(String(sport).toLowerCase()).all();
+    ORDER BY sport,conference_id,team_id
+  `).all();
 
-  return results
-    .filter(row =>
-      conferenceSlugMatches(row.conference_id,candidates)
-      || conferenceSlugMatches(row.conference_name,candidates)
-    )
+  const requestedSport=String(sport).toLowerCase();
+  const sportRows=results.filter(row=>String(row.sport||"").toLowerCase()===requestedSport);
+  const matchesRequested=row =>
+    conferenceSlugMatches(row.conference_id,candidates)
+    || conferenceSlugMatches(row.conference_name,candidates);
+
+  const direct=sportRows.filter(matchesRequested);
+  if(direct.length) return direct.map(row=>String(row.team_id||"")).filter(Boolean);
+
+  // UI routes may carry a school/general conference slug (for example 7a-central)
+  // while the requested sport has a different canonical classification (for
+  // example 6a-central-volleyball). Bridge only through schools already proven
+  // by ONE_TRUTH to belong to the requested cross-sport cohort.
+  const anchorSchools=new Set(results.filter(matchesRequested).map(row=>String(row.school_id||"")).filter(Boolean));
+  if(!anchorSchools.size) return [];
+
+  const overlap=new Map();
+  for(const row of sportRows) {
+    if(!anchorSchools.has(String(row.school_id||""))) continue;
+    const conferenceId=String(row.conference_id||"");
+    if(!conferenceId) continue;
+    if(!overlap.has(conferenceId)) overlap.set(conferenceId,{conferenceId,count:0});
+    overlap.get(conferenceId).count++;
+  }
+  const ranked=[...overlap.values()].sort((a,b)=>b.count-a.count || a.conferenceId.localeCompare(b.conferenceId));
+  if(!ranked.length || (ranked[1] && ranked[1].count===ranked[0].count)) return [];
+  const resolvedConferenceId=ranked[0].conferenceId;
+  return sportRows
+    .filter(row=>String(row.conference_id||"")===resolvedConferenceId)
     .map(row=>String(row.team_id||""))
     .filter(Boolean);
 }
