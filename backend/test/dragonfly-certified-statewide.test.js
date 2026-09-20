@@ -8,7 +8,8 @@ import {
 } from "../src/statewide-sport-config.js";
 import {
   buildCertifiedStatewideRows,
-  certifiedStatewideSignature
+  certifiedStatewideSignature,
+  collapseCertifiedProviderDuplicates
 } from "../src/dragonfly-certified-statewide.js";
 import { certifiedTargetSchoolIds, discoverCertifiedSportParticipants } from "../src/dragonfly-certified-sport-catalog.js";
 
@@ -90,6 +91,28 @@ test("football feed builds reciprocal observations and a football canonical even
   assert.equal(rows.canonicals[0].gender,"boys");
   assert.match(rows.canonicals[0].id,/^ce:football:boys:2026:/);
   assert.deepEqual(new Set(rows.touchedTeamIds),new Set(["conway-football-2026","bryant-football-2026"]));
+});
+
+test("certified provider collapses revised football ids but preserves real volleyball rematches",()=>{
+  const football=statewideSportConfig("FB");
+  const scheduled=event({
+    id:"699f1457-old",code:"MFB",date:"2026-09-12T00:00:00.000Z",status:"SCHEDULED",
+    home:{name:"Fouke High School",org:"FOUKE",teamId:"fouke-fb"},
+    away:{name:"Dierks High School",org:"DIERKS",teamId:"dierks-fb"}
+  });
+  const final=event({
+    id:"699f15e0-new",code:"MFB",date:"2026-09-12T00:30:00.000Z",status:"FINAL",
+    home:{name:"Fouke High School",org:"FOUKE",teamId:"fouke-fb",result:{score:28,opponentScore:14,code:"W"}},
+    away:{name:"Dierks High School",org:"DIERKS",teamId:"dierks-fb",result:{score:14,opponentScore:28,code:"L"}}
+  });
+  const collapsed=collapseCertifiedProviderDuplicates([scheduled,final],football);
+  assert.equal(collapsed.length,1);
+  assert.equal(collapsed[0].eventId,"699f15e0-new");
+
+  const volleyball=statewideSportConfig("WVB");
+  const early={...scheduled,eventId:"vb-early",associatedSports:[{code:"WVB",level:"Varsity"}],date:"2026-09-12T15:00:00.000Z"};
+  const late={...scheduled,eventId:"vb-late",associatedSports:[{code:"WVB",level:"Varsity"}],date:"2026-09-12T20:00:00.000Z"};
+  assert.equal(collapseCertifiedProviderDuplicates([early,late],volleyball).length,2);
 });
 
 test("certified Arkansas schedules retain games against an unmapped out-of-state opponent",()=>{
