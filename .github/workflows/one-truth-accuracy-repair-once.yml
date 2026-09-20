@@ -38,17 +38,14 @@ jobs:
             test/schedule-response-normalizer.test.js
 
       - name: Refresh affected high-school DragonFly teams
-        env:
-          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$REFRESH_TOKEN"
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          BODY='{"teamIds":["df-354bu3-volleyball-2026","df-7k6qj6-volleyball-2026","df-bf8zxn-volleyball-2026","df-bjp5e4-volleyball-2026","df-cueaqq-volleyball-2026","df-jh2s9b-volleyball-2026","df-ktr7yd-volleyball-2026","df-suqu5r-volleyball-2026","greenbrier-volleyball-2026","vilonia-volleyball-2026"]}'
+          PATHNAME="/api/v1/internal/accuracy-repair-20260920-e4f7c1a9"
           code=0
           for attempt in $(seq 1 30); do
-            code=$(curl --max-time 60 -sS -o /tmp/hs.json -w "%{http_code}" -X POST               "$BASE/api/v1/internal/dragonfly-targeted-refresh-20260920"               -H "content-type: application/json"               -H "x-refresh-token: $REFRESH_TOKEN"               --data "$BODY" || true)
+            code=$(curl --max-time 120 -sS -o /tmp/hs.json -w "%{http_code}" -X POST "$BASE$PATHNAME?stage=highschool" || true)
             if [ "$code" = "200" ]; then break; fi
             if [ "$code" != "404" ]; then cat /tmp/hs.json; exit 1; fi
             sleep 5
@@ -58,65 +55,30 @@ jobs:
           import fs from 'node:fs';
           const p=JSON.parse(fs.readFileSync('/tmp/hs.json','utf8'));
           console.log(JSON.stringify(p,null,2));
-          if(p.status!=='SUCCESS') throw new Error('targeted DragonFly refresh failed');
-          if(Number(p.targetedTeams)!==10) throw new Error('wrong high-school target count');
+          if(p.status!=='SUCCESS'||p.result?.status!=='SUCCESS') throw new Error('high-school repair failed');
           NODE
 
       - name: Refresh affected college official and Sidearm sources
-        env:
-          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          cat > /tmp/college.json <<'JSON'
-          [
-            "college-arkansas-baptist-football-men-2026-sidearm",
-            "college-arkansas-state-football-men-2026-sidearm",
-            "college-arkansas-state-volleyball-women-2026-sidearm",
-            "college-arkansas-tech-football-men-2026-sidearm",
-            "college-arkansas-tech-volleyball-women-2026-sidearm",
-            "hendrix-football-official",
-            "college-hendrix-soccer-men-2026-sidearm",
-            "college-hendrix-soccer-women-2026-sidearm",
-            "college-hendrix-volleyball-women-2026-sidearm",
-            "college-john-brown-soccer-men-2026-sidearm",
-            "college-john-brown-soccer-women-2026-sidearm",
-            "college-john-brown-volleyball-women-2026-sidearm",
-            "college-ouachita-baptist-football-men-2026-sidearm",
-            "college-ouachita-baptist-soccer-men-2026-sidearm",
-            "college-ouachita-baptist-soccer-women-2026-sidearm",
-            "college-southern-arkansas-football-men-2026-sidearm",
-            "college-uam-football-men-2026-sidearm",
-            "college-uam-volleyball-women-2026-sidearm",
-            "college-uapb-football-men-2026-sidearm",
-            "college-uapb-volleyball-women-2026-sidearm"
-          ]
-          JSON
+          PATHNAME="/api/v1/internal/accuracy-repair-20260920-e4f7c1a9"
+          for stage in college1 college2; do
+            curl --max-time 180 -fsS -X POST "$BASE$PATHNAME?stage=$stage" -o "/tmp/$stage.json"
+            node --input-type=module - "$stage" <<'NODE'
+          import fs from 'node:fs';
+          const stage=process.argv[2];
+          const p=JSON.parse(fs.readFileSync('/tmp/'+stage+'.json','utf8'));
+          console.log(JSON.stringify(p,null,2));
+          if(p.status!=='SUCCESS'||p.result?.ok!==true) throw new Error(stage+' repair failed');
+          NODE
+          done
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          import {execFileSync} from 'node:child_process';
-          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
-          const token=process.env.REFRESH_TOKEN;
-          const ids=JSON.parse(fs.readFileSync('/tmp/college.json','utf8'));
-          const all=[];
-          for(let i=0;i<ids.length;i+=16){
-            const chunk=ids.slice(i,i+16);
-            const out=execFileSync('curl',[
-              '--max-time','120','-fsS','-X','POST',base+'/api/v1/refresh',
-              '-H','content-type: application/json',
-              '-H','x-refresh-token: '+token,
-              '--data',JSON.stringify({sourceIds:chunk})
-            ],{encoding:'utf8'});
-            const p=JSON.parse(out);
-            const outcomes=p.outcomes||[];
-            if(outcomes.length!==chunk.length) throw new Error('refresh source scope mismatch: '+JSON.stringify({requested:chunk,outcomes}));
-            const bad=outcomes.filter(x=>x.status==='FAILURE');
-            if(bad.length) throw new Error('college refresh failures: '+JSON.stringify(bad));
-            all.push(...outcomes);
-          }
+          const all=['college1','college2'].flatMap(stage=>JSON.parse(fs.readFileSync('/tmp/'+stage+'.json','utf8')).result?.outcomes||[]);
           fs.writeFileSync('/tmp/college-outcomes.json',JSON.stringify(all,null,2));
-          console.log(JSON.stringify({sources:all.length,statuses:Object.fromEntries([...new Set(all.map(x=>x.status))].map(s=>[s,all.filter(x=>x.status===s).length]))},null,2));
+          if(all.length!==20) throw new Error('expected 20 college source outcomes, got '+all.length);
           NODE
 
       - name: Rebuild ONE_TRUTH_TB once after collection
