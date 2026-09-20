@@ -7,6 +7,7 @@ import {
   detectEventConflicts, resolveCanonicalEvent, deriveSourceHealth, collectionSafety
 } from "../src/schedule-authority-core.js";
 import { normalizeDragonFlyPayload, normalizeDragonFlyPublicText } from "../src/dragonfly-core.js";
+import { relatedObservationsForReconciliation } from "../src/canonical-observation-writer.js";
 import { dragonFlyFeedBaseUrl, dragonFlyPageUrl, fetchDragonFlyPagedPayload } from "../src/dragonfly-feed.js";
 
 const fixtureDir=fileURLToPath(new URL("./fixtures/",import.meta.url));
@@ -75,6 +76,41 @@ test("keeps same-day repeat matchups separate while tolerating ordinary source t
   assert.notEqual(earlyEvent.id,lateEvent.id);
   assert.match(earlyEvent.id,/t1000$/);
   assert.match(lateEvent.id,/t1500$/);
+});
+
+test("football reconciles revised same-day native ids while volleyball rematches stay separate",()=>{
+  const footballBase={
+    sport:"football",gender:"boys",season:"2026",timezone:"America/Chicago",
+    reporting_school_id:"fouke",opponent_school_id:"dierks",
+    home_away:"home",parser_type:"dragonfly-public",source_type:"official-conference",
+    source_id:"fouke-football-dragonfly",authority_rank:10,scheduled_time_known:1
+  };
+  const stale={
+    ...footballBase,id:"stale",source_event_key:"native:old-id",
+    scheduled_at:"2026-09-12T00:00:00.000Z",status:"SCHEDULED",team_score:null,opponent_score:null
+  };
+  const final={
+    ...footballBase,id:"final",source_event_key:"native:new-id",
+    scheduled_at:"2026-09-12T00:30:00.000Z",status:"FINAL",team_score:28,opponent_score:14
+  };
+  assert.equal(observationsLikelySameEvent(stale,final),true);
+  assert.deepEqual(
+    relatedObservationsForReconciliation(final,[stale,final]).map(row=>row.id).sort(),
+    ["final","stale"]
+  );
+  const event=resolveCanonicalEvent([stale,final]);
+  assert.match(event.id,/df-new-id$/);
+  assert.equal(event.status,"FINAL");
+  assert.equal(event.homeScore,28);
+  assert.equal(event.awayScore,14);
+
+  const volleyballStale={...stale,sport:"volleyball",gender:"girls"};
+  const volleyballFinal={...final,sport:"volleyball",gender:"girls"};
+  assert.equal(observationsLikelySameEvent(volleyballStale,volleyballFinal),false);
+  assert.deepEqual(
+    relatedObservationsForReconciliation(volleyballFinal,[volleyballStale,volleyballFinal]).map(row=>row.id),
+    ["final"]
+  );
 });
 
 test("DragonFly authority wins deterministic field selection while conflicts remain visible",()=>{
