@@ -1,0 +1,64 @@
+name: Standings production proof once
+
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove Conway volleyball standings from ONE_TRUTH
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          for attempt in $(seq 1 30); do
+            if curl -fsS --max-time 30 "$BASE/api/v1/team-statuses?school_ids=conway" > /tmp/status.json \
+              && curl -fsS --max-time 30 "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json; then
+              if node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const status=JSON.parse(fs.readFileSync('/tmp/status.json','utf8'));
+          const standings=JSON.parse(fs.readFileSync('/tmp/standings.json','utf8'));
+          const cv=(status.team_statuses||[]).find(x=>x.team_id==='conway-volleyball-2026');
+          const cs=(standings.standings||[]).find(x=>x.team_id==='conway-volleyball-2026');
+          if(!cv || !cs) process.exit(2);
+          const same =
+            String(cv.display_overall_record??'')===String(cs.display_overall_record??'')
+            && String(cv.display_conference_record??'')===String(cs.display_conference_record??'')
+            && Number(cv.display_rank)===Number(cs.display_rank);
+          if(!same) process.exit(3);
+          console.log('CONWAY_TEAM_STATUS='+JSON.stringify({
+            team_id:cv.team_id,
+            conference_id:cv.conference_id,
+            conference_name:cv.conference_name,
+            overall_record:cv.display_overall_record,
+            conference_record:cv.display_conference_record,
+            rank:cv.display_rank
+          }));
+          console.log('CONWAY_STANDING='+JSON.stringify({
+            team_id:cs.team_id,
+            school_name:cs.school_name,
+            overall_record:cs.display_overall_record,
+            conference_record:cs.display_conference_record,
+            rank:cs.display_rank
+          }));
+          console.log('STANDINGS_CONFERENCE='+JSON.stringify(standings.conference||null));
+          console.log('STANDINGS_TEAM_COUNT='+String((standings.standings||[]).length));
+          NODE
+              then
+                exit 0
+              fi
+            fi
+            sleep 4
+          done
+          echo "Final team status:"
+          cat /tmp/status.json || true
+          echo
+          echo "Final standings:"
+          cat /tmp/standings.json || true
+          exit 1
