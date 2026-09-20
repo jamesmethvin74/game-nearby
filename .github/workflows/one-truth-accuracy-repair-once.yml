@@ -1,5 +1,5 @@
 name: ONE_TRUTH final accuracy proof once
-# rerun after standings fix
+# rerun after resolved-team standings fix
 
 on:
   push:
