@@ -1,5 +1,5 @@
 name: ONE_TRUTH_TB statewide source proof
-# rerun after quarantined-final record correction
+# final rerun after complete-final canonical authority correction
 
 on:
   push:
