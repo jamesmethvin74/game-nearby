@@ -589,17 +589,14 @@ async function standingsResponse(request, env, ctx, url) {
   const teamIds=await teamIdsForConference(env,sport,conferenceCandidates);
   await ensureOneTruthFresh(env,{teamIds});
 
-  const {results=[]}=await env.DB.prepare(`
-    SELECT * FROM ${TABLE}
-    WHERE row_type='TEAM'
-      AND LOWER(sport)=?
-      AND conference_membership_state='member'
-      AND (
-        LOWER(COALESCE(conference_id,'')) IN (?,?)
-        OR LOWER(REPLACE(COALESCE(conference_name,''),' ','-'))=?
-      )
-    ORDER BY rank IS NULL,rank,school_name
-  `).bind(sport,requested,requested+"-"+sport,requested).all();
+  const {results=[]}=teamIds.length
+    ? await env.DB.prepare(`
+        SELECT * FROM ${TABLE}
+        WHERE row_type='TEAM'
+          AND team_id IN (SELECT value FROM json_each(?))
+        ORDER BY rank IS NULL,rank,school_name
+      `).bind(JSON.stringify(teamIds)).all()
+    : {results:[]};
 
   const standings=results.map(row=>{
     const status=statusFromRow(row);
