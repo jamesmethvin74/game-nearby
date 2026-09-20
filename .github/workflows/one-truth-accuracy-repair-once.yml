@@ -1,6 +1,4 @@
-
-name: ONE_TRUTH final statewide accuracy proof once
-# rerun after presentation-blocking scope correction
+name: ONE_TRUTH app-surface probe once
 
 on:
   push:
@@ -14,169 +12,44 @@ permissions:
   issues: write
 
 jobs:
-  prove:
+  probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Test final presentation contracts
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          npm install --no-audit --no-fund
-          node --check src/one-truth.js
-          node --check src/statewide-data-integrity-audit.js
-          node --test test/one-truth-contract.test.js test/result-only-source-truth.test.js test/final-result-truth.test.js test/schedule-response-normalizer.test.js
-
-      - name: Wait for this commit to reach Cloudflare production
+      - name: Probe exact production presentation endpoints
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA:0:8}"
-          for attempt in $(seq 1 36); do
-            body=$(gh api repos/jamesmethvin74/game-nearby/issues/366/comments --paginate --jq '[.[] | select(.user.login=="cloudflare-workers-and-pages[bot]")] | last | .body // ""')
-            if printf '%s' "$body" | grep -q "Deployment successful" && printf '%s' "$body" | grep -q "$SHORT_SHA"; then
-              echo "Cloudflare deployed $SHORT_SHA"
-              exit 0
-            fi
-            sleep 5
-          done
-          exit 1
-
-      - name: Run complete statewide integrity audit
-        shell: bash
-        run: |
-          set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl --retry 4 --retry-all-errors --retry-delay 2 --max-time 120 -fsS "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3" > /tmp/audit.json
+          cat > /tmp/endpoints.tsv <<'EOF'
+          team_statuses	/api/v1/team-statuses?school_ids=conway,df-7x4sxh
+          conway_schedule	/api/v1/schools/conway/schedule
+          pea_schedule	/api/v1/schools/df-7x4sxh/schedule
+          conway_football_record	/api/v1/teams/conway-football-2026/record
+          conway_volleyball_record	/api/v1/teams/conway-volleyball-2026/record
+          pea_football_record	/api/v1/teams/df-7x4sxh-football-2026/record
+          standings	/api/v1/standings?sport=volleyball&conference=7a-central
+          nearby	/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z
+          EOF
+          : > /tmp/results.ndjson
+          while IFS=$'\t' read -r name route; do
+            code=$(curl --retry 2 --retry-all-errors --retry-delay 1 --max-time 30 -sS -o "/tmp/$name.json" -w "%{http_code}" "$BASE$route" || true)
+            bytes=$(wc -c < "/tmp/$name.json" 2>/dev/null || echo 0)
+            printf '{"name":"%s","code":"%s","bytes":%s}\n' "$name" "$code" "$bytes" >> /tmp/results.ndjson
+          done < /tmp/endpoints.tsv
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
-          const issues=a.statewide_audit?.issues||[];
-          const truth=issues.filter(x=>x.surface==='ONE_TRUTH_TB');
-          const source=issues.filter(x=>x.surface==='source-observation');
-          const counts=list=>Object.fromEntries([...new Set(list.map(x=>x.code))].sort().map(code=>[code,list.filter(x=>x.code===code).length]));
-          const summary={
-            status:a.status,
-            problems:a.problems,
-            statewide:a.statewide_audit?.summary,
-            truth_issue_counts:counts(truth),
-            source_issue_counts:counts(source),
-            truth_blockers:truth.filter(x=>x.severity==='blocking'),
-            source_blockers:source.filter(x=>x.severity==='blocking')
-          };
-          fs.writeFileSync('/tmp/audit-summary.json',JSON.stringify(summary,null,2));
-          console.log(JSON.stringify(summary,null,2));
-          NODE
-
-      - name: Verify app-facing schedules cards records and standings
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh" > /tmp/status.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/conway.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule" > /tmp/pea.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/teams/conway-football-2026/record" > /tmp/cf-record.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/teams/conway-volleyball-2026/record" > /tmp/cv-record.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/teams/df-7x4sxh-football-2026/record" > /tmp/pf-record.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json
-          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z" > /tmp/nearby.json
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
-          const derive=(games,sport,gender)=>{
-            const rows=games.filter(g=>g.sport===sport&&g.gender===gender&&g.status==='FINAL'&&Number(g.counts_for_record)!==0&&g.team_score!=null&&g.opponent_score!=null);
-            let w=0,l=0,t=0,cw=0,cl=0,ct=0;
-            for(const g of rows){
-              const a=Number(g.team_score),b=Number(g.opponent_score);
-              const r=a===b?'T':a>b?'W':'L';
-              if(r==='W')w++; else if(r==='L')l++; else t++;
-              if(Number(g.conference_game)===1){if(r==='W')cw++; else if(r==='L')cl++; else ct++;}
+          const rows=fs.readFileSync('/tmp/results.ndjson','utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          const bodies={};
+          for(const row of rows){
+            if(row.code!=='200'){
+              try{bodies[row.name]=fs.readFileSync('/tmp/'+row.name+'.json','utf8').slice(0,2000);}catch{}
             }
-            const fmt=(a,b,c)=>c ? String(a)+'-'+String(b)+'-'+String(c) : String(a)+'-'+String(b);
-            return {overall:fmt(w,l,t),conference:fmt(cw,cl,ct),finals:rows.length};
-          };
-          const statuses=read('/tmp/status.json').team_statuses||[];
-          const conway=read('/tmp/conway.json').games||[];
-          const pea=read('/tmp/pea.json').games||[];
-          const cfr=read('/tmp/cf-record.json').record||{};
-          const cvr=read('/tmp/cv-record.json').record||{};
-          const pfr=read('/tmp/pf-record.json').record||{};
-          const standings=read('/tmp/standings.json').standings||[];
-          const nearby=read('/tmp/nearby.json').games||[];
-          const cf=statuses.find(x=>x.team_id==='conway-football-2026');
-          const cv=statuses.find(x=>x.team_id==='conway-volleyball-2026');
-          const pf=statuses.find(x=>x.team_id==='df-7x4sxh-football-2026');
-          const cfd=derive(conway,'football','boys');
-          const cvd=derive(conway,'volleyball','girls');
-          const pfd=derive(pea,'football','boys');
-          const capital=conway.find(g=>g.sport==='football'&&/Capital High School/i.test(String(g.opponent||'')));
-          const cvStanding=standings.find(x=>x.team_id==='conway-volleyball-2026');
-          const assert=(ok,msg)=>{if(!ok)throw new Error(msg);};
-          assert(cf?.display_overall_record===cfd.overall,'Conway football schedule/status mismatch');
-          assert(cfr.display_overall_record===cfd.overall,'Conway football team-record mismatch');
-          assert(capital?.status==='FINAL'&&Number(capital.team_score)===45&&Number(capital.opponent_score)===7,'Conway Capital final missing');
-          assert(cv?.display_overall_record===cvd.overall,'Conway volleyball schedule/status mismatch');
-          assert(cv?.display_conference_record===cvd.conference,'Conway volleyball conference mismatch');
-          assert(cvr.display_overall_record===cvd.overall,'Conway volleyball team-record mismatch');
-          if(cvStanding){
-            assert(cvStanding.display_overall_record===cv.display_overall_record,'Conway standings overall mismatch');
-            assert(cvStanding.display_conference_record===cv.display_conference_record,'Conway standings conference mismatch');
-            assert(Number(cvStanding.display_rank)===Number(cv.display_rank),'Conway standings rank mismatch');
           }
-          assert(pf?.display_overall_record===pfd.overall,'Pea Ridge schedule/status mismatch');
-          assert(pfr.display_overall_record===pfd.overall,'Pea Ridge team-record mismatch');
-          const resultOnlyPea=pea.filter(g=>String(g.source_id||'').toLowerCase().endsWith('-official-school-results'));
-          assert(resultOnlyPea.length===0,'Pea Ridge result-only standalone row visible');
-
-          const nearbySchools=[...new Set(nearby.map(g=>g.school_id).filter(Boolean))];
-          const nearbyStatuses=[];
-          for(let i=0;i<nearbySchools.length;i+=20){
-            const ids=nearbySchools.slice(i,i+20);
-            const p=await fetch(BASE+'/api/v1/team-statuses?school_ids='+ids.map(encodeURIComponent).join(',')).then(r=>r.json());
-            nearbyStatuses.push(...(p.team_statuses||[]));
-          }
-          let nearbyChecked=0;
-          for(const g of nearby){
-            const s=nearbyStatuses.find(x=>x.team_id===g.team_id);
-            if(!s) continue;
-            assert(Number(g.wins||0)===Number(s.wins||0)&&Number(g.losses||0)===Number(s.losses||0)&&Number(g.ties||0)===Number(s.ties||0),'Nearby card record mismatch '+g.team_id);
-            assert(Number(g.rank||0)===Number(s.rank||0),'Nearby card rank mismatch '+g.team_id);
-            nearbyChecked++;
-          }
-
-          const proof={
-            conway_football:{schedule:cfd,status:cf?.display_overall_record,record:cfr.display_overall_record,capital:{status:capital?.status,score:[capital?.team_score,capital?.opponent_score]}},
-            conway_volleyball:{schedule:cvd,status:cv?.display_overall_record,conference:cv?.display_conference_record,rank:cv?.display_rank,standing:cvStanding&&{overall:cvStanding.display_overall_record,conference:cvStanding.display_conference_record,rank:cvStanding.display_rank}},
-            pea_ridge:{schedule:pfd,status:pf?.display_overall_record,record:pfr.display_overall_record,result_only_standalone:resultOnlyPea.length},
-            nearby_cards_checked:nearbyChecked
-          };
-          fs.writeFileSync('/tmp/live-proof.json',JSON.stringify(proof,null,2));
-          console.log(JSON.stringify(proof,null,2));
-          NODE
-
-      - name: Publish final evidence
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const read=p=>{try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch{return null;}};
-          const payload={
-            marker:'ONE_TRUTH_FINAL_STATEWIDE_ACCURACY_20260920',
-            workflow_commit:process.env.GITHUB_SHA,
-            audit:read('/tmp/audit-summary.json'),
-            live_proof:read('/tmp/live-proof.json')
-          };
-          fs.writeFileSync('/tmp/comment.md','### ONE_TRUTH final statewide accuracy\n\n'+JSON.stringify(payload,null,2));
+          const payload={marker:'ONE_TRUTH_APP_SURFACE_PROBE_20260920',workflow_commit:process.env.GITHUB_SHA,rows,failures:bodies};
+          fs.writeFileSync('/tmp/comment.md','### ONE_TRUTH app-surface probe\n\n'+JSON.stringify(payload,null,2));
+          console.log(JSON.stringify(payload,null,2));
           NODE
           gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file /tmp/comment.md
