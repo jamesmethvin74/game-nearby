@@ -1,12 +1,44 @@
 import app from "./m8-worker.js";
 import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
+import { runDragonFlyTargetedCollection } from "./dragonfly-statewide.js";
+import { runDueCollections } from "./index.js";
 
 const TABLE = oneTruthTableName();
 const BOOTSTRAP_PATH = "/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3";
 const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3";
+const ACCURACY_REPAIR_PATH = "/api/v1/internal/accuracy-repair-20260920-e4f7c1a9";
 const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T21:30:00Z");
 const BOOTSTRAP_BATCH = 64;
+
+const ACCURACY_REPAIR_HIGH_SCHOOL_TEAMS = [
+  "df-354bu3-volleyball-2026","df-7k6qj6-volleyball-2026","df-bf8zxn-volleyball-2026",
+  "df-bjp5e4-volleyball-2026","df-cueaqq-volleyball-2026","df-jh2s9b-volleyball-2026",
+  "df-ktr7yd-volleyball-2026","df-suqu5r-volleyball-2026","greenbrier-volleyball-2026",
+  "vilonia-volleyball-2026"
+];
+const ACCURACY_REPAIR_COLLEGE_SOURCES = [
+  "college-arkansas-baptist-football-men-2026-sidearm",
+  "college-arkansas-state-football-men-2026-sidearm",
+  "college-arkansas-state-volleyball-women-2026-sidearm",
+  "college-arkansas-tech-football-men-2026-sidearm",
+  "college-arkansas-tech-volleyball-women-2026-sidearm",
+  "hendrix-football-official",
+  "college-hendrix-soccer-men-2026-sidearm",
+  "college-hendrix-soccer-women-2026-sidearm",
+  "college-hendrix-volleyball-women-2026-sidearm",
+  "college-john-brown-soccer-men-2026-sidearm",
+  "college-john-brown-soccer-women-2026-sidearm",
+  "college-john-brown-volleyball-women-2026-sidearm",
+  "college-ouachita-baptist-football-men-2026-sidearm",
+  "college-ouachita-baptist-soccer-men-2026-sidearm",
+  "college-ouachita-baptist-soccer-women-2026-sidearm",
+  "college-southern-arkansas-football-men-2026-sidearm",
+  "college-uam-football-men-2026-sidearm",
+  "college-uam-volleyball-women-2026-sidearm",
+  "college-uapb-football-men-2026-sidearm",
+  "college-uapb-volleyball-women-2026-sidearm"
+];
 
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
@@ -242,6 +274,30 @@ async function nearbyTeamIds(env, url) {
     LIMIT 256
   `).bind(...binds).all();
   return results.map(row=>String(row.team_id||"")).filter(Boolean);
+}
+
+async function accuracyRepairStage(env,url) {
+  if (Date.now()>ONE_SHOT_EXPIRES_AT) return json({error:"expired"},410);
+  const stage=String(url.searchParams.get("stage")||"");
+  try {
+    if(stage==="highschool"){
+      const result=await runDragonFlyTargetedCollection(env,{teamIds:ACCURACY_REPAIR_HIGH_SCHOOL_TEAMS});
+      return json({status:"SUCCESS",stage,result});
+    }
+    if(stage==="college1" || stage==="college2"){
+      const offset=stage==="college1"?0:10;
+      const sourceIds=ACCURACY_REPAIR_COLLEGE_SOURCES.slice(offset,offset+10);
+      const result=await runDueCollections(env,{force:true,sourceIds,reason:"accuracy-repair-20260920"});
+      const failures=(result.outcomes||[]).filter(row=>row.status==="FAILURE");
+      if((result.outcomes||[]).length!==sourceIds.length || failures.length){
+        return json({status:"FAILURE",stage,sourceIds,result,failures},500);
+      }
+      return json({status:"SUCCESS",stage,sourceIds,result});
+    }
+    return json({error:"invalid_stage",allowed:["highschool","college1","college2"]},400);
+  } catch(error) {
+    return json({error:"accuracy_repair_failed",stage,detail:String(error?.stack||error?.message||error)},500);
+  }
 }
 
 async function oneTruthBootstrapBatch(env, url) {
@@ -592,6 +648,7 @@ export default {
     const url=new URL(request.url);
     const path=url.pathname;
 
+    if (request.method==="POST" && path===ACCURACY_REPAIR_PATH) return accuracyRepairStage(env,url);
     if (request.method==="POST" && path===BOOTSTRAP_PATH) return oneTruthBootstrapBatch(env,url);
     if (request.method==="GET" && path===AUDIT_PATH) return oneTruthAudit(env);
     if (request.method!=="GET") return app.fetch(request,env,ctx);
