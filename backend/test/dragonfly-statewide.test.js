@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL } from "../src/dragonfly-statewide.js";
+import {buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL, filterTargetedDragonFlyRows } from "../src/dragonfly-statewide.js";
 
 const fixture=fileURLToPath(new URL("./fixtures/dragonfly-greenbrier-vilonia-2026.json",import.meta.url));
 const checkedAt="2026-08-31T20:00:00.000Z";
@@ -100,4 +100,26 @@ test("bulk JSON SQL upserts execute in SQLite, preserve membership, and give bot
   const vil=db.prepare("SELECT latitude,longitude FROM games WHERE team_id='vilonia-volleyball-2026'").get();
   assert.equal(vil.latitude,35.0839);
   assert.equal(vil.longitude,-92.2029);
+});
+
+
+test("targeted DragonFly filtering writes only requested team observations",()=>{
+  const rows={
+    games:[
+      {id:"a",team_id:"team-a",source_id:"src-a",canonical_event_id:"ce-1"},
+      {id:"b",team_id:"team-b",source_id:"src-b",canonical_event_id:"ce-1"},
+      {id:"c",team_id:"team-c",source_id:"src-c",canonical_event_id:"ce-2"}
+    ],
+    canonicals:[{id:"ce-1"},{id:"ce-2"}],
+    members:[
+      {game_id:"a",canonical_event_id:"ce-1"},
+      {game_id:"b",canonical_event_id:"ce-1"},
+      {game_id:"c",canonical_event_id:"ce-2"}
+    ]
+  };
+  const filtered=filterTargetedDragonFlyRows(rows,["team-a"]);
+  assert.deepEqual(filtered.games.map(row=>row.id),["a"]);
+  assert.deepEqual(filtered.canonicals.map(row=>row.id),["ce-1"]);
+  assert.deepEqual(filtered.members.map(row=>row.game_id),["a"]);
+  assert.equal(filtered.sourceCounts.get("src-a"),1);
 });
