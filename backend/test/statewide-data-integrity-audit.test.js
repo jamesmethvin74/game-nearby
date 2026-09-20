@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { auditPresentationRows } from "../src/statewide-data-integrity-audit.js";
+import { auditPresentationRows, classifyStatewideIntegritySurfaces } from "../src/statewide-data-integrity-audit.js";
 
 const NOW = new Date("2026-09-16T23:30:00.000Z");
 
@@ -328,4 +328,23 @@ test("pre-official and benefit contests are not part of the audited app-visible 
   assert.equal(audit.summary.warning_issues,0);
   assert.equal(audit.summary.total_schedule_rows_examined,0);
   assert.equal(audit.summary.total_normalized_schedule_rows,0);
+});
+
+
+test("upstream source observation defects remain visible telemetry without failing clean presentation truth",()=>{
+  const sourceSurface={issues:[{code:"STALE_NONTERMINAL_TWIN_OF_FINAL",severity:"blocking",team_id:"team-a"}]};
+  const truthSurface={issues:[]};
+  const sourceVsTruth={issues:[]};
+  const classified=classifyStatewideIntegritySurfaces(sourceSurface,truthSurface,sourceVsTruth);
+  assert.equal(classified.sourceObservationIssues.length,1);
+  assert.equal(classified.sourceObservationIssues[0].surface,"source-observation");
+  assert.equal(classified.blockingIssues.length,0);
+});
+
+test("ONE_TRUTH and source-vs-truth defects remain production blocking",()=>{
+  const sourceSurface={issues:[]};
+  const truthSurface={issues:[{code:"DISPLAY_FINAL_MISSING_SCORE",severity:"blocking",team_id:"team-a"}]};
+  const sourceVsTruth={issues:[{code:"SOURCE_FINAL_COUNT_VS_ONE_TRUTH",severity:"blocking",team_id:"team-b"}]};
+  const classified=classifyStatewideIntegritySurfaces(sourceSurface,truthSurface,sourceVsTruth);
+  assert.equal(classified.blockingIssues.length,2);
 });
