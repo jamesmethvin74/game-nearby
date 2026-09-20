@@ -262,6 +262,29 @@ export function auditOneTruthSourceCompleteness(scheduleSourceRows = [], resultO
 
     if (summary && Number(summary.scored_finals || 0) !== Number(derived.scored_finals || 0)) {
       teamsWithFinalCountMismatch++;
+      const sourceFinals=enriched.filter(verifiedScoredFinal);
+      const truthFinals=truthGames.filter(verifiedScoredFinal);
+      const compact=value=>({
+        game_id:value.id || null,
+        canonical_event_id:value.canonical_event_id || null,
+        opponent:value.opponent || null,
+        scheduled_at:value.scheduled_at || null,
+        status:value.status || null,
+        team_score:value.team_score ?? null,
+        opponent_score:value.opponent_score ?? null,
+        result:value.result || null,
+        source_id:value.source_id || null,
+        parser_type:value.parser_type || null,
+        counts_for_record:Number(value.counts_for_record ?? 1)
+      });
+      const sourceOnly=sourceFinals.filter(value=>{
+        const match=matchRow(truthFinals,value,schoolId);
+        return !match || !sameFinal(match,value);
+      }).map(compact);
+      const truthOnly=truthFinals.filter(value=>{
+        const match=matchRow(sourceFinals,value,schoolId);
+        return !match || !sameFinal(match,value);
+      }).map(compact);
       const row = enriched[0] || truthGames[0] || {
         team_id:teamId,school_id:summary.school_id,school_name:summary.school_name,
         sport:summary.sport,gender:summary.gender
@@ -270,7 +293,8 @@ export function auditOneTruthSourceCompleteness(scheduleSourceRows = [], resultO
         "SOURCE_FINAL_COUNT_VS_ONE_TRUTH",
         row,
         "Source-derived scored finals=" + Number(derived.scored_finals || 0)
-          + "; ONE_TRUTH scored_finals=" + Number(summary.scored_finals || 0) + "."
+          + "; ONE_TRUTH scored_finals=" + Number(summary.scored_finals || 0) + ".",
+        { source_only_finals:sourceOnly, truth_only_finals:truthOnly }
       ));
     }
 
