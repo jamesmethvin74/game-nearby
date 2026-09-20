@@ -1,6 +1,6 @@
-import { choosePreferredScheduleRow, dedupeScheduleRows, footballRowsConflictSameDay, officialSeasonScheduleRows, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "./schedule-response-normalizer.js";
+import { choosePreferredScheduleRow, dedupeScheduleRows, enrichScheduleRowsWithResultEvidence, footballRowsConflictSameDay, officialSeasonScheduleRows, recordFromScheduleRows, resultEvidenceMatchesScheduleRow, scheduleRowsLikelySameLogicalGame, staleSameDayOpponentTwin } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
-import { currentScheduleTruthSql } from "./current-schedule-truth.js";
+import { currentObservationEvidenceSql, currentScheduleTruthSql, resultOnlyObservationSql, RESULT_ONLY_SOURCE_SUFFIX } from "./current-schedule-truth.js";
 import { dateKeyInZone } from "./schedule-authority-core.js";
 
 const DEFAULT_SEASON = "2026";
