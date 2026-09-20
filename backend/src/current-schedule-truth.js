@@ -7,12 +7,14 @@ export function isResultOnlyObservationSource(source = {}) {
   return sourceId.endsWith(RESULT_ONLY_SOURCE_SUFFIX);
 }
 
+export const resultOnlyObservationSql = (sourceAlias = "src") =>
+  `LOWER(COALESCE(${sourceAlias}.id,'')) LIKE '%${RESULT_ONLY_SOURCE_SUFFIX}'`;
+
 export const resultOnlySourceSql = (sourceAlias = "src") =>
   `LOWER(COALESCE(${sourceAlias}.id,'')) NOT LIKE '%${RESULT_ONLY_SOURCE_SUFFIX}'`;
 
-export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") => `(
-  ${resultOnlySourceSql(sourceAlias)}
-  AND NOT (
+export const currentObservationEvidenceSql = (gameAlias = "g", sourceAlias = "src") => `(
+  NOT (
   (
     ${sourceAlias}.collection_mode='statewide'
     AND ${sourceAlias}.parser_type='dragonfly-public'
@@ -20,6 +22,11 @@ export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") =>
   )
   OR instr(COALESCE(${gameAlias}.notes,''),'${PRESENTATION_SUPPRESSED_NOTE}')>0
   )
+)`;
+
+export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") => `(
+  ${resultOnlySourceSql(sourceAlias)}
+  AND ${currentObservationEvidenceSql(gameAlias, sourceAlias)}
 )`;
 
 export function hasRetiredStatewideMarker(game = {}) {
