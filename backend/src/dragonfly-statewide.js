@@ -306,3 +306,79 @@ export async function runDragonFlyStatewideCollection(env,{
     throw error;
   }
 }
+
+
+export function filterTargetedDragonFlyRows(rows, teamIds = []) {
+  const wanted=new Set((teamIds||[]).map(value=>String(value||"").trim()).filter(Boolean));
+  const games=(rows?.games||[]).filter(row=>wanted.has(String(row.team_id||"")));
+  const canonicalIds=new Set(games.map(row=>row.canonical_event_id).filter(Boolean));
+  const gameIds=new Set(games.map(row=>row.id).filter(Boolean));
+  return {
+    games,
+    canonicals:(rows?.canonicals||[]).filter(row=>canonicalIds.has(row.id)),
+    members:(rows?.members||[]).filter(row=>gameIds.has(row.game_id)),
+    sourceCounts:new Map([...new Set(games.map(row=>row.source_id).filter(Boolean))]
+      .map(sourceId=>[sourceId,games.filter(row=>row.source_id===sourceId).length]))
+  };
+}
+
+export async function runDragonFlyTargetedCollection(env,{
+  teamIds=[],
+  payload=null,
+  feedUrl=DEFAULT_FEED,
+  fetchFn=fetch,
+  now=new Date(),
+  chunkSize=200
+}={}){
+  const wanted=[...new Set((teamIds||[]).map(value=>String(value||"").trim()).filter(Boolean))];
+  if(!wanted.length || wanted.length>32) throw new Error(`Targeted DragonFly scope must contain 1-32 teams, got ${wanted.length}`);
+  const checkedAt=now.toISOString();
+  let workingPayload=payload;
+  let pagesFetched=null;
+  if(!workingPayload){
+    const fetched=await fetchDragonFlyPagedPayload(feedUrl,{fetchFn,headers:{"user-agent":"LocalBleachersAR-targeted/2.0","accept":"application/json"}});
+    workingPayload=fetched.payload;
+    pagesFetched=fetched.pageCount;
+  }
+  const rawEventCount=Array.isArray(workingPayload?.schedule)?workingPayload.schedule.length:0;
+  if(rawEventCount<1000) throw new Error(`Targeted DragonFly feed suspicious: only ${rawEventCount} events`);
+
+  const {results:mappings}=await env.DB.prepare(`
+    SELECT tei.external_team_id,src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude
+    FROM team_external_identities tei
+    JOIN teams t ON t.id=tei.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public'
+    WHERE tei.provider='dragonfly' AND t.sport='volleyball' AND t.gender='girls' AND t.season='2026'
+      AND src.collection_mode='statewide'`).all();
+  const allRows=buildStatewideDragonFlyRows(workingPayload,mappings,{checkedAt});
+  const rows=filterTargetedDragonFlyRows(allRows,wanted);
+  const foundTeams=new Set(rows.games.map(row=>row.team_id));
+  const missingTeams=wanted.filter(id=>!foundTeams.has(id));
+
+  await runJsonChunks(env,STATEWIDE_SQL.upsertCanonical,rows.canonicals,chunkSize);
+  await runJsonChunks(env,STATEWIDE_SQL.upsertGames,rows.games,chunkSize);
+  await runJsonChunks(env,STATEWIDE_SQL.upsertMembers,rows.members,chunkSize);
+
+  const sourceHealth=[...rows.sourceCounts.entries()].map(([id,game_count])=>({id,game_count}));
+  if(sourceHealth.length){
+    await env.DB.prepare(`WITH input AS (
+        SELECT json_extract(value,'$.id') AS id,json_extract(value,'$.game_count') AS game_count FROM json_each(?)
+      ) UPDATE sources SET last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=200,
+        consecutive_failures=0,last_game_count=COALESCE((SELECT game_count FROM input WHERE input.id=sources.id),0),suspicious_game_count=0,updated_at=?
+      WHERE id IN (SELECT id FROM input)`)
+      .bind(JSON.stringify(sourceHealth),checkedAt,checkedAt,checkedAt).run();
+  }
+
+  return {
+    status:"SUCCESS",
+    targetedTeams:wanted.length,
+    matchedTeams:foundTeams.size,
+    missingTeams,
+    observations:rows.games.length,
+    canonicalEvents:rows.canonicals.length,
+    sources:sourceHealth.length,
+    rawEventCount,
+    pagesFetched
+  };
+}
