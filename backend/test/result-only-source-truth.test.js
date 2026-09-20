@@ -92,3 +92,26 @@ test("unmatched result-only observation cannot manufacture a schedule row",()=>{
   assert.equal(rows[0].status,"SCHEDULED");
   assert.equal(rows.some(row=>row.opponent==="Fake Opponent"),false);
 });
+
+
+test("split canonical IDs can still enrich one established logical game",()=>{
+  const schedule=[{
+    id:"schedule",team_id:"team-1",school_id:"school-1",sport:"football",gender:"boys",
+    canonical_event_id:"ce-schedule",opponent:"Opponent High School",opponent_school_id:"opp-1",
+    scheduled_at:"2026-09-18T23:00:00.000Z",status:"SCHEDULED",source_id:"schedule-source",
+    source_type:"official-conference",parser_type:"dragonfly-public",scheduled_time_known:true
+  }];
+  const resultOnly=[{
+    id:"result",team_id:"team-1",school_id:"school-1",sport:"football",gender:"boys",
+    canonical_event_id:"ce-result",opponent:"Opponent High School",opponent_school_id:"opp-1",
+    scheduled_at:"2026-09-18T23:02:00.000Z",status:"FINAL",team_score:21,opponent_score:7,result:"W",
+    source_id:"team-1-official-school-results",source_type:"official-school",parser_type:"mascot-media",
+    scheduled_time_known:true
+  }];
+  const rows=enrichScheduleRowsWithResultEvidence(schedule,resultOnly,{reportingSchoolId:"school-1",maxMinutes:5});
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].status,"FINAL");
+  assert.equal(rows[0].team_score,21);
+  assert.equal(rows[0].opponent_score,7);
+  assert.equal(rows[0].source_id,"schedule-source");
+});
