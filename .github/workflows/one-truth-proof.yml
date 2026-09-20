@@ -1,4 +1,5 @@
 name: ONE_TRUTH_TB proof
+# rerun after result-role regression test correction
 # source-role correction: full schedule parsers are not result-only
 # deploy-gated bootstrap v3
 

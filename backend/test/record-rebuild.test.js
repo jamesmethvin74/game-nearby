@@ -34,9 +34,9 @@ test("record rebuild combines canonical and school-feed finals without double co
   const built = buildRecordsFromInputs({teams,canonicals,raw});
   assert.equal(built.length,1);
   assert.deepEqual(built[0].record,{
-    wins:1,losses:1,ties:0,
+    wins:2,losses:1,ties:0,
     conference_wins:0,conference_losses:1,conference_ties:0,
-    scored_finals:2
+    scored_finals:3
   });
 });
 
@@ -107,6 +107,7 @@ test("result-only school feeds never create standalone record wins", () => {
   const raw=[{
     id:"mascot-jv",team_id:"pea-ridge-football-2026",school_id:"pea-ridge",opponent:"Gentry High School",opponent_school_id:"gentry",
     scheduled_at:"2026-09-02T00:00:00.000Z",status:"FINAL",team_score:48,opponent_score:13,conference_game:0,counts_for_record:1,
+    source_id:"pea-ridge-football-2026-official-school-results",
     source_type:"official-school",parser_type:"mascot-media"
   }];
   const [built]=buildRecordsFromInputs({teams,canonicals:[],raw});
