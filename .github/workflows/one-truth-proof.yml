@@ -1,4 +1,5 @@
 name: ONE_TRUTH_TB statewide source proof
+# rerun after quarantined-final record correction
 
 on:
   push:
@@ -37,6 +38,7 @@ jobs:
             test/result-only-source-truth.test.js \
             test/one-truth-source-integrity-audit.test.js \
             test/statewide-data-integrity-audit.test.js \
+            test/final-result-truth.test.js \
             test/schedule-response-normalizer.test.js \
             test/record-rebuild.test.js \
             test/m10-conference-standings-truth.test.js \
