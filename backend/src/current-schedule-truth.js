@@ -1,17 +1,14 @@
 export const DRAGONFLY_STATEWIDE_REMOVED_NOTE = "Removed from current statewide DragonFly schedule";
 export const PRESENTATION_SUPPRESSED_NOTE = "Excluded from current LocalBleachers presentation";
-export const RESULT_ONLY_PARSERS = Object.freeze(["mascot-media","rankone-public"]);
+export const RESULT_ONLY_SOURCE_SUFFIX = "-official-school-results";
 
 export function isResultOnlyObservationSource(source = {}) {
-  const sourceType = String(source.source_type || "").trim().toLowerCase();
-  const parserType = String(source.parser_type || "").trim().toLowerCase();
-  return sourceType === "official-school" && RESULT_ONLY_PARSERS.includes(parserType);
+  const sourceId = String(source.source_id || source.id || "").trim().toLowerCase();
+  return sourceId.endsWith(RESULT_ONLY_SOURCE_SUFFIX);
 }
 
-export const resultOnlySourceSql = (sourceAlias = "src") => `NOT (
-  LOWER(COALESCE(${sourceAlias}.source_type,''))='official-school'
-  AND LOWER(COALESCE(${sourceAlias}.parser_type,'')) IN ('mascot-media','rankone-public')
-)`;
+export const resultOnlySourceSql = (sourceAlias = "src") =>
+  `LOWER(COALESCE(${sourceAlias}.id,'')) NOT LIKE '%${RESULT_ONLY_SOURCE_SUFFIX}'`;
 
 export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") => `(
   ${resultOnlySourceSql(sourceAlias)}

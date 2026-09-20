@@ -1,4 +1,5 @@
 name: ONE_TRUTH_TB proof
+# source-role correction: full schedule parsers are not result-only
 # deploy-gated bootstrap v3
 
 on:
@@ -137,6 +138,24 @@ jobs:
 
           const conwayRecord=recordFromGames(conway.games||[],'volleyball','girls');
           const peaRecord=recordFromGames(pea.games||[],'football','boys');
+          const conwayFootball=recordFromGames(conway.games||[],'football','boys');
+          const capital=(conway.games||[]).find(g=>
+            g.sport==='football'&&g.gender==='boys'
+            && /Capital High School/i.test(String(g.opponent||''))
+            && String(g.status||'').toUpperCase()==='FINAL'
+          );
+          console.log('CONWAY_FB_SOURCE_ROLE_PROOF='+JSON.stringify({
+            record:conwayFootball,
+            capital:capital&&{
+              date:capital.scheduled_at,opponent:capital.opponent,result:capital.result,
+              team_score:capital.team_score,opponent_score:capital.opponent_score,
+              source_id:capital.source_id,parser_type:capital.parser_type
+            }
+          }));
+          if(conwayFootball.overall!=='2-1') throw new Error(`Conway football ONE_TRUTH is not 2-1: ${JSON.stringify(conwayFootball)}`);
+          if(!capital||capital.result!=='W'||Number(capital.team_score)!==45||Number(capital.opponent_score)!==7) {
+            throw new Error(`Conway Capital final missing from ONE_TRUTH: ${JSON.stringify(capital)}`);
+          }
           console.log('CONWAY_VB_FINALS='+JSON.stringify((conway.games||[])
             .filter(g=>g.sport==='volleyball'&&g.gender==='girls'&&String(g.status||'').toUpperCase()==='FINAL')
             .map(g=>({date:g.scheduled_at,opponent:g.opponent,opponent_school_id:g.opponent_school_id,
