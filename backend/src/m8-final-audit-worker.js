@@ -12,6 +12,7 @@ const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const SOURCE_REPAIR_PATH="/api/v1/internal/source-reconcile-20260920-6e8d4b2a";
 const SOURCE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T05:00:00Z");
+const SOURCE_REPAIR_RUN_ID="one-shot:source-reconcile-20260920-6e8d4b2a";
 
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
@@ -64,30 +65,72 @@ async function runDataIntegrityAudit(env) {
 }
 
 async function runSourceReconciliation(env) {
-  const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
-  const repair=await repairAuditedPresentationDefects(env,before,{
-    rebuildAudit:()=>buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000})
-  });
-  const oneTruth=await rebuildOneTruth(env,{season:"2026"});
-  const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
-  return auditJson({
-    status:"EXECUTED",
-    before_summary:before.summary,
-    repair:{
-      before_blocking:repair.before_blocking,
-      canonical:repair.canonical,
-      score_repair:repair.score_repair,
-      suppression:repair.suppression,
-      affected_team_ids:repair.affected_team_ids,
-      record_rebuild:repair.record_rebuild,
-      after_summary:repair.after_summary,
-      after_issue_counts:repair.after_issue_counts,
-      d1:repair.d1
-    },
-    one_truth_rebuild:oneTruth,
-    after_summary:after.summary,
-    remaining_issues:after.issues
-  },200,{integrity:true});
+  const startedAt=new Date().toISOString();
+  const claim=await env.DB.prepare(`
+    INSERT OR IGNORE INTO statewide_collection_state
+      (id,provider,feed_url,last_checked_at,details_json,updated_at)
+    VALUES(?,'localbleachers-system',?, ?, ?, ?)
+  `).bind(
+    SOURCE_REPAIR_RUN_ID,
+    SOURCE_REPAIR_PATH,
+    startedAt,
+    JSON.stringify({status:"RUNNING",started_at:startedAt}),
+    startedAt
+  ).run();
+  if(Number(claim?.meta?.changes||claim?.changes||0)!==1) {
+    const prior=await env.DB.prepare("SELECT details_json,last_successful_fetch_at,last_error FROM statewide_collection_state WHERE id=?")
+      .bind(SOURCE_REPAIR_RUN_ID).first();
+    return auditJson({
+      status:"ALREADY_CLAIMED",
+      prior:prior||null
+    },409,{integrity:true});
+  }
+
+  try {
+    const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+    const repair=await repairAuditedPresentationDefects(env,before,{
+      rebuildAudit:()=>buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000})
+    });
+    const oneTruth=await rebuildOneTruth(env,{season:"2026"});
+    const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+    const completedAt=new Date().toISOString();
+    const summary={
+      status:"EXECUTED",
+      started_at:startedAt,
+      completed_at:completedAt,
+      before_summary:before.summary,
+      repair:{
+        before_blocking:repair.before_blocking,
+        canonical:repair.canonical,
+        score_repair:repair.score_repair,
+        suppression:repair.suppression,
+        affected_team_ids:repair.affected_team_ids,
+        record_rebuild:repair.record_rebuild,
+        after_summary:repair.after_summary,
+        after_issue_counts:repair.after_issue_counts,
+        d1:repair.d1
+      },
+      one_truth_rebuild:oneTruth,
+      after_summary:after.summary,
+      remaining_issues:after.issues
+    };
+    await env.DB.prepare(`
+      UPDATE statewide_collection_state
+      SET last_checked_at=?,last_successful_fetch_at=?,last_error=NULL,details_json=?,updated_at=?
+      WHERE id=?
+    `).bind(completedAt,completedAt,JSON.stringify({
+      status:"COMPLETE",
+      completed_at:completedAt,
+      before_source_issues:Number(before.summary?.upstream_source_observation_issues||0),
+      after_source_issues:Number(after.summary?.upstream_source_observation_issues||0),
+      after_one_truth_blocking:Number(after.summary?.one_truth_surface_blocking_issues||0),
+      after_source_vs_truth_blocking:Number(after.summary?.source_vs_truth_blocking_issues||0)
+    }),completedAt,SOURCE_REPAIR_RUN_ID).run();
+    return auditJson(summary,200,{integrity:true});
+  } catch(error) {
+    await env.DB.prepare("DELETE FROM statewide_collection_state WHERE id=?").bind(SOURCE_REPAIR_RUN_ID).run();
+    throw error;
+  }
 }
 
 export default {
@@ -110,7 +153,7 @@ export default {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
-    if ((protectedView || sourceRepair) && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW || sourceRepair});
+    if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
       if (sourceRepair) return await runSourceReconciliation(env);
