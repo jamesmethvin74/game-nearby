@@ -6,7 +6,7 @@ import { auditOneTruthSourceCompleteness } from "./one-truth-source-integrity-au
 
 const DEFAULT_SEASON = "2026";
 const PAST_DUE_GRACE_HOURS = 6;
-const TERMINAL_STATUSES = new Set(["FINAL", "CANCELED", "POSTPONED"]);
+const TERMINAL_STATUSES = new Set(["FINAL", "CANCELED", "POSTPONED", "RESULT_PENDING"]);
 
 function text(value) {
   return String(value ?? "").trim();
