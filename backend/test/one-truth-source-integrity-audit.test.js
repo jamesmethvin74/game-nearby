@@ -153,3 +153,24 @@ test("result-only provenance in ONE_TRUTH is blocking",()=>{
   assert.equal(audit.clean,false);
   assert.ok(audit.issues.some(value=>value.code==="RESULT_ONLY_SOURCE_CREATED_ONE_TRUTH_GAME"));
 });
+
+
+test("legacy parser simulation does not label unchanged non-legacy source rows as casualties",()=>{
+  const schedule=[sourceRow({
+    game_id:"sidearm-game",
+    source_id:"college-test-sidearm",
+    source_type:"official-school",
+    parser_type:"sidearm",
+    canonical_event_id:null,
+    opponent:"Arkansas",
+    opponent_school_id:"arkansas",
+    raw_status:"FINAL",
+    raw_team_score:0,
+    raw_opponent_score:9,
+    raw_result:"L"
+  })];
+  const audit=auditOneTruthSourceCompleteness(schedule,[],[]);
+  assert.equal(audit.summary.legacy_parser_filter_affected_teams,0);
+  assert.equal(audit.summary.legacy_parser_filter_missing_games,0);
+  assert.equal(audit.summary.legacy_parser_filter_missing_finals,0);
+});
