@@ -5,7 +5,7 @@ import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-aud
 const TABLE = oneTruthTableName();
 const BOOTSTRAP_PATH = "/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3";
 const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3";
-const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T13:00:00Z");
+const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T21:30:00Z");
 const BOOTSTRAP_BATCH = 64;
 
 function json(body, status = 200, extraHeaders = {}) {
