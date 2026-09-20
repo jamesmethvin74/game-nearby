@@ -1,0 +1,244 @@
+name: ONE_TRUTH accuracy repair once
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - .github/workflows/one-truth-accuracy-repair-once.yml
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test repair contracts
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node --check src/dragonfly-statewide.js
+          node --check src/worker.js
+          node --check src/one-truth.js
+          node --check src/statewide-data-integrity-audit.js
+          node --test \
+            test/dragonfly-statewide.test.js \
+            test/one-truth-contract.test.js \
+            test/result-only-source-truth.test.js \
+            test/final-result-truth.test.js \
+            test/schedule-response-normalizer.test.js
+
+      - name: Refresh affected high-school DragonFly teams
+        env:
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$REFRESH_TOKEN"
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          BODY='{"teamIds":["df-354bu3-volleyball-2026","df-7k6qj6-volleyball-2026","df-bf8zxn-volleyball-2026","df-bjp5e4-volleyball-2026","df-cueaqq-volleyball-2026","df-jh2s9b-volleyball-2026","df-ktr7yd-volleyball-2026","df-suqu5r-volleyball-2026","greenbrier-volleyball-2026","vilonia-volleyball-2026"]}'
+          code=0
+          for attempt in $(seq 1 30); do
+            code=$(curl --max-time 60 -sS -o /tmp/hs.json -w "%{http_code}" -X POST               "$BASE/api/v1/internal/dragonfly-targeted-refresh-20260920"               -H "content-type: application/json"               -H "x-refresh-token: $REFRESH_TOKEN"               --data "$BODY" || true)
+            if [ "$code" = "200" ]; then break; fi
+            if [ "$code" != "404" ]; then cat /tmp/hs.json; exit 1; fi
+            sleep 5
+          done
+          test "$code" = "200"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/hs.json','utf8'));
+          console.log(JSON.stringify(p,null,2));
+          if(p.status!=='SUCCESS') throw new Error('targeted DragonFly refresh failed');
+          if(Number(p.targetedTeams)!==10) throw new Error('wrong high-school target count');
+          NODE
+
+      - name: Refresh affected college official and Sidearm sources
+        env:
+          REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          cat > /tmp/college.json <<'JSON'
+          [
+            "college-arkansas-baptist-football-men-2026-sidearm",
+            "college-arkansas-state-football-men-2026-sidearm",
+            "college-arkansas-state-volleyball-women-2026-sidearm",
+            "college-arkansas-tech-football-men-2026-sidearm",
+            "college-arkansas-tech-volleyball-women-2026-sidearm",
+            "hendrix-football-official",
+            "college-hendrix-soccer-men-2026-sidearm",
+            "college-hendrix-soccer-women-2026-sidearm",
+            "college-hendrix-volleyball-women-2026-sidearm",
+            "college-john-brown-soccer-men-2026-sidearm",
+            "college-john-brown-soccer-women-2026-sidearm",
+            "college-john-brown-volleyball-women-2026-sidearm",
+            "college-ouachita-baptist-football-men-2026-sidearm",
+            "college-ouachita-baptist-soccer-men-2026-sidearm",
+            "college-ouachita-baptist-soccer-women-2026-sidearm",
+            "college-southern-arkansas-football-men-2026-sidearm",
+            "college-uam-football-men-2026-sidearm",
+            "college-uam-volleyball-women-2026-sidearm",
+            "college-uapb-football-men-2026-sidearm",
+            "college-uapb-volleyball-women-2026-sidearm"
+          ]
+          JSON
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const base='https://localbleachersar-sports-api.james-methvin74.workers.dev';
+          const token=process.env.REFRESH_TOKEN;
+          const ids=JSON.parse(fs.readFileSync('/tmp/college.json','utf8'));
+          const all=[];
+          for(let i=0;i<ids.length;i+=16){
+            const chunk=ids.slice(i,i+16);
+            const out=execFileSync('curl',[
+              '--max-time','120','-fsS','-X','POST',base+'/api/v1/refresh',
+              '-H','content-type: application/json',
+              '-H','x-refresh-token: '+token,
+              '--data',JSON.stringify({sourceIds:chunk})
+            ],{encoding:'utf8'});
+            const p=JSON.parse(out);
+            const outcomes=p.outcomes||[];
+            if(outcomes.length!==chunk.length) throw new Error('refresh source scope mismatch: '+JSON.stringify({requested:chunk,outcomes}));
+            const bad=outcomes.filter(x=>x.status==='FAILURE');
+            if(bad.length) throw new Error('college refresh failures: '+JSON.stringify(bad));
+            all.push(...outcomes);
+          }
+          fs.writeFileSync('/tmp/college-outcomes.json',JSON.stringify(all,null,2));
+          console.log(JSON.stringify({sources:all.length,statuses:Object.fromEntries([...new Set(all.map(x=>x.status))].map(s=>[s,all.filter(x=>x.status===s).length]))},null,2));
+          NODE
+
+      - name: Rebuild ONE_TRUTH_TB once after collection
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          PATHNAME="/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3"
+          after=""
+          batches=0
+          teams=0
+          while true; do
+            code=$(curl --max-time 45 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=$after")
+            if [ "$code" != "200" ]; then cat /tmp/bootstrap.json; exit 1; fi
+            line=$(node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync('/tmp/bootstrap.json','utf8'));
+          if(p.status!=='SUCCESS') process.exit(1);
+          console.log([p.done?'1':'0',p.next_after||'',Number(p.teams||0)].join('|'));
+          NODE
+            )
+            IFS='|' read -r done next count <<< "$line"
+            batches=$((batches+1)); teams=$((teams+count))
+            if [ "$done" = "1" ]; then break; fi
+            after="$next"
+            test "$batches" -le 24
+          done
+          echo "{\"batches\":$batches,\"teams\":$teams}" > /tmp/bootstrap-summary.json
+          test "$teams" -eq 1227
+
+      - name: Run complete statewide integrity audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl --max-time 120 -fsS "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3" > /tmp/audit.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
+          const issues=a.statewide_audit?.issues||[];
+          const truth=issues.filter(x=>x.surface==='ONE_TRUTH_TB');
+          const source=issues.filter(x=>x.surface==='source-schedule');
+          const counts=list=>Object.fromEntries([...new Set(list.map(x=>x.code))].sort().map(code=>[code,list.filter(x=>x.code===code).length]));
+          const summary={
+            status:a.status,
+            problems:a.problems,
+            statewide:a.statewide_audit?.summary,
+            truth_issue_counts:counts(truth),
+            source_issue_counts:counts(source)
+          };
+          fs.writeFileSync('/tmp/audit-summary.json',JSON.stringify(summary,null,2));
+          console.log(JSON.stringify(summary,null,2));
+          NODE
+
+      - name: Verify app-facing ONE_TRUTH surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh" > /tmp/status.json
+          curl -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/conway.json
+          curl -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule" > /tmp/pea.json
+          curl -fsS "$BASE/api/v1/teams/conway-football-2026/record" > /tmp/conway-record.json
+          curl -fsS "$BASE/api/v1/teams/df-7x4sxh-football-2026/record" > /tmp/pea-record.json
+          curl -fsS "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json
+          curl -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z" > /tmp/nearby.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const statuses=read('/tmp/status.json').team_statuses||[];
+          const conway=read('/tmp/conway.json').games||[];
+          const pea=read('/tmp/pea.json').games||[];
+          const cr=read('/tmp/conway-record.json').record||{};
+          const pr=read('/tmp/pea-record.json').record||{};
+          const standings=read('/tmp/standings.json').standings||[];
+          const nearby=read('/tmp/nearby.json').games||[];
+          const cf=statuses.find(x=>x.school_id==='conway'&&x.sport==='football'&&x.gender==='boys');
+          const cv=statuses.find(x=>x.school_id==='conway'&&x.sport==='volleyball'&&x.gender==='girls');
+          const pf=statuses.find(x=>x.school_id==='df-7x4sxh'&&x.sport==='football'&&x.gender==='boys');
+          const capital=conway.find(g=>g.sport==='football'&&/Capital High School/i.test(String(g.opponent||'')));
+          const cvStanding=standings.find(x=>x.team_id==='conway-volleyball-2026');
+          const nearbyConway=nearby.filter(g=>g.team_id==='conway-volleyball-2026'||g.team_id==='conway-football-2026');
+          if(cf?.display_overall_record!=='2-1'||cr.display_overall_record!=='2-1') throw new Error('Conway football surfaces disagree');
+          if(!capital||capital.status!=='FINAL'||Number(capital.team_score)!==45||Number(capital.opponent_score)!==7) throw new Error('Conway Capital final missing');
+          if(cv?.display_overall_record!=='11-6'||cv?.display_conference_record!=='4-0'||cv?.display_rank!==1) throw new Error('Conway volleyball status wrong');
+          if(!cvStanding||cvStanding.display_overall_record!==cv.display_overall_record||cvStanding.display_conference_record!==cv.display_conference_record||cvStanding.display_rank!==cv.display_rank) throw new Error('Conway volleyball standings disagree');
+          if(pf?.display_overall_record!=='1-2'||pr.display_overall_record!=='1-2'||pf?.display_conference_record!=='0-0') throw new Error('Pea Ridge surfaces disagree');
+          const resultOnlyPea=pea.filter(g=>String(g.source_id||'').toLowerCase().endsWith('-official-school-results'));
+          if(resultOnlyPea.length) throw new Error('Pea Ridge result-only standalone row visible');
+          for(const g of nearbyConway){
+            const s=statuses.find(x=>x.team_id===g.team_id);
+            if(!s) continue;
+            if(Number(g.wins||0)!==Number(s.wins||0)||Number(g.losses||0)!==Number(s.losses||0)||Number(g.ties||0)!==Number(s.ties||0)) throw new Error('nearby card record disagrees with ONE_TRUTH status');
+          }
+          const proof={
+            conway_football:{status:cf?.display_overall_record,record:cr.display_overall_record,capital:{status:capital?.status,score:[capital?.team_score,capital?.opponent_score]}},
+            conway_volleyball:{status:cv?.display_overall_record,conference:cv?.display_conference_record,rank:cv?.display_rank,standing:cvStanding},
+            pea_ridge:{status:pf?.display_overall_record,record:pr.display_overall_record,conference:pf?.display_conference_record,result_only_standalone:resultOnlyPea.length},
+            nearby_conway_games_checked:nearbyConway.length
+          };
+          fs.writeFileSync('/tmp/live-proof.json',JSON.stringify(proof,null,2));
+          console.log(JSON.stringify(proof,null,2));
+          NODE
+
+      - name: Publish repair evidence
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const read=p=>{try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch{return null;}};
+          const payload={
+            marker:'ONE_TRUTH_ACCURACY_REPAIR_20260920',
+            workflow_commit:process.env.GITHUB_SHA,
+            high_school_refresh:read('/tmp/hs.json'),
+            college_refresh:read('/tmp/college-outcomes.json'),
+            rebuild:read('/tmp/bootstrap-summary.json'),
+            audit:read('/tmp/audit-summary.json'),
+            live_proof:read('/tmp/live-proof.json')
+          };
+          fs.writeFileSync('/tmp/comment.md','### ONE_TRUTH accuracy repair\n\n```json\n'+JSON.stringify(payload,null,2)+'\n```');
+          NODE
+          gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file /tmp/comment.md
