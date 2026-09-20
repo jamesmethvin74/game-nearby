@@ -1,4 +1,5 @@
 name: ONE_TRUTH final accuracy proof once
+# rerun after standings fix
 
 on:
   push:
