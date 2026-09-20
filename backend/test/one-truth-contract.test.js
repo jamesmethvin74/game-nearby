@@ -77,5 +77,7 @@ test("standings are served directly from ONE_TRUTH without legacy upstream depen
   assert.ok(start>=0);
   assert.doesNotMatch(block,/app\.fetch\(/);
   assert.match(block,/FROM \$\{TABLE\}/);
+  assert.match(block,/team_id IN \(SELECT value FROM json_each\(\?\)\)/);
+  assert.match(block,/JSON\.stringify\(teamIds\)/);
   assert.match(block,/standings_method:"one-truth"/);
 });
