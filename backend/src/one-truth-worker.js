@@ -1,10 +1,11 @@
 import app from "./m8-worker.js";
 import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
+import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
 
 const TABLE = oneTruthTableName();
 const BOOTSTRAP_PATH = "/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3";
 const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3";
-const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T03:00:00Z");
+const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T06:30:00Z");
 const BOOTSTRAP_BATCH = 64;
 
 function json(body, status = 200, extraHeaders = {}) {
@@ -370,12 +371,18 @@ async function oneTruthAudit(env) {
       WHERE rank IS NOT expected_rank
     `).first()
   ]);
+  const statewide=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+  const sourceVsTruth=statewide?.source_vs_truth?.summary || {};
   const problems={
     missing_team_rows:Math.max(0,Number(coverage?.active_teams||0)-Number(coverage?.truth_teams||0)),
     result_only_games:Number(resultOnly?.count||0),
     record_mismatches:Number(recordMismatch?.count||0),
     conference_flag_mismatches:Number(conferenceMismatch?.count||0),
-    rank_mismatches:Number(rankMismatch?.count||0)
+    rank_mismatches:Number(rankMismatch?.count||0),
+    source_final_count_mismatches:Number(sourceVsTruth.teams_with_final_count_mismatch||0),
+    result_enrichment_missing_from_truth:Number(sourceVsTruth.result_enrichment_missing_from_truth||0),
+    one_truth_surface_blocking_issues:Number(statewide?.summary?.one_truth_surface_blocking_issues||0),
+    source_surface_blocking_issues:Number(statewide?.summary?.source_surface_blocking_issues||0)
   };
   return json({
     status:Object.values(problems).some(Boolean)?"FAIL":"PASS",
@@ -383,8 +390,9 @@ async function oneTruthAudit(env) {
     active_teams:Number(coverage?.active_teams||0),
     truth_teams:Number(coverage?.truth_teams||0),
     truth_games:Number(coverage?.truth_games||0),
-    problems
-  },Object.values(problems).some(Boolean)?409:200);
+    problems,
+    statewide_audit:statewide
+  },200);
 }
 
 async function nearbyGames(env, url) {
