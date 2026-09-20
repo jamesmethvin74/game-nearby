@@ -1,5 +1,5 @@
 name: ONE_TRUTH final accuracy proof once
-# rerun after resolved-team standings fix
+# rerun after conference-slug resolution fix
 
 on:
   push:
