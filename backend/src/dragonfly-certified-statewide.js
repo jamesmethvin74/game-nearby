@@ -1,7 +1,7 @@
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { collectionSafety, dateKeyInZone } from "./schedule-authority-core.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
-import { STATEWIDE_SQL } from "./dragonfly-statewide.js";
+import { STATEWIDE_SQL, reconcileDragonFlyNativeCanonicalAliases } from "./dragonfly-statewide.js";
 import { statewideSportConfig, STATEWIDE_HIGH_SCHOOL_SPORTS } from "./statewide-sport-config.js";
 
 function clean(value){return String(value??"").replace(/\s+/g," ").trim();}
@@ -27,6 +27,63 @@ function eventMatches(event,config){
     return code===config.providerSportCode && (!level || level.includes("varsity"));
   });
 }
+function eventParticipantIdentity(participant={}) {
+  return clean(participant?.team?.teamId)
+    || clean(participant?.orgShortCode).toUpperCase()
+    || clean(participant?.name).toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+}
+
+function providerEventQuality(event) {
+  const participants=Array.isArray(event?.participants)?event.participants:[];
+  const status=eventStatus(event,participants);
+  const scored=participants.filter(participant=>score(participant?.result?.score)!=null).length;
+  let value=status==="FINAL" && scored>=2 ? 1000 : status==="FINAL" ? 900 : status==="SCHEDULED" ? 600 : status==="POSTPONED" ? 500 : status==="CANCELED" ? 400 : 300;
+  if(eventTimeKnown(event)) value+=20;
+  if(clean(event?.facility?.name || event?.hostOrgName)) value+=5;
+  return value;
+}
+
+function providerParticipantsKey(event={}) {
+  const ids=(Array.isArray(event?.participants)?event.participants:[])
+    .map(eventParticipantIdentity)
+    .filter(Boolean)
+    .sort();
+  return ids.length>=2?ids.join("|"):"";
+}
+
+function providerEventsSameContest(a,b,config,timeZone="America/Chicago") {
+  const participantsA=providerParticipantsKey(a);
+  if(!participantsA || participantsA!==providerParticipantsKey(b)) return false;
+  const aAt=clean(a?.date || a?.startDateTime || a?.scheduledAt);
+  const bAt=clean(b?.date || b?.startDateTime || b?.scheduledAt);
+  if(!aAt || !bAt) return false;
+  const aDate=dateKeyInZone(aAt,timeZone), bDate=dateKeyInZone(bAt,timeZone);
+  if(!aDate || aDate!==bDate) return false;
+  if(config.sport==="football") return true;
+  if(!eventTimeKnown(a) || !eventTimeKnown(b)) return false;
+  const delta=Math.abs(Date.parse(aAt)-Date.parse(bAt))/60000;
+  return Number.isFinite(delta) && delta<=5;
+}
+
+function preferredProviderEvent(a,b) {
+  const delta=providerEventQuality(b)-providerEventQuality(a);
+  if(delta>0) return b;
+  if(delta<0) return a;
+  const aId=clean(a?.eventId || a?.id), bId=clean(b?.eventId || b?.id);
+  return bId.localeCompare(aId)>0?b:a;
+}
+
+export function collapseCertifiedProviderDuplicates(schedule=[],sportConfig,{timeZone="America/Chicago"}={}) {
+  const config=statewideSportConfig(sportConfig);
+  const rows=[];
+  for(const event of (Array.isArray(schedule)?schedule:[]).filter(item=>eventMatches(item,config))) {
+    const index=rows.findIndex(existing=>providerEventsSameContest(existing,event,config,timeZone));
+    if(index<0) rows.push(event);
+    else rows[index]=preferredProviderEvent(rows[index],event);
+  }
+  return rows;
+}
+
 function countsForOfficialRecord(event,config,scheduledAt,timeZone){
   const contestType=clean(event?.contestType).toLowerCase();
   if (contestType==="exhibition") return 0;
@@ -95,7 +152,7 @@ export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checke
   const seenCanonical=new Set();
   let externalOpponentObservations=0;
   let skippedWithoutOpponent=0;
-  const schedule=Array.isArray(payload?.schedule)?payload.schedule:[];
+  const schedule=collapseCertifiedProviderDuplicates(Array.isArray(payload?.schedule)?payload.schedule:[],config,{timeZone});
 
   for (const event of schedule) {
     if (!eventMatches(event,config)) continue;
@@ -321,6 +378,7 @@ export async function runCertifiedDragonFlyStatewideCollection(env,sportConfig,{
     await runJsonChunks(env,STATEWIDE_SQL.upsertCanonical,rows.canonicals,chunkSize);
     await runJsonChunks(env,STATEWIDE_SQL.upsertGames,rows.games,chunkSize);
     await runJsonChunks(env,STATEWIDE_SQL.upsertMembers,rows.members,chunkSize);
+    await reconcileDragonFlyNativeCanonicalAliases(env,rows,{sport:config.sport,gender:config.gender,season:config.season,checkedAt});
 
     const sourceIdsJson=JSON.stringify(sourceHealth.map(item=>item.id));
     await env.DB.prepare(`
