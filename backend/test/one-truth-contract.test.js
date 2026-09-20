@@ -81,3 +81,12 @@ test("standings are served directly from ONE_TRUTH without legacy upstream depen
   assert.match(block,/JSON\.stringify\(teamIds\)/);
   assert.match(block,/standings_method:"one-truth"/);
 });
+
+
+test("conference slug resolves canonical sport-specific conference IDs",()=>{
+  const start=worker.indexOf("async function teamIdsForConference");
+  const end=worker.indexOf("async function nearbyTeamIds",start);
+  const block=worker.slice(start,end);
+  assert.match(block,/LIKE candidate\.value \|\| '-%'/);
+  assert.match(block,/json_each\(\?\) candidate/);
+});
