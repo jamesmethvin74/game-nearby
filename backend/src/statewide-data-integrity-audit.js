@@ -379,6 +379,20 @@ function combineIssueCounts(issues = []) {
   return counts;
 }
 
+export function classifyStatewideIntegritySurfaces(sourceSurface = {}, truthSurface = {}, sourceVsTruth = {}) {
+  const sourceObservationIssues=(sourceSurface.issues||[]).map(value=>({...value,surface:"source-observation"}));
+  const presentationIssues=[
+    ...(truthSurface.issues||[]).map(value=>({...value,surface:"ONE_TRUTH_TB"})),
+    ...(sourceVsTruth.issues||[]).map(value=>({...value,surface:"source-vs-truth"}))
+  ];
+  return {
+    sourceObservationIssues,
+    presentationIssues,
+    blockingIssues:presentationIssues.filter(value=>value.severity==="blocking"),
+    warningIssues:presentationIssues.filter(value=>value.severity==="warning")
+  };
+}
+
 export async function buildStatewideDataIntegrityAudit(env, {
   season = DEFAULT_SEASON,
   now = new Date(),
@@ -453,13 +467,9 @@ export async function buildStatewideDataIntegrityAudit(env, {
   const truthSurface=auditPresentationRows(truthRowsAsAuditInput(truthRows),{now,season,sampleLimit});
   const sourceVsTruth=auditOneTruthSourceCompleteness(scheduleRows,resultOnlyRows,truthRows);
 
-  const combinedIssues=[
-    ...(sourceSurface.issues||[]).map(value=>({...value,surface:"source-schedule"})),
-    ...(truthSurface.issues||[]).map(value=>({...value,surface:"ONE_TRUTH_TB"})),
-    ...(sourceVsTruth.issues||[]).map(value=>({...value,surface:"source-vs-truth"}))
-  ];
-  const blockingIssues=combinedIssues.filter(value=>value.severity==="blocking");
-  const warningIssues=combinedIssues.filter(value=>value.severity==="warning");
+  const classified=classifyStatewideIntegritySurfaces(sourceSurface,truthSurface,sourceVsTruth);
+  const {sourceObservationIssues,presentationIssues,blockingIssues,warningIssues}=classified;
+  const allIssues=[...presentationIssues,...sourceObservationIssues];
   const meta=[scheduleQuery,resultOnlyQuery,truthQuery].map(queryMeta);
   const d1={
     rows_read:meta.reduce((sum,value)=>sum+value.rows_read,0),
@@ -473,7 +483,7 @@ export async function buildStatewideDataIntegrityAudit(env, {
     season:String(season),
     clean:blockingIssues.length===0,
     contract:{
-      scope:"Every active local-catalog 2026 team/sport, all schedule-authority observations, explicit result-only evidence, and the actual ONE_TRUTH_TB presentation rows.",
+      scope:"Every active local-catalog 2026 team/sport, all schedule-authority observations, explicit result-only evidence, and the actual ONE_TRUTH_TB presentation rows. Raw source observations remain upstream evidence telemetry; production blocking status is determined by defects that survive into ONE_TRUTH_TB or violate source-vs-truth completeness.",
       rules:[
         ...(sourceSurface.contract?.rules||[]),
         "Result-only observations may enrich a matching independently established schedule contest but may never create a standalone ONE_TRUTH game.",
@@ -485,15 +495,21 @@ export async function buildStatewideDataIntegrityAudit(env, {
     },
     summary:{
       ...sourceSurface.summary,
+      teams_with_issues:new Set(presentationIssues.map(value=>value.team_id).filter(Boolean)).size,
+      blocking_issues:blockingIssues.length,
+      warning_issues:warningIssues.length,
+      issues_by_code:combineIssueCounts(presentationIssues),
       source_surface_blocking_issues:Number(sourceSurface.summary?.blocking_issues||0),
+      upstream_source_observation_issues:sourceObservationIssues.length,
+      upstream_source_issues_by_code:combineIssueCounts(sourceObservationIssues),
       one_truth_surface_blocking_issues:Number(truthSurface.summary?.blocking_issues||0),
       source_vs_truth_blocking_issues:Number(sourceVsTruth.summary?.blocking_issues||0),
       combined_blocking_issues:blockingIssues.length,
       combined_warning_issues:warningIssues.length,
-      issues_by_code:combineIssueCounts(combinedIssues),
+      blocking_scope:"ONE_TRUTH_TB presentation plus source-vs-truth contract",
       source_vs_truth:sourceVsTruth.summary
     },
-    issues:combinedIssues.slice(0,Math.max(1,Number(sampleLimit)||1000)),
+    issues:allIssues.slice(0,Math.max(1,Number(sampleLimit)||1000)),
     source_surface:sourceSurface.summary,
     one_truth_surface:truthSurface.summary,
     source_vs_truth:sourceVsTruth,
