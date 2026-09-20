@@ -504,6 +504,9 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
       const evaluatedFinal = evaluateFinalResultTruth(game);
       const finalIsUnverified = String(game.status || "").toUpperCase() === "FINAL"
         && evaluatedFinal.state !== "VERIFIED";
+      const presentationStatus = finalIsUnverified ? "RESULT_PENDING" : (game.status || "SCHEDULED");
+      const presentationTeamScore = finalIsUnverified ? null : (game.team_score ?? null);
+      const presentationOpponentScore = finalIsUnverified ? null : (game.opponent_score ?? null);
       const row = {
         ...summary,
         truth_id:`GAME:${team.team_id}:${game.canonical_event_id || game.game_id || game.id}`,
@@ -524,10 +527,10 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
         home_away:game.home_away || "unknown",
         conference_game:Number(game.conference_game || 0),
         counts_for_record:finalIsUnverified ? 0 : (Number(game.counts_for_record ?? 1) === 0 ? 0 : 1),
-        status:game.status || "SCHEDULED",
-        team_score:game.team_score ?? null,
-        opponent_score:game.opponent_score ?? null,
-        result:evaluatedFinal.state === "QUARANTINED" ? null : (evaluatedFinal.row?.result || game.result || null),
+        status:presentationStatus,
+        team_score:presentationTeamScore,
+        opponent_score:presentationOpponentScore,
+        result:finalIsUnverified ? null : (evaluatedFinal.row?.result || game.result || null),
         source_id:game.source_id || null,
         source_type:game.source_type || null,
         parser_type:game.parser_type || null,
