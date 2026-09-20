@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import {buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL, filterTargetedDragonFlyRows } from "../src/dragonfly-statewide.js";
+import {buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL, filterTargetedDragonFlyRows, dragonFlyNativeCanonicalMappings } from "../src/dragonfly-statewide.js";
 
 const fixture=fileURLToPath(new URL("./fixtures/dragonfly-greenbrier-vilonia-2026.json",import.meta.url));
 const checkedAt="2026-08-31T20:00:00.000Z";
@@ -102,6 +102,22 @@ test("bulk JSON SQL upserts execute in SQLite, preserve membership, and give bot
   assert.equal(vil.longitude,-92.2029);
 });
 
+
+test("native event mapping converges duplicate DragonFly observations on one canonical id",()=>{
+  const mappings=dragonFlyNativeCanonicalMappings({games:[
+    {source_event_key:"native:shared",canonical_event_id:"ce:canonical"},
+    {source_event_key:"native:shared",canonical_event_id:"ce:canonical"},
+    {source_event_key:"native:other",canonical_event_id:"ce:other"}
+  ]});
+  assert.deepEqual(mappings,[
+    {event_key:"native:shared",canonical_event_id:"ce:canonical"},
+    {event_key:"native:other",canonical_event_id:"ce:other"}
+  ]);
+  assert.deepEqual(dragonFlyNativeCanonicalMappings({games:[
+    {source_event_key:"native:ambiguous",canonical_event_id:"ce:a"},
+    {source_event_key:"native:ambiguous",canonical_event_id:"ce:b"}
+  ]}),[]);
+});
 
 test("targeted DragonFly filtering writes only requested team observations",()=>{
   const rows={
