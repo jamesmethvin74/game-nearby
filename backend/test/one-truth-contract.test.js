@@ -83,10 +83,13 @@ test("standings are served directly from ONE_TRUTH without legacy upstream depen
 });
 
 
-test("conference slug resolves canonical sport-specific conference IDs",()=>{
+test("conference slug resolves directly from ONE_TRUTH canonical conference values",()=>{
   const start=worker.indexOf("async function teamIdsForConference");
   const end=worker.indexOf("async function nearbyTeamIds",start);
   const block=worker.slice(start,end);
-  assert.match(block,/LIKE candidate\.value \|\| '-%'/);
-  assert.match(block,/json_each\(\?\) candidate/);
+  assert.match(block,/FROM \$\{TABLE\}/);
+  assert.match(block,/conference_membership_state='member'/);
+  assert.match(block,/conferenceSlugMatches\(row\.conference_id,candidates\)/);
+  assert.match(block,/conferenceSlugMatches\(row\.conference_name,candidates\)/);
+  assert.doesNotMatch(block,/conference_memberships|FROM teams|JOIN conferences/);
 });
