@@ -219,33 +219,47 @@ async function activeTeamIdsForSchools(env, schoolIds = []) {
   return results.map(row=>String(row.id||"")).filter(Boolean);
 }
 
-async function teamIdsForConference(env, sport, conferenceCandidates = []) {
-  const candidates=[...new Set((conferenceCandidates||[]).map(value=>String(value||"").toLowerCase()).filter(Boolean))];
-  if(!sport||!candidates.length) return [];
-  const {results=[]}=await env.DB.prepare(`
-    SELECT DISTINCT t.id
-    FROM teams t
-    JOIN schools sch ON sch.id=t.school_id
-    LEFT JOIN conference_memberships cm ON cm.team_id=t.id
-    LEFT JOIN conferences vc ON vc.id=cm.conference_id
-    LEFT JOIN conferences c ON c.id=t.conference_id
-    WHERE t.active=1
-      AND t.season='2026'
-      AND sch.catalog_scope='local'
-      AND LOWER(t.sport)=?
-      AND EXISTS (
-        SELECT 1
-        FROM json_each(?) candidate
-        WHERE LOWER(COALESCE(cm.conference_id,t.conference_id,''))=candidate.value
-           OR LOWER(COALESCE(cm.conference_id,t.conference_id,'')) LIKE candidate.value || '-%'
-           OR LOWER(REPLACE(COALESCE(vc.name,c.name,''),' ','-'))=candidate.value
-           OR LOWER(REPLACE(COALESCE(vc.name,c.name,''),' ','-')) LIKE candidate.value || '-%'
-      )
-    ORDER BY t.id
-  `).bind(String(sport).toLowerCase(),JSON.stringify(candidates)).all();
-  return results.map(row=>String(row.id||"")).filter(Boolean);
+function conferenceSlug(value) {
+  return String(value||"")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g," and ")
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/^-+|-+$/g,"");
 }
 
+function conferenceSlugMatches(value, candidates) {
+  const slug=conferenceSlug(value);
+  if(!slug) return false;
+  return candidates.some(candidate =>
+    slug===candidate
+    || slug.startsWith(candidate+"-")
+    || slug.endsWith("-"+candidate)
+    || slug.includes("-"+candidate+"-")
+  );
+}
+
+async function teamIdsForConference(env, sport, conferenceCandidates = []) {
+  const candidates=[...new Set((conferenceCandidates||[]).map(conferenceSlug).filter(Boolean))];
+  if(!sport||!candidates.length) return [];
+  const {results=[]}=await env.DB.prepare(`
+    SELECT team_id,conference_id,conference_name
+    FROM ${TABLE}
+    WHERE row_type='TEAM'
+      AND LOWER(sport)=?
+      AND conference_membership_state='member'
+      AND conference_id IS NOT NULL
+    ORDER BY team_id
+  `).bind(String(sport).toLowerCase()).all();
+
+  return results
+    .filter(row =>
+      conferenceSlugMatches(row.conference_id,candidates)
+      || conferenceSlugMatches(row.conference_name,candidates)
+    )
+    .map(row=>String(row.team_id||""))
+    .filter(Boolean);
+}
 async function nearbyTeamIds(env, url) {
   const lat=Number(url.searchParams.get("lat"));
   const lon=Number(url.searchParams.get("lon"));
