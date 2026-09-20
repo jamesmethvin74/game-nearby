@@ -427,6 +427,9 @@ export function dedupeScheduleRows(games, options = {}) {
     const merged=buckets.get(bucketKey);
     const index = merged.findIndex(existing =>
       scheduleRowsLikelyDuplicate(existing, row, options)
+      || scheduleRowsLikelySameLogicalGame(existing, row, options)
+      || staleSameDayOpponentTwin(existing, row, options)
+      || footballRowsConflictSameDay(existing, row, options)
       || identicalVerifiedFinalSnapshot(existing, row, options)
     );
     if (index === -1) merged.push({ ...row, schedule_observation_count: Number(row.schedule_observation_count || 1) });
