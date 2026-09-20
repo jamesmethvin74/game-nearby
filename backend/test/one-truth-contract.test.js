@@ -10,7 +10,8 @@ const migration=fs.readFileSync(new URL("../migrations/0017_one_truth_tb.sql",im
 test("ONE_TRUTH_TB is the final presentation read model",()=>{
   assert.match(migration,/CREATE TABLE IF NOT EXISTS ONE_TRUTH_TB/);
   assert.match(truth,/const TABLE = "ONE_TRUTH_TB"/);
-  assert.match(truth,/currentScheduleTruthSql\("g","src"\)/);
+  assert.match(truth,/currentObservationEvidenceSql\("g","src"\)/);
+  assert.match(truth,/enrichScheduleRowsWithResultEvidence/);
   assert.match(truth,/officialSeasonScheduleRows\(resolved\)/);
   assert.match(truth,/rowIsCollegePreseasonGhost/);
   assert.match(truth,/rankSummaries\(summaries\)/);
