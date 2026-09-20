@@ -58,3 +58,12 @@ test("unverified finals are never presented as FINAL",()=>{
   assert.match(truth,/presentationOpponentScore = finalIsUnverified \? null/);
   assert.match(truth,/result:finalIsUnverified \? null/);
 });
+
+
+test("past-due scheduled games are presented as result pending",()=>{
+  assert.match(truth,/PAST_DUE_PENDING_HOURS = 6/);
+  assert.match(truth,/pastDueNonterminal/);
+  assert.match(truth,/presentationPending = finalIsUnverified \|\| pastDueNonterminal/);
+  assert.match(truth,/presentationStatus = presentationPending \? "RESULT_PENDING"/);
+  assert.match(truth,/result:presentationPending \? null/);
+});
