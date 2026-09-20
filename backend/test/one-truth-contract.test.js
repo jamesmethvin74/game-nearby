@@ -68,3 +68,14 @@ test("past-due scheduled games are presented as result pending",()=>{
   assert.match(truth,/presentationStatus = presentationPending \? "RESULT_PENDING"/);
   assert.match(truth,/result:presentationPending \? null/);
 });
+
+
+test("standings are served directly from ONE_TRUTH without legacy upstream dependency",()=>{
+  const start=truthWorker.indexOf("async function standingsResponse");
+  const end=truthWorker.indexOf("\nexport default {",start);
+  const block=truthWorker.slice(start,end);
+  assert.ok(start>=0);
+  assert.doesNotMatch(block,/app\.fetch\(/);
+  assert.match(block,/FROM \$\{TABLE\}/);
+  assert.match(block,/standings_method:"one-truth"/);
+});
