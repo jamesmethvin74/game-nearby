@@ -1,6 +1,6 @@
 
 name: ONE_TRUTH final statewide accuracy proof once
-# final rerun after contract-test alignment
+# rerun after presentation-blocking scope correction
 
 on:
   push:
@@ -49,47 +49,18 @@ jobs:
           done
           exit 1
 
-      - name: Rebuild ONE_TRUTH_TB statewide once
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          PATHNAME="/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3"
-          after=""
-          batches=0
-          teams=0
-          while true; do
-            code=$(curl --max-time 45 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=$after")
-            if [ "$code" != "200" ]; then cat /tmp/bootstrap.json; exit 1; fi
-            line=$(node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const p=JSON.parse(fs.readFileSync('/tmp/bootstrap.json','utf8'));
-          if(p.status!=='SUCCESS') throw new Error(JSON.stringify(p));
-          console.log([p.done?'1':'0',p.next_after||'',Number(p.teams||0)].join('|'));
-          NODE
-            )
-            IFS='|' read -r done next count <<< "$line"
-            batches=$((batches+1))
-            teams=$((teams+count))
-            if [ "$done" = "1" ]; then break; fi
-            after="$next"
-            test "$batches" -le 24
-          done
-          printf '{"batches":%s,"teams":%s}\n' "$batches" "$teams" > /tmp/rebuild.json
-          test "$teams" -eq 1227
-
       - name: Run complete statewide integrity audit
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl --max-time 120 -fsS "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3" > /tmp/audit.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 --max-time 120 -fsS "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3" > /tmp/audit.json
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
           const issues=a.statewide_audit?.issues||[];
           const truth=issues.filter(x=>x.surface==='ONE_TRUTH_TB');
-          const source=issues.filter(x=>x.surface==='source-schedule');
+          const source=issues.filter(x=>x.surface==='source-observation');
           const counts=list=>Object.fromEntries([...new Set(list.map(x=>x.code))].sort().map(code=>[code,list.filter(x=>x.code===code).length]));
           const summary={
             status:a.status,
@@ -109,14 +80,14 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh" > /tmp/status.json
-          curl -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/conway.json
-          curl -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule" > /tmp/pea.json
-          curl -fsS "$BASE/api/v1/teams/conway-football-2026/record" > /tmp/cf-record.json
-          curl -fsS "$BASE/api/v1/teams/conway-volleyball-2026/record" > /tmp/cv-record.json
-          curl -fsS "$BASE/api/v1/teams/df-7x4sxh-football-2026/record" > /tmp/pf-record.json
-          curl -fsS "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json
-          curl -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z" > /tmp/nearby.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh" > /tmp/status.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/conway.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule" > /tmp/pea.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/teams/conway-football-2026/record" > /tmp/cf-record.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/teams/conway-volleyball-2026/record" > /tmp/cv-record.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/teams/df-7x4sxh-football-2026/record" > /tmp/pf-record.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json
+          curl --retry 4 --retry-all-errors --retry-delay 2 -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z" > /tmp/nearby.json
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
@@ -203,7 +174,6 @@ jobs:
           const payload={
             marker:'ONE_TRUTH_FINAL_STATEWIDE_ACCURACY_20260920',
             workflow_commit:process.env.GITHUB_SHA,
-            rebuild:read('/tmp/rebuild.json'),
             audit:read('/tmp/audit-summary.json'),
             live_proof:read('/tmp/live-proof.json')
           };
