@@ -240,7 +240,18 @@ async function loadAuthorityGames(env, season, teamIds = []) {
         ROW_NUMBER() OVER (
           PARTITION BY g.team_id,COALESCE(g.canonical_event_id,g.id),
             CASE WHEN ${resultOnlyObservationSql("src")} THEN 1 ELSE 0 END
-          ORDER BY src.authority_rank,src.source_priority,src.id
+          ORDER BY
+            CASE
+              WHEN UPPER(COALESCE(ce.status,''))='FINAL'
+                AND ce.home_score IS NOT NULL
+                AND ce.away_score IS NOT NULL THEN 0
+              WHEN UPPER(COALESCE(g.status,''))='FINAL'
+                AND g.team_score IS NOT NULL
+                AND g.opponent_score IS NOT NULL THEN 1
+              WHEN UPPER(COALESCE(ce.status,g.status,''))='FINAL' THEN 2
+              ELSE 3
+            END,
+            src.authority_rank,src.source_priority,src.id
         ) AS authority_row
       FROM games g
       JOIN teams t ON t.id=g.team_id
