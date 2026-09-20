@@ -53,10 +53,11 @@ test("canonical authority keeps complete final evidence before incomplete higher
 
 
 test("unverified finals are never presented as FINAL",()=>{
-  assert.match(truth,/finalIsUnverified \? "RESULT_PENDING"/);
+  assert.match(truth,/presentationPending = finalIsUnverified \|\| pastDueNonterminal/);
+  assert.match(truth,/presentationStatus = presentationPending \? "RESULT_PENDING"/);
   assert.match(truth,/presentationTeamScore = finalIsUnverified \? null/);
   assert.match(truth,/presentationOpponentScore = finalIsUnverified \? null/);
-  assert.match(truth,/result:finalIsUnverified \? null/);
+  assert.match(truth,/result:presentationPending \? null/);
 });
 
 
