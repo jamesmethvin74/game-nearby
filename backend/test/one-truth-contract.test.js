@@ -83,13 +83,15 @@ test("standings are served directly from ONE_TRUTH without legacy upstream depen
 });
 
 
-test("conference slug resolves directly from ONE_TRUTH canonical conference values",()=>{
+test("conference slug resolves from ONE_TRUTH and bridges generic slugs through canonical school cohorts",()=>{
   const start=worker.indexOf("async function teamIdsForConference");
   const end=worker.indexOf("async function nearbyTeamIds",start);
   const block=worker.slice(start,end);
   assert.match(block,/FROM \$\{TABLE\}/);
   assert.match(block,/conference_membership_state='member'/);
-  assert.match(block,/conferenceSlugMatches\(row\.conference_id,candidates\)/);
-  assert.match(block,/conferenceSlugMatches\(row\.conference_name,candidates\)/);
+  assert.match(block,/anchorSchools/);
+  assert.match(block,/overlap/);
+  assert.match(block,/resolvedConferenceId/);
+  assert.match(block,/row\.school_id/);
   assert.doesNotMatch(block,/conference_memberships|FROM teams|JOIN conferences/);
 });
