@@ -3,11 +3,15 @@ import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-au
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
+import { repairAuditedPresentationDefects } from "./statewide-data-integrity-repair.js";
+import { rebuildOneTruth } from "./one-truth.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
 const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c4f2d7e1b6a";
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
+const SOURCE_REPAIR_PATH="/api/v1/internal/source-reconcile-20260920-6e8d4b2a";
+const SOURCE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T05:00:00Z");
 
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
@@ -55,8 +59,35 @@ async function runRecordTruthAudit(env) {
 }
 
 async function runDataIntegrityAudit(env) {
-  const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:100});
+  const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
   return auditJson(audit,200,{integrity:true});
+}
+
+async function runSourceReconciliation(env) {
+  const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+  const repair=await repairAuditedPresentationDefects(env,before,{
+    rebuildAudit:()=>buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000})
+  });
+  const oneTruth=await rebuildOneTruth(env,{season:"2026"});
+  const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+  return auditJson({
+    status:"EXECUTED",
+    before_summary:before.summary,
+    repair:{
+      before_blocking:repair.before_blocking,
+      canonical:repair.canonical,
+      score_repair:repair.score_repair,
+      suppression:repair.suppression,
+      affected_team_ids:repair.affected_team_ids,
+      record_rebuild:repair.record_rebuild,
+      after_summary:repair.after_summary,
+      after_issue_counts:repair.after_issue_counts,
+      d1:repair.d1
+    },
+    one_truth_rebuild:oneTruth,
+    after_summary:after.summary,
+    remaining_issues:after.issues
+  },200,{integrity:true});
 }
 
 export default {
@@ -69,16 +100,20 @@ export default {
     const oneShot=request.method==="GET"
       && url.pathname===FINAL_AUDIT_PATH
       && Date.now()<=FINAL_AUDIT_EXPIRES_AT;
+    const sourceRepair=request.method==="POST"
+      && url.pathname===SOURCE_REPAIR_PATH
+      && Date.now()<=SOURCE_REPAIR_EXPIRES_AT;
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot) {
+    if (!protectedView && !oneShot && !sourceRepair) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
-    if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
+    if ((protectedView || sourceRepair) && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW || sourceRepair});
 
     try {
+      if (sourceRepair) return await runSourceReconciliation(env);
       if (coverageView===DATA_INTEGRITY_VIEW) return await runDataIntegrityAudit(env);
       return await runRecordTruthAudit(env);
     } catch (error) {
@@ -95,4 +130,4 @@ export default {
   }
 };
 
-export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH };
+export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH, SOURCE_REPAIR_EXPIRES_AT, SOURCE_REPAIR_PATH };
