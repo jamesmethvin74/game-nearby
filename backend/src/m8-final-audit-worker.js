@@ -13,6 +13,7 @@ const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const SOURCE_REPAIR_PATH="/api/v1/internal/source-reconcile-20260920-6e8d4b2a";
 const SOURCE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T05:00:00Z");
 const SOURCE_REPAIR_RUN_ID="one-shot:source-reconcile-20260920-6e8d4b2a";
+const SOURCE_REPAIR_STATUS_PATH="/api/v1/internal/source-reconcile-status-20260920-6e8d4b2a";
 
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
@@ -62,6 +63,24 @@ async function runRecordTruthAudit(env) {
 async function runDataIntegrityAudit(env) {
   const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
   return auditJson(audit,200,{integrity:true});
+}
+
+async function sourceReconciliationStatus(env) {
+  const row=await env.DB.prepare(`
+    SELECT id,last_checked_at,last_successful_fetch_at,last_error,details_json,updated_at
+    FROM statewide_collection_state
+    WHERE id=?
+  `).bind(SOURCE_REPAIR_RUN_ID).first();
+  let details=null;
+  try { details=row?.details_json?JSON.parse(row.details_json):null; } catch {}
+  return auditJson({
+    status:details?.status || (row ? "UNKNOWN" : "NOT_STARTED"),
+    last_checked_at:row?.last_checked_at || null,
+    last_successful_fetch_at:row?.last_successful_fetch_at || null,
+    last_error:row?.last_error || null,
+    updated_at:row?.updated_at || null,
+    details
+  },200,{integrity:true});
 }
 
 async function runSourceReconciliation(env) {
@@ -146,16 +165,20 @@ export default {
     const sourceRepair=request.method==="POST"
       && url.pathname===SOURCE_REPAIR_PATH
       && Date.now()<=SOURCE_REPAIR_EXPIRES_AT;
+    const sourceRepairStatus=request.method==="GET"
+      && url.pathname===SOURCE_REPAIR_STATUS_PATH
+      && Date.now()<=SOURCE_REPAIR_EXPIRES_AT;
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot && !sourceRepair) {
+    if (!protectedView && !oneShot && !sourceRepair && !sourceRepairStatus) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
+      if (sourceRepairStatus) return await sourceReconciliationStatus(env);
       if (sourceRepair) return await runSourceReconciliation(env);
       if (coverageView===DATA_INTEGRITY_VIEW) return await runDataIntegrityAudit(env);
       return await runRecordTruthAudit(env);
@@ -173,4 +196,4 @@ export default {
   }
 };
 
-export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH, SOURCE_REPAIR_EXPIRES_AT, SOURCE_REPAIR_PATH };
+export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH, SOURCE_REPAIR_EXPIRES_AT, SOURCE_REPAIR_PATH, SOURCE_REPAIR_STATUS_PATH };
