@@ -211,6 +211,124 @@ export const STATEWIDE_SQL={
     FROM json_each(?)`
 };
 
+export function dragonFlyNativeCanonicalMappings(rows={}) {
+  const byEvent=new Map();
+  const conflicted=new Set();
+  for(const game of rows?.games||[]) {
+    const eventKey=clean(game?.source_event_key);
+    const canonicalId=clean(game?.canonical_event_id);
+    if(!eventKey.startsWith("native:") || !canonicalId) continue;
+    const prior=byEvent.get(eventKey);
+    if(prior && prior!==canonicalId) conflicted.add(eventKey);
+    else byEvent.set(eventKey,canonicalId);
+  }
+  return [...byEvent.entries()]
+    .filter(([eventKey])=>!conflicted.has(eventKey))
+    .map(([event_key,canonical_event_id])=>({event_key,canonical_event_id}));
+}
+
+export async function reconcileDragonFlyNativeCanonicalAliases(env,rows,{
+  sport="volleyball",gender="girls",season="2026",checkedAt=new Date().toISOString()
+}={}) {
+  const mappings=dragonFlyNativeCanonicalMappings(rows);
+  if(!mappings.length) return {mappings:0,game_reassignments:0,old_canonical_ids:0};
+  const json=JSON.stringify(mappings);
+  const old=await env.DB.prepare(`
+    WITH mapping(event_key,winner) AS (
+      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
+    )
+    SELECT DISTINCT g.canonical_event_id AS old_id,mapping.winner AS winner_id
+    FROM games g
+    JOIN teams t ON t.id=g.team_id
+    JOIN sources src ON src.id=g.source_id
+    JOIN mapping ON mapping.event_key=g.source_event_key
+    WHERE src.parser_type='dragonfly-public'
+      AND t.sport=? AND t.gender=? AND t.season=?
+      AND g.canonical_event_id IS NOT NULL
+      AND g.canonical_event_id<>mapping.winner
+  `).bind(json,sport,gender,season).all();
+  const oldMappings=(old?.results||[])
+    .filter(row=>row.old_id&&row.winner_id&&row.old_id!==row.winner_id)
+    .map(row=>({loser:String(row.old_id),winner:String(row.winner_id)}));
+
+  const update=await env.DB.prepare(`
+    WITH mapping(event_key,winner) AS (
+      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
+    )
+    UPDATE games
+    SET canonical_event_id=(SELECT winner FROM mapping WHERE event_key=games.source_event_key),
+        updated_at=?
+    WHERE id IN (
+      SELECT g.id
+      FROM games g
+      JOIN teams t ON t.id=g.team_id
+      JOIN sources src ON src.id=g.source_id
+      JOIN mapping ON mapping.event_key=g.source_event_key
+      WHERE src.parser_type='dragonfly-public'
+        AND t.sport=? AND t.gender=? AND t.season=?
+        AND COALESCE(g.canonical_event_id,'')<>mapping.winner
+    )
+  `).bind(json,checkedAt,sport,gender,season).run();
+
+  await env.DB.prepare(`
+    WITH mapping(event_key,winner) AS (
+      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
+    ),
+    matched AS (
+      SELECT g.id AS game_id,g.source_id,g.team_id,mapping.winner
+      FROM games g
+      JOIN teams t ON t.id=g.team_id
+      JOIN sources src ON src.id=g.source_id
+      JOIN mapping ON mapping.event_key=g.source_event_key
+      WHERE src.parser_type='dragonfly-public'
+        AND t.sport=? AND t.gender=? AND t.season=?
+    )
+    DELETE FROM canonical_event_members
+    WHERE game_id IN (SELECT game_id FROM matched)
+  `).bind(json,sport,gender,season).run();
+
+  await env.DB.prepare(`
+    WITH mapping(event_key,winner) AS (
+      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
+    ),
+    matched AS (
+      SELECT g.id AS game_id,g.source_id,g.team_id,mapping.winner
+      FROM games g
+      JOIN teams t ON t.id=g.team_id
+      JOIN sources src ON src.id=g.source_id
+      JOIN mapping ON mapping.event_key=g.source_event_key
+      WHERE src.parser_type='dragonfly-public'
+        AND t.sport=? AND t.gender=? AND t.season=?
+    )
+    INSERT OR REPLACE INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at)
+    SELECT winner,game_id,source_id,team_id,? FROM matched
+  `).bind(json,sport,gender,season,checkedAt).run();
+
+  if(oldMappings.length) {
+    const oldJson=JSON.stringify(oldMappings);
+    await env.DB.prepare(`
+      WITH mapping(loser,winner) AS (
+        SELECT json_extract(value,'$.loser'),json_extract(value,'$.winner') FROM json_each(?)
+      )
+      UPDATE event_conflicts
+      SET canonical_event_id=(SELECT winner FROM mapping WHERE loser=event_conflicts.canonical_event_id)
+      WHERE canonical_event_id IN (SELECT loser FROM mapping)
+    `).bind(oldJson).run();
+    await env.DB.prepare(`
+      DELETE FROM canonical_events
+      WHERE id IN (SELECT json_extract(value,'$.loser') FROM json_each(?))
+        AND NOT EXISTS (SELECT 1 FROM canonical_event_members cem WHERE cem.canonical_event_id=canonical_events.id)
+        AND NOT EXISTS (SELECT 1 FROM event_conflicts ec WHERE ec.canonical_event_id=canonical_events.id)
+    `).bind(oldJson).run();
+  }
+
+  return {
+    mappings:mappings.length,
+    game_reassignments:Number(update?.meta?.rows_written||0),
+    old_canonical_ids:oldMappings.length
+  };
+}
+
 async function runJsonChunks(env,sql,rows,chunkSize){
   for (let i=0;i<rows.length;i+=chunkSize) await env.DB.prepare(sql).bind(JSON.stringify(rows.slice(i,i+chunkSize))).run();
 }
@@ -275,6 +393,7 @@ export async function runDragonFlyStatewideCollection(env,{
     await runJsonChunks(env,STATEWIDE_SQL.upsertCanonical,rows.canonicals,chunkSize);
     await runJsonChunks(env,STATEWIDE_SQL.upsertGames,rows.games,chunkSize);
     await runJsonChunks(env,STATEWIDE_SQL.upsertMembers,rows.members,chunkSize);
+    await reconcileDragonFlyNativeCanonicalAliases(env,rows,{sport:"volleyball",gender:"girls",season:"2026",checkedAt});
     await env.DB.prepare(`UPDATE games SET status='CANCELED',team_score=NULL,opponent_score=NULL,result=NULL,
         notes=CASE WHEN notes IS NULL OR notes='' THEN 'Removed from current statewide DragonFly schedule' ELSE notes || ' · Removed from current statewide DragonFly schedule' END,
         last_checked_at=?,updated_at=?
@@ -359,6 +478,7 @@ export async function runDragonFlyTargetedCollection(env,{
   await runJsonChunks(env,STATEWIDE_SQL.upsertCanonical,rows.canonicals,chunkSize);
   await runJsonChunks(env,STATEWIDE_SQL.upsertGames,rows.games,chunkSize);
   await runJsonChunks(env,STATEWIDE_SQL.upsertMembers,rows.members,chunkSize);
+  await reconcileDragonFlyNativeCanonicalAliases(env,rows,{sport:"volleyball",gender:"girls",season:"2026",checkedAt});
 
   const sourceHealth=[...rows.sourceCounts.entries()].map(([id,game_count])=>({id,game_count}));
   if(sourceHealth.length){
