@@ -199,7 +199,7 @@ async function listNearbyGames(request,env,url){
   return json({games},200,request,env);
 }
 
-async function runDueCollections(env,{force=false,sourceId=null,sourceIds=null,reason="scheduled"}={}){
+export async function runDueCollections(env,{force=false,sourceId=null,sourceIds=null,reason="scheduled"}={}){
   const scopedIds=Array.isArray(sourceIds) && sourceIds.length
     ? [...new Set(sourceIds.map(value=>String(value||"").trim()).filter(Boolean))]
     : sourceId ? [String(sourceId)] : null;
