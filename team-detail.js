@@ -41,6 +41,7 @@
   }
 
   function scoreLabel(event) {
+    if (event.status === "RESULT_PENDING") return "Result pending";
     if (event.status !== "FINAL" || event.teamScore == null || event.opponentScore == null) return "";
     const result = event.result ? `${event.result} ` : "";
     return `${result}${event.teamScore}-${event.opponentScore}`;
