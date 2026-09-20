@@ -1,0 +1,73 @@
+name: ONE_TRUTH final audit metric proof
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - .github/workflows/one-truth-final-audit.yml
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify audit logic
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          node --test test/one-truth-source-integrity-audit.test.js
+
+      - name: Wait for exact production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA:0:8}"
+          ok=0
+          for i in $(seq 1 60); do
+            body="$(gh api repos/jamesmethvin74/game-nearby/issues/366/comments --paginate               --jq '[.[] | select(.user.login=="cloudflare-workers-and-pages[bot]")][-1].body // ""')"
+            if grep -q "$short" <<<"$body" && grep -q "Deployment successful" <<<"$body"; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "$ok" = "1"
+
+      - name: Retrieve corrected statewide audit metric
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl --max-time 90 -fsS "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3" > /tmp/audit.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
+          const s=a.statewide_audit?.source_vs_truth||{};
+          const payload={
+            marker:"ONE_TRUTH_FINAL_AUDIT_METRIC_20260919",
+            workflow_commit:process.env.GITHUB_SHA,
+            audit_status:a.status,
+            audit_problems:a.problems,
+            source_vs_truth:s.summary,
+            legacy_parser_filter:s.legacy_parser_filter,
+            result_enrichment:s.result_enrichment,
+            statewide_summary:a.statewide_audit?.summary
+          };
+          fs.writeFileSync('/tmp/comment.md',
+            '### ONE_TRUTH corrected final audit metric\n\n```json\n'+JSON.stringify(payload,null,2)+'\n```');
+          NODE
+          gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file /tmp/comment.md
