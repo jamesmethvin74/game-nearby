@@ -1,5 +1,6 @@
 import { currentObservationEvidenceSql, resultOnlyObservationSql } from "./current-schedule-truth.js";
-import { dedupeScheduleRows, enrichScheduleRowsWithResultEvidence, officialSeasonScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
+import { dedupeScheduleRows, enrichScheduleRowsWithResultEvidence, officialSeasonScheduleRows, recordFromScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
+import { evaluateFinalResultTruth } from "./final-result-truth.js";
 
 const TABLE = "ONE_TRUTH_TB";
 const META_ID = "META:CURRENT";
@@ -361,37 +362,25 @@ function resolveGame(row, team, conferenceBySchoolTeam) {
 }
 
 function finalRecord(games) {
-  let wins = 0, losses = 0, ties = 0;
-  let conferenceWins = 0, conferenceLosses = 0, conferenceTies = 0;
-  let scoredFinals = 0, conferenceScoredFinals = 0, unresolvedFinals = 0;
+  const record = recordFromScheduleRows(games);
+  let unresolvedFinals = 0;
+  let conferenceScoredFinals = 0;
 
   for (const game of games) {
     if (Number(game.counts_for_record ?? 1) === 0) continue;
     if (String(game.status || "").toUpperCase() !== "FINAL") continue;
-    if (game.team_score == null || game.opponent_score == null) {
+    const evaluated = evaluateFinalResultTruth(game);
+    if (evaluated.state === "UNRESOLVED" || evaluated.state === "CONTRADICTORY") {
       unresolvedFinals += 1;
       continue;
     }
-    scoredFinals += 1;
-    const result = game.result || resultFromScores(game.status, game.team_score, game.opponent_score);
-    if (result === "W") wins += 1;
-    else if (result === "L") losses += 1;
-    else if (result === "T") ties += 1;
-
-    if (Number(game.conference_game || 0) === 1) {
+    if (evaluated.state === "VERIFIED" && Number(game.conference_game || 0) === 1) {
       conferenceScoredFinals += 1;
-      if (result === "W") conferenceWins += 1;
-      else if (result === "L") conferenceLosses += 1;
-      else if (result === "T") conferenceTies += 1;
     }
   }
 
   return {
-    wins,losses,ties,
-    conference_wins:conferenceWins,
-    conference_losses:conferenceLosses,
-    conference_ties:conferenceTies,
-    scored_finals:scoredFinals,
+    ...record,
     conference_scored_finals:conferenceScoredFinals,
     unresolved_finals:unresolvedFinals
   };
@@ -501,6 +490,9 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
   for (const team of teams) {
     const summary = summaryByTeam.get(team.team_id);
     for (const game of visibleGamesByTeam.get(team.team_id) || []) {
+      const evaluatedFinal = evaluateFinalResultTruth(game);
+      const finalIsUnverified = String(game.status || "").toUpperCase() === "FINAL"
+        && evaluatedFinal.state !== "VERIFIED";
       const row = {
         ...summary,
         truth_id:`GAME:${team.team_id}:${game.canonical_event_id || game.game_id || game.id}`,
@@ -520,11 +512,11 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
         longitude:game.longitude ?? null,
         home_away:game.home_away || "unknown",
         conference_game:Number(game.conference_game || 0),
-        counts_for_record:Number(game.counts_for_record ?? 1) === 0 ? 0 : 1,
+        counts_for_record:finalIsUnverified ? 0 : (Number(game.counts_for_record ?? 1) === 0 ? 0 : 1),
         status:game.status || "SCHEDULED",
         team_score:game.team_score ?? null,
         opponent_score:game.opponent_score ?? null,
-        result:game.result || null,
+        result:evaluatedFinal.state === "QUARANTINED" ? null : (evaluatedFinal.row?.result || game.result || null),
         source_id:game.source_id || null,
         source_type:game.source_type || null,
         parser_type:game.parser_type || null,
