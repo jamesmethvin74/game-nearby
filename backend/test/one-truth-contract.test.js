@@ -42,3 +42,11 @@ test("ONE_TRUTH_TB conference truth does not depend on rebuild batch composition
   assert.match(truth,/refreshRanksForCohorts\(env, summaries\)/);
   assert.doesNotMatch(truth,/rankSummaries\(summaries\);/);
 });
+
+test("canonical authority keeps complete final evidence before incomplete higher-authority observations",()=>{
+  assert.match(truth,/ce\.home_score IS NOT NULL/);
+  assert.match(truth,/ce\.away_score IS NOT NULL/);
+  assert.match(truth,/g\.team_score IS NOT NULL/);
+  assert.match(truth,/g\.opponent_score IS NOT NULL/);
+  assert.match(truth,/src\.authority_rank,src\.source_priority,src\.id/);
+});
