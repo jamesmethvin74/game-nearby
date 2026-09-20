@@ -1,5 +1,6 @@
 
 name: ONE_TRUTH final statewide accuracy proof once
+# final rerun after contract-test alignment
 
 on:
   push:
