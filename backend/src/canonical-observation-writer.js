@@ -33,7 +33,8 @@ function hasSameDayNativeRematch(seed,candidates,timeZone) {
 
 export function relatedObservationsForReconciliation(seed,candidates,{timeZone="America/Chicago"}={}) {
   const rows=Array.isArray(candidates)?candidates:[];
-  const ambiguousSameDayRematch=hasSameDayNativeRematch(seed,rows,timeZone);
+  const singleContestLocalDateSport=String(seed?.sport||"").toLowerCase()==="football";
+  const ambiguousSameDayRematch=!singleContestLocalDateSport && hasSameDayNativeRematch(seed,rows,timeZone);
   const seedNative=nativeObservationIdentity(seed);
 
   // If authoritative native evidence proves the same participants met more than once
