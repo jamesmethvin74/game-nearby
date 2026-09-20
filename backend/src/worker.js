@@ -1,6 +1,6 @@
 import core from "./index.js";
 import { syncDragonFlyVarsityVolleyballCatalog } from "./dragonfly-discovery.js";
-import { runDragonFlyStatewideCollection } from "./dragonfly-statewide.js";
+import { runDragonFlyStatewideCollection, runDragonFlyTargetedCollection } from "./dragonfly-statewide.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { applySchoolDisplayNames, dedupeScheduleRows, officialSeasonScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
@@ -8,6 +8,8 @@ import { enrichMaxPrepsSchoolMascots, getSchoolBrandingReport, syncMaxPrepsSchoo
 import { reconcileFootballGameRecords } from "./football-record-reconciliation.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
+
+const TARGETED_DRAGONFLY_PATH="/api/v1/internal/dragonfly-targeted-refresh-20260920";
 
 function defer(ctx, promise) {
   if (typeof ctx?.waitUntil === "function") ctx.waitUntil(promise);
@@ -336,6 +338,23 @@ export default {
   async fetch(request, env, ctx) {
     const url=new URL(request.url);
     const path=url.pathname;
+
+    if (request.method==="POST" && path===TARGETED_DRAGONFLY_PATH) {
+      if (!env.REFRESH_TOKEN || request.headers.get("x-refresh-token")!==env.REFRESH_TOKEN) {
+        return publicJson(request,{error:"not_found"},404);
+      }
+      const body=await request.json().catch(()=>({}));
+      const teamIds=Array.isArray(body?.teamIds)
+        ? [...new Set(body.teamIds.map(value=>String(value||"").trim()).filter(Boolean))]
+        : [];
+      if(!teamIds.length || teamIds.length>32) return publicJson(request,{error:"invalid_team_scope",maxTeams:32},400);
+      try {
+        return publicJson(request,await runDragonFlyTargetedCollection(env,{teamIds}));
+      } catch(error) {
+        console.error("targeted DragonFly refresh failed",error);
+        return publicJson(request,{error:"targeted_dragonfly_refresh_failed",message:String(error?.message||error)},500);
+      }
+    }
 
     if (request.method==="GET" && path==="/api/v1/branding/report") {
       try {
