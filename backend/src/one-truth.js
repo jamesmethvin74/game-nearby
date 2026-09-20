@@ -6,6 +6,7 @@ const TABLE = "ONE_TRUTH_TB";
 const META_ID = "META:CURRENT";
 const DEFAULT_SEASON = "2026";
 const WRITE_CHUNK = 180;
+const PAST_DUE_PENDING_HOURS = 6;
 
 const COLUMNS = [
   "truth_id","row_type","team_id","school_id","school_name","school_level",
@@ -504,7 +505,14 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
       const evaluatedFinal = evaluateFinalResultTruth(game);
       const finalIsUnverified = String(game.status || "").toUpperCase() === "FINAL"
         && evaluatedFinal.state !== "VERIFIED";
-      const presentationStatus = finalIsUnverified ? "RESULT_PENDING" : (game.status || "SCHEDULED");
+      const scheduledMs=Date.parse(game.scheduled_at || "");
+      const refreshedMs=Date.parse(refreshedAt);
+      const pastDueNonterminal = String(game.status || "").toUpperCase() === "SCHEDULED"
+        && Number.isFinite(scheduledMs)
+        && Number.isFinite(refreshedMs)
+        && scheduledMs < refreshedMs - PAST_DUE_PENDING_HOURS * 60 * 60 * 1000;
+      const presentationPending = finalIsUnverified || pastDueNonterminal;
+      const presentationStatus = presentationPending ? "RESULT_PENDING" : (game.status || "SCHEDULED");
       const presentationTeamScore = finalIsUnverified ? null : (game.team_score ?? null);
       const presentationOpponentScore = finalIsUnverified ? null : (game.opponent_score ?? null);
       const row = {
@@ -530,7 +538,7 @@ function buildTruthRows(teams, rawGames, refreshedAt) {
         status:presentationStatus,
         team_score:presentationTeamScore,
         opponent_score:presentationOpponentScore,
-        result:finalIsUnverified ? null : (evaluatedFinal.row?.result || game.result || null),
+        result:presentationPending ? null : (evaluatedFinal.row?.result || game.result || null),
         source_id:game.source_id || null,
         source_type:game.source_type || null,
         parser_type:game.parser_type || null,
