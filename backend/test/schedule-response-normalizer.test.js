@@ -520,3 +520,46 @@ test("same-source same-day completed rematches are preserved even with identical
   const second={...base,id:"match-2",scheduled_at:"2026-09-19T19:00:00.000Z"};
   assert.equal(dedupeScheduleRows([first,second],{reportingSchoolId:"sample"}).length,2);
 });
+
+
+test("split canonical and stale twins collapse before presentation", () => {
+  const rows=[
+    {
+      id:"scheduled-twin",team_id:"team-1",school_id:"school-1",sport:"football",gender:"boys",
+      scheduled_at:"2026-09-18T23:00:00.000Z",opponent:"Opponent High School",opponent_school_id:"opp-1",
+      status:"SCHEDULED",team_score:null,opponent_score:null,canonical_event_id:"ce-a",
+      source_id:"statewide",source_type:"official-conference",parser_type:"dragonfly-public",scheduled_time_known:true
+    },
+    {
+      id:"final-twin",team_id:"team-1",school_id:"school-1",sport:"football",gender:"boys",
+      scheduled_at:"2026-09-18T23:02:00.000Z",opponent:"Opponent High School",opponent_school_id:"opp-1",
+      status:"FINAL",team_score:28,opponent_score:14,result:"W",canonical_event_id:"ce-b",
+      source_id:"school",source_type:"official-school",parser_type:"mascot-media",scheduled_time_known:true
+    }
+  ];
+  const deduped=dedupeScheduleRows(rows,{reportingSchoolId:"school-1",maxMinutes:5});
+  assert.equal(deduped.length,1);
+  assert.equal(deduped[0].status,"FINAL");
+  assert.equal(deduped[0].team_score,28);
+  assert.equal(deduped[0].opponent_score,14);
+});
+
+test("football same-day collision keeps the preferred contest row", () => {
+  const rows=[
+    {
+      id:"weak",team_id:"team-1",school_id:"school-1",sport:"football",gender:"boys",
+      scheduled_at:"2026-09-18T23:00:00.000Z",opponent:"Opponent A",opponent_school_id:"opp-a",
+      status:"SCHEDULED",canonical_event_id:"ce-a",source_id:"statewide",
+      source_type:"official-conference",parser_type:"dragonfly-public",scheduled_time_known:true
+    },
+    {
+      id:"strong",team_id:"team-1",school_id:"school-1",sport:"football",gender:"boys",
+      scheduled_at:"2026-09-19T00:30:00.000Z",opponent:"Opponent B",opponent_school_id:"opp-b",
+      status:"FINAL",team_score:35,opponent_score:7,result:"W",canonical_event_id:"ce-b",
+      source_id:"school",source_type:"official-school",parser_type:"mascot-media",scheduled_time_known:true
+    }
+  ];
+  const deduped=dedupeScheduleRows(rows,{reportingSchoolId:"school-1"});
+  assert.equal(deduped.length,1);
+  assert.equal(deduped[0].id,"strong");
+});
