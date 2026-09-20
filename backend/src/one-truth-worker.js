@@ -233,12 +233,16 @@ async function teamIdsForConference(env, sport, conferenceCandidates = []) {
       AND t.season='2026'
       AND sch.catalog_scope='local'
       AND LOWER(t.sport)=?
-      AND (
-        LOWER(COALESCE(cm.conference_id,t.conference_id,'')) IN (SELECT value FROM json_each(?))
-        OR LOWER(REPLACE(COALESCE(vc.name,c.name,''),' ','-')) IN (SELECT value FROM json_each(?))
+      AND EXISTS (
+        SELECT 1
+        FROM json_each(?) candidate
+        WHERE LOWER(COALESCE(cm.conference_id,t.conference_id,''))=candidate.value
+           OR LOWER(COALESCE(cm.conference_id,t.conference_id,'')) LIKE candidate.value || '-%'
+           OR LOWER(REPLACE(COALESCE(vc.name,c.name,''),' ','-'))=candidate.value
+           OR LOWER(REPLACE(COALESCE(vc.name,c.name,''),' ','-')) LIKE candidate.value || '-%'
       )
     ORDER BY t.id
-  `).bind(String(sport).toLowerCase(),JSON.stringify(candidates),JSON.stringify(candidates)).all();
+  `).bind(String(sport).toLowerCase(),JSON.stringify(candidates)).all();
   return results.map(row=>String(row.id||"")).filter(Boolean);
 }
 
