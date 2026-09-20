@@ -581,16 +581,11 @@ async function teamRecordResponse(env, teamId) {
 }
 
 async function standingsResponse(request, env, ctx, url) {
-  const upstream=await app.fetch(request,env,ctx);
-  if (!upstream.ok) return upstream;
-  let body={};
-  try { body=await upstream.clone().json(); } catch {}
-  const sport=String(url.searchParams.get("sport")||body?.conference?.sport||"").toLowerCase();
+  const sport=String(url.searchParams.get("sport")||"").toLowerCase();
   const requested=String(url.searchParams.get("conference")||"").toLowerCase();
-  const upstreamId=String(body?.conference?.id||"").toLowerCase();
-  const upstreamName=String(body?.conference?.name||"").toLowerCase();
-  const conferenceCandidates=[requested,upstreamId,requested+"-"+sport,
-    String(body?.conference?.name||"").toLowerCase().replace(/\s+/g,"-")].filter(Boolean);
+  if(!sport || !requested) return json({error:"invalid_standings_request"},400);
+
+  const conferenceCandidates=[requested,requested+"-"+sport].filter(Boolean);
   const teamIds=await teamIdsForConference(env,sport,conferenceCandidates);
   await ensureOneTruthFresh(env,{teamIds});
 
@@ -600,11 +595,11 @@ async function standingsResponse(request, env, ctx, url) {
       AND LOWER(sport)=?
       AND conference_membership_state='member'
       AND (
-        LOWER(COALESCE(conference_id,'')) IN (?,?,?)
+        LOWER(COALESCE(conference_id,'')) IN (?,?)
         OR LOWER(REPLACE(COALESCE(conference_name,''),' ','-'))=?
       )
     ORDER BY rank IS NULL,rank,school_name
-  `).bind(sport,requested,upstreamId,requested+"-"+sport,requested).all();
+  `).bind(sport,requested,requested+"-"+sport,requested).all();
 
   const standings=results.map(row=>{
     const status=statusFromRow(row);
@@ -631,12 +626,11 @@ async function standingsResponse(request, env, ctx, url) {
     };
   });
 
+  const first=results[0]||null;
   return json({
-    ...body,
     conference:{
-      ...(body?.conference||{}),
-      id:body?.conference?.id||requested,
-      name:body?.conference?.name||upstreamName||requested,
+      id:first?.conference_id||requested,
+      name:first?.conference_name||requested,
       sport,
       standings_method:"one-truth",
       presentation_method:"one-truth",
@@ -645,7 +639,7 @@ async function standingsResponse(request, env, ctx, url) {
     standings,
     retrieved_at:new Date().toISOString(),
     truth_table:TABLE
-  },upstream.status);
+  },200);
 }
 
 export default {
