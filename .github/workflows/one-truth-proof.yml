@@ -1,4 +1,5 @@
 name: ONE_TRUTH_TB proof
+# rerun after cross-source tournament final dedupe
 # rerun after source-role audit correction
 # rerun after result-role regression test correction
 # source-role correction: full schedule parsers are not result-only
@@ -155,6 +156,8 @@ jobs:
             }
           }));
           if(conwayFootball.overall!=='2-1') throw new Error(`Conway football ONE_TRUTH is not 2-1: ${JSON.stringify(conwayFootball)}`);
+          const conwayVolleyballNow=recordFromGames(conway.games||[],'volleyball','girls');
+          if(conwayVolleyballNow.overall!=='11-6') throw new Error(`Conway volleyball cross-source dedupe failed: ${JSON.stringify(conwayVolleyballNow)}`);
           if(!capital||capital.result!=='W'||Number(capital.team_score)!==45||Number(capital.opponent_score)!==7) {
             throw new Error(`Conway Capital final missing from ONE_TRUTH: ${JSON.stringify(capital)}`);
           }

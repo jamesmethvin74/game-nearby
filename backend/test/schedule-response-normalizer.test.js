@@ -466,3 +466,57 @@ test("college canceled or postponed rows before first final remain visible as te
   ];
   assert.deepEqual(officialSeasonScheduleRows(rows).map(row=>row.opponent),["Canceled Opener","Played Opener"]);
 });
+
+
+test("same-day exact final from full school schedule and date-only canonical source collapses despite clock drift",()=>{
+  const canonical={
+    id:"ce-greenwood",canonical_event_id:"ce-greenwood",source_id:"dragonfly-conway-vb",
+    school_id:"conway",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-29T17:00:00.000Z",scheduled_time_known:0,
+    opponent:"Greenwood High School",opponent_school_id:"df-greenwood",
+    status:"FINAL",team_score:2,opponent_score:1,result:"W",
+    parser_type:"dragonfly-public",source_type:"official-conference"
+  };
+  const school={
+    id:"school-greenwood",source_id:"conway-volleyball-official",
+    school_id:"conway",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-29T16:00:00.000Z",scheduled_time_known:1,
+    opponent:"Greenwood Early Bird Invitational",opponent_school_id:null,
+    status:"FINAL",team_score:2,opponent_score:1,result:"W",
+    parser_type:"mascot-media",source_type:"official-school"
+  };
+  assert.equal(scheduleRowsLikelyDuplicate(canonical,school,{reportingSchoolId:"conway"}),true);
+  const rows=dedupeScheduleRows([canonical,school],{reportingSchoolId:"conway"});
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].schedule_observation_count,2);
+});
+
+test("academy suffix and tournament descriptor normalize to the same opponent for cross-source final dedupe",()=>{
+  const canonical={
+    id:"ce-lrca",canonical_event_id:"ce-lrca",source_id:"dragonfly-conway-vb",
+    school_id:"conway",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-29T17:00:00.000Z",scheduled_time_known:0,
+    opponent:"Little Rock Christian Academy",opponent_school_id:"df-lrca",
+    status:"FINAL",team_score:2,opponent_score:1,result:"W"
+  };
+  const school={
+    id:"school-lrca",source_id:"conway-volleyball-official",
+    school_id:"conway",sport:"volleyball",gender:"girls",
+    scheduled_at:"2026-08-29T14:00:00.000Z",scheduled_time_known:1,
+    opponent:"Little Rock Christian Early Bird Invitational",
+    status:"FINAL",team_score:2,opponent_score:1,result:"W"
+  };
+  assert.equal(opponentNamesLikelySame(canonical.opponent,school.opponent),true);
+  assert.equal(dedupeScheduleRows([canonical,school],{reportingSchoolId:"conway"}).length,1);
+});
+
+test("same-source same-day completed rematches are preserved even with identical scores",()=>{
+  const base={
+    source_id:"official-tournament-source",school_id:"sample",sport:"volleyball",gender:"girls",
+    opponent:"Opponent High School",opponent_school_id:"opp",
+    status:"FINAL",team_score:2,opponent_score:0,result:"W"
+  };
+  const first={...base,id:"match-1",scheduled_at:"2026-09-19T15:00:00.000Z"};
+  const second={...base,id:"match-2",scheduled_at:"2026-09-19T19:00:00.000Z"};
+  assert.equal(dedupeScheduleRows([first,second],{reportingSchoolId:"sample"}).length,2);
+});

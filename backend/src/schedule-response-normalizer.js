@@ -3,7 +3,7 @@ import { evaluateFinalResultTruth, normalizeFinalResultTruth, resultFromTeamScor
 
 const EVENT_DESCRIPTOR_RE = /\b(?:senior night|early bird|invitational|invite|tournament|tourney|classic|jamboree|benefit(?: game)?|exhibition|scrimmage)\b/g;
 const TRAILING_STATE_QUALIFIER_RE = /\s*\((?:AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\)\s*$/i;
-const GENERIC_SCHOOL_QUALIFIER_RE = /\b(?:senior|sr)\b/g;
+const GENERIC_SCHOOL_QUALIFIER_RE = /\b(?:senior|sr|academy)\b/g;
 const VENUE_DETAIL_RE = /\b(?:arena|gym|gymnasium|fieldhouse|field house|stadium|center|centre|complex|court)\b/i;
 const NON_RECORD_TEXT_RE = /\b(?:benefit game|exhibition|scrimmage|jamboree|meet the cats)\b/i;
 const EXPLICIT_COUNT_FLAG_PARSERS = new Set(["dragonfly-public","sidearm"]);
@@ -235,7 +235,31 @@ export function scheduleRowsLikelySameLogicalGame(a, b, options = {}) {
 export function scheduleRowsLikelyDuplicate(a, b, options = {}) {
   return footballSameLocalDate(a,b,options)
     || staleSameDayOpponentTwin(a,b,options)
+    || sameDayVerifiedFinalObservationTwin(a,b,options)
     || scheduleRowsLikelySameLogicalGame(a,b,options);
+}
+
+function sameDayVerifiedFinalObservationTwin(a, b, options = {}) {
+  if (!sameLocalScheduleDate(a,b,options)) return false;
+  if (!opponentIdentityLikelySame(a,b)) return false;
+
+  const aCanonical=clean(a?.canonical_event_id);
+  const bCanonical=clean(b?.canonical_event_id);
+  if (aCanonical && bCanonical && aCanonical !== bCanonical) return false;
+
+  const aSource=clean(a?.source_id);
+  const bSource=clean(b?.source_id);
+  const crossObservation = Boolean(aCanonical) !== Boolean(bCanonical)
+    || (aSource && bSource && aSource !== bSource);
+  if (!crossObservation) return false;
+
+  if (String(a.status || "").toUpperCase() !== "FINAL" || String(b.status || "").toUpperCase() !== "FINAL") return false;
+  const aTruth=evaluateFinalResultTruth(a);
+  const bTruth=evaluateFinalResultTruth(b);
+  if (aTruth.state !== "VERIFIED" || bTruth.state !== "VERIFIED") return false;
+  return aTruth.row.result === bTruth.row.result
+    && Number(aTruth.row.team_score) === Number(bTruth.row.team_score)
+    && Number(aTruth.row.opponent_score) === Number(bTruth.row.opponent_score);
 }
 
 function identicalVerifiedFinalSnapshot(a, b, options = {}) {
