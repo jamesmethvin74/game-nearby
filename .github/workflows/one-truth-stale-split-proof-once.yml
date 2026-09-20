@@ -1,4 +1,4 @@
-name: ONE_TRUTH stale-split proof once
+name: ONE_TRUTH remaining issue extraction once
 
 on:
   push:
@@ -12,128 +12,30 @@ permissions:
   issues: write
 
 jobs:
-  prove:
+  extract:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Test schedule normalization and ONE_TRUTH
-        working-directory: backend
-        run: |
-          set -euo pipefail
-          npm install --no-audit --no-fund
-          node --check src/schedule-response-normalizer.js
-          node --check src/one-truth.js
-          node --test test/schedule-response-normalizer.test.js test/one-truth-contract.test.js test/final-result-truth.test.js
-
-      - name: Rebuild ONE_TRUTH_TB statewide
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          PATHNAME="/api/v1/internal/one-truth-bootstrap-20260919-7c4b1d9e3"
-          ready=0
-          for attempt in $(seq 1 48); do
-            code=$(curl --max-time 25 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=" || true)
-            if [ "$code" = "200" ]; then ready=1; break; fi
-            if [ "$code" = "500" ]; then cat /tmp/bootstrap.json; exit 1; fi
-            sleep 5
-          done
-          test "$ready" = "1"
-          after=""
-          batches=0
-          teams=0
-          while true; do
-            code=$(curl --max-time 30 -sS -o /tmp/bootstrap.json -w "%{http_code}" -X POST "$BASE$PATHNAME?after=$after")
-            test "$code" = "200"
-            line=$(node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const p=JSON.parse(fs.readFileSync('/tmp/bootstrap.json','utf8'));
-          if(p.status!=='SUCCESS') process.exit(1);
-          console.log([p.done?'1':'0',p.next_after||'',Number(p.teams||0)].join('|'));
-          NODE
-            )
-            IFS='|' read -r done next count <<< "$line"
-            batches=$((batches+1)); teams=$((teams+count))
-            if [ "$done" = "1" ]; then break; fi
-            after="$next"
-            test "$batches" -le 60
-          done
-          echo "{\"batches\":$batches,\"teams\":$teams}" > /tmp/bootstrap-summary.json
-
-      - name: Run statewide source-vs-truth audit
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          code=$(curl --max-time 90 -sS -o /tmp/audit.json -w "%{http_code}" "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3")
-          test "$code" = "200"
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
-          console.log(JSON.stringify({
-            status:a.status,
-            problems:a.problems,
-            summary:a.statewide_audit?.summary,
-            source_vs_truth:a.statewide_audit?.source_vs_truth?.summary
-          },null,2));
-          NODE
-
-      - name: Prove Conway and Pea Ridge
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          curl --max-time 30 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh" > /tmp/status.json
-          curl --max-time 30 -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/conway.json
-          curl --max-time 30 -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule" > /tmp/pea.json
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const status=JSON.parse(fs.readFileSync('/tmp/status.json','utf8')).team_statuses||[];
-          const conway=JSON.parse(fs.readFileSync('/tmp/conway.json','utf8')).games||[];
-          const pea=JSON.parse(fs.readFileSync('/tmp/pea.json','utf8')).games||[];
-          const cf=status.find(x=>x.school_id==='conway'&&x.sport==='football'&&x.gender==='boys');
-          const cv=status.find(x=>x.school_id==='conway'&&x.sport==='volleyball'&&x.gender==='girls');
-          const pf=status.find(x=>x.school_id==='df-7x4sxh'&&x.sport==='football'&&x.gender==='boys');
-          const cff=conway.filter(g=>g.sport==='football'&&g.gender==='boys'&&g.status==='FINAL'&&g.team_score!=null&&g.opponent_score!=null&&Number(g.counts_for_record)!==0);
-          const capital=cff.find(g=>/Capital High School/i.test(String(g.opponent||'')));
-          const fakePea=pea.filter(g=>String(g.source_id||'').toLowerCase().endsWith('-official-school-results'));
-          const proof={
-            conway_football:{record:cf?.display_overall_record,finals:cff.length,capital},
-            conway_volleyball:{overall:cv?.display_overall_record,conference:cv?.display_conference_record,rank:cv?.display_rank},
-            pea_ridge:{overall:pf?.display_overall_record,conference:pf?.display_conference_record,rank:pf?.display_rank,result_only_standalone:fakePea.length}
-          };
-          fs.writeFileSync('/tmp/proof.json',JSON.stringify(proof,null,2));
-          if(cf?.display_overall_record!=='2-1'||cff.length!==3||!capital||Number(capital.team_score)!==45||Number(capital.opponent_score)!==7) throw new Error('Conway football proof failed');
-          if(cv?.display_conference_record!=='4-0'||cv?.display_rank!==1) throw new Error('Conway volleyball proof failed');
-          if(pf?.display_overall_record!=='1-2'||pf?.display_conference_record!=='0-0'||fakePea.length) throw new Error('Pea Ridge proof failed');
-          console.log(JSON.stringify(proof,null,2));
-          NODE
-
-      - name: Publish evidence
-        if: always()
+      - name: Retrieve remaining ONE_TRUTH issues
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl --max-time 90 -fsS "$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3" > /tmp/audit.json
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const read=p=>{try{return JSON.parse(fs.readFileSync(p,'utf8'));}catch{return null;}};
-          const a=read('/tmp/audit.json');
+          const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
+          const issues=(a.statewide_audit?.issues||[]).filter(x=>x.surface==='ONE_TRUTH_TB');
+          const grouped={};
+          for(const x of issues) (grouped[x.code]??=[]).push(x);
           const payload={
-            marker:'ONE_TRUTH_STALE_SPLIT_PROOF_20260920',
-            workflow_commit:process.env.GITHUB_SHA,
-            bootstrap:read('/tmp/bootstrap-summary.json'),
-            audit_status:a?.status||null,
-            audit_problems:a?.problems||null,
-            statewide_summary:a?.statewide_audit?.summary||null,
-            source_vs_truth:a?.statewide_audit?.source_vs_truth||null,
-            live_proof:read('/tmp/proof.json')
+            marker:'ONE_TRUTH_REMAINING_ISSUES_20260920',
+            problems:a.problems,
+            counts:Object.fromEntries(Object.entries(grouped).map(([k,v])=>[k,v.length])),
+            issues:grouped
           };
-          fs.writeFileSync('/tmp/comment.md','### ONE_TRUTH stale/split proof\n\n```json\n'+JSON.stringify(payload,null,2)+'\n```');
+          fs.writeFileSync('/tmp/comment.md','### ONE_TRUTH remaining issues\n\n```json\n'+JSON.stringify(payload,null,2)+'\n```');
           NODE
           gh pr comment 366 --repo jamesmethvin74/game-nearby --body-file /tmp/comment.md
