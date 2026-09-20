@@ -273,7 +273,13 @@ export function resultEvidenceMatchesScheduleRow(scheduleRow, evidenceRow, optio
 
   const scheduleCanonical = clean(scheduleRow.canonical_event_id);
   const evidenceCanonical = clean(evidenceRow.canonical_event_id);
-  if (scheduleCanonical && evidenceCanonical) return scheduleCanonical === evidenceCanonical;
+  if (scheduleCanonical && evidenceCanonical) {
+    if (scheduleCanonical === evidenceCanonical) return true;
+    return scheduleRowsLikelySameLogicalGame(scheduleRow, evidenceRow, {
+      ...options,
+      maxMinutes: Number(options.maxMinutes || 5)
+    });
+  }
 
   return sameLocalScheduleDate(scheduleRow, evidenceRow, options)
     && opponentIdentityLikelySame(scheduleRow, evidenceRow);
