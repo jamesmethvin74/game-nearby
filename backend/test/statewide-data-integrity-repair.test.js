@@ -136,23 +136,25 @@ test("ambiguous raw final evidence is never promoted",()=>{
 });
 
 
-test("football same-day collision is repairable but never enters canonical merge clusters",()=>{
+test("football same-day collision enters canonical repair so the lower-trust source converges",()=>{
   const audit={issues:[
     issue("FOOTBALL_SAME_DAY_COLLISION",{team:"north-little-rock-football-2026",game:"legacy-robinson",other:"joe-t-robinson"})
   ]};
   const plan=buildStatewideRepairPlan(audit,[]);
   assert.equal(plan.issueCounts.FOOTBALL_SAME_DAY_COLLISION,1);
   assert.deepEqual(plan.affectedTeamIds,["north-little-rock-football-2026"]);
-  assert.deepEqual(plan.canonicalClusters,[]);
+  assert.equal(plan.canonicalClusters.length,1);
+  assert.deepEqual(plan.canonicalClusters[0].gameIds.sort(),["joe-t-robinson","legacy-robinson"]);
 });
 
 
-test("same-day stale opponent twin is repairable by suppression but never canonical-merged",()=>{
+test("same-day stale opponent twin enters canonical repair when audit evidence identifies the pair",()=>{
   const audit={issues:[
     issue("SAME_DAY_STALE_TWIN_OF_FINAL",{team:"north-little-rock-volleyball-2026",game:"pa-stale",other:"pa-final"})
   ]};
   const plan=buildStatewideRepairPlan(audit,[]);
   assert.equal(plan.issueCounts.SAME_DAY_STALE_TWIN_OF_FINAL,1);
   assert.deepEqual(plan.affectedTeamIds,["north-little-rock-volleyball-2026"]);
-  assert.deepEqual(plan.canonicalClusters,[]);
+  assert.equal(plan.canonicalClusters.length,1);
+  assert.deepEqual(plan.canonicalClusters[0].gameIds.sort(),["pa-final","pa-stale"]);
 });
