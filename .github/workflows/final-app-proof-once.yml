@@ -1,4 +1,4 @@
-name: Nearby status isolation once
+name: Final nearby proof once
 on:
   push:
     branches: [feature/live-sports-pipeline-m1]
@@ -6,11 +6,11 @@ on:
 permissions:
   contents: read
 jobs:
-  probe:
+  proof:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Isolate failing nearby school status
+      - name: Verify nearby cards against ONE_TRUTH statuses
         shell: bash
         run: |
           set -euo pipefail
@@ -20,13 +20,26 @@ jobs:
           import fs from 'node:fs';
           const nearby=JSON.parse(fs.readFileSync('/tmp/nearby.json','utf8')).games||[];
           const schoolIds=[...new Set(nearby.map(g=>g.school_id).filter(Boolean))];
-          console.log('SCHOOLS='+JSON.stringify(schoolIds));
-          for(const id of schoolIds){
-            const url='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/team-statuses?school_ids='+encodeURIComponent(id);
+          const statuses=[];
+          for(let i=0;i<schoolIds.length;i+=10){
+            const ids=schoolIds.slice(i,i+10).join(',');
+            const url='https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/team-statuses?school_ids='+encodeURIComponent(ids);
             const r=await fetch(url);
             const body=await r.text();
-            console.log('STATUS',id,r.status,body.slice(0,220).replace(/\s+/g,' '));
-            if(!r.ok) process.exit(2);
+            if(!r.ok) throw new Error('status batch failed HTTP '+r.status+' ids='+ids+' body='+body.slice(0,500));
+            const p=JSON.parse(body);
+            statuses.push(...(p.team_statuses||[]));
           }
-          console.log('ALL_SINGLE_SCHOOL_STATUS_OK='+schoolIds.length);
+          let checked=0;
+          for(const g of nearby){
+            const s=statuses.find(x=>x.team_id===g.team_id);
+            if(!s) continue;
+            if(Number(g.wins||0)!==Number(s.wins||0)||Number(g.losses||0)!==Number(s.losses||0)||Number(g.ties||0)!==Number(s.ties||0)){
+              throw new Error('nearby record mismatch '+g.team_id);
+            }
+            if(Number(g.rank||0)!==Number(s.rank||0)) throw new Error('nearby rank mismatch '+g.team_id);
+            checked++;
+          }
+          if(checked===0) throw new Error('no nearby cards verified');
+          console.log('NEARBY_PROOF='+JSON.stringify({games:nearby.length,schools:schoolIds.length,status_rows:statuses.length,cards_checked:checked}));
           NODE
