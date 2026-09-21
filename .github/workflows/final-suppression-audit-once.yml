@@ -1,0 +1,57 @@
+name: Final suppression regression audit once
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - .github/workflows/final-suppression-audit-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Run bounded statewide regression audit and app-card proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          AUDIT="$BASE/api/v1/internal/final-suppression-regression-audit-20260921-a31d6c84"
+
+          code=""
+          for i in $(seq 1 36); do
+            code=$(curl --max-time 180 -sS -o /tmp/audit.json -w '%{http_code}' "$AUDIT" || true)
+            echo "AUDIT_HTTP=$code"
+            if [ "$code" = "200" ]; then break; fi
+            if [ "$code" != "404" ]; then
+              cat /tmp/audit.json || true
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$code" = "200"
+
+          curl --max-time 120 -fsS "$BASE/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z" > /tmp/nearby.json
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const audit=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
+          const nearby=JSON.parse(fs.readFileSync('/tmp/nearby.json','utf8'));
+          const conwayCards=(nearby.games||[]).filter(g=>g.team_id==='conway-volleyball-2026');
+          console.log('DEFECT_CLASS_AUDIT='+JSON.stringify(audit));
+          console.log('CONWAY_APP_CARDS='+JSON.stringify(conwayCards.map(g=>({
+            id:g.id,scheduled_at:g.scheduled_at,opponent:g.opponent,status:g.status,
+            wins:g.wins,losses:g.losses,ties:g.ties,rank:g.rank
+          }))));
+          if(Number(audit.statewide_active_teams)!==1227) throw new Error('statewide coverage is not 1227');
+          if(Number(audit.relevant_issue_count||0)!==0) throw new Error('same-class integrity issues remain');
+          if(Number(audit.suppressed_complete_final_missing_truth_count||0)!==0) throw new Error('suppressed complete final is missing from ONE_TRUTH');
+          if(Number(audit.affected_team_count||0)!==0 || Number(audit.affected_game_count||0)!==0) throw new Error('same defect class affects additional teams/games');
+          if(!conwayCards.length) throw new Error('Conway volleyball home/app card not present in nearby surface');
+          if(conwayCards.some(g=>Number(g.wins)!==11 || Number(g.losses)!==6 || Number(g.ties||0)!==0)) {
+            throw new Error('Conway home/app card record does not agree with 11-6');
+          }
+          NODE
