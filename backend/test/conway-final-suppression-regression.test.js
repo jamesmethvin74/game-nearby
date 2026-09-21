@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { upsertResolvedObservation, reconcileResolvedObservation } from "../src/canonical-observation-writer.js";
+import { upsertGame, reconcileCanonicalGame } from "../src/index.js";
 import { applyAuditedSourceDefectSnapshot } from "../src/statewide-data-integrity-repair.js";
 import { rebuildOneTruth } from "../src/one-truth.js";
 import { PRESENTATION_SUPPRESSED_NOTE } from "../src/current-schedule-truth.js";
@@ -70,6 +70,9 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
   applyMigrations(db);
   const env={DB:d1FromSqlite(db)};
   const now="2026-09-21T15:40:00.000Z";
+  const identityResolver={
+    async resolveAndRemember(){return {status:"resolved",schoolId:"reg-van-buren"};}
+  };
 
   db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES('reg-conway','Conway High School','Conway','AR','high-school','local',?)").run(now);
   db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES('reg-van-buren','Van Buren High School','Van Buren','AR','high-school','opponent-only',?)").run(now);
@@ -97,18 +100,18 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
   const official={id:"reg-conway-volleyball-official",team_id:"reg-conway-volleyball-2026",source_url:"https://example.test/conway"};
   const statewide={id:"reg-conway-volleyball-2026-dragonfly-statewide",team_id:"reg-conway-volleyball-2026",source_url:"https://example.test/dragonfly"};
 
-  const finalId=await upsertResolvedObservation(env,official,observation(),now,{opponentSchoolId:"reg-van-buren"});
-  const initialCanonical=await reconcileResolvedObservation(env,finalId);
+  const finalId=await upsertGame(env,official,observation(),now,identityResolver);
+  const initialCanonical=await reconcileCanonicalGame(env,finalId);
   assert.ok(initialCanonical,"initial scored final should canonicalize");
 
-  await upsertResolvedObservation(env,official,observation({
+  await upsertGame(env,official,observation({
     status:"SCHEDULED",
     teamScore:null,
     opponentScore:null,
     result:null,
     sourceUpdatedAt:"2026-09-21T15:30:00.000Z"
-  }),now,{opponentSchoolId:"reg-van-buren"});
-  const afterRefresh=await reconcileResolvedObservation(env,finalId);
+  }),now,identityResolver);
+  const afterRefresh=await reconcileCanonicalGame(env,finalId);
   assert.equal(afterRefresh,initialCanonical);
 
   const preserved=db.prepare("SELECT status,team_score,opponent_score,result FROM games WHERE id=?").get(finalId);
@@ -122,15 +125,15 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     {status:"FINAL",home_score:3,away_score:0}
   );
 
-  const staleId=await upsertResolvedObservation(env,statewide,observation({
+  const staleId=await upsertGame(env,statewide,observation({
     sourceEventKey:"native:van-buren-stale",
     status:"SCHEDULED",
     teamScore:null,
     opponentScore:null,
     result:null,
     sourceUpdatedAt:"2026-09-21T15:35:00.000Z"
-  }),now,{opponentSchoolId:"reg-van-buren"});
-  const staleCanonical=await reconcileResolvedObservation(env,staleId);
+  }),now,identityResolver);
+  const staleCanonical=await reconcileCanonicalGame(env,staleId);
   assert.ok(staleCanonical,"stale twin should canonicalize before repair");
 
   const audit={issues:[{
