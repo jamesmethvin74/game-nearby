@@ -29,17 +29,17 @@ function presentationAudit(issues=[]){
 
 test("clean routine gate audits once and persists CLEAN",async()=>{
   let builds=0;
-  let suppressed=false;
+  let repaired=false;
   const persisted=[];
   const result=await runStatewideIntegrityGate({},{
     reason:"test-clean",
     buildPresentationAudit:async()=>{builds++;return presentationAudit();},
-    suppressRoutine:async()=>{suppressed=true;throw new Error("must not suppress");},
+    repairPresentation:async()=>{repaired=true;throw new Error("must not repair");},
     persistState:async(_env,value)=>{persisted.push(value);return {rows_written:1};}
   });
   assert.equal(result.status,"CLEAN");
   assert.equal(builds,1);
-  assert.equal(suppressed,false);
+  assert.equal(repaired,false);
   assert.equal(result.repairs.length,0);
   assert.equal(result.record.status,"DEFERRED_TO_RECORD_TRUTH_PIPELINE");
   assert.equal(persisted.length,1);
@@ -47,21 +47,22 @@ test("clean routine gate audits once and persists CLEAN",async()=>{
 
 test("safe routine defects are written once and defer verification to the next gate",async()=>{
   const before=presentationAudit([
-    {code:"SAME_DAY_STALE_TWIN_OF_FINAL",severity:"blocking",team_id:"nlr-volleyball",game_id:"stale-1"},
-    {code:"FOOTBALL_SAME_DAY_COLLISION",severity:"blocking",team_id:"bryant-football",game_id:"stale-2"}
+    {code:"SAME_DAY_STALE_TWIN_OF_FINAL",severity:"blocking",surface:"source-observation",team_id:"nlr-volleyball",game_id:"stale-1"},
+    {code:"FOOTBALL_SAME_DAY_COLLISION",severity:"blocking",surface:"source-observation",team_id:"bryant-football",game_id:"stale-2"}
   ]);
   let builds=0;
-  let suppressCalls=0;
+  let repairCalls=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-repair",
     buildPresentationAudit:async()=>{builds++;return before;},
-    suppressRoutine:async(_env,audit)=>{
-      suppressCalls++;
+    repairPresentation:async(_env,audit)=>{
+      repairCalls++;
       assert.equal(audit,before);
       return {
         status:"EXECUTED",
-        issue_count:2,
-        issue_counts:{SAME_DAY_STALE_TWIN_OF_FINAL:1,FOOTBALL_SAME_DAY_COLLISION:1},
+        source_issue_count:2,
+        canonical:{canonical_merges:1,game_reassignments:2},
+        score_repair:{promoted:[]},
         suppression:{rows_written:2},
         affected_team_ids:["nlr-volleyball","bryant-football"],
         record_rebuild:{teams:2,scoredFinals:2,standings:{cohorts:1,standingsRows:4}},
@@ -71,17 +72,18 @@ test("safe routine defects are written once and defer verification to the next g
     persistState:async()=>({rows_written:1})
   });
   assert.equal(result.status,"REPAIRED_PENDING_VERIFY");
-  assert.equal(builds,1,"routine gate must not run a second statewide audit in the same Worker invocation");
-  assert.equal(suppressCalls,1);
+  assert.equal(builds,1,"integrity gate must not run a second statewide audit in the same Worker invocation");
+  assert.equal(repairCalls,1);
   assert.equal(result.presentation.after.pending_verify,true);
   assert.equal(result.repairs[0].suppressed_rows,2);
+  assert.deepEqual(result.refresh_team_ids,["nlr-volleyball","bryant-football"]);
 });
 
 test("next gate invocation verifies a prior routine repair as CLEAN",async()=>{
   const result=await runStatewideIntegrityGate({},{
     reason:"test-verify",
     buildPresentationAudit:async()=>presentationAudit([]),
-    suppressRoutine:async()=>{throw new Error("must not suppress on clean verify");},
+    repairPresentation:async()=>{throw new Error("must not suppress on clean verify");},
     persistState:async()=>({rows_written:1})
   });
   assert.equal(result.status,"CLEAN");
@@ -89,51 +91,64 @@ test("next gate invocation verifies a prior routine repair as CLEAN",async()=>{
 });
 
 test("complex blockers stay blocked instead of being guessed away",async()=>{
-  let suppressCalls=0;
+  let repairCalls=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-complex",
     buildPresentationAudit:async()=>presentationAudit([
       {code:"DUPLICATE_FINAL_CONTRADICTION",severity:"blocking",team_id:"team-a",game_id:"g1",other_game_id:"g2"}
     ]),
-    suppressRoutine:async()=>{suppressCalls++;return {};},
+    repairPresentation:async()=>{repairCalls++;return {};},
     persistState:async()=>({rows_written:1})
   });
   assert.equal(result.status,"BLOCKED");
-  assert.equal(suppressCalls,0);
+  assert.equal(repairCalls,0);
   assert.equal(result.blocker_examples.presentation[0].code,"DUPLICATE_FINAL_CONTRADICTION");
 });
 
-test("canonical and missing-score repairs stay out of routine cron writes",async()=>{
-  let suppressCalls=0;
+test("bounded canonical and missing-score source defects use the audited repair path",async()=>{
+  let repairCalls=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-heavy",
     buildPresentationAudit:async()=>presentationAudit([
-      {code:"SPLIT_CANONICAL_LOGICAL_GAME",severity:"blocking",team_id:"team-a",game_id:"g1",other_game_id:"g2"},
-      {code:"DISPLAY_FINAL_MISSING_SCORE",severity:"blocking",team_id:"team-b",game_id:"g3"}
+      {code:"SPLIT_CANONICAL_LOGICAL_GAME",severity:"blocking",surface:"source-observation",team_id:"team-a",game_id:"g1",other_game_id:"g2"},
+      {code:"DISPLAY_FINAL_MISSING_SCORE",severity:"blocking",surface:"source-observation",team_id:"team-b",game_id:"g3"}
     ]),
-    suppressRoutine:async()=>{suppressCalls++;return {};},
+    repairPresentation:async()=>{
+      repairCalls++;
+      return {
+        source_issue_count:2,
+        canonical:{canonical_merges:1,game_reassignments:2},
+        score_repair:{promoted:["ce-1"]},
+        suppression:{rows_written:1},
+        affected_team_ids:["team-a","team-b"],
+        record_rebuild:{teams:2},
+        d1:{rows_written:4}
+      };
+    },
     persistState:async()=>({rows_written:1})
   });
-  assert.equal(result.status,"BLOCKED");
-  assert.equal(suppressCalls,0);
+  assert.equal(result.status,"REPAIRED_PENDING_VERIFY");
+  assert.equal(repairCalls,1);
+  assert.deepEqual(result.refresh_team_ids,["team-a","team-b"]);
+  assert.equal(result.repairs[0].canonical.canonical_merges,1);
 });
-
 test("large safe defect wave trips fuse before writes",async()=>{
   const issues=Array.from({length:INTEGRITY_GATE_MAX_PRESENTATION_ISSUES+1},(_,index)=>({
     code:"PAST_DUE_NONTERMINAL_DISPLAY",
     severity:"blocking",
+    surface:"source-observation",
     team_id:"team-"+index,
     game_id:"game-"+index
   }));
-  let suppressCalls=0;
+  let repairCalls=0;
   const result=await runStatewideIntegrityGate({},{
     reason:"test-fuse",
     buildPresentationAudit:async()=>presentationAudit(issues),
-    suppressRoutine:async()=>{suppressCalls++;return {};},
+    repairPresentation:async()=>{repairCalls++;return {};},
     persistState:async()=>({rows_written:1})
   });
   assert.equal(result.status,"FUSE_BLOCKED");
-  assert.equal(suppressCalls,0);
+  assert.equal(repairCalls,0);
   assert.deepEqual(result.fuses,["presentation:251>250"]);
 });
 
