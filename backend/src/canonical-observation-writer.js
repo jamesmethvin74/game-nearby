@@ -69,8 +69,40 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
       opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
       venue=COALESCE(NULLIF(excluded.venue,''),games.venue),location_text=COALESCE(NULLIF(excluded.location_text,''),games.location_text),
       latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),home_away=excluded.home_away,
-      conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
-      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=${suppressionPreservingNotesSql("games","excluded")},
+      conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,
+      status=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.status
+        ELSE excluded.status
+      END,
+      team_score=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.team_score
+        ELSE excluded.team_score
+      END,
+      opponent_score=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.opponent_score
+        ELSE excluded.opponent_score
+      END,
+      result=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.result
+        ELSE excluded.result
+      END,
+      notes=${suppressionPreservingNotesSql("games","excluded")},
       source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at`)
     .bind(id,source.team_id,source.id,normalizedGame.sourceEventKey,normalizedGame.opponent,opponentSchoolId,normalizedGame.scheduledAt,normalizedGame.scheduledTimeKnown?1:0,normalizedGame.venue||null,normalizedGame.locationText||null,
       normalizedGame.latitude??null,normalizedGame.longitude??null,normalizedGame.homeAway,normalizedGame.conferenceGame?1:0,normalizedGame.countsForRecord?1:0,normalizedGame.status,normalizedGame.teamScore??null,normalizedGame.opponentScore??null,
@@ -92,15 +124,28 @@ export const CANONICAL_EVENT_UPSERT_SQL=`
   ON CONFLICT(id) DO UPDATE SET
     home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,
     scheduled_time_known=excluded.scheduled_time_known,venue=excluded.venue,location_text=excluded.location_text,latitude=excluded.latitude,longitude=excluded.longitude,
-    conference_game=excluded.conference_game,status=excluded.status,
+    conference_game=excluded.conference_game,
+    status=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.status
+      ELSE excluded.status
+    END,
     home_score=CASE
       WHEN canonical_events.status='FINAL'
         AND canonical_events.home_score IS NOT NULL
         AND canonical_events.away_score IS NOT NULL
-        AND excluded.status='FINAL'
-        AND (excluded.home_score IS NULL OR excluded.away_score IS NULL)
         AND canonical_events.home_school_id=excluded.home_school_id
         AND canonical_events.away_school_id=excluded.away_school_id
+        AND (
+          UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          OR excluded.home_score IS NULL
+          OR excluded.away_score IS NULL
+        )
       THEN canonical_events.home_score
       ELSE excluded.home_score
     END,
@@ -108,15 +153,57 @@ export const CANONICAL_EVENT_UPSERT_SQL=`
       WHEN canonical_events.status='FINAL'
         AND canonical_events.home_score IS NOT NULL
         AND canonical_events.away_score IS NOT NULL
-        AND excluded.status='FINAL'
-        AND (excluded.home_score IS NULL OR excluded.away_score IS NULL)
         AND canonical_events.home_school_id=excluded.home_school_id
         AND canonical_events.away_school_id=excluded.away_school_id
+        AND (
+          UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          OR excluded.home_score IS NULL
+          OR excluded.away_score IS NULL
+        )
       THEN canonical_events.away_score
       ELSE excluded.away_score
     END,
-    selected_source_id=excluded.selected_source_id,trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,
-    resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`;
+    selected_source_id=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.selected_source_id
+      ELSE excluded.selected_source_id
+    END,
+    trust_state=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.trust_state
+      ELSE excluded.trust_state
+    END,
+    conflict_count=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.conflict_count
+      ELSE excluded.conflict_count
+    END,
+    resolution_json=CASE
+      WHEN canonical_events.status='FINAL'
+        AND canonical_events.home_score IS NOT NULL
+        AND canonical_events.away_score IS NOT NULL
+        AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        AND canonical_events.home_school_id=excluded.home_school_id
+        AND canonical_events.away_school_id=excluded.away_school_id
+      THEN canonical_events.resolution_json
+      ELSE excluded.resolution_json
+    END,
+    last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`;
 
 export async function reconcileResolvedObservation(env,gameId) {
   const seed=await observationById(env,gameId);
