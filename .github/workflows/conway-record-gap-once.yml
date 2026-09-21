@@ -1,0 +1,51 @@
+name: Conway record gap read-only once
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths: [.github/workflows/conway-record-gap-once.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Read Conway volleyball production surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl --max-time 60 -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/schedule.json
+          curl --max-time 30 -fsS "$BASE/api/v1/teams/conway-volleyball-2026/record" > /tmp/record.json
+          curl --max-time 30 -fsS "$BASE/api/v1/team-statuses?school_ids=conway" > /tmp/status.json
+          curl --max-time 30 -fsS "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const schedule=JSON.parse(fs.readFileSync('/tmp/schedule.json','utf8'));
+          const record=JSON.parse(fs.readFileSync('/tmp/record.json','utf8'));
+          const status=JSON.parse(fs.readFileSync('/tmp/status.json','utf8'));
+          const standings=JSON.parse(fs.readFileSync('/tmp/standings.json','utf8'));
+          const games=(schedule.games||[])
+            .filter(g=>g.team_id==='conway-volleyball-2026'||(g.sport==='volleyball'&&g.gender==='girls'))
+            .map(g=>({
+              id:g.id,game_id:g.game_id,canonical_event_id:g.canonical_event_id,
+              scheduled_at:g.scheduled_at,opponent:g.opponent,status:g.status,
+              team_score:g.team_score,opponent_score:g.opponent_score,result:g.result,
+              counts_for_record:g.counts_for_record,source_id:g.source_id,
+              source_type:g.source_type,parser_type:g.parser_type,data_trust:g.data_trust,
+              notes:g.notes
+            }));
+          const cv=(status.team_statuses||[]).find(x=>x.team_id==='conway-volleyball-2026')||null;
+          const standing=(standings.standings||[]).find(x=>x.team_id==='conway-volleyball-2026')||null;
+          const out={
+            marker:'CONWAY_RECORD_GAP_20260921',
+            record:record.record||null,
+            team_status:cv,
+            standing,
+            all_games:games,
+            scored_finals:games.filter(g=>g.status==='FINAL'&&g.team_score!=null&&g.opponent_score!=null&&Number(g.counts_for_record)!==0),
+            september_15_19:games.filter(g=>String(g.scheduled_at||'').slice(0,10)>='2026-09-15'&&String(g.scheduled_at||'').slice(0,10)<='2026-09-20')
+          };
+          console.log('CONWAY_RECORD_GAP='+JSON.stringify(out));
+          NODE
