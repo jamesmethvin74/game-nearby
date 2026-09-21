@@ -1,20 +1,80 @@
-name: Source recovery HTTP probe once
+name: Source recovery HTTP transport once
 on:
   push:
     branches: [feature/live-sports-pipeline-m1]
     paths:
       - .github/workflows/source-recovery-http-probe-once.yml
 jobs:
-  probe:
+  recover:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 8
     steps:
-      - name: Capture Worker response
+      - name: Bounded Worker recovery transport
         shell: bash
         run: |
           set -euo pipefail
-          url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/source-recovery-audit-20260920-b72f9c31"
-          code=$(curl --max-time 120 -sS -o /tmp/body -w '%{http_code}' "$url")
-          echo "HTTP=$code"
-          cat /tmp/body
-          test "$code" = "200"
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          AUDIT="$BASE/api/v1/internal/source-recovery-audit-20260920-b72f9c31"
+          APPLY="$BASE/api/v1/internal/source-recovery-apply-20260920-b72f9c31"
+          REBUILD="$BASE/api/v1/internal/source-recovery-rebuild-20260920-b72f9c31"
+
+          call() {
+            method="$1"; url="$2"; out="$3"; data="${4:-}"
+            if [ -n "$data" ]; then
+              code=$(curl --max-time 180 -sS -o "$out" -w '%{http_code}' -X "$method" -H 'content-type: application/json' --data-binary @"$data" "$url")
+            else
+              code=$(curl --max-time 180 -sS -o "$out" -w '%{http_code}' -X "$method" "$url")
+            fi
+            echo "${method}_HTTP=$code"
+            if [ "$code" != "200" ]; then cat "$out"; exit 1; fi
+          }
+
+          call GET "$AUDIT" /tmp/before.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const a=JSON.parse(fs.readFileSync('/tmp/before.json','utf8'));
+          console.log('BEFORE='+JSON.stringify({
+            active_teams:a.summary?.total_active_teams_examined,
+            source_issues:a.summary?.upstream_source_observation_issues,
+            source_codes:a.summary?.upstream_source_issues_by_code,
+            one_truth_blocking:a.summary?.one_truth_surface_blocking_issues,
+            source_vs_truth_blocking:a.summary?.source_vs_truth_blocking_issues
+          }));
+          fs.writeFileSync('/tmp/apply.json',JSON.stringify({audit:a}));
+          NODE
+
+          call POST "$APPLY" /tmp/apply-result.json /tmp/apply.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync('/tmp/apply-result.json','utf8'));
+          console.log('APPLY='+JSON.stringify({
+            source_issue_count:r.source_issue_count,
+            canonical:r.canonical,
+            suppression:r.suppression,
+            affected_team_count:(r.affected_team_ids||[]).length,
+            record_rebuild:r.record_rebuild,
+            d1:r.d1
+          }));
+          NODE
+
+          call POST "$REBUILD" /tmp/rebuild.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync('/tmp/rebuild.json','utf8'));
+          console.log('REBUILD='+JSON.stringify(r));
+          if(Number(r.one_truth?.teams)!==1227) throw new Error('ONE_TRUTH team coverage mismatch');
+          NODE
+
+          call GET "$AUDIT" /tmp/after.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const a=JSON.parse(fs.readFileSync('/tmp/after.json','utf8'));
+          console.log('AFTER='+JSON.stringify({
+            active_teams:a.summary?.total_active_teams_examined,
+            source_issues:a.summary?.upstream_source_observation_issues,
+            source_codes:a.summary?.upstream_source_issues_by_code,
+            one_truth_blocking:a.summary?.one_truth_surface_blocking_issues,
+            source_vs_truth_blocking:a.summary?.source_vs_truth_blocking_issues,
+            issues_by_code:a.summary?.issues_by_code
+          }));
+          NODE
