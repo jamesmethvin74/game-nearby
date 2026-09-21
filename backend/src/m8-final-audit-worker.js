@@ -3,6 +3,8 @@ import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-au
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
+import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
+import { rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
@@ -10,6 +12,7 @@ const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const LIVE_PIPELINE_CERT_PATH="/api/v1/internal/live-pipeline-cert-20260921-8f3c1d72";
 const LIVE_PIPELINE_CERT_EXPIRES_AT=Date.parse("2026-09-21T20:00:00Z");
+const LIVE_PIPELINE_REPAIR_PATH="/api/v1/internal/live-pipeline-repair-20260921-61c4a9ef";
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
   if (request.method!=="GET" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return response;
@@ -215,6 +218,63 @@ async function runLivePipelineCertification(env) {
   },200,{integrity:true});
 }
 
+
+async function runLivePipelineRepair(env) {
+  const now=new Date();
+  const gate=await runStatewideIntegrityGate(env,{
+    season:"2026",
+    now,
+    reason:"live-pipeline-certification"
+  });
+  if(gate.status==="BLOCKED" || gate.status==="FUSE_BLOCKED") {
+    return auditJson({status:"BLOCKED",gate},409,{integrity:true});
+  }
+
+  const forced=[...new Set((gate.refresh_team_ids||[]).map(String).filter(Boolean))];
+  let forcedRefresh=null;
+  if(forced.length) forcedRefresh=await rebuildOneTruth(env,{season:"2026",teamIds:forced});
+
+  let batches=0;
+  let staleRefreshed=0;
+  while(batches<20) {
+    const stale=await staleOneTruthTeamIds(env,{season:"2026",limit:64});
+    if(!stale.length) break;
+    await rebuildOneTruth(env,{season:"2026",teamIds:stale});
+    staleRefreshed+=stale.length;
+    batches++;
+  }
+  const remaining=await staleOneTruthTeamIds(env,{season:"2026",limit:1});
+  if(remaining.length) {
+    return auditJson({
+      status:"STALE_DRAIN_INCOMPLETE",
+      gate,
+      forced_refresh:forcedRefresh,
+      stale_batches:batches,
+      stale_refreshed:staleRefreshed,
+      remaining
+    },500,{integrity:true});
+  }
+
+  const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+  return auditJson({
+    status:"SUCCESS",
+    gate,
+    forced_refresh:forcedRefresh,
+    stale_batches:batches,
+    stale_refreshed:staleRefreshed,
+    after:{
+      active_teams:after.summary?.total_active_teams_examined,
+      source_issues:after.summary?.upstream_source_observation_issues,
+      source_codes:after.summary?.upstream_source_issues_by_code,
+      one_truth_blocking:after.summary?.one_truth_surface_blocking_issues,
+      source_vs_truth_blocking:after.summary?.source_vs_truth_blocking_issues,
+      presentation_codes:after.summary?.issues_by_code,
+      issues:after.issues
+    },
+    d1:after.d1
+  },200,{integrity:true});
+}
+
 export default {
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
@@ -228,16 +288,20 @@ export default {
     const livePipelineCert=request.method==="GET"
       && url.pathname===LIVE_PIPELINE_CERT_PATH
       && Date.now()<=LIVE_PIPELINE_CERT_EXPIRES_AT;
+    const livePipelineRepair=request.method==="POST"
+      && url.pathname===LIVE_PIPELINE_REPAIR_PATH
+      && Date.now()<=LIVE_PIPELINE_CERT_EXPIRES_AT;
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot && !livePipelineCert) {
+    if (!protectedView && !oneShot && !livePipelineCert && !livePipelineRepair) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
+      if (livePipelineRepair) return await runLivePipelineRepair(env);
       if (livePipelineCert) return await runLivePipelineCertification(env);
       if (coverageView===DATA_INTEGRITY_VIEW) return await runDataIntegrityAudit(env);
       return await runRecordTruthAudit(env);
