@@ -24,6 +24,22 @@ export const currentObservationEvidenceSql = (gameAlias = "g", sourceAlias = "sr
   )
 )`;
 
+export const currentCanonicalObservationEvidenceSql = (gameAlias = "g", sourceAlias = "src", canonicalAlias = "ce") => `(
+  NOT (
+    ${sourceAlias}.collection_mode='statewide'
+    AND ${sourceAlias}.parser_type='dragonfly-public'
+    AND instr(COALESCE(${gameAlias}.notes,''),'${DRAGONFLY_STATEWIDE_REMOVED_NOTE}')>0
+  )
+  AND (
+    instr(COALESCE(${gameAlias}.notes,''),'${PRESENTATION_SUPPRESSED_NOTE}')=0
+    OR (
+      UPPER(COALESCE(${canonicalAlias}.status,''))='FINAL'
+      AND ${canonicalAlias}.home_score IS NOT NULL
+      AND ${canonicalAlias}.away_score IS NOT NULL
+    )
+  )
+)`;
+
 export const currentScheduleTruthSql = (gameAlias = "g", sourceAlias = "src") => `(
   ${resultOnlySourceSql(sourceAlias)}
   AND ${currentObservationEvidenceSql(gameAlias, sourceAlias)}
