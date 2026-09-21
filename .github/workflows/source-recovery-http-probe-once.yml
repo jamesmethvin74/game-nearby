@@ -1,0 +1,20 @@
+name: Source recovery HTTP probe once
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - .github/workflows/source-recovery-http-probe-once.yml
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Capture Worker response
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/source-recovery-audit-20260920-b72f9c31"
+          code=$(curl --max-time 120 -sS -o /tmp/body -w '%{http_code}' "$url")
+          echo "HTTP=$code"
+          cat /tmp/body
+          test "$code" = "200"
