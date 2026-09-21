@@ -5,6 +5,7 @@ import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-repo
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
 import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
 import { rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
+import { rebuildTeamRecords } from "./record-rebuild.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
@@ -12,6 +13,8 @@ const FINAL_AUDIT_PATH="/api/v1/internal/m8-final-record-truth-audit-20260914-9c
 const FINAL_AUDIT_EXPIRES_AT=Date.parse("2026-09-15T01:00:00Z");
 const LIVE_PIPELINE_REPAIR_PATH="/api/v1/internal/live-pipeline-repair-20260921-61c4a9ef";
 const LIVE_PIPELINE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T20:00:00Z");
+const CONWAY_VAN_BUREN_RECOVERY_PATH="/api/v1/internal/conway-van-buren-recovery-20260921-4f8c27d1";
+const CONWAY_VAN_BUREN_RECOVERY_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
   if (request.method!=="GET" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return response;
@@ -60,6 +63,68 @@ async function runRecordTruthAudit(env) {
 async function runDataIntegrityAudit(env) {
   const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
   return auditJson(audit,200,{integrity:true});
+}
+
+
+async function runConwayVanBurenRecovery(env,ctx) {
+  const teamId="conway-volleyball-2026";
+  if(!env.REFRESH_TOKEN) return auditJson({status:"BLOCKED",reason:"refresh_token_missing"},500,{integrity:true});
+
+  const {results:sources=[]}=await env.DB.prepare(`
+    SELECT id,source_type,parser_type,last_successful_fetch_at,last_checked_at
+    FROM sources
+    WHERE enabled=1
+      AND team_id=?
+      AND source_type IN ('official-school','official-conference')
+    ORDER BY authority_rank,source_priority,id
+  `).bind(teamId).all();
+  const sourceIds=sources.map(source=>String(source.id||"")).filter(Boolean);
+  if(sourceIds.length<1 || sourceIds.length>16) {
+    return auditJson({status:"BLOCKED",reason:"unexpected_source_scope",sources},409,{integrity:true});
+  }
+
+  const refreshResponse=await app.fetch(new Request("https://localbleachers.internal/api/v1/refresh",{
+    method:"POST",
+    headers:{
+      "content-type":"application/json",
+      "x-refresh-token":env.REFRESH_TOKEN
+    },
+    body:JSON.stringify({sourceIds})
+  }),env,ctx);
+  const refreshText=await refreshResponse.text();
+  let refresh=null;
+  try { refresh=JSON.parse(refreshText); } catch { refresh={raw:refreshText}; }
+  if(!refreshResponse.ok || refresh?.ok!==true) {
+    return auditJson({status:"REFRESH_FAILED",http_status:refreshResponse.status,sources,refresh},500,{integrity:true});
+  }
+
+  const {results:related=[]}=await env.DB.prepare(`
+    SELECT DISTINCT opponent_team.id AS team_id
+    FROM games g
+    JOIN teams reporting_team ON reporting_team.id=g.team_id
+    LEFT JOIN teams opponent_team
+      ON opponent_team.school_id=g.opponent_school_id
+     AND opponent_team.sport=reporting_team.sport
+     AND opponent_team.gender=reporting_team.gender
+     AND opponent_team.season=reporting_team.season
+     AND opponent_team.active=1
+    WHERE g.team_id=?
+      AND lower(COALESCE(g.opponent,'')) LIKE '%van buren%'
+      AND opponent_team.id IS NOT NULL
+  `).bind(teamId).all();
+  const teamIds=[...new Set([teamId,...related.map(row=>String(row.team_id||"")).filter(Boolean)])];
+
+  const recordRebuild=await rebuildTeamRecords(env,teamIds,new Date().toISOString());
+  const oneTruth=await rebuildOneTruth(env,{season:"2026",teamIds});
+
+  return auditJson({
+    status:"SUCCESS",
+    sources,
+    refresh,
+    team_ids:teamIds,
+    record_rebuild:recordRebuild,
+    one_truth:oneTruth
+  },200,{integrity:true});
 }
 
 
@@ -132,16 +197,20 @@ export default {
     const livePipelineRepair=request.method==="POST"
       && url.pathname===LIVE_PIPELINE_REPAIR_PATH
       && Date.now()<=LIVE_PIPELINE_REPAIR_EXPIRES_AT;
+    const conwayVanBurenRecovery=request.method==="POST"
+      && url.pathname===CONWAY_VAN_BUREN_RECOVERY_PATH
+      && Date.now()<=CONWAY_VAN_BUREN_RECOVERY_EXPIRES_AT;
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot && !livePipelineRepair) {
+    if (!protectedView && !oneShot && !livePipelineRepair && !conwayVanBurenRecovery) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
+      if (conwayVanBurenRecovery) return await runConwayVanBurenRecovery(env,ctx);
       if (livePipelineRepair) return await runLivePipelineRepair(env);
       if (coverageView===DATA_INTEGRITY_VIEW) return await runDataIntegrityAudit(env);
       return await runRecordTruthAudit(env);
