@@ -43,6 +43,14 @@ test("ONE_TRUTH_TB conference truth does not depend on rebuild batch composition
   assert.doesNotMatch(truth,/rankSummaries\(summaries\);/);
 });
 
+test("full ONE_TRUTH rebuild chunks authority reads below the D1 RPC response limit",()=>{
+  assert.match(truth,/const AUTHORITY_READ_TEAM_CHUNK = 64/);
+  assert.match(truth,/index<teams\.length; index\+=AUTHORITY_READ_TEAM_CHUNK/);
+  assert.match(truth,/loadAuthorityGames\(env,season,chunkIds\)/);
+  assert.match(truth,/buildTruthRows\(teamChunk,rawGames,refreshedAt,teams\)/);
+  assert.match(truth,/team_id IN \(SELECT value FROM json_each\(\?\)\)/);
+});
+
 test("canonical authority keeps complete final evidence before incomplete higher-authority observations",()=>{
   assert.match(truth,/ce\.home_score IS NOT NULL/);
   assert.match(truth,/ce\.away_score IS NOT NULL/);
