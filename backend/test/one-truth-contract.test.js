@@ -118,11 +118,16 @@ test("team statuses are served directly from ONE_TRUTH without legacy upstream s
 });
 
 
-test("scheduled ONE_TRUTH refresh drains stale batches and refreshes integrity-repaired teams",()=>{
+test("scheduled ONE_TRUTH refresh drains stale batches even when the upstream scheduled chain fails",()=>{
   assert.match(worker,/const SCHEDULED_TRUTH_BATCH = 64/);
   assert.match(worker,/const MAX_SCHEDULED_TRUTH_BATCHES = 20/);
+  assert.match(worker,/let upstreamError=null/);
+  assert.match(worker,/result=await app\.scheduled\(controller,env,ctx\)/);
+  assert.match(worker,/upstream scheduled chain failed before ONE_TRUTH_TB refresh/);
   assert.match(worker,/result\?\.integrity\?\.refresh_team_ids/);
   assert.match(worker,/while\(batches<MAX_SCHEDULED_TRUTH_BATCHES\)/);
   assert.match(worker,/staleOneTruthTeamIds\(env,\{limit:SCHEDULED_TRUTH_BATCH\}\)/);
   assert.match(worker,/scheduled refresh fuse exhausted/);
+  assert.match(worker,/if\(upstreamError\)/);
+  assert.match(worker,/throw upstreamError/);
 });
