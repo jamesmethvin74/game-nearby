@@ -1,5 +1,5 @@
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
-import { ROUTINE_SUPPRESSION_CODES, suppressAuditedRoutineDefects } from "./statewide-data-integrity-repair.js";
+import { STATEWIDE_REPAIR_CODES, applyAuditedSourceDefectSnapshot } from "./statewide-data-integrity-repair.js";
 import { buildStatewideStandingsReadinessAudit } from "./standings-readiness-audit.js";
 
 export const INTEGRITY_GATE_AUDIT_SAMPLE_LIMIT=50000;
@@ -9,12 +9,34 @@ function blockingPresentationIssues(audit={}) {
   return (audit.issues||[]).filter(issue=>issue?.severity==="blocking");
 }
 
-function routineIssues(audit={}) {
-  return blockingPresentationIssues(audit).filter(issue=>ROUTINE_SUPPRESSION_CODES.has(String(issue?.code||"")));
+const DEFERRED_DOWNSTREAM_CODES=new Set([
+  "PAST_DUE_NONTERMINAL_DISPLAY",
+  "SOURCE_FINAL_COUNT_VS_ONE_TRUTH"
+]);
+
+function sourceObservationBlockers(audit={}) {
+  return blockingPresentationIssues(audit).filter(issue=>issue?.surface==="source-observation");
 }
 
-function complexIssues(audit={}) {
-  return blockingPresentationIssues(audit).filter(issue=>!ROUTINE_SUPPRESSION_CODES.has(String(issue?.code||"")));
+function repairableSourceIssues(audit={}) {
+  return sourceObservationBlockers(audit).filter(issue=>STATEWIDE_REPAIR_CODES.has(String(issue?.code||"")));
+}
+
+function hardBlockingIssues(audit={}) {
+  return blockingPresentationIssues(audit).filter(issue=>{
+    const code=String(issue?.code||"");
+    if(issue?.surface==="source-observation") return !STATEWIDE_REPAIR_CODES.has(code);
+    return !DEFERRED_DOWNSTREAM_CODES.has(code);
+  });
+}
+
+function refreshTeamIds(audit={},repair={}) {
+  return [...new Set([
+    ...((repair?.affected_team_ids||[]).map(String)),
+    ...blockingPresentationIssues(audit)
+      .filter(issue=>issue?.surface!=="source-observation" && DEFERRED_DOWNSTREAM_CODES.has(String(issue?.code||"")))
+      .map(issue=>String(issue?.team_id||""))
+  ].filter(Boolean))];
 }
 
 function countByCode(issues=[]) {
@@ -136,7 +158,7 @@ export async function runStatewideIntegrityGate(env,{
   reason="scheduled",
   maxPresentationIssues=INTEGRITY_GATE_MAX_PRESENTATION_ISSUES,
   buildPresentationAudit=buildStatewideDataIntegrityAudit,
-  suppressRoutine=suppressAuditedRoutineDefects,
+  repairPresentation=applyAuditedSourceDefectSnapshot,
   auditStandings=false,
   buildStandingsAudit=buildStatewideStandingsReadinessAudit,
   persistState=persistIntegrityState
@@ -148,27 +170,37 @@ export async function runStatewideIntegrityGate(env,{
     sampleLimit:INTEGRITY_GATE_AUDIT_SAMPLE_LIMIT
   });
   const before=presentationSummary(audit);
-  const safe=routineIssues(audit);
-  const complex=complexIssues(audit);
+  const repairable=repairableSourceIssues(audit);
+  const hard=hardBlockingIssues(audit);
+  const deferred=blockingPresentationIssues(audit).filter(issue=>
+    issue?.surface!=="source-observation"
+    && DEFERRED_DOWNSTREAM_CODES.has(String(issue?.code||""))
+  );
   const fuses=[];
   const repairs=[];
+  let repair=null;
 
   let status="CLEAN";
-  if(complex.length) {
+  if(hard.length) {
     status="BLOCKED";
-  } else if(safe.length>maxPresentationIssues) {
+  } else if(repairable.length>maxPresentationIssues) {
     status="FUSE_BLOCKED";
-    fuses.push("presentation:"+safe.length+">"+maxPresentationIssues);
-  } else if(safe.length) {
-    const repair=await suppressRoutine(env,audit,{now});
+    fuses.push("presentation:"+repairable.length+">"+maxPresentationIssues);
+  } else if(repairable.length) {
+    repair=await repairPresentation(env,audit,{now});
     repairs.push({
-      issue_count:Number(repair.issue_count||0),
-      issue_counts:repair.issue_counts||{},
+      issue_count:Number(repair.source_issue_count||repair.issue_count||0),
+      issue_counts:countByCode(repairable),
       suppressed_rows:Number(repair.suppression?.rows_written||0),
       affected_teams:Array.isArray(repair.affected_team_ids)?repair.affected_team_ids.length:0,
+      affected_team_ids:Array.isArray(repair.affected_team_ids)?repair.affected_team_ids:[],
+      canonical:repair.canonical||null,
+      score_repair:repair.score_repair||null,
       record_rebuild:repair.record_rebuild||null,
       d1:repair.d1||null
     });
+    status="REPAIRED_PENDING_VERIFY";
+  } else if(deferred.length) {
     status="REPAIRED_PENDING_VERIFY";
   }
 
@@ -193,6 +225,7 @@ export async function runStatewideIntegrityGate(env,{
     record:emptyDeferredRecordState(),
     standings,
     repairs,
+    refresh_team_ids:refreshTeamIds(audit,repair),
     fuses,
     blocker_examples:{
       presentation:presentationExamples(audit),
@@ -207,8 +240,9 @@ export async function runStatewideIntegrityGate(env,{
     status,
     reason,
     presentation_blockers:Number(before.blocking_issues||0),
-    routine_repairable:safe.length,
-    complex_blockers:complex.length,
+    repairable_source_blockers:repairable.length,
+    hard_blockers:hard.length,
+    deferred_downstream_blockers:deferred.length,
     repair_passes:repairs.length,
     standings_blockers:Number(standings?.summary?.blocking_issues||0),
     standings_warnings:Number(standings?.summary?.warning_issues||0),
