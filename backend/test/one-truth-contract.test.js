@@ -116,3 +116,13 @@ test("team statuses are served directly from ONE_TRUTH without legacy upstream s
   assert.match(block,/teamRowsForSchools/);
   assert.match(block,/team_statuses:rows\.map\(statusFromRow\)/);
 });
+
+
+test("scheduled ONE_TRUTH refresh drains stale batches and refreshes integrity-repaired teams",()=>{
+  assert.match(worker,/const SCHEDULED_TRUTH_BATCH = 64/);
+  assert.match(worker,/const MAX_SCHEDULED_TRUTH_BATCHES = 20/);
+  assert.match(worker,/result\?\.integrity\?\.refresh_team_ids/);
+  assert.match(worker,/while\(batches<MAX_SCHEDULED_TRUTH_BATCHES\)/);
+  assert.match(worker,/staleOneTruthTeamIds\(env,\{limit:SCHEDULED_TRUTH_BATCH\}\)/);
+  assert.match(worker,/scheduled refresh fuse exhausted/);
+});
