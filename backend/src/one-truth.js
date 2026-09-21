@@ -640,6 +640,17 @@ function upsertStatement(env, rows) {
   `).bind(JSON.stringify(rows));
 }
 
+function markTeamTruthCheckedStatement(env, teamIds, refreshedAt) {
+  const ids=[...new Set((teamIds || []).map(String).filter(Boolean))];
+  return env.DB.prepare(`
+    UPDATE ${TABLE}
+    SET truth_generation=?,refreshed_at=?
+    WHERE row_type='TEAM'
+      AND team_id IN (SELECT value FROM json_each(?))
+      AND COALESCE(refreshed_at,'')<>?
+  `).bind(refreshedAt,refreshedAt,JSON.stringify(ids),refreshedAt);
+}
+
 function oneTruthMetaRow(season, refreshedAt) {
   return {
     truth_id:META_ID,row_type:"META",team_id:null,school_id:null,school_name:null,school_level:null,
@@ -683,6 +694,7 @@ async function rebuildAllOneTruth(env, { season, refreshedAt }) {
         AND team_id IN (SELECT value FROM json_each(?))
         AND truth_id NOT IN (SELECT value FROM json_each(?))
     `).bind(JSON.stringify(chunkIds),JSON.stringify(truthIds)));
+    statements.push(markTeamTruthCheckedStatement(env,chunkIds,refreshedAt));
 
     const results=await env.DB.batch(statements);
     statementCount+=statements.length;
@@ -756,6 +768,7 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = 
         AND team_id IN (SELECT value FROM json_each(?))
         AND truth_id NOT IN (SELECT value FROM json_each(?))
     `).bind(JSON.stringify(requested),JSON.stringify(ids)));
+    statements.push(markTeamTruthCheckedStatement(env,requested,refreshedAt));
   } else {
     statements.push(env.DB.prepare(`
       DELETE FROM ${TABLE}
