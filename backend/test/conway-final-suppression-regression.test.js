@@ -71,13 +71,13 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
   const env={DB:d1FromSqlite(db)};
   const now="2026-09-21T15:40:00.000Z";
 
-  db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES('conway','Conway High School','Conway','AR','high-school','local',?)").run(now);
-  db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES('van-buren','Van Buren High School','Van Buren','AR','high-school','opponent-only',?)").run(now);
-  db.prepare("INSERT INTO teams(id,school_id,sport,gender,season,active,updated_at) VALUES('conway-volleyball-2026','conway','volleyball','girls','2026',1,?)").run(now);
+  db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES('reg-conway','Conway High School','Conway','AR','high-school','local',?)").run(now);
+  db.prepare("INSERT INTO schools(id,name,city,state,level,catalog_scope,updated_at) VALUES('reg-van-buren','Van Buren High School','Van Buren','AR','high-school','opponent-only',?)").run(now);
+  db.prepare("INSERT INTO teams(id,school_id,sport,gender,season,active,updated_at) VALUES('reg-conway-volleyball-2026','reg-conway','volleyball','girls','2026',1,?)").run(now);
 
   insertSource(db,{
-    id:"conway-volleyball-official",
-    teamId:"conway-volleyball-2026",
+    id:"reg-conway-volleyball-official",
+    teamId:"reg-conway-volleyball-2026",
     sourceType:"official-school",
     parserType:"mascot-media",
     authorityRank:5,
@@ -85,8 +85,8 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     now
   });
   insertSource(db,{
-    id:"conway-volleyball-2026-dragonfly-statewide",
-    teamId:"conway-volleyball-2026",
+    id:"reg-conway-volleyball-2026-dragonfly-statewide",
+    teamId:"reg-conway-volleyball-2026",
     sourceType:"official-conference",
     parserType:"dragonfly-public",
     authorityRank:10,
@@ -94,8 +94,8 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     now
   });
 
-  const official={id:"conway-volleyball-official",team_id:"conway-volleyball-2026",source_url:"https://example.test/conway"};
-  const statewide={id:"conway-volleyball-2026-dragonfly-statewide",team_id:"conway-volleyball-2026",source_url:"https://example.test/dragonfly"};
+  const official={id:"reg-conway-volleyball-official",team_id:"reg-conway-volleyball-2026",source_url:"https://example.test/conway"};
+  const statewide={id:"reg-conway-volleyball-2026-dragonfly-statewide",team_id:"reg-conway-volleyball-2026",source_url:"https://example.test/dragonfly"};
 
   const finalId=await upsertResolvedObservation(env,official,observation(),now,{opponentSchoolId:"van-buren"});
   const initialCanonical=await reconcileResolvedObservation(env,finalId);
@@ -136,7 +136,7 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
   const audit={issues:[{
     code:"STALE_NONTERMINAL_TWIN_OF_FINAL",
     severity:"blocking",
-    team_id:"conway-volleyball-2026",
+    team_id:"reg-conway-volleyball-2026",
     school_id:"conway",
     sport:"volleyball",
     gender:"girls",
@@ -155,19 +155,19 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
   const staleNotes=db.prepare("SELECT notes FROM games WHERE id=?").get(staleId)?.notes||"";
   assert.equal(staleNotes.includes(PRESENTATION_SUPPRESSED_NOTE),true);
 
-  const record=db.prepare("SELECT wins,losses,ties FROM team_records WHERE team_id='conway-volleyball-2026'").get();
+  const record=db.prepare("SELECT wins,losses,ties FROM team_records WHERE team_id='reg-conway-volleyball-2026'").get();
   assert.deepEqual(
     {wins:record.wins,losses:record.losses,ties:record.ties},
     {wins:1,losses:0,ties:0}
   );
 
-  await rebuildOneTruth(env,{season:"2026",teamIds:["conway-volleyball-2026"]});
-  const truthTeam=db.prepare("SELECT overall_record,overall_wins,overall_losses FROM ONE_TRUTH_TB WHERE truth_id='TEAM:conway-volleyball-2026'").get();
+  await rebuildOneTruth(env,{season:"2026",teamIds:["reg-conway-volleyball-2026"]});
+  const truthTeam=db.prepare("SELECT overall_record,overall_wins,overall_losses FROM ONE_TRUTH_TB WHERE truth_id='TEAM:reg-conway-volleyball-2026'").get();
   assert.deepEqual(
     {overall_record:truthTeam.overall_record,overall_wins:truthTeam.overall_wins,overall_losses:truthTeam.overall_losses},
     {overall_record:"1-0",overall_wins:1,overall_losses:0}
   );
-  const truthGame=db.prepare("SELECT canonical_event_id,status,team_score,opponent_score,counts_for_record FROM ONE_TRUTH_TB WHERE row_type='GAME' AND team_id='conway-volleyball-2026' AND canonical_event_id=?").get(initialCanonical);
+  const truthGame=db.prepare("SELECT canonical_event_id,status,team_score,opponent_score,counts_for_record FROM ONE_TRUTH_TB WHERE row_type='GAME' AND team_id='reg-conway-volleyball-2026' AND canonical_event_id=?").get(initialCanonical);
   assert.ok(truthGame,"Van Buren final should remain in ONE_TRUTH");
   assert.deepEqual(
     {status:truthGame.status,team_score:truthGame.team_score,opponent_score:truthGame.opponent_score,counts_for_record:truthGame.counts_for_record},
