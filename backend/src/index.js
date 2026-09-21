@@ -8,6 +8,8 @@ import { fetchCollegeSourceMaterial, parseCollegeSourceBody } from "./college-so
 import { collectionSafety, deriveSourceHealth, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { createSchoolIdentityResolver } from "./school-identity-resolution.js";
 import { rebuildTeamRecord } from "./record-rebuild.js";
+import { CANONICAL_EVENT_UPSERT_SQL } from "./canonical-observation-writer.js";
+import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 
 const API_PREFIX="/api/v1";
 const USER_AGENT="LocalBleachersAR/2.0 (+https://github.com/jamesmethvin74/game-nearby)";
@@ -393,7 +395,7 @@ async function resolveOpponentSchool(identityResolver,game){
   return resolution.status==="resolved"?resolution.schoolId:null;
 }
 
-async function upsertGame(env,source,game,checkedAt,identityResolver){
+export async function upsertGame(env,source,game,checkedAt,identityResolver){
   const id=`${source.id}:${game.sourceEventKey}`;
   const opponentSchoolId=await resolveOpponentSchool(identityResolver,game);
   await env.DB.prepare(`
@@ -403,8 +405,40 @@ async function upsertGame(env,source,game,checkedAt,identityResolver){
       opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
       venue=COALESCE(NULLIF(excluded.venue,''),games.venue),location_text=COALESCE(NULLIF(excluded.location_text,''),games.location_text),
       latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),home_away=excluded.home_away,
-      conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
-      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=excluded.notes,
+      conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,
+      status=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.status
+        ELSE excluded.status
+      END,
+      team_score=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.team_score
+        ELSE excluded.team_score
+      END,
+      opponent_score=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.opponent_score
+        ELSE excluded.opponent_score
+      END,
+      result=CASE
+        WHEN UPPER(COALESCE(games.status,''))='FINAL'
+          AND games.team_score IS NOT NULL
+          AND games.opponent_score IS NOT NULL
+          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+        THEN games.result
+        ELSE excluded.result
+      END,
+      notes=${suppressionPreservingNotesSql("games","excluded")},
       source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at`)
     .bind(id,source.team_id,source.id,game.sourceEventKey,game.opponent,opponentSchoolId,game.scheduledAt,game.scheduledTimeKnown?1:0,game.venue||null,game.locationText||null,
       game.latitude??null,game.longitude??null,game.homeAway,game.conferenceGame?1:0,game.countsForRecord?1:0,game.status,game.teamScore??null,game.opponentScore??null,
@@ -420,7 +454,7 @@ async function observationById(env,gameId){
     WHERE g.id=?`).bind(gameId).first();
 }
 
-async function reconcileCanonicalGame(env,gameId){
+export async function reconcileCanonicalGame(env,gameId){
   const seed=await observationById(env,gameId);
   if (!seed?.opponent_school_id) return null;
   const timeZone=seed.timezone||"America/Chicago";
@@ -443,13 +477,7 @@ async function reconcileCanonicalGame(env,gameId){
   const venueObservation=related.find(o=>o.id===resolved.resolutionEvidence.venueObservationId) || selected;
   const geoObservation=related.find(o=>o.latitude!=null && o.longitude!=null) || selected;
   const conferenceGame=Number(selected?.conference_game||0);
-  await env.DB.prepare(`
-    INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    ON CONFLICT(id) DO UPDATE SET home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,
-      scheduled_time_known=excluded.scheduled_time_known,venue=excluded.venue,location_text=excluded.location_text,latitude=excluded.latitude,longitude=excluded.longitude,
-      conference_game=excluded.conference_game,status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
-      trust_state=excluded.trust_state,conflict_count=excluded.conflict_count,resolution_json=excluded.resolution_json,last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`)
+  await env.DB.prepare(CANONICAL_EVENT_UPSERT_SQL)
     .bind(resolved.id,resolved.sport,resolved.gender,resolved.season,resolved.participantA,resolved.participantB,resolved.homeSchoolId,resolved.awaySchoolId,
       resolved.scheduledAt,resolved.scheduledTimeKnown?1:0,resolved.venue||null,venueObservation?.location_text||resolved.venue||null,geoObservation?.latitude??null,geoObservation?.longitude??null,
       conferenceGame,resolved.status,resolved.homeScore??null,resolved.awayScore??null,resolved.selectedSourceId,resolved.trustState,resolved.conflicts.length,
