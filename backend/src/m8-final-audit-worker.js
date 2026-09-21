@@ -232,7 +232,7 @@ export default {
     const sourceRepairStatus=request.method==="GET"
       && url.pathname===SOURCE_REPAIR_STATUS_PATH
       && Date.now()<=SOURCE_REPAIR_EXPIRES_AT;
-    const sourceRecoveryAudit=request.method==="GET"
+    const sourceRecoveryAuditRequest=request.method==="GET"
       && url.pathname===SOURCE_RECOVERY_AUDIT_PATH
       && Date.now()<=SOURCE_REPAIR_EXPIRES_AT;
     const sourceRecoveryApplyRequest=request.method==="POST"
@@ -244,14 +244,14 @@ export default {
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot && !sourceRepair && !sourceRepairStatus && !sourceRecoveryAudit && !sourceRecoveryApplyRequest && !sourceRecoveryRebuildRequest) {
+    if (!protectedView && !oneShot && !sourceRepair && !sourceRepairStatus && !sourceRecoveryAuditRequest && !sourceRecoveryApplyRequest && !sourceRecoveryRebuildRequest) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
-      if (sourceRecoveryAudit) return await sourceRecoveryAudit(env);
+      if (sourceRecoveryAuditRequest) return await sourceRecoveryAudit(env);
       if (sourceRecoveryApplyRequest) return await sourceRecoveryApply(request,env);
       if (sourceRecoveryRebuildRequest) return await sourceRecoveryRebuild(env);
       if (sourceRepairStatus) return await sourceReconciliationStatus(env);
