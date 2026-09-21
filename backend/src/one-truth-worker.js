@@ -1,4 +1,5 @@
 import app from "./m8-worker.js";
+import { canonicalPublicSchoolId } from "./m4-public-worker.js";
 import { ensureOneTruthFresh, ensureOneTruthSchema, oneTruthTableName, rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
 import { runDragonFlyTargetedCollection } from "./dragonfly-statewide.js";
@@ -537,29 +538,32 @@ async function nearbyGames(env, url) {
 }
 
 async function teamStatusesResponse(request, env, ctx, url) {
-  const requested=String(url.searchParams.get("school_ids")||"")
-    .split(",").map(value=>value.trim()).filter(Boolean);
-  const upstream=await app.fetch(request,env,ctx);
-  let upstreamBody={};
-  try { upstreamBody=await upstream.clone().json(); } catch {}
-  const resolutions=Array.isArray(upstreamBody?.school_id_resolutions) ? upstreamBody.school_id_resolutions : [];
-  const canonicalIds=[...new Set([
-    ...requested,
-    ...resolutions.map(row=>String(row?.school_id||"")).filter(Boolean)
-  ])];
+  const requested=[...new Set(
+    String(url.searchParams.get("school_ids")||"")
+      .split(",")
+      .map(value=>value.trim())
+      .filter(Boolean)
+  )].slice(0,32);
+  const resolutions=requested.map(requestedSchoolId=>{
+    const schoolId=canonicalPublicSchoolId(requestedSchoolId);
+    return {
+      requested_school_id:requestedSchoolId,
+      school_id:schoolId || null,
+      resolution_method:schoolId && schoolId!==requestedSchoolId ? "legacy-alias" : "one-truth-exact"
+    };
+  }).filter(row=>row.school_id);
+  const canonicalIds=[...new Set(resolutions.map(row=>String(row.school_id)).filter(Boolean))];
   const teamIds=await activeTeamIdsForSchools(env,canonicalIds);
   await ensureOneTruthFresh(env,{teamIds});
   const rows=await teamRowsForSchools(env,canonicalIds);
+  const knownSchools=new Set(rows.map(row=>String(row.school_id||"")).filter(Boolean));
   return json({
-    ...upstreamBody,
+    school_ids:requested,
+    resolved_school_ids:canonicalIds.filter(id=>knownSchools.has(id)),
     team_statuses:rows.map(statusFromRow),
-    school_id_resolutions:resolutions.length ? resolutions : requested.map(id=>({
-      requested_school_id:id,
-      school_id:rows.some(row=>row.school_id===id)?id:null,
-      resolution_method:rows.some(row=>row.school_id===id)?"one-truth-exact":"unresolved"
-    })).filter(row=>row.school_id),
+    school_id_resolutions:resolutions.filter(row=>knownSchools.has(String(row.school_id))),
     truth_table:TABLE
-  },upstream.ok?upstream.status:200);
+  },200);
 }
 
 async function schoolScheduleResponse(request, env, ctx, schoolId) {
