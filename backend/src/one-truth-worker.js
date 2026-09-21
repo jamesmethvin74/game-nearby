@@ -11,6 +11,8 @@ const AUDIT_PATH = "/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3";
 const ACCURACY_REPAIR_PATH = "/api/v1/internal/accuracy-repair-20260920-e4f7c1a9";
 const ONE_SHOT_EXPIRES_AT = Date.parse("2026-09-20T21:30:00Z");
 const BOOTSTRAP_BATCH = 64;
+const SCHEDULED_TRUTH_BATCH = 64;
+const MAX_SCHEDULED_TRUTH_BATCHES = 20;
 
 const ACCURACY_REPAIR_HIGH_SCHOOL_TEAMS = [
   "df-354bu3-volleyball-2026","df-7k6qj6-volleyball-2026","df-bf8zxn-volleyball-2026",
@@ -740,11 +742,29 @@ export default {
     const result=await app.scheduled(controller,env,ctx);
     try {
       await ensureOneTruthSchema(env);
-      const stale=await staleOneTruthTeamIds(env,{limit:64});
-      if(stale.length){
-        const refresh=await rebuildOneTruth(env,{teamIds:stale});
-        console.log("ONE_TRUTH_TB refreshed after collection",refresh);
+
+      const repairTeamIds=[...new Set(
+        (result?.integrity?.refresh_team_ids||[]).map(String).filter(Boolean)
+      )];
+      if(repairTeamIds.length){
+        const repairRefresh=await rebuildOneTruth(env,{teamIds:repairTeamIds});
+        console.log("ONE_TRUTH_TB refreshed repaired teams",repairRefresh);
       }
+
+      let batches=0;
+      let refreshedTeams=repairTeamIds.length;
+      while(batches<MAX_SCHEDULED_TRUTH_BATCHES){
+        const stale=await staleOneTruthTeamIds(env,{limit:SCHEDULED_TRUTH_BATCH});
+        if(!stale.length) break;
+        const refresh=await rebuildOneTruth(env,{teamIds:stale});
+        refreshedTeams+=stale.length;
+        batches++;
+        console.log("ONE_TRUTH_TB refreshed stale collection batch",{batch:batches,teams:stale.length,refresh});
+      }
+
+      const remaining=await staleOneTruthTeamIds(env,{limit:1});
+      if(remaining.length) throw new Error("ONE_TRUTH_TB scheduled refresh fuse exhausted before clearing stale teams");
+      console.log("ONE_TRUTH_TB scheduled refresh complete",{batches,refreshedTeams});
     } catch (error) {
       console.error("ONE_TRUTH_TB scheduled refresh failed",error);
       throw error;
