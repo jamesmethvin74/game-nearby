@@ -131,3 +131,14 @@ test("scheduled ONE_TRUTH refresh drains stale batches even when the upstream sc
   assert.match(worker,/if\(upstreamError\)/);
   assert.match(worker,/throw upstreamError/);
 });
+
+
+test("ONE_TRUTH freshness watermark advances after authoritative rebuild even when row content is unchanged",()=>{
+  assert.match(truth,/function markTeamTruthCheckedStatement\(env, teamIds, refreshedAt\)/);
+  assert.match(truth,/SET truth_generation=\?,refreshed_at=\?/);
+  assert.match(truth,/row_type='TEAM'/);
+  assert.match(truth,/team_id IN \(SELECT value FROM json_each\(\?\)\)/);
+  assert.match(truth,/markTeamTruthCheckedStatement\(env,chunkIds,refreshedAt\)/);
+  assert.match(truth,/markTeamTruthCheckedStatement\(env,requested,refreshedAt\)/);
+  assert.match(truth,/filter\(column => !\["row_hash","truth_generation","refreshed_at"\]\.includes\(column\)\)/);
+});
