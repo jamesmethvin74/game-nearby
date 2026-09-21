@@ -97,7 +97,7 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
   const official={id:"reg-conway-volleyball-official",team_id:"reg-conway-volleyball-2026",source_url:"https://example.test/conway"};
   const statewide={id:"reg-conway-volleyball-2026-dragonfly-statewide",team_id:"reg-conway-volleyball-2026",source_url:"https://example.test/dragonfly"};
 
-  const finalId=await upsertResolvedObservation(env,official,observation(),now,{opponentSchoolId:"van-buren"});
+  const finalId=await upsertResolvedObservation(env,official,observation(),now,{opponentSchoolId:"reg-van-buren"});
   const initialCanonical=await reconcileResolvedObservation(env,finalId);
   assert.ok(initialCanonical,"initial scored final should canonicalize");
 
@@ -107,7 +107,7 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     opponentScore:null,
     result:null,
     sourceUpdatedAt:"2026-09-21T15:30:00.000Z"
-  }),now,{opponentSchoolId:"van-buren"});
+  }),now,{opponentSchoolId:"reg-van-buren"});
   const afterRefresh=await reconcileResolvedObservation(env,finalId);
   assert.equal(afterRefresh,initialCanonical);
 
@@ -129,7 +129,7 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     opponentScore:null,
     result:null,
     sourceUpdatedAt:"2026-09-21T15:35:00.000Z"
-  }),now,{opponentSchoolId:"van-buren"});
+  }),now,{opponentSchoolId:"reg-van-buren"});
   const staleCanonical=await reconcileResolvedObservation(env,staleId);
   assert.equal(staleCanonical,initialCanonical);
 
