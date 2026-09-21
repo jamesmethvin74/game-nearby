@@ -21,7 +21,8 @@ jobs:
           CERT="$BASE/api/v1/internal/live-pipeline-cert-20260921-8f3c1d72"
           curl --max-time 180 -fsS "$CERT" > /tmp/cert.json
 
-          node --input-type=module <<'NODE'
+          set +e
+          node --input-type=module > /tmp/validator.log 2>&1 <<'NODE'
           import fs from 'node:fs';
           const cert=JSON.parse(fs.readFileSync('/tmp/cert.json','utf8'));
           const assert=(v,m)=>{if(!v) throw new Error(m);};
@@ -186,4 +187,17 @@ jobs:
           console.log('PIPELINE_CERTIFIED='+JSON.stringify(out));
           NODE
 
+          RC=$?
+          set -e
+          if [ "$RC" -ne 0 ]; then
+            {
+              echo "### Live pipeline certification FAILED 2026-09-21"
+              echo
+              echo '~~~text'
+              tail -c 12000 /tmp/validator.log
+              echo
+              echo '~~~'
+            } > /tmp/comment.md
+          fi
           gh api "repos/$GITHUB_REPOSITORY/issues/366/comments" -f body="$(cat /tmp/comment.md)" >/dev/null
+          exit "$RC"
