@@ -161,13 +161,22 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     {wins:1,losses:0,ties:0}
   );
 
+  const repairedFinal=db.prepare("SELECT canonical_event_id,status,team_score,opponent_score FROM games WHERE id=?").get(finalId);
+  assert.ok(repairedFinal?.canonical_event_id,"legitimate final should remain canonical after repair");
+  assert.deepEqual(
+    {status:repairedFinal.status,team_score:repairedFinal.team_score,opponent_score:repairedFinal.opponent_score},
+    {status:"FINAL",team_score:3,opponent_score:0}
+  );
+  const repairedStale=db.prepare("SELECT canonical_event_id FROM games WHERE id=?").get(staleId);
+  assert.equal(repairedStale.canonical_event_id,repairedFinal.canonical_event_id);
+
   await rebuildOneTruth(env,{season:"2026",teamIds:["reg-conway-volleyball-2026"]});
   const truthTeam=db.prepare("SELECT overall_record,overall_wins,overall_losses FROM ONE_TRUTH_TB WHERE truth_id='TEAM:reg-conway-volleyball-2026'").get();
   assert.deepEqual(
     {overall_record:truthTeam.overall_record,overall_wins:truthTeam.overall_wins,overall_losses:truthTeam.overall_losses},
     {overall_record:"1-0",overall_wins:1,overall_losses:0}
   );
-  const truthGame=db.prepare("SELECT canonical_event_id,status,team_score,opponent_score,counts_for_record FROM ONE_TRUTH_TB WHERE row_type='GAME' AND team_id='reg-conway-volleyball-2026' AND canonical_event_id=?").get(initialCanonical);
+  const truthGame=db.prepare("SELECT canonical_event_id,status,team_score,opponent_score,counts_for_record FROM ONE_TRUTH_TB WHERE row_type='GAME' AND team_id='reg-conway-volleyball-2026' AND canonical_event_id=?").get(repairedFinal.canonical_event_id);
   assert.ok(truthGame,"Van Buren final should remain in ONE_TRUTH");
   assert.deepEqual(
     {status:truthGame.status,team_score:truthGame.team_score,opponent_score:truthGame.opponent_score,counts_for_record:truthGame.counts_for_record},
