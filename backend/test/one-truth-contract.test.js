@@ -103,3 +103,16 @@ test("conference slug resolves from ONE_TRUTH and bridges generic slugs through 
   assert.match(block,/row\.school_id/);
   assert.doesNotMatch(block,/conference_memberships|FROM teams|JOIN conferences/);
 });
+
+
+test("team statuses are served directly from ONE_TRUTH without legacy upstream status evaluation",()=>{
+  const start=worker.indexOf("async function teamStatusesResponse");
+  const end=worker.indexOf("async function schoolScheduleResponse",start);
+  const block=worker.slice(start,end);
+  assert.ok(start>=0);
+  assert.doesNotMatch(block,/app\.fetch\(/);
+  assert.match(block,/canonicalPublicSchoolId/);
+  assert.match(block,/activeTeamIdsForSchools/);
+  assert.match(block,/teamRowsForSchools/);
+  assert.match(block,/team_statuses:rows\.map\(statusFromRow\)/);
+});
