@@ -739,7 +739,16 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    const result=await app.scheduled(controller,env,ctx);
+    let result;
+    let upstreamError=null;
+    try {
+      result=await app.scheduled(controller,env,ctx);
+    } catch (error) {
+      upstreamError=error;
+      console.error("upstream scheduled chain failed before ONE_TRUTH_TB refresh",error);
+    }
+
+    let truthError=null;
     try {
       await ensureOneTruthSchema(env);
 
@@ -766,9 +775,15 @@ export default {
       if(remaining.length) throw new Error("ONE_TRUTH_TB scheduled refresh fuse exhausted before clearing stale teams");
       console.log("ONE_TRUTH_TB scheduled refresh complete",{batches,refreshedTeams});
     } catch (error) {
+      truthError=error;
       console.error("ONE_TRUTH_TB scheduled refresh failed",error);
-      throw error;
     }
+
+    if(upstreamError){
+      if(truthError) console.error("ONE_TRUTH_TB refresh also failed after upstream scheduled failure",truthError);
+      throw upstreamError;
+    }
+    if(truthError) throw truthError;
     return result;
   }
 };
