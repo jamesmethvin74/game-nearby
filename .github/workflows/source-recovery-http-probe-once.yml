@@ -1,80 +1,87 @@
-name: Source recovery HTTP transport once
+name: Source recovery final HTTP transport once
 on:
   push:
     branches: [feature/live-sports-pipeline-m1]
     paths:
       - .github/workflows/source-recovery-http-probe-once.yml
 jobs:
-  recover:
+  finish:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Bounded Worker recovery transport
+      - name: Finish rebuild and verify production
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          AUDIT="$BASE/api/v1/internal/source-recovery-audit-20260920-b72f9c31"
-          APPLY="$BASE/api/v1/internal/source-recovery-apply-20260920-b72f9c31"
           REBUILD="$BASE/api/v1/internal/source-recovery-rebuild-20260920-b72f9c31"
+          AUDIT="$BASE/api/v1/internal/source-recovery-audit-20260920-b72f9c31"
 
-          call() {
-            method="$1"; url="$2"; out="$3"; data="${4:-}"
-            if [ -n "$data" ]; then
-              code=$(curl --max-time 180 -sS -o "$out" -w '%{http_code}' -X "$method" -H 'content-type: application/json' --data-binary @"$data" "$url")
-            else
-              code=$(curl --max-time 180 -sS -o "$out" -w '%{http_code}' -X "$method" "$url")
-            fi
-            echo "${method}_HTTP=$code"
-            if [ "$code" != "200" ]; then cat "$out"; exit 1; fi
-          }
+          code=$(curl --max-time 180 -sS -o /tmp/rebuild.json -w '%{http_code}' -X POST "$REBUILD")
+          echo "REBUILD_HTTP=$code"
+          cat /tmp/rebuild.json
+          test "$code" = "200"
 
-          call GET "$AUDIT" /tmp/before.json
+          curl --max-time 180 -fsS "$AUDIT" > /tmp/audit.json
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const a=JSON.parse(fs.readFileSync('/tmp/before.json','utf8'));
-          console.log('BEFORE='+JSON.stringify({
-            active_teams:a.summary?.total_active_teams_examined,
-            source_issues:a.summary?.upstream_source_observation_issues,
-            source_codes:a.summary?.upstream_source_issues_by_code,
-            one_truth_blocking:a.summary?.one_truth_surface_blocking_issues,
-            source_vs_truth_blocking:a.summary?.source_vs_truth_blocking_issues
-          }));
-          fs.writeFileSync('/tmp/apply.json',JSON.stringify({audit:a}));
+          const a=JSON.parse(fs.readFileSync('/tmp/audit.json','utf8'));
+          const s=a.summary||{};
+          const out={
+            active_teams:s.total_active_teams_examined,
+            source_issues:s.upstream_source_observation_issues,
+            source_codes:s.upstream_source_issues_by_code,
+            one_truth_blocking:s.one_truth_surface_blocking_issues,
+            source_vs_truth_blocking:s.source_vs_truth_blocking_issues,
+            issues_by_code:s.issues_by_code
+          };
+          console.log('STATEWIDE='+JSON.stringify(out));
+          if(Number(s.total_active_teams_examined)!==1227) throw new Error('statewide coverage is not 1227');
+          if(Number(s.one_truth_surface_blocking_issues||0)!==0) throw new Error('ONE_TRUTH blocking issue remains');
+          if(Number(s.source_vs_truth_blocking_issues||0)!==0) throw new Error('source-vs-truth blocker remains');
           NODE
 
-          call POST "$APPLY" /tmp/apply-result.json /tmp/apply.json
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const r=JSON.parse(fs.readFileSync('/tmp/apply-result.json','utf8'));
-          console.log('APPLY='+JSON.stringify({
-            source_issue_count:r.source_issue_count,
-            canonical:r.canonical,
-            suppression:r.suppression,
-            affected_team_count:(r.affected_team_ids||[]).length,
-            record_rebuild:r.record_rebuild,
-            d1:r.d1
-          }));
-          NODE
+          curl --max-time 60 -fsS "$BASE/api/v1/team-statuses?school_ids=conway,df-7x4sxh" > /tmp/status.json
+          curl --max-time 60 -fsS "$BASE/api/v1/schools/conway/schedule" > /tmp/conway.json
+          curl --max-time 60 -fsS "$BASE/api/v1/schools/df-7x4sxh/schedule" > /tmp/pea.json
+          curl --max-time 60 -fsS "$BASE/api/v1/teams/conway-football-2026/record" > /tmp/cf.json
+          curl --max-time 60 -fsS "$BASE/api/v1/teams/conway-volleyball-2026/record" > /tmp/cv.json
+          curl --max-time 60 -fsS "$BASE/api/v1/teams/df-7x4sxh-football-2026/record" > /tmp/pf.json
+          curl --max-time 60 -fsS "$BASE/api/v1/standings?sport=volleyball&conference=7a-central" > /tmp/standings.json
 
-          call POST "$REBUILD" /tmp/rebuild.json
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const r=JSON.parse(fs.readFileSync('/tmp/rebuild.json','utf8'));
-          console.log('REBUILD='+JSON.stringify(r));
-          if(Number(r.one_truth?.teams)!==1227) throw new Error('ONE_TRUTH team coverage mismatch');
-          NODE
-
-          call GET "$AUDIT" /tmp/after.json
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const a=JSON.parse(fs.readFileSync('/tmp/after.json','utf8'));
-          console.log('AFTER='+JSON.stringify({
-            active_teams:a.summary?.total_active_teams_examined,
-            source_issues:a.summary?.upstream_source_observation_issues,
-            source_codes:a.summary?.upstream_source_issues_by_code,
-            one_truth_blocking:a.summary?.one_truth_surface_blocking_issues,
-            source_vs_truth_blocking:a.summary?.source_vs_truth_blocking_issues,
-            issues_by_code:a.summary?.issues_by_code
+          const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const statuses=read('/tmp/status.json').team_statuses||[];
+          const conway=read('/tmp/conway.json').games||[];
+          const pea=read('/tmp/pea.json').games||[];
+          const cf=read('/tmp/cf.json').record||{};
+          const cv=read('/tmp/cv.json').record||{};
+          const pf=read('/tmp/pf.json').record||{};
+          const standings=read('/tmp/standings.json');
+          const rows=standings.standings||[];
+          const cfs=statuses.find(x=>x.team_id==='conway-football-2026');
+          const cvs=statuses.find(x=>x.team_id==='conway-volleyball-2026');
+          const pfs=statuses.find(x=>x.team_id==='df-7x4sxh-football-2026');
+          const cvsRow=rows.find(x=>x.team_id==='conway-volleyball-2026');
+          const capital=conway.find(g=>g.sport==='football'&&/Capital High School/i.test(String(g.opponent||'')));
+          const badPending=[...conway,...pea].filter(g=>g.status==='FINAL'&&(g.team_score==null||g.opponent_score==null));
+          const assert=(v,m)=>{if(!v) throw new Error(m);};
+          assert(cfs&&cvs&&pfs,'known team status missing');
+          assert(cf.display_overall_record===cfs.display_overall_record,'Conway football record mismatch');
+          assert(cv.display_overall_record===cvs.display_overall_record,'Conway volleyball record mismatch');
+          assert(pf.display_overall_record===pfs.display_overall_record,'Pea Ridge football record mismatch');
+          assert(cvsRow,'Conway volleyball standing missing');
+          assert(cvsRow.display_overall_record===cvs.display_overall_record,'Conway volleyball standings overall mismatch');
+          assert(cvsRow.display_conference_record===cvs.display_conference_record,'Conway volleyball standings conference mismatch');
+          assert(Number(cvsRow.display_rank)===Number(cvs.display_rank),'Conway volleyball rank mismatch');
+          assert(capital?.status==='FINAL'&&Number(capital.team_score)===45&&Number(capital.opponent_score)===7,'Conway-Capital final missing');
+          assert(badPending.length===0,'displayed FINAL missing score');
+          console.log('APP_PROOF='+JSON.stringify({
+            conway_football:{status:cfs.display_overall_record,record:cf.display_overall_record,capital:[capital.status,capital.team_score,capital.opponent_score]},
+            conway_volleyball:{status:cvs.display_overall_record,conference:cvs.display_conference_record,rank:cvs.display_rank,standing:[cvsRow.display_overall_record,cvsRow.display_conference_record,cvsRow.display_rank]},
+            pea_ridge:{status:pfs.display_overall_record,record:pf.display_overall_record},
+            displayed_finals_missing_score:badPending.length,
+            standings_conference:standings.conference
           }));
           NODE
