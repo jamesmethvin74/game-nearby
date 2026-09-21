@@ -128,6 +128,54 @@ async function runLivePipelineCertification(env) {
     LIMIT 300
   `).all();
 
+  const newestFinalForSport=async sport=>env.DB.prepare(`
+    SELECT
+      g.id AS game_id,g.team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude,
+      t.sport,t.gender,t.conference_id,c.name AS conference_name,
+      g.source_id,src.source_type,src.parser_type,src.last_successful_fetch_at,
+      g.opponent,g.scheduled_at,g.updated_at,g.status,g.team_score,g.opponent_score,g.canonical_event_id,
+      ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,
+      ce.last_reconciled_at,ce.trust_state AS canonical_trust_state,ce.conflict_count AS canonical_conflict_count,
+      truth.status AS truth_status,truth.team_score AS truth_team_score,truth.opponent_score AS truth_opponent_score,
+      truth.refreshed_at AS truth_game_refreshed_at,
+      teamtruth.overall_record AS truth_overall_record,
+      teamtruth.conference_record AS truth_conference_record,
+      teamtruth.rank AS truth_rank,
+      teamtruth.refreshed_at AS truth_team_refreshed_at,
+      tr.calculated_at AS record_calculated_at
+    FROM games g
+    JOIN teams t ON t.id=g.team_id
+    JOIN schools sch ON sch.id=t.school_id
+    JOIN sources src ON src.id=g.source_id
+    LEFT JOIN conferences c ON c.id=t.conference_id
+    LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id
+    LEFT JOIN ONE_TRUTH_TB truth
+      ON truth.row_type='GAME'
+     AND truth.team_id=g.team_id
+     AND (
+       (g.canonical_event_id IS NOT NULL AND truth.canonical_event_id=g.canonical_event_id)
+       OR
+       (g.canonical_event_id IS NULL AND truth.game_id=g.id)
+     )
+    LEFT JOIN ONE_TRUTH_TB teamtruth ON teamtruth.truth_id='TEAM:'||g.team_id
+    LEFT JOIN team_records tr ON tr.team_id=g.team_id
+    WHERE t.active=1
+      AND t.season='2026'
+      AND sch.catalog_scope='local'
+      AND t.sport=?
+      AND g.status='FINAL'
+      AND g.team_score IS NOT NULL
+      AND g.opponent_score IS NOT NULL
+      AND datetime(g.updated_at)>=datetime('now','-7 days')
+    ORDER BY datetime(g.updated_at) DESC,g.id
+    LIMIT 1
+  `).bind(sport).first();
+
+  const [newestFootballFinal,newestVolleyballFinal]=await Promise.all([
+    newestFinalForSport("football"),
+    newestFinalForSport("volleyball")
+  ]);
+
   const staleTruthQuery=await env.DB.prepare(`
     SELECT t.id AS team_id,t.school_id,sch.name AS school_name,t.sport,t.gender,
       MAX(COALESCE(src.last_successful_fetch_at,src.updated_at,src.created_at)) AS newest_source_at,
@@ -160,10 +208,10 @@ async function runLivePipelineCertification(env) {
     && row.truth_team_score!=null
     && row.truth_opponent_score!=null
   );
-  const newestBySport={};
-  for(const sport of ["football","volleyball"]) {
-    newestBySport[sport]=finals.find(row=>row.sport===sport && row.truth_status==="FINAL")||null;
-  }
+  const newestBySport={
+    football:newestFootballFinal||null,
+    volleyball:newestVolleyballFinal||null
+  };
   const successfulRuns=runs.filter(row=>row.status==="SUCCESS"||row.status==="NOT_MODIFIED");
   const runBySport=Object.fromEntries(["football","volleyball"].map(sport=>[
     sport,
