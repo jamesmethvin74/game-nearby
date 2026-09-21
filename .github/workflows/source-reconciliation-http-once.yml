@@ -14,12 +14,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - name: Wait for exact Cloudflare deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          short="${GITHUB_SHA:0:8}"
+          for i in $(seq 1 36); do
+            body=$(gh api repos/jamesmethvin74/game-nearby/issues/366/comments --paginate --jq '[.[] | select(.user.login=="cloudflare-workers-and-pages[bot]")] | last | .body // ""')
+            if printf '%s' "$body" | grep -q "Deployment successful" && printf '%s' "$body" | grep -q "$short"; then
+              echo "DEPLOYED=$short"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Exact Cloudflare deployment not confirmed"
+          exit 1
+
       - name: Audit, repair, rebuild, verify
         shell: bash
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
-          AUDIT="$BASE/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3"
+          AUDIT="$BASE/api/v1/internal/source-recovery-audit-20260920-b72f9c31"
           APPLY="$BASE/api/v1/internal/source-recovery-apply-20260920-b72f9c31"
           REBUILD="$BASE/api/v1/internal/source-recovery-rebuild-20260920-b72f9c31"
 
