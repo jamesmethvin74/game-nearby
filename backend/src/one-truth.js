@@ -6,6 +6,7 @@ const TABLE = "ONE_TRUTH_TB";
 const META_ID = "META:CURRENT";
 const DEFAULT_SEASON = "2026";
 const WRITE_CHUNK = 180;
+const AUTHORITY_READ_TEAM_CHUNK = 64;
 const PAST_DUE_PENDING_HOURS = 6;
 
 const COLUMNS = [
@@ -398,10 +399,10 @@ function finalRecord(games) {
   };
 }
 
-function buildTruthRows(teams, rawGames, refreshedAt) {
+function buildTruthRows(teams, rawGames, refreshedAt, conferenceTeams = teams) {
   const teamById = new Map(teams.map(team => [team.team_id, team]));
   const conferenceBySchoolTeam = new Map();
-  for (const team of teams) {
+  for (const team of conferenceTeams) {
     if (team.conference_id && team.conference_membership_state === "member") {
       conferenceBySchoolTeam.set(
         keyForSchoolTeam(team.school_id, team.sport, team.gender, team.season),
@@ -639,10 +640,102 @@ function upsertStatement(env, rows) {
   `).bind(JSON.stringify(rows));
 }
 
+function oneTruthMetaRow(season, refreshedAt) {
+  return {
+    truth_id:META_ID,row_type:"META",team_id:null,school_id:null,school_name:null,school_level:null,
+    sport:null,gender:null,season,conference_id:null,conference_name:null,conference_membership_state:null,
+    rank:null,overall_wins:null,overall_losses:null,overall_ties:null,conference_wins:null,conference_losses:null,
+    conference_ties:null,overall_record:null,conference_record:null,scored_finals:null,conference_scored_finals:null,
+    truth_state:"READY",game_id:null,canonical_event_id:null,canonical_home_school_id:null,canonical_away_school_id:null,
+    canonical_home_name:null,canonical_away_name:null,opponent_school_id:null,opponent:null,scheduled_at:null,
+    scheduled_time_known:null,venue:null,latitude:null,longitude:null,home_away:null,conference_game:null,
+    counts_for_record:null,status:null,team_score:null,opponent_score:null,result:null,source_id:null,source_type:null,
+    parser_type:null,source_url:null,data_trust:null,conflict_count:null,row_hash:refreshedAt,
+    truth_generation:refreshedAt,refreshed_at:refreshedAt
+  };
+}
+
+async function rebuildAllOneTruth(env, { season, refreshedAt }) {
+  const teams=await loadTeams(env,season,[]);
+  const summaries=[];
+  let games=0;
+  let rowCount=0;
+  let statementCount=0;
+  let rowsWritten=0;
+
+  for(let index=0; index<teams.length; index+=AUTHORITY_READ_TEAM_CHUNK){
+    const teamChunk=teams.slice(index,index+AUTHORITY_READ_TEAM_CHUNK);
+    const chunkIds=teamChunk.map(team=>team.team_id);
+    const rawGames=await loadAuthorityGames(env,season,chunkIds);
+    const rows=buildTruthRows(teamChunk,rawGames,refreshedAt,teams);
+    summaries.push(...rows.filter(row=>row.row_type==="TEAM"));
+    games+=rows.filter(row=>row.row_type==="GAME").length;
+    rowCount+=rows.length;
+
+    const truthIds=rows.map(row=>row.truth_id);
+    const statements=[];
+    for(let rowIndex=0; rowIndex<rows.length; rowIndex+=WRITE_CHUNK){
+      statements.push(upsertStatement(env,rows.slice(rowIndex,rowIndex+WRITE_CHUNK)));
+    }
+    statements.push(env.DB.prepare(`
+      DELETE FROM ${TABLE}
+      WHERE row_type<>'META'
+        AND team_id IN (SELECT value FROM json_each(?))
+        AND truth_id NOT IN (SELECT value FROM json_each(?))
+    `).bind(JSON.stringify(chunkIds),JSON.stringify(truthIds)));
+
+    const results=await env.DB.batch(statements);
+    statementCount+=statements.length;
+    rowsWritten+=results.reduce(
+      (sum,result)=>sum+Number(result?.meta?.changes||result?.changes||0),
+      0
+    );
+  }
+
+  const finalStatements=[
+    env.DB.prepare(`
+      DELETE FROM ${TABLE}
+      WHERE row_type<>'META'
+        AND team_id NOT IN (
+          SELECT t.id
+          FROM teams t
+          JOIN schools sch ON sch.id=t.school_id
+          WHERE t.active=1
+            AND t.season=?
+            AND sch.catalog_scope='local'
+        )
+    `).bind(season),
+    upsertStatement(env,[oneTruthMetaRow(season,refreshedAt)])
+  ];
+  const finalResults=await env.DB.batch(finalStatements);
+  statementCount+=finalStatements.length;
+  rowsWritten+=finalResults.reduce(
+    (sum,result)=>sum+Number(result?.meta?.changes||result?.changes||0),
+    0
+  );
+
+  const rankRefresh=await refreshRanksForCohorts(env,summaries);
+  return {
+    status:"SUCCESS",
+    season,
+    requested_teams:0,
+    teams:teams.length,
+    games,
+    rows:rowCount+1,
+    statements:statementCount,
+    rows_written:rowsWritten+Number(rankRefresh.rows_written||0),
+    rank_cohorts:rankRefresh.cohorts,
+    refreshed_at:refreshedAt
+  };
+}
+
 export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = [] } = {}) {
   await ensureOneTruthSchema(env);
   const requested=[...new Set((teamIds || []).map(String).filter(Boolean))];
   const refreshedAt = new Date().toISOString();
+  if(!requested.length){
+    return rebuildAllOneTruth(env,{season,refreshedAt});
+  }
   const [teams, rawGames] = await Promise.all([
     loadTeams(env, season, requested),
     loadAuthorityGames(env, season, requested)
@@ -671,18 +764,7 @@ export async function rebuildOneTruth(env, { season = DEFAULT_SEASON, teamIds = 
     `).bind(META_ID, JSON.stringify(ids)));
   }
 
-  const meta = {
-    truth_id:META_ID,row_type:"META",team_id:null,school_id:null,school_name:null,school_level:null,
-    sport:null,gender:null,season,conference_id:null,conference_name:null,conference_membership_state:null,
-    rank:null,overall_wins:null,overall_losses:null,overall_ties:null,conference_wins:null,conference_losses:null,
-    conference_ties:null,overall_record:null,conference_record:null,scored_finals:null,conference_scored_finals:null,
-    truth_state:"READY",game_id:null,canonical_event_id:null,canonical_home_school_id:null,canonical_away_school_id:null,
-    canonical_home_name:null,canonical_away_name:null,opponent_school_id:null,opponent:null,scheduled_at:null,
-    scheduled_time_known:null,venue:null,latitude:null,longitude:null,home_away:null,conference_game:null,
-    counts_for_record:null,status:null,team_score:null,opponent_score:null,result:null,source_id:null,source_type:null,
-    parser_type:null,source_url:null,data_trust:null,conflict_count:null,row_hash:refreshedAt,
-    truth_generation:refreshedAt,refreshed_at:refreshedAt
-  };
+  const meta = oneTruthMetaRow(season,refreshedAt);
   statements.push(upsertStatement(env, [meta]));
 
   const results = await env.DB.batch(statements);
