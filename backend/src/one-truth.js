@@ -1,4 +1,4 @@
-import { currentObservationEvidenceSql, resultOnlyObservationSql } from "./current-schedule-truth.js";
+import { currentCanonicalObservationEvidenceSql, resultOnlyObservationSql } from "./current-schedule-truth.js";
 import { dedupeScheduleRows, enrichScheduleRowsWithResultEvidence, officialSeasonScheduleRows, recordFromScheduleRows, rowIsCollegePreseasonGhost } from "./schedule-response-normalizer.js";
 import { evaluateFinalResultTruth } from "./final-result-truth.js";
 
@@ -278,7 +278,7 @@ async function loadAuthorityGames(env, season, teamIds = []) {
         AND t.season=?
         AND sch.catalog_scope='local'
         ${teamFilter}
-        AND ${currentObservationEvidenceSql("g","src")}
+        AND ${currentCanonicalObservationEvidenceSql("g","src","ce")}
     ) ranked
     WHERE authority_row=1
     ORDER BY team_id,COALESCE(canonical_scheduled_at,scheduled_at),COALESCE(canonical_event_id,game_id)
