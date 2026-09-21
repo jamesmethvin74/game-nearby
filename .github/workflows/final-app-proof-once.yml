@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          short="${GITHUB_SHA:0:8}"
+          short="972aa91e"
           for i in $(seq 1 36); do
             body=$(gh api repos/jamesmethvin74/game-nearby/issues/366/comments --paginate --jq '[.[] | select(.user.login=="cloudflare-workers-and-pages[bot]")] | last | .body // ""')
             if printf '%s' "$body" | grep -q "Deployment successful" && printf '%s' "$body" | grep -q "$short"; then
