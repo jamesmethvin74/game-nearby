@@ -528,6 +528,42 @@ export async function repairAuditedPresentationDefects(env,audit,{
 }
 
 
+export async function applyAuditedSourceDefectSnapshot(env,audit,{
+  now=new Date(),
+  rebuildRecords=rebuildTeamRecords
+}={}) {
+  const checkedAt=now.toISOString();
+  const initialIssues=blockingRepairIssues(audit);
+  const initialGameIds=[...new Set(initialIssues.flatMap(issue=>[issue.game_id,issue.other_game_id]).filter(value=>value!=null&&String(value)!=="").map(String))];
+  const loaded=await loadRepairRows(env,initialGameIds);
+  const d1={statements:1,rows_read:loaded.meta.rows_read,rows_written:loaded.meta.rows_written,duration_ms:loaded.meta.duration_ms};
+
+  const mergePlan=buildAuditedCanonicalMergePlan(audit,loaded.rows);
+  const canonical=await applyCanonicalMergePlan(env,mergePlan,checkedAt,d1);
+  const scoreRepair=await promoteMissingFinalScores(env,audit,checkedAt,d1);
+
+  const targets=suppressionTargetsFromAudit(audit);
+  const memberIds=await memberGameIdsForCanonicalIds(env,targets.canonicalIds,d1);
+  const suppressIds=[...new Set([...targets.gameIds,...memberIds])];
+  const affectedGameIds=[...new Set([...initialGameIds,...suppressIds])];
+  const affectedTeamIds=await loadAffectedTeamIdsForGameIds(env,affectedGameIds);
+  const suppression=await suppressPresentationRows(env,suppressIds,checkedAt,d1);
+  const recordRebuild=affectedTeamIds.length
+    ? await rebuildRecords(env,affectedTeamIds,checkedAt)
+    : {teams:0,scoredFinals:0,standings:{cohorts:0,standingsRows:0}};
+
+  return {
+    status:"EXECUTED",
+    source_issue_count:initialIssues.length,
+    canonical,
+    score_repair:{canonical_ids:scoreRepair.canonical_ids,promoted:scoreRepair.promoted},
+    suppression,
+    affected_team_ids:affectedTeamIds,
+    record_rebuild:recordRebuild,
+    d1
+  };
+}
+
 export async function suppressAuditedRoutineDefects(env,audit,{
   now=new Date(),
   rebuildRecords=rebuildTeamRecords
