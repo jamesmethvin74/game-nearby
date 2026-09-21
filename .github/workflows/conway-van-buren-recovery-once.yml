@@ -13,35 +13,27 @@ jobs:
   recover:
     runs-on: ubuntu-latest
     timeout-minutes: 8
-    env:
-      REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
     steps:
-      - name: Refresh Conway authoritative sources and verify
+      - name: Execute bounded Worker recovery and verify
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$REFRESH_TOKEN"
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          RECOVERY="$BASE/api/v1/internal/conway-van-buren-recovery-20260921-4f8c27d1"
 
-          curl --max-time 60 -fsS "$BASE/api/v1/sources" > /tmp/sources.json
-          jq -c '[.sources[] | select(.team_id=="conway-volleyball-2026") | select(.source_type=="official-school" or .source_type=="official-conference") | {id,source_type,parser_type,last_successful_fetch_at,last_checked_at}]' /tmp/sources.json > /tmp/selected.json
-          count=$(jq 'length' /tmp/selected.json)
-          echo "SELECTED_SOURCES=$(cat /tmp/selected.json)"
-          if [ "$count" -lt 1 ] || [ "$count" -gt 16 ]; then
-            echo "unexpected Conway authoritative source count: $count"
-            exit 1
-          fi
-
-          jq -c '{sourceIds:[.[].id]}' /tmp/selected.json > /tmp/refresh-body.json
-          code=$(curl --max-time 180 -sS -o /tmp/refresh.json -w '%{http_code}' \
-            -X POST "$BASE/api/v1/refresh" \
-            -H "content-type: application/json" \
-            -H "x-refresh-token: $REFRESH_TOKEN" \
-            --data-binary @/tmp/refresh-body.json)
-          echo "REFRESH_HTTP=$code"
-          cat /tmp/refresh.json
+          code=""
+          for i in $(seq 1 36); do
+            code=$(curl --max-time 180 -sS -o /tmp/recovery.json -w '%{http_code}' -X POST "$RECOVERY" || true)
+            echo "RECOVERY_HTTP=$code"
+            if [ "$code" = "200" ]; then break; fi
+            if [ "$code" != "404" ]; then
+              cat /tmp/recovery.json || true
+              exit 1
+            fi
+            sleep 5
+          done
           test "$code" = "200"
-          jq -e '.ok==true' /tmp/refresh.json >/dev/null
+          cat /tmp/recovery.json
 
           curl --max-time 120 -fsS "$BASE/api/v1/team-statuses?school_ids=conway" > /tmp/status.json
           curl --max-time 120 -fsS "$BASE/api/v1/teams/conway-volleyball-2026/schedule" > /tmp/schedule.json
@@ -51,8 +43,7 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
-          const selected=read('/tmp/selected.json');
-          const refresh=read('/tmp/refresh.json');
+          const recovery=read('/tmp/recovery.json');
           const statusPayload=read('/tmp/status.json');
           const schedulePayload=read('/tmp/schedule.json');
           const recordPayload=read('/tmp/record.json');
@@ -64,8 +55,10 @@ jobs:
           const vanBuren=games.filter(g=>/van\s*buren/i.test(String(g.opponent||'')));
           const republic=games.filter(g=>/republic/i.test(String(g.opponent||'')));
           const finals=games.filter(g=>g.status==='FINAL'&&g.team_score!=null&&g.opponent_score!=null&&Number(g.counts_for_record??1)!==0);
-          const result={selected,refresh,status,record,standing,van_buren:vanBuren,republic,scored_final_count:finals.length};
-          console.log('RECOVERY_RESULT='+JSON.stringify(result));
+          console.log('RECOVERY_RESULT='+JSON.stringify({
+            recovery,status,record,standing,van_buren:vanBuren,republic,scored_final_count:finals.length
+          }));
+          if(recovery.status!=='SUCCESS') throw new Error('bounded recovery did not succeed');
           if(!status || !record || !standing) throw new Error('Conway production surface missing');
           if(status.display_overall_record!=='11-6') throw new Error('Conway status is not 11-6: '+status.display_overall_record);
           if(record.display_overall_record!=='11-6') throw new Error('Conway record is not 11-6: '+record.display_overall_record);
