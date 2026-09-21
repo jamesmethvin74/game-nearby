@@ -81,7 +81,8 @@ test("records, Team Detail and standings share current schedule truth",()=>{
   const standings=fs.readFileSync(new URL("../src/standings-truth.js",import.meta.url),"utf8");
   const status=fs.readFileSync(new URL("../src/m4-public-worker.js",import.meta.url),"utf8");
   const presentation=fs.readFileSync(new URL("../src/conference-standings-truth.js",import.meta.url),"utf8");
-  assert.match(rebuild,/currentScheduleTruthSql\("mg","src"\)/);
+  assert.match(rebuild,/currentCanonicalObservationEvidenceSql\("mg","src","ce"\)/);
+  assert.match(rebuild,/resultOnlySourceSql\("src"\)/);
   assert.match(rebuild,/currentScheduleTruthSql\("g","src"\)/);
   assert.ok(standings.indexOf("calculated = await loadLiveCanonicalCalculatedStandings") < standings.indexOf("calculated = await loadMaterializedCalculatedStandings"));
   assert.match(status,/display_overall_record = status\.overall_record/);
