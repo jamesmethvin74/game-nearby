@@ -6,6 +6,7 @@ import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-aud
 import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
 import { rebuildOneTruth, staleOneTruthTeamIds } from "./one-truth.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
+import { PRESENTATION_SUPPRESSED_NOTE } from "./current-schedule-truth.js";
 
 const RECORD_TRUTH_VIEW="record-truth";
 const DATA_INTEGRITY_VIEW="data-integrity";
@@ -15,6 +16,8 @@ const LIVE_PIPELINE_REPAIR_PATH="/api/v1/internal/live-pipeline-repair-20260921-
 const LIVE_PIPELINE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T20:00:00Z");
 const CONWAY_VAN_BUREN_RECOVERY_PATH="/api/v1/internal/conway-van-buren-recovery-20260921-4f8c27d1";
 const CONWAY_VAN_BUREN_RECOVERY_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
+const FINAL_SUPPRESSION_AUDIT_PATH="/api/v1/internal/final-suppression-regression-audit-20260921-a31d6c84";
+const FINAL_SUPPRESSION_AUDIT_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
   if (request.method!=="GET" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return response;
@@ -63,6 +66,88 @@ async function runRecordTruthAudit(env) {
 async function runDataIntegrityAudit(env) {
   const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
   return auditJson(audit,200,{integrity:true});
+}
+
+
+async function runFinalSuppressionRegressionAudit(env) {
+  const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:2000});
+  const relevantCodes=new Set([
+    "SOURCE_FINAL_COUNT_VS_ONE_TRUTH",
+    "ONE_TRUTH_TEAM_RECORD_VS_VISIBLE_FINALS",
+    "RESULT_ONLY_EVIDENCE_MISSING_FROM_ONE_TRUTH",
+    "ONE_TRUTH_RANK_MISMATCH"
+  ]);
+  const relevantIssues=(audit.issues||[]).filter(issue=>relevantCodes.has(String(issue?.code||"")));
+
+  const {results:suppressedFinalMissing=[]}=await env.DB.prepare(`
+    SELECT DISTINCT
+      cem.reporting_team_id AS team_id,
+      t.school_id,
+      sch.name AS school_name,
+      t.sport,t.gender,t.season,
+      ce.id AS canonical_event_id,
+      ce.scheduled_at,
+      ce.home_school_id,ce.away_school_id,
+      ce.home_score,ce.away_score,
+      ce.trust_state,
+      g.id AS member_game_id,
+      g.source_id,
+      g.status AS member_status,
+      g.team_score AS member_team_score,
+      g.opponent_score AS member_opponent_score
+    FROM canonical_events ce
+    JOIN canonical_event_members cem ON cem.canonical_event_id=ce.id
+    JOIN games g ON g.id=cem.game_id AND g.team_id=cem.reporting_team_id
+    JOIN sources src ON src.id=g.source_id
+    JOIN teams t ON t.id=cem.reporting_team_id
+    JOIN schools sch ON sch.id=t.school_id
+    WHERE ce.status='FINAL'
+      AND ce.home_score IS NOT NULL
+      AND ce.away_score IS NOT NULL
+      AND t.active=1
+      AND t.season='2026'
+      AND sch.catalog_scope='local'
+      AND LOWER(COALESCE(src.id,'')) NOT LIKE '%-official-school-results'
+      AND instr(COALESCE(g.notes,''),?)>0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM ONE_TRUTH_TB ot
+        WHERE ot.row_type='GAME'
+          AND ot.team_id=cem.reporting_team_id
+          AND ot.canonical_event_id=ce.id
+          AND ot.status='FINAL'
+          AND ot.team_score IS NOT NULL
+          AND ot.opponent_score IS NOT NULL
+          AND COALESCE(ot.counts_for_record,1)<>0
+      )
+    ORDER BY cem.reporting_team_id,ce.scheduled_at,ce.id
+  `).bind(PRESENTATION_SUPPRESSED_NOTE).all();
+
+  const affectedTeamIds=[...new Set([
+    ...relevantIssues.map(issue=>String(issue?.team_id||"")).filter(Boolean),
+    ...suppressedFinalMissing.map(row=>String(row?.team_id||"")).filter(Boolean)
+  ])];
+  const affectedGames=[...new Set([
+    ...relevantIssues.map(issue=>String(issue?.canonical_event_id||issue?.game_id||"")).filter(Boolean),
+    ...suppressedFinalMissing.map(row=>String(row?.canonical_event_id||"")).filter(Boolean)
+  ])];
+
+  return auditJson({
+    status:"SUCCESS",
+    generated_at:new Date().toISOString(),
+    statewide_active_teams:audit.summary?.total_active_teams_examined??null,
+    relevant_issue_count:relevantIssues.length,
+    relevant_issues:relevantIssues,
+    suppressed_complete_final_missing_truth_count:suppressedFinalMissing.length,
+    suppressed_complete_final_missing_truth:suppressedFinalMissing,
+    affected_team_count:affectedTeamIds.length,
+    affected_game_count:affectedGames.length,
+    affected_team_ids:affectedTeamIds,
+    affected_games:affectedGames,
+    source_issue_codes:audit.summary?.upstream_source_issues_by_code||{},
+    one_truth_blocking:audit.summary?.one_truth_surface_blocking_issues??null,
+    source_vs_truth_blocking:audit.summary?.source_vs_truth_blocking_issues??null
+  },200,{integrity:true});
 }
 
 
@@ -200,16 +285,20 @@ export default {
     const conwayVanBurenRecovery=request.method==="POST"
       && url.pathname===CONWAY_VAN_BUREN_RECOVERY_PATH
       && Date.now()<=CONWAY_VAN_BUREN_RECOVERY_EXPIRES_AT;
+    const finalSuppressionAudit=request.method==="GET"
+      && url.pathname===FINAL_SUPPRESSION_AUDIT_PATH
+      && Date.now()<=FINAL_SUPPRESSION_AUDIT_EXPIRES_AT;
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot && !livePipelineRepair && !conwayVanBurenRecovery) {
+    if (!protectedView && !oneShot && !livePipelineRepair && !conwayVanBurenRecovery && !finalSuppressionAudit) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
+      if (finalSuppressionAudit) return await runFinalSuppressionRegressionAudit(env);
       if (conwayVanBurenRecovery) return await runConwayVanBurenRecovery(env,ctx);
       if (livePipelineRepair) return await runLivePipelineRepair(env);
       if (coverageView===DATA_INTEGRITY_VIEW) return await runDataIntegrityAudit(env);
