@@ -5,6 +5,7 @@ on:
     paths: [.github/workflows/live-pipeline-cert-once.yml]
 permissions:
   contents: read
+  issues: write
 jobs:
   certify:
     runs-on: ubuntu-latest
@@ -12,11 +13,14 @@ jobs:
     steps:
       - name: Certify live pipeline without writes
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           CERT="$BASE/api/v1/internal/live-pipeline-cert-20260921-8f3c1d72"
           curl --max-time 180 -fsS "$CERT" > /tmp/cert.json
+
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const cert=JSON.parse(fs.readFileSync('/tmp/cert.json','utf8'));
@@ -24,10 +28,11 @@ jobs:
           const enc=encodeURIComponent;
           const get=async url=>{
             const r=await fetch(url);
-            const text=await r.text();
-            if(!r.ok) throw new Error('HTTP '+r.status+' '+url+' '+text.slice(0,300));
-            return JSON.parse(text);
+            const body=await r.text();
+            if(!r.ok) throw new Error('HTTP '+r.status+' '+url+' '+body.slice(0,300));
+            return JSON.parse(body);
           };
+          const ts=v=>v?Date.parse(v):NaN;
 
           assert(Number(cert.integrity?.active_teams)===1227,'coverage != 1227');
           assert(Number(cert.integrity?.one_truth_blocking||0)===0,'ONE_TRUTH blocker remains');
@@ -46,20 +51,35 @@ jobs:
 
           const samples={};
           for(const sport of ['football','volleyball']){
+            const runs=cert.scheduler?.by_sport?.[sport]||[];
+            assert(runs.length>0,'no recent successful scheduled collection '+sport);
+
             const sample=cert.recent_finals?.newest_by_sport?.[sport];
             assert(sample,'missing '+sport+' final sample');
             assert(sample.canonical_event_id,'missing canonical id '+sport);
             assert(sample.canonical_status==='FINAL','canonical not final '+sport);
             assert(sample.canonical_home_score!=null&&sample.canonical_away_score!=null,'canonical score missing '+sport);
             assert(sample.truth_status==='FINAL','ONE_TRUTH final missing '+sport);
+            assert(sample.truth_team_score!=null&&sample.truth_opponent_score!=null,'ONE_TRUTH score missing '+sport);
+            assert(sample.last_reconciled_at,'canonical reconciliation timestamp missing '+sport);
+            assert(sample.truth_game_refreshed_at,'truth game refresh timestamp missing '+sport);
+            assert(sample.truth_team_refreshed_at,'truth team refresh timestamp missing '+sport);
+            assert(ts(sample.truth_game_refreshed_at)>=ts(sample.last_reconciled_at),'truth game predates reconciliation '+sport);
+
+            const matchingRun=runs.find(r=>r.source_id===sample.source_id)||runs[0];
 
             const statusPayload=await get(BASE+'/api/v1/team-statuses?school_ids='+enc(sample.school_id));
             const status=(statusPayload.team_statuses||[]).find(x=>x.team_id===sample.team_id);
             assert(status,'status missing '+sample.team_id);
+            assert(status.display_overall_record===sample.truth_overall_record,'team status differs from truth overall '+sample.team_id);
+            assert(status.display_conference_record===sample.truth_conference_record,'team status differs from truth conference '+sample.team_id);
+            assert(Number(status.display_rank||0)===Number(sample.truth_rank||0),'team status differs from truth rank '+sample.team_id);
+
             const schedule=await get(BASE+'/api/v1/teams/'+enc(sample.team_id)+'/schedule');
             const game=(schedule.games||[]).find(g=>g.canonical_event_id===sample.canonical_event_id);
             assert(game,'app schedule final missing '+sample.team_id);
             assert(game.status==='FINAL'&&game.team_score!=null&&game.opponent_score!=null,'app final incomplete '+sample.team_id);
+
             const record=(await get(BASE+'/api/v1/teams/'+enc(sample.team_id)+'/record')).record||{};
             assert(record.display_overall_record===status.display_overall_record,'record mismatch '+sample.team_id);
 
@@ -67,12 +87,12 @@ jobs:
             if(sample.conference_id){
               const p=await get(BASE+'/api/v1/standings?sport='+enc(sample.sport)+'&conference='+enc(sample.conference_id));
               standing=(p.standings||[]).find(x=>x.team_id===sample.team_id)||null;
-              if(standing){
-                assert(standing.display_overall_record===status.display_overall_record,'standing overall mismatch '+sample.team_id);
-                assert(standing.display_conference_record===status.display_conference_record,'standing conference mismatch '+sample.team_id);
-                assert(Number(standing.display_rank||0)===Number(status.display_rank||0),'standing rank mismatch '+sample.team_id);
-              }
+              assert(standing,'conference standing missing '+sample.team_id);
+              assert(standing.display_overall_record===status.display_overall_record,'standing overall mismatch '+sample.team_id);
+              assert(standing.display_conference_record===status.display_conference_record,'standing conference mismatch '+sample.team_id);
+              assert(Number(standing.display_rank||0)===Number(status.display_rank||0),'standing rank mismatch '+sample.team_id);
             }
+
             samples[sport]={
               team_id:sample.team_id,
               school_name:sample.school_name,
@@ -81,10 +101,23 @@ jobs:
               scheduled_at:sample.scheduled_at,
               observation_updated_at:sample.updated_at,
               source_last_successful_fetch_at:sample.last_successful_fetch_at,
+              collection_run:matchingRun?{
+                run_id:matchingRun.run_id,
+                source_id:matchingRun.source_id,
+                started_at:matchingRun.started_at,
+                finished_at:matchingRun.finished_at,
+                status:matchingRun.status,
+                http_status:matchingRun.http_status,
+                games_seen:matchingRun.games_seen
+              }:null,
               canonical_event_id:sample.canonical_event_id,
               canonical_last_reconciled_at:sample.last_reconciled_at,
+              canonical_score:[sample.canonical_home_score,sample.canonical_away_score],
               truth_game_refreshed_at:sample.truth_game_refreshed_at,
               truth_team_refreshed_at:sample.truth_team_refreshed_at,
+              truth_record:sample.truth_overall_record,
+              truth_conference_record:sample.truth_conference_record,
+              truth_rank:sample.truth_rank,
               app_game:[game.status,game.team_score,game.opponent_score],
               app_record:status.display_overall_record,
               app_conference_record:status.display_conference_record,
@@ -93,23 +126,64 @@ jobs:
             };
           }
 
-          console.log('PIPELINE_CERTIFIED='+JSON.stringify({
+          const nearby=await get(BASE+'/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z');
+          const games=nearby.games||[];
+          const schools=[...new Set(games.map(g=>g.school_id).filter(Boolean))];
+          const statuses=[];
+          for(let i=0;i<schools.length;i+=10){
+            const p=await get(BASE+'/api/v1/team-statuses?school_ids='+enc(schools.slice(i,i+10).join(',')));
+            statuses.push(...(p.team_statuses||[]));
+          }
+          let checked=0;
+          for(const g of games){
+            const st=statuses.find(x=>x.team_id===g.team_id);
+            if(!st) continue;
+            assert(Number(g.wins||0)===Number(st.wins||0),'nearby wins mismatch '+g.team_id);
+            assert(Number(g.losses||0)===Number(st.losses||0),'nearby losses mismatch '+g.team_id);
+            assert(Number(g.ties||0)===Number(st.ties||0),'nearby ties mismatch '+g.team_id);
+            assert(Number(g.rank||0)===Number(st.rank||0),'nearby rank mismatch '+g.team_id);
+            checked++;
+          }
+          assert(checked>0,'no nearby cards checked');
+
+          const latestRuns={};
+          for(const sport of ['football','volleyball']){
+            latestRuns[sport]=(cert.scheduler?.by_sport?.[sport]||[]).slice(0,4).map(r=>({
+              run_id:r.run_id,source_id:r.source_id,school_name:r.school_name,
+              started_at:r.started_at,finished_at:r.finished_at,status:r.status,
+              http_status:r.http_status,games_seen:r.games_seen
+            }));
+          }
+
+          const out={
+            marker:'LIVE_PIPELINE_CERT_20260921',
             generated_at:cert.generated_at,
             scheduler:{
               cron:cert.scheduler?.cloudflare_cron,
               recent_collection_runs:cert.scheduler?.recent_collection_runs,
               recent_success_or_not_modified:cert.scheduler?.recent_success_or_not_modified,
-              football_runs:(cert.scheduler?.by_sport?.football||[]).slice(0,6),
-              volleyball_runs:(cert.scheduler?.by_sport?.volleyball||[]).slice(0,10)
+              latest_runs:latestRuns
             },
-            integrity:cert.integrity,
-            one_truth:cert.one_truth,
             recent_finals:{
               observations:cert.recent_finals?.observations,
               canonicalized:cert.recent_finals?.canonicalized,
               canonical_final_complete:cert.recent_finals?.canonical_final_complete,
               present_as_scored_final_in_one_truth:cert.recent_finals?.present_as_scored_final_in_one_truth
             },
-            samples
-          }));
+            one_truth:cert.one_truth,
+            integrity:{
+              active_teams:cert.integrity?.active_teams,
+              source_issues:cert.integrity?.source_issues,
+              source_codes:cert.integrity?.source_codes,
+              one_truth_blocking:cert.integrity?.one_truth_blocking,
+              source_vs_truth_blocking:cert.integrity?.source_vs_truth_blocking,
+              presentation_codes:cert.integrity?.presentation_codes
+            },
+            samples,
+            nearby:{games:games.length,schools:schools.length,cards_checked:checked}
+          };
+          fs.writeFileSync('/tmp/comment.md','### Live pipeline certification 2026-09-21\n\n```json\n'+JSON.stringify(out,null,2)+'\n```\n');
+          console.log('PIPELINE_CERTIFIED='+JSON.stringify(out));
           NODE
+
+          gh api "repos/$GITHUB_REPOSITORY/issues/366/comments" -f body="$(cat /tmp/comment.md)" >/dev/null
