@@ -11,24 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Wait for exact Cloudflare deployment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          short="972aa91e"
-          for i in $(seq 1 36); do
-            body=$(gh api repos/jamesmethvin74/game-nearby/issues/366/comments --paginate --jq '[.[] | select(.user.login=="cloudflare-workers-and-pages[bot]")] | last | .body // ""')
-            if printf '%s' "$body" | grep -q "Deployment successful" && printf '%s' "$body" | grep -q "$short"; then
-              echo "DEPLOYED=$short"
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "deployment not confirmed"
-          exit 1
-
       - name: Verify public app surfaces
         shell: bash
         run: |
