@@ -1,4 +1,4 @@
-name: Live pipeline post-failure snapshot once
+name: Live pipeline final stale drain once
 on:
   push:
     branches: [feature/live-sports-pipeline-m1]
@@ -6,29 +6,140 @@ on:
 permissions:
   contents: read
 jobs:
-  snapshot:
+  certify:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 6
     steps:
-      - name: Read current production certification
+      - name: Refresh five stale ONE_TRUTH teams and verify app surfaces
         shell: bash
         run: |
           set -euo pipefail
-          URL="https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/internal/live-pipeline-cert-20260921-8f3c1d72"
-          curl --max-time 180 -fsS "$URL" > /tmp/cert.json
+          BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          IDS="arkansas-baptist,df-jbclsd,df-ktpgzc,df-wd92v5,df-7x4sxh"
+          curl --max-time 120 -fsS "$BASE/api/v1/team-statuses?school_ids=$IDS" > /tmp/refreshed.json
+          curl --max-time 180 -fsS "$BASE/api/v1/internal/live-pipeline-cert-20260921-8f3c1d72" > /tmp/cert.json
+
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          const c=JSON.parse(fs.readFileSync('/tmp/cert.json','utf8'));
-          console.log('POST_FAILURE='+JSON.stringify({
-            generated_at:c.generated_at,
-            one_truth:c.one_truth,
-            integrity:c.integrity,
-            recent_finals:{
-              observations:c.recent_finals?.observations,
-              canonicalized:c.recent_finals?.canonicalized,
-              canonical_final_complete:c.recent_finals?.canonical_final_complete,
-              present_as_scored_final_in_one_truth:c.recent_finals?.present_as_scored_final_in_one_truth,
-              newest_by_sport:c.recent_finals?.newest_by_sport
+          const cert=JSON.parse(fs.readFileSync('/tmp/cert.json','utf8'));
+          const assert=(v,m)=>{if(!v) throw new Error(m);};
+          const enc=encodeURIComponent;
+          const get=async url=>{
+            const r=await fetch(url);
+            const text=await r.text();
+            if(!r.ok) throw new Error('HTTP '+r.status+' '+url+' '+text.slice(0,300));
+            return JSON.parse(text);
+          };
+
+          assert(Number(cert.integrity?.active_teams)===1227,'coverage != 1227');
+          assert(Number(cert.integrity?.one_truth_blocking||0)===0,'ONE_TRUTH blocker remains');
+          assert(Number(cert.integrity?.source_vs_truth_blocking||0)===0,'source-vs-truth blocker remains');
+          assert(Number(cert.one_truth?.stale_football_volleyball_teams||0)===0,'stale football/volleyball truth remains');
+
+          const codes=cert.integrity?.source_codes||{};
+          const forbidden=[
+            'PAST_DUE_NONTERMINAL_DISPLAY','STALE_NONTERMINAL_TWIN_OF_FINAL',
+            'SAME_DAY_STALE_TWIN_OF_FINAL','SPLIT_CANONICAL_LOGICAL_GAME',
+            'DUPLICATE_SCHEDULE_ENTRY','FOOTBALL_SAME_DAY_COLLISION',
+            'DISPLAY_FINAL_MISSING_SCORE'
+          ];
+          for(const code of forbidden) assert(Number(codes[code]||0)===0,'source defect remains '+code);
+          assert(Number(codes.DISPLAY_FINAL_SOURCE_QUARANTINED||0)===2,'quarantine baseline changed');
+
+          const samples={};
+          for(const sport of ['football','volleyball']){
+            const sample=cert.recent_finals?.newest_by_sport?.[sport];
+            assert(sample,'missing '+sport+' final sample');
+            assert(sample.canonical_event_id,'missing canonical id '+sport);
+            assert(sample.canonical_status==='FINAL','canonical not final '+sport);
+            assert(sample.canonical_home_score!=null&&sample.canonical_away_score!=null,'canonical score missing '+sport);
+            assert(sample.truth_status==='FINAL','ONE_TRUTH final missing '+sport);
+
+            const statusPayload=await get(BASE+'/api/v1/team-statuses?school_ids='+enc(sample.school_id));
+            const status=(statusPayload.team_statuses||[]).find(x=>x.team_id===sample.team_id);
+            assert(status,'status missing '+sample.team_id);
+            const schedule=await get(BASE+'/api/v1/schools/'+enc(sample.school_id)+'/schedule');
+            const game=(schedule.games||[]).find(g=>g.canonical_event_id===sample.canonical_event_id);
+            assert(game,'app schedule final missing '+sample.team_id);
+            assert(game.status==='FINAL'&&game.team_score!=null&&game.opponent_score!=null,'app final incomplete '+sample.team_id);
+            const record=(await get(BASE+'/api/v1/teams/'+enc(sample.team_id)+'/record')).record||{};
+            assert(record.display_overall_record===status.display_overall_record,'record mismatch '+sample.team_id);
+
+            let standing=null;
+            if(sample.conference_id){
+              const p=await get(BASE+'/api/v1/standings?sport='+enc(sample.sport)+'&conference='+enc(sample.conference_id));
+              standing=(p.standings||[]).find(x=>x.team_id===sample.team_id)||null;
+              if(standing){
+                assert(standing.display_overall_record===status.display_overall_record,'standing overall mismatch '+sample.team_id);
+                assert(standing.display_conference_record===status.display_conference_record,'standing conference mismatch '+sample.team_id);
+                assert(Number(standing.display_rank||0)===Number(status.display_rank||0),'standing rank mismatch '+sample.team_id);
+              }
             }
+            samples[sport]={
+              team_id:sample.team_id,school_name:sample.school_name,
+              source_id:sample.source_id,source_type:sample.source_type,parser_type:sample.parser_type,
+              scheduled_at:sample.scheduled_at,observation_updated_at:sample.updated_at,
+              source_last_successful_fetch_at:sample.last_successful_fetch_at,
+              canonical_event_id:sample.canonical_event_id,canonical_last_reconciled_at:sample.last_reconciled_at,
+              truth_game_refreshed_at:sample.truth_game_refreshed_at,truth_team_refreshed_at:sample.truth_team_refreshed_at,
+              app_game:[game.status,game.team_score,game.opponent_score],
+              app_record:status.display_overall_record,
+              app_conference_record:status.display_conference_record,
+              app_rank:status.display_rank,
+              standing:standing?[standing.display_overall_record,standing.display_conference_record,standing.display_rank]:null
+            };
+          }
+
+          const conwayStatus=(await get(BASE+'/api/v1/team-statuses?school_ids=conway')).team_statuses.find(x=>x.team_id==='conway-volleyball-2026');
+          const conwayStanding=(await get(BASE+'/api/v1/standings?sport=volleyball&conference=7a-central')).standings.find(x=>x.team_id==='conway-volleyball-2026');
+          assert(conwayStatus&&conwayStanding,'Conway standings proof missing');
+          assert(conwayStatus.display_overall_record===conwayStanding.display_overall_record,'Conway overall mismatch');
+          assert(conwayStatus.display_conference_record===conwayStanding.display_conference_record,'Conway conference mismatch');
+          assert(Number(conwayStatus.display_rank||0)===Number(conwayStanding.display_rank||0),'Conway rank mismatch');
+
+          const nearby=await get(BASE+'/api/v1/games?lat=35.0887&lon=-92.4421&radius=35&since=2026-09-15T00%3A00%3A00.000Z&until=2026-10-15T23%3A59%3A59.000Z');
+          const games=nearby.games||[];
+          const schools=[...new Set(games.map(g=>g.school_id).filter(Boolean))];
+          const statuses=[];
+          for(let i=0;i<schools.length;i+=10){
+            const p=await get(BASE+'/api/v1/team-statuses?school_ids='+enc(schools.slice(i,i+10).join(',')));
+            statuses.push(...(p.team_statuses||[]));
+          }
+          let checked=0;
+          for(const g of games){
+            const st=statuses.find(x=>x.team_id===g.team_id);
+            if(!st) continue;
+            assert(Number(g.wins||0)===Number(st.wins||0),'nearby wins mismatch '+g.team_id);
+            assert(Number(g.losses||0)===Number(st.losses||0),'nearby losses mismatch '+g.team_id);
+            assert(Number(g.ties||0)===Number(st.ties||0),'nearby ties mismatch '+g.team_id);
+            assert(Number(g.rank||0)===Number(st.rank||0),'nearby rank mismatch '+g.team_id);
+            checked++;
+          }
+          assert(checked>0,'no nearby cards checked');
+
+          console.log('PIPELINE_CERTIFIED='+JSON.stringify({
+            generated_at:cert.generated_at,
+            scheduler:{
+              cron:cert.scheduler?.cloudflare_cron,
+              recent_collection_runs:cert.scheduler?.recent_collection_runs,
+              recent_success_or_not_modified:cert.scheduler?.recent_success_or_not_modified,
+              football_runs:(cert.scheduler?.by_sport?.football||[]).slice(0,6),
+              volleyball_runs:(cert.scheduler?.by_sport?.volleyball||[]).slice(0,10)
+            },
+            integrity:cert.integrity,
+            one_truth:cert.one_truth,
+            recent_finals:{
+              observations:cert.recent_finals?.observations,
+              canonicalized:cert.recent_finals?.canonicalized,
+              canonical_final_complete:cert.recent_finals?.canonical_final_complete,
+              present_as_scored_final_in_one_truth:cert.recent_finals?.present_as_scored_final_in_one_truth
+            },
+            samples,
+            conway_volleyball:{
+              overall:conwayStatus.display_overall_record,
+              conference:conwayStatus.display_conference_record,
+              rank:conwayStatus.display_rank
+            },
+            nearby:{games:games.length,schools:schools.length,cards_checked:checked}
           }));
           NODE
