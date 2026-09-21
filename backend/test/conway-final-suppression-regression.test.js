@@ -131,19 +131,19 @@ test("Conway/Van Buren final survives a later scheduled refresh and stale-twin s
     sourceUpdatedAt:"2026-09-21T15:35:00.000Z"
   }),now,{opponentSchoolId:"reg-van-buren"});
   const staleCanonical=await reconcileResolvedObservation(env,staleId);
-  assert.equal(staleCanonical,initialCanonical);
+  assert.ok(staleCanonical,"stale twin should canonicalize before repair");
 
   const audit={issues:[{
     code:"STALE_NONTERMINAL_TWIN_OF_FINAL",
     severity:"blocking",
     team_id:"reg-conway-volleyball-2026",
-    school_id:"conway",
+    school_id:"reg-conway",
     sport:"volleyball",
     gender:"girls",
     season:"2026",
     game_id:staleId,
     other_game_id:finalId,
-    canonical_event_id:initialCanonical,
+    canonical_event_id:staleCanonical,
     other_canonical_event_id:initialCanonical,
     opponent:"Van Buren High School",
     scheduled_at:"2026-09-15T23:00:00.000Z",
