@@ -1,6 +1,6 @@
 import { recordFromScheduleRows } from "./schedule-response-normalizer.js";
 import { rebuildStandingsForTeams } from "./calculated-standings.js";
-import { currentScheduleTruthSql, isResultOnlyObservationSource } from "./current-schedule-truth.js";
+import { currentCanonicalObservationEvidenceSql, currentScheduleTruthSql, isResultOnlyObservationSource, resultOnlySourceSql } from "./current-schedule-truth.js";
 
 function teamKey(team) {
   return `${team.sport}|${team.gender}|${team.season}`;
@@ -131,7 +131,8 @@ export async function loadRecordInputs(env, { teamIds = null } = {}) {
     WHERE ce.status='FINAL'
       AND ce.home_score IS NOT NULL
       AND ce.away_score IS NOT NULL
-      AND ${currentScheduleTruthSql("mg","src")}`;
+      AND ${resultOnlySourceSql("src")}
+      AND ${currentCanonicalObservationEvidenceSql("mg","src","ce")}`;
   if (scopedTeamIds) canonicalQuery += " AND cem.reporting_team_id IN (SELECT value FROM json_each(?))";
   let canonicalPrepared = env.DB.prepare(canonicalQuery);
   if (scopedTeamIds) canonicalPrepared = canonicalPrepared.bind(teamIdsJson);
