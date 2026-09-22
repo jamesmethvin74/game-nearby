@@ -288,7 +288,8 @@ jobs:
 
           const report={
             marker:'LOCALBLEACHERSAR_PHASE1_STATEWIDE_FACTUAL_AUDIT_20260921',
-            audited_base_checkpoint:'e68867c5d094021606b323c335a6965f14a8f6f0',\n            audit_route_commit:'60ddcc59f413b8402bf18376ef4926dffea88af6',
+            audited_base_checkpoint:'e68867c5d094021606b323c335a6965f14a8f6f0',
+            audit_route_commit:'60ddcc59f413b8402bf18376ef4926dffea88af6',
             generated_at:new Date().toISOString(),
             write_operations_performed:0,
             integrity_audit:{
