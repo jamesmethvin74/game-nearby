@@ -138,7 +138,32 @@ export default {
 NODE
 
 UPLOAD_LOG="$TMPDIR/exec-upload.log"
-wrangler versions upload "$EXEC_WRAPPER" --preview-alias "$ALIAS" --keep-vars 2>&1 | tee "$UPLOAD_LOG"
+set +e
+wrangler versions upload "$EXEC_WRAPPER" --preview-alias "$ALIAS" --keep-vars >"$UPLOAD_LOG" 2>&1
+UPLOAD_STATUS=$?
+set -e
+cat "$UPLOAD_LOG"
+
+if [ "$UPLOAD_STATUS" -ne 0 ]; then
+  node - "$UPLOAD_LOG" > "$RESULT_WRAPPER" <<'NODE'
+const fs=require('fs');
+const log=fs.readFileSync(process.argv[2],'utf8').slice(-12000);
+const body=JSON.stringify({status:"UPLOAD_ERROR",stage:"execution_worker_upload",error:log});
+process.stdout.write(`
+const BODY=${JSON.stringify(body)};
+export default {
+  async fetch(request){
+    const path=new URL(request.url).pathname;
+    if(path!=="/api/bounded-source-repair-result") return new Response(JSON.stringify({error:"not_found"}),{status:404,headers:{"content-type":"application/json"}});
+    return new Response(BODY,{status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
+  }
+};
+`);
+NODE
+  wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars
+  echo "BOUNDED_SOURCE_REPAIR_DIAGNOSTIC_PUBLISHED stage=execution_worker_upload"
+  exit 0
+fi
 
 API="$(grep -Eo 'https://[A-Za-z0-9.-]+\\.workers\\.dev' "$UPLOAD_LOG" | grep -m1 "https://${ALIAS}-${WORKER}\\." || true)"
 if [ -z "$API" ]; then API="$API_FALLBACK"; fi
