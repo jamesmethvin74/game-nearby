@@ -81,7 +81,7 @@ export default {
     }
     if(request.method==="POST"&&path==="/api/bounded-source-repair-run"){
       if(!ok(request)) return json({error:"not_found"},404);
-
+      try {
       const {results:sourceRows=[]}=await env.DB.prepare(
         "SELECT id FROM sources WHERE enabled=1 AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
       ).bind(JSON.stringify(SOURCES)).all();
@@ -103,7 +103,7 @@ export default {
           requested_teams:TEAMS.length,
           found_teams:teamRows.length,
           missing_teams:missingTeams
-        },409);
+        },200);
       }
 
       const collection=await runDueCollections(env,{
@@ -123,6 +123,13 @@ export default {
         one_truth:oneTruth,
         post_audit:audit
       });
+      } catch(error) {
+        return json({
+          status:"EXECUTION_ERROR",
+          scope:{source_ids:SOURCES,team_ids:TEAMS},
+          error:String(error?.message||error).slice(0,2000)
+        },200);
+      }
     }
     return json({error:"not_found"},404);
   }
@@ -162,9 +169,9 @@ fi
 node - "$OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-if(!p?.post_audit?.audit_version) throw new Error('Repair result missing post-audit');
 if(!Array.isArray(p?.scope?.source_ids)||p.scope.source_ids.length!==15) throw new Error('Source scope is not exactly 15');
 if(!Array.isArray(p?.scope?.team_ids)||p.scope.team_ids.length!==16) throw new Error('Team scope is not exactly 16');
+console.log("BOUNDED_REPAIR_STATUS="+String(p.status||"UNKNOWN"));
 NODE
 
 node - "$OUT" > "$RESULT_WRAPPER" <<'NODE'

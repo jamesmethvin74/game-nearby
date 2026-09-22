@@ -4,9 +4,6 @@
   "main": "src/index.js",
   "compatibility_date": "2026-09-22",
   "workers_dev": true,
-  "secrets": {
-    "required": ["CLOUDFLARE_API_TOKEN"]
-  },
   "routes": [
     {
       "pattern": "localbleachers-ops.methvindigitalworks.com",
