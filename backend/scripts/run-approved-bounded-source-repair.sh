@@ -97,6 +97,7 @@ export default {
       if(missingSources.length||missingTeams.length){
         return json({
           status:"SCOPE_MISMATCH",
+          scope:{source_ids:SOURCES,team_ids:TEAMS},
           requested_sources:SOURCES.length,
           found_sources:sourceRows.length,
           missing_sources:missingSources,
