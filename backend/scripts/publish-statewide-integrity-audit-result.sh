@@ -5,7 +5,8 @@ cd "$(dirname "$0")/.."
 
 ALIAS="statewide-integrity-audit-result"
 WORKER="localbleachersar-sports-api"
-API="https://${ALIAS}-${WORKER}.james-methvin74.workers.dev"
+API_FALLBACK="https://${ALIAS}-${WORKER}.james-methvin74.workers.dev"
+API=""
 SEASON="${AUDIT_SEASON:-2026}"
 SAMPLE_LIMIT="${AUDIT_SAMPLE_LIMIT:-1000}"
 EXEC_WRAPPER="src/_statewide-integrity-audit-exec.mjs"
@@ -56,10 +57,17 @@ export default {
 `);
 NODE
 
-wrangler versions upload "$EXEC_WRAPPER" --preview-alias "$ALIAS" --keep-vars >/dev/null
+UPLOAD_LOG="$TMPDIR/exec-upload.log"
+wrangler versions upload "$EXEC_WRAPPER" --preview-alias "$ALIAS" --keep-vars 2>&1 | tee "$UPLOAD_LOG"
+
+API="$(grep -Eo 'https://[A-Za-z0-9.-]+\\.workers\\.dev' "$UPLOAD_LOG" | grep -m1 "https://${ALIAS}-${WORKER}\\." || true)"
+if [ -z "$API" ]; then
+  API="$API_FALLBACK"
+fi
+echo "STATEWIDE_AUDIT_PREVIEW_URL=$API"
 
 READY=""
-for ATTEMPT in $(seq 1 20); do
+for ATTEMPT in $(seq 1 40); do
   READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head     -H "x-statewide-audit-token: $TOKEN" -H 'cache-control: no-store'     "$API/ready" || true)"
   if [ "$READY" = "204" ]; then
     break
@@ -67,7 +75,7 @@ for ATTEMPT in $(seq 1 20); do
   sleep 3
 done
 if [ "$READY" != "204" ]; then
-  echo "Statewide audit preview never became ready" >&2
+  echo "Statewide audit preview never became ready: url=$API last_http=$READY" >&2
   exit 1
 fi
 
@@ -101,6 +109,7 @@ export default {
 NODE
 
 # Replace the token-gated execution preview with a read-only result preview.
-wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars >/dev/null
+RESULT_UPLOAD_LOG="$TMPDIR/result-upload.log"
+wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars 2>&1 | tee "$RESULT_UPLOAD_LOG"
 
 echo "STATEWIDE_INTEGRITY_AUDIT_PUBLISHED url=$API season=$SEASON sampleLimit=$SAMPLE_LIMIT"
