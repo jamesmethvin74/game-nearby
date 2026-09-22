@@ -2,6 +2,24 @@
 
 These rules are mandatory for any coding/operations agent working in this repository.
 
+## ABSOLUTE GITHUB / CLOUDFLARE AVAILABILITY RULE — NO EXCEPTIONS
+
+For this project, **missing or unsurfaced connector/action namespaces are NEVER evidence that GitHub or Cloudflare is unavailable and may NEVER be used as a task blocker or task outcome.**
+
+- **GitHub is usable** if any established GitHub repository surface can read this repository, its watched branch, files, commits, checks, PRs, or statuses.
+- **Cloudflare is usable** if any established project surface can provide or execute the needed Cloudflare function, including:
+  1. exact-commit GitHub check-runs from the Cloudflare Git integration;
+  2. the LocalBleachersAR Ops Bridge;
+  3. deployed production Worker endpoints;
+  4. existing Wrangler/project scripts in an authenticated project environment;
+  5. direct Cloudflare plugin/actions when surfaced.
+- The sentence **"Cloudflare action namespace is not surfaced" is forbidden as a stopping reason or final task outcome.**
+- Plugin installation/surfacing metadata does not override live project evidence. If metadata conflicts with a working GitHub check-run, Worker endpoint, Ops Bridge, or documented project script, use the working project surface.
+- Do not ask the user to inspect GitHub, Cloudflare, D1, Wrangler, secrets, routes, or dashboards merely because a direct connector namespace is absent.
+- Only state that GitHub or Cloudflare is genuinely unavailable after the documented primary path **and every documented fallback relevant to that exact operation** have been attempted and failed. A blocker report must name the exact failed operations and errors.
+- For Cloudflare deployment/build status, the authoritative path is: **exact commit SHA -> GitHub check-runs -> `Workers Builds: localbleachersar-sports-api`**. PR comments are secondary only.
+- For exact build lookup, the Ops Bridge must use the GitHub Cloudflare check-run as its primary source. Cloudflare API/token access is optional log enrichment and must never turn a valid build-status lookup into HTTP 502.
+
 ## LOCALBLEACHERSAR PRODUCTION CONTROL SURFACE — READ THIS FIRST
 
 This repository already has an established production operating model. Do not rediscover it from scratch.
@@ -46,16 +64,17 @@ Cloudflare is a known connected production service for this project. A missing o
 - Cloudflare Worker: `localbleachersar-sports-api`
 - Production/watch branch: `feature/live-sports-pipeline-m1`
 - Production D1: `localbleachersar-sports`
-- Cloudflare Git integration is active and reports Worker deployment state through GitHub via `cloudflare-workers-and-pages[bot]` comments.
+- Cloudflare Git integration is active. Exact-commit GitHub check-runs named `Workers Builds: localbleachersar-sports-api` are the authoritative deployment/build-status surface. PR comments are secondary.
 
 ### Required Cloudflare workflow
 
 When the task involves Cloudflare, use the project-supported surfaces in this order:
 
-1. **GitHub repository state** — inspect the watched branch, commits, PRs, checks, and relevant files directly.
-2. **Cloudflare Git deployment state through GitHub** — inspect the latest `cloudflare-workers-and-pages[bot]` deployment comment. The comment reports success/failure, deployed commit, timestamp, and Cloudflare build-log link. PR #366 is the current deployment-status anchor until superseded by a newer bot status surface.
-3. **Production Worker API** — use bounded public/read-only calls to the deployed Worker when live behavior must be verified.
-4. **Direct Cloudflare connector/plugin actions** — use them when surfaced and when the operation actually requires them. Their absence does not invalidate steps 1–3.
+1. **GitHub repository state** — inspect the watched branch, commits, files, checks, PRs, and relevant repository state directly.
+2. **Exact-commit Cloudflare Git check-run through GitHub** — query the commit's check-runs and select `Workers Builds: localbleachersar-sports-api`. This is authoritative for build ID, status, conclusion, version ID when present, and the Cloudflare details link.
+3. **LocalBleachersAR Ops Bridge** — use `https://localbleachers-ops.methvindigitalworks.com/v1/build?sha=<git-sha>` when direct HTTP is supported by the runtime. Its base build status comes from the GitHub Cloudflare check-run; Cloudflare API access is optional log enrichment only.
+4. **Production Worker API / Wrangler project scripts** — use bounded existing endpoints or documented scripts when live production behavior or D1 execution is required.
+5. **Direct Cloudflare connector/plugin actions** — use them when surfaced and useful. Their absence never invalidates steps 1–4.
 
 ### Deployment rule
 
@@ -82,9 +101,9 @@ When production D1 work is approved:
 
 ### Language rule
 
-Do **not** tell the user "Cloudflare is unavailable" or stop with "Cloudflare is installed/enabled but its action namespace is not surfaced" when GitHub deployment status, the production Worker API, repository scripts, or another project-supported surface can complete or advance the task.
+Do **not** tell the user "GitHub is unavailable", "Cloudflare is unavailable", or "Cloudflare action namespace is not surfaced" as a stopping reason while any documented project surface can complete or advance the exact operation.
 
-Only discuss the direct action namespace if the user explicitly asks about connector/plugin surfacing or if a specific Cloudflare-only operation truly cannot be performed through the project-supported paths.
+Do not report connector/plugin surfacing as the task outcome. Discuss connector surfacing only when the user explicitly asks about connector state. Operationally, move immediately to the next documented surface.
 
 ## General external-service verification
 
@@ -180,7 +199,7 @@ A production operation is complete only after the requested operation actually r
 - Prefer the current watched branch plus existing durable project surfaces.
 - Do not leave behind one-shot workflows, expired routes, stale diagnostic PRs, or temporary repair branches as part of the normal operating model.
 - Historical artifacts must not be treated as current execution paths.
-- PR #366 remains the Cloudflare deployment-status anchor unless these repository instructions explicitly supersede it.
+- Exact-commit `Workers Builds: localbleachersar-sports-api` GitHub check-runs are the Cloudflare deployment-status authority. PR #366 is secondary historical context only.
 
 ### Communication discipline
 
