@@ -1,0 +1,23 @@
+name: Bounded Repair Result One-Shot
+
+on:
+  push:
+    paths:
+      - ".github/workflows/bounded-repair-result-fetch.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch bounded repair JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://bounded-source-repair-result-localbleachersar-sports-api.james-methvin74.workers.dev/api/bounded-source-repair-result"
+          HTTP="$(curl -sS --max-time 120 -o result.json -w '%{http_code}' -H 'accept: application/json' -H 'cache-control: no-store' "$URL")"
+          echo "HTTP_STATUS=$HTTP"
+          cat result.json
+          test "$HTTP" = "200"
