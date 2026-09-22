@@ -1,0 +1,11 @@
+{
+  "$schema": "../backend/node_modules/wrangler/config-schema.json",
+  "name": "localbleachersar-ops-bridge",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-22",
+  "workers_dev": true,
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "588568148fa47810445f37081e49562c",
+    "TARGET_WORKER_NAME": "localbleachersar-sports-api"
+  }
+}
