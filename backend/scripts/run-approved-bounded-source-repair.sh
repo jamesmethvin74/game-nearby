@@ -94,6 +94,10 @@ export default {
       const foundTeams=new Set(teamRows.map(row=>String(row.id)));
       const missingTeams=TEAMS.filter(id=>!foundTeams.has(id));
 
+      const {results:candidateSources=[]}=await env.DB.prepare(
+        "SELECT id,team_id,source_type,parser_type,authority_rank,source_priority,enabled FROM sources WHERE enabled=1 AND team_id IN (SELECT value FROM json_each(?)) ORDER BY team_id,authority_rank,source_priority,id"
+      ).bind(JSON.stringify(TEAMS)).all();
+
       if(missingSources.length||missingTeams.length){
         return json({
           status:"SCOPE_MISMATCH",
@@ -103,7 +107,8 @@ export default {
           missing_sources:missingSources,
           requested_teams:TEAMS.length,
           found_teams:teamRows.length,
-          missing_teams:missingTeams
+          missing_teams:missingTeams,
+          candidate_sources:candidateSources
         },200);
       }
 
