@@ -1,4 +1,7 @@
-const API = "https://api.cloudflare.com/client/v4";
+const CF_API = "https://api.cloudflare.com/client/v4";
+const GITHUB_API = "https://api.github.com";
+const GITHUB_REPO = "jamesmethvin74/game-nearby";
+const WATCHED_BRANCH = "feature/live-sports-pipeline-m1";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body, null, 2), {
@@ -11,9 +14,27 @@ function json(body, status = 200) {
   });
 }
 
+async function github(path) {
+  const response = await fetch(GITHUB_API + path, {
+    headers: {
+      accept: "application/vnd.github+json",
+      "user-agent": "localbleachersar-ops-bridge",
+      "x-github-api-version": "2022-11-28"
+    }
+  });
+  const text = await response.text();
+  let payload;
+  try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
+  if (!response.ok) {
+    const message = payload?.message || `GitHub API HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return payload;
+}
+
 async function cf(env, path) {
   if (!env.CLOUDFLARE_API_TOKEN) throw new Error("ops_bridge_token_missing");
-  const response = await fetch(API + path, {
+  const response = await fetch(CF_API + path, {
     headers: {
       authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
       accept: "application/json"
@@ -28,30 +49,6 @@ async function cf(env, path) {
     throw new Error(message);
   }
   return payload;
-}
-
-async function workerTag(env) {
-  const payload = await cf(env, `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/workers/scripts`);
-  const row = (payload.result || []).find(x => x?.id === env.TARGET_WORKER_NAME);
-  if (!row?.tag) throw new Error("target_worker_tag_not_found");
-  return row.tag;
-}
-
-function buildSummary(row) {
-  const meta = row?.build_trigger_metadata || {};
-  return {
-    build_uuid: row?.build_uuid || null,
-    status: row?.status || null,
-    outcome: row?.build_outcome || null,
-    commit_hash: meta?.commit_hash || null,
-    commit_message: meta?.commit_message || null,
-    branch: meta?.branch || null,
-    trigger_source: meta?.build_trigger_source || null,
-    created_on: row?.created_on || null,
-    initializing_on: row?.initializing_on || null,
-    running_on: row?.running_on || null,
-    modified_on: row?.modified_on || null
-  };
 }
 
 function flattenStrings(value, out = []) {
@@ -78,29 +75,75 @@ function errorSummary(payload) {
   return [...new Set((relevant.length ? relevant : lines).slice(-30))];
 }
 
-async function builds(env) {
-  const tag = await workerTag(env);
-  const payload = await cf(
-    env,
-    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/builds/workers/${encodeURIComponent(tag)}/builds?per_page=100&page=1`
-  );
-  return Array.isArray(payload.result) ? payload.result : [];
+function versionIdFromSummary(summary) {
+  const match = String(summary || "").match(/Version ID:\s*([0-9a-f-]+)/i);
+  return match ? match[1] : null;
 }
 
-async function buildWithOptionalError(env, row) {
-  const summary = buildSummary(row);
-  if (summary.outcome === "fail" && summary.build_uuid) {
-    try {
-      const logs = await cf(
-        env,
-        `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/builds/builds/${encodeURIComponent(summary.build_uuid)}/logs`
-      );
-      summary.error_summary = errorSummary(logs);
-    } catch (error) {
-      summary.error_summary = [`log_lookup_failed: ${error.message}`];
-    }
+function selectWorkerCheck(payload, targetWorker) {
+  const expected = `Workers Builds: ${targetWorker}`;
+  return (payload?.check_runs || []).find(row =>
+    row?.name === expected &&
+    row?.app?.slug === "cloudflare-workers-and-pages"
+  ) || null;
+}
+
+function checkSummary(row) {
+  return {
+    source: "github_cloudflare_check_run",
+    build_uuid: row?.external_id || null,
+    status: row?.status || null,
+    outcome: row?.conclusion || null,
+    commit_hash: row?.head_sha || null,
+    branch: row?.pull_requests?.[0]?.head?.ref || null,
+    version_id: versionIdFromSummary(row?.output?.summary),
+    started_at: row?.started_at || null,
+    completed_at: row?.completed_at || null,
+    details_url: row?.details_url || null
+  };
+}
+
+async function enrichFailureLogs(env, summary) {
+  if (summary.outcome !== "failure" || !summary.build_uuid) return summary;
+
+  if (!env.CLOUDFLARE_API_TOKEN) {
+    summary.log_enrichment = {
+      status: "skipped",
+      reason: "cloudflare_api_token_not_required_for_build_status"
+    };
+    return summary;
+  }
+
+  try {
+    const logs = await cf(
+      env,
+      `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/builds/builds/${encodeURIComponent(summary.build_uuid)}/logs`
+    );
+    summary.error_summary = errorSummary(logs);
+    summary.log_enrichment = { status: "ok" };
+  } catch (error) {
+    summary.log_enrichment = {
+      status: "unavailable",
+      reason: sanitize(error?.message || error)
+    };
   }
   return summary;
+}
+
+async function buildForSha(env, sha) {
+  const payload = await github(
+    `/repos/${GITHUB_REPO}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`
+  );
+  const row = selectWorkerCheck(payload, env.TARGET_WORKER_NAME);
+  if (!row) return null;
+  return enrichFailureLogs(env, checkSummary(row));
+}
+
+async function latestWatchedSha() {
+  const payload = await github(
+    `/repos/${GITHUB_REPO}/branches/${encodeURIComponent(WATCHED_BRANCH)}`
+  );
+  return payload?.commit?.sha || null;
 }
 
 export default {
@@ -113,16 +156,27 @@ export default {
         return json({
           service: "localbleachersar-ops-bridge",
           target_worker: env.TARGET_WORKER_NAME,
-          purpose: "sanitized Cloudflare Workers build truth for automation"
+          status_source: "github_cloudflare_check_run",
+          cloudflare_api_role: "optional_failed-build_log_enrichment_only",
+          purpose: "deterministic Cloudflare Workers build truth for automation"
         });
       }
 
       if (url.pathname === "/v1/latest") {
-        const rows = await builds(env);
-        if (!rows.length) return json({ error: "no_builds_found" }, 404);
+        const sha = await latestWatchedSha();
+        if (!sha) return json({ error: "watched_branch_head_not_found" }, 502);
+        const build = await buildForSha(env, sha);
+        if (!build) {
+          return json({
+            error: "build_not_found",
+            target_worker: env.TARGET_WORKER_NAME,
+            sha
+          }, 404);
+        }
         return json({
           target_worker: env.TARGET_WORKER_NAME,
-          build: await buildWithOptionalError(env, rows[0])
+          requested_sha: sha,
+          build
         });
       }
 
@@ -131,23 +185,18 @@ export default {
         if (!/^[0-9a-f]{7,40}$/.test(sha)) {
           return json({ error: "sha_query_required", example: "/v1/build?sha=<git-sha>" }, 400);
         }
-        const rows = await builds(env);
-        const row = rows.find(x => {
-          const commit = String(x?.build_trigger_metadata?.commit_hash || "").toLowerCase();
-          return commit === sha || commit.startsWith(sha) || sha.startsWith(commit);
-        });
-        if (!row) {
+        const build = await buildForSha(env, sha);
+        if (!build) {
           return json({
             error: "build_not_found",
             target_worker: env.TARGET_WORKER_NAME,
-            sha,
-            builds_examined: rows.length
+            sha
           }, 404);
         }
         return json({
           target_worker: env.TARGET_WORKER_NAME,
           requested_sha: sha,
-          build: await buildWithOptionalError(env, row)
+          build
         });
       }
 
@@ -158,7 +207,7 @@ export default {
     } catch (error) {
       return json({
         error: "ops_bridge_failure",
-        message: String(error?.message || error)
+        message: sanitize(error?.message || error)
       }, 502);
     }
   }
