@@ -17,7 +17,9 @@ const LIVE_PIPELINE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T20:00:00Z");
 const CONWAY_VAN_BUREN_RECOVERY_PATH="/api/v1/internal/conway-van-buren-recovery-20260921-4f8c27d1";
 const CONWAY_VAN_BUREN_RECOVERY_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
 const FINAL_SUPPRESSION_AUDIT_PATH="/api/v1/internal/final-suppression-regression-audit-20260921-a31d6c84";
-const FINAL_SUPPRESSION_AUDIT_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");\nconst PHASE1_STATEWIDE_AUDIT_PATH="/api/v1/internal/phase1-statewide-integrity-audit-20260921-8d6c2f1a";\nconst PHASE1_STATEWIDE_AUDIT_EXPIRES_AT=Date.parse("2026-09-22T04:15:00Z");
+const FINAL_SUPPRESSION_AUDIT_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
+const PHASE1_STATEWIDE_AUDIT_PATH="/api/v1/internal/phase1-statewide-integrity-audit-20260921-8d6c2f1a";
+const PHASE1_STATEWIDE_AUDIT_EXPIRES_AT=Date.parse("2026-09-22T04:15:00Z");
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
   if (request.method!=="GET" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return response;
