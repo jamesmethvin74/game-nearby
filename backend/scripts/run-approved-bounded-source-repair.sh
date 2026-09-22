@@ -49,36 +49,16 @@ export default {
         const gameIds=[...new Set(mismatches.flatMap(x=>(x.truth_only_finals||[]).map(g=>String(g.game_id||"")).filter(Boolean)))];
         if(gameIds.length>16) throw new Error("Consistency finalizer exceeded 16 game safety cap: "+gameIds.length);
 
-        const {results:eligible=[]}=gameIds.length ? await env.DB.prepare(`
-          SELECT g.id,g.team_id,g.canonical_event_id
-          FROM games g
-          JOIN canonical_events ce ON ce.id=g.canonical_event_id
-          WHERE g.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
-            AND UPPER(COALESCE(ce.status,''))='FINAL'
-            AND ce.home_score IS NOT NULL
-            AND ce.away_score IS NOT NULL
-            AND instr(COALESCE(g.notes,''),?)>0
-          ORDER BY g.id
-        `).bind(JSON.stringify(gameIds),PRESENTATION_SUPPRESSED_NOTE).all() : {results:[]};
+        const {results:eligible=[]}=gameIds.length ? await env.DB.prepare(
+          "SELECT g.id,g.team_id,g.canonical_event_id FROM games g JOIN canonical_events ce ON ce.id=g.canonical_event_id WHERE g.id IN (SELECT CAST(value AS TEXT) FROM json_each(?)) AND UPPER(COALESCE(ce.status,''))='FINAL' AND ce.home_score IS NOT NULL AND ce.away_score IS NOT NULL AND instr(COALESCE(g.notes,''),?)>0 ORDER BY g.id"
+        ).bind(JSON.stringify(gameIds),PRESENTATION_SUPPRESSED_NOTE).all() : {results:[]};
 
         const eligibleIds=eligible.map(r=>String(r.id));
         let healed=0;
         if(eligibleIds.length){
-          const result=await env.DB.prepare(`
-            UPDATE games
-            SET notes=NULLIF(TRIM(
-                  REPLACE(
-                    REPLACE(
-                      REPLACE(COALESCE(notes,''),' | '||?,''),
-                      ?||' | ',''
-                    ),
-                    ?,''
-                  )
-                ),''),
-                updated_at=?
-            WHERE id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
-              AND instr(COALESCE(notes,''),?)>0
-          `).bind(
+          const result=await env.DB.prepare(
+            "UPDATE games SET notes=NULLIF(TRIM(REPLACE(REPLACE(REPLACE(COALESCE(notes,''),' | '||?,''),?||' | ',''),?,'')),'') , updated_at=? WHERE id IN (SELECT CAST(value AS TEXT) FROM json_each(?)) AND instr(COALESCE(notes,''),?)>0"
+          ).bind(
             PRESENTATION_SUPPRESSED_NOTE,PRESENTATION_SUPPRESSED_NOTE,PRESENTATION_SUPPRESSED_NOTE,
             new Date().toISOString(),JSON.stringify(eligibleIds),PRESENTATION_SUPPRESSED_NOTE
           ).run();
