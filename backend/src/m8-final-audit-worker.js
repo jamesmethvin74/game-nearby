@@ -288,6 +288,9 @@ export default {
     const finalSuppressionAudit=request.method==="GET"
       && url.pathname===FINAL_SUPPRESSION_AUDIT_PATH
       && Date.now()<=FINAL_SUPPRESSION_AUDIT_EXPIRES_AT;
+    const phase1StatewideAudit=request.method==="GET"
+      && url.pathname===PHASE1_STATEWIDE_AUDIT_PATH
+      && Date.now()<=PHASE1_STATEWIDE_AUDIT_EXPIRES_AT;
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
@@ -298,6 +301,7 @@ export default {
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
     try {
+      if (phase1StatewideAudit) return await runDataIntegrityAudit(env);
       if (finalSuppressionAudit) return await runFinalSuppressionRegressionAudit(env);
       if (conwayVanBurenRecovery) return await runConwayVanBurenRecovery(env,ctx);
       if (livePipelineRepair) return await runLivePipelineRepair(env);
