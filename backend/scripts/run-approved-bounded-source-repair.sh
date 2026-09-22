@@ -29,21 +29,24 @@ fi
 node - "$TOKEN" > "$EXEC_WRAPPER" <<'NODE'
 const token=process.argv[2];
 const sourceIds=[
-  "maxpreps-volleyball-results:df-7ds5mt-volleyball-2026",
-  "df-7k6qj6-volleyball-2026-dragonfly-statewide",
-  "df-7kza8c-volleyball-2026-dragonfly-statewide",
-  "df-8pkud7-volleyball-2026-dragonfly-statewide",
-  "df-a6slv2-volleyball-2026-dragonfly",
-  "df-blzxrg-volleyball-2026-dragonfly-statewide",
-  "df-bpy5n6-volleyball-2026-dragonfly-statewide",
-  "df-cqpax3-volleyball-2026-dragonfly-statewide",
-  "df-ee2ys7-volleyball-2026-dragonfly-statewide",
-  "df-ev2nv9-volleyball-2026-dragonfly-statewide",
-  "df-qgka87-volleyball-2026-dragonfly-statewide",
-  "df-tnebcj-volleyball-2026-dragonfly-statewide",
-  "df-wd92v5-volleyball-2026-dragonfly-statewide",
+  "df-8pkud7-volleyball-2026-official-school-results",
+  "df-wd92v5-volleyball-2026-official-school-results",
   "college-ozarks-soccer-men-2026-sidearm",
   "college-williams-baptist-soccer-men-2026-prestosports-rss"
+];
+const dragonFlyTeamIds=[
+  "df-7k6qj6-volleyball-2026",
+  "df-7kza8c-volleyball-2026",
+  "df-8pkud7-volleyball-2026",
+  "df-a6slv2-volleyball-2026",
+  "df-blzxrg-volleyball-2026",
+  "df-bpy5n6-volleyball-2026",
+  "df-cqpax3-volleyball-2026",
+  "df-ee2ys7-volleyball-2026",
+  "df-ev2nv9-volleyball-2026",
+  "df-qgka87-volleyball-2026",
+  "df-tnebcj-volleyball-2026",
+  "df-wd92v5-volleyball-2026"
 ];
 const teamIds=[
   "df-7ds5mt-volleyball-2026",
@@ -65,11 +68,14 @@ const teamIds=[
 ];
 process.stdout.write(`
 import { runDueCollections } from "./index.js";
+import { runDragonFlyTargetedCollection } from "./dragonfly-statewide.js";
+import { applyAuditedSourceDefectSnapshot } from "./statewide-data-integrity-repair.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
 import { rebuildOneTruth } from "./one-truth.js";
 import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
 const TOKEN=${JSON.stringify(token)};
 const SOURCES=${JSON.stringify(sourceIds)};
+const DRAGONFLY_TEAMS=${JSON.stringify(dragonFlyTeamIds)};
 const TEAMS=${JSON.stringify(teamIds)};
 function ok(req){return req.headers.get("x-bounded-repair-token")===TOKEN;}
 function json(body,status=200){return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});}
@@ -94,37 +100,41 @@ export default {
       const foundTeams=new Set(teamRows.map(row=>String(row.id)));
       const missingTeams=TEAMS.filter(id=>!foundTeams.has(id));
 
-      const {results:candidateSources=[]}=await env.DB.prepare(
-        "SELECT id,team_id,source_type,parser_type,authority_rank,source_priority,enabled FROM sources WHERE enabled=1 AND team_id IN (SELECT value FROM json_each(?)) ORDER BY team_id,authority_rank,source_priority,id"
-      ).bind(JSON.stringify(TEAMS)).all();
-
       if(missingSources.length||missingTeams.length){
         return json({
           status:"SCOPE_MISMATCH",
-          scope:{source_ids:SOURCES,team_ids:TEAMS},
+          scope:{direct_source_ids:SOURCES,dragonfly_team_ids:DRAGONFLY_TEAMS,team_ids:TEAMS},
           requested_sources:SOURCES.length,
           found_sources:sourceRows.length,
           missing_sources:missingSources,
           requested_teams:TEAMS.length,
           found_teams:teamRows.length,
-          missing_teams:missingTeams,
-          candidate_sources:candidateSources
+          missing_teams:missingTeams
         },200);
       }
 
+      const dragonfly=await runDragonFlyTargetedCollection(env,{teamIds:DRAGONFLY_TEAMS});
       const collection=await runDueCollections(env,{
         force:true,
         sourceIds:SOURCES,
-        reason:"approved-15-source-data-repair"
+        reason:"approved-bounded-data-repair"
       });
+
+      const afterCollectionAudit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+      const sourceRepair=await applyAuditedSourceDefectSnapshot(env,afterCollectionAudit,{
+        rebuildRecords:rebuildTeamRecords
+      });
+
       const recordRebuild=await rebuildTeamRecords(env,TEAMS,new Date().toISOString());
       const oneTruth=await rebuildOneTruth(env,{season:"2026",teamIds:TEAMS});
       const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
 
       return json({
         status:collection.ok?"SUCCESS":"PARTIAL_FAILURE",
-        scope:{source_ids:SOURCES,team_ids:TEAMS},
+        scope:{direct_source_ids:SOURCES,dragonfly_team_ids:DRAGONFLY_TEAMS,team_ids:TEAMS},
+        dragonfly,
         collection,
+        source_repair:sourceRepair,
         record_rebuild:recordRebuild,
         one_truth:oneTruth,
         post_audit:audit
@@ -200,7 +210,8 @@ fi
 node - "$OUT" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-if(!Array.isArray(p?.scope?.source_ids)||p.scope.source_ids.length!==15) throw new Error('Source scope is not exactly 15');
+if(!Array.isArray(p?.scope?.direct_source_ids)||p.scope.direct_source_ids.length!==4) throw new Error('Direct source scope is not exactly 4');
+if(!Array.isArray(p?.scope?.dragonfly_team_ids)||p.scope.dragonfly_team_ids.length!==12) throw new Error('DragonFly team scope is not exactly 12');
 if(!Array.isArray(p?.scope?.team_ids)||p.scope.team_ids.length!==16) throw new Error('Team scope is not exactly 16');
 console.log("BOUNDED_REPAIR_STATUS="+String(p.status||"UNKNOWN"));
 NODE
