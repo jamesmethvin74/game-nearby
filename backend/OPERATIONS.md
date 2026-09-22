@@ -83,7 +83,7 @@ That helper:
 3. invokes `buildStatewideDataIntegrityAudit()` exactly once;
 4. verifies the audit reports zero D1 rows written;
 5. replaces the execution preview with a read-only result worker at the stable alias:
-   `https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/`;
+   `https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/api/statewide-integrity-audit-result`;
 6. removes its temporary local wrapper files before the build exits;
 7. does **not** deploy a new production Worker route;
 8. does **not** use `REFRESH_TOKEN`;
