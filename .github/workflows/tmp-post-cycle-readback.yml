@@ -1,0 +1,94 @@
+name: tmp-post-cycle-readback
+on:
+  push:
+    paths:
+      - ".github/workflows/tmp-post-cycle-readback.yml"
+
+jobs:
+  readback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read post-cycle production evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/lb
+          AUDIT_URL="https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/api/statewide-integrity-audit-result"
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+
+          curl -fsS "$AUDIT_URL" -o /tmp/lb/audit.json
+          curl -fsS "$API/api/v1/games?since=2026-09-22T00%3A00%3A00Z&until=2026-09-23T06%3A00%3A00Z" -o /tmp/lb/games.json
+          curl -fsS "$API/api/v1/team-statuses?school_ids=conway" -o /tmp/lb/status.json
+          curl -fsS "$API/api/v1/schools/conway/schedule" -o /tmp/lb/school-schedule.json
+          curl -fsS "$API/api/v1/teams/conway-volleyball-2026/schedule" -o /tmp/lb/team-schedule.json
+          curl -fsS "$API/api/v1/teams/conway-volleyball-2026/record" -o /tmp/lb/team-record.json
+          curl -fsS "$API/api/v1/standings/options?sport=volleyball" -o /tmp/lb/standings-options.json
+          curl -fsS "$API/api/v1/standings?sport=volleyball&conference=6a-central-volleyball" -o /tmp/lb/standings.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          root=Path("/tmp/lb")
+          def load(name): return json.loads((root/name).read_text())
+
+          audit=load("audit.json")
+          games=load("games.json")
+          status=load("status.json")
+          school=load("school-schedule.json")
+          team=load("team-schedule.json")
+          record=load("team-record.json")
+          options=load("standings-options.json")
+          standings=load("standings.json")
+
+          s=audit.get("summary",{})
+          svt=(s.get("source_vs_truth") or {})
+          print("AUDIT_GENERATED_AT="+str(audit.get("generated_at")))
+          print("AUDIT_CLEAN="+str(audit.get("clean")))
+          print("AUDIT_SUMMARY="+json.dumps({
+            "total_active_teams_examined":s.get("total_active_teams_examined"),
+            "total_schedule_rows_examined":s.get("total_schedule_rows_examined"),
+            "total_normalized_schedule_rows":s.get("total_normalized_schedule_rows"),
+            "blocking_issues":s.get("blocking_issues"),
+            "warning_issues":s.get("warning_issues"),
+            "issues_by_code":s.get("issues_by_code"),
+            "upstream_source_observation_issues":s.get("upstream_source_observation_issues"),
+            "upstream_source_issues_by_code":s.get("upstream_source_issues_by_code"),
+            "one_truth_surface_blocking_issues":s.get("one_truth_surface_blocking_issues"),
+            "source_vs_truth_blocking_issues":s.get("source_vs_truth_blocking_issues"),
+            "combined_blocking_issues":s.get("combined_blocking_issues"),
+            "combined_warning_issues":s.get("combined_warning_issues")
+          },sort_keys=True,separators=(",",":")))
+          print("SOURCE_VS_TRUTH="+json.dumps(svt,sort_keys=True,separators=(",",":")))
+          print("AUDIT_ISSUES="+json.dumps(audit.get("issues",[]),sort_keys=True,separators=(",",":")))
+          print("D1="+json.dumps(audit.get("d1",{}),sort_keys=True,separators=(",",":")))
+
+          rows=games.get("games",[])
+          print("GAMES_TRUTH_TABLE="+str(games.get("truth_table")))
+          fv=[]
+          for g in rows:
+            if str(g.get("sport","")).lower() not in {"football","volleyball"}: continue
+            if str(g.get("status","")).upper()!="FINAL": continue
+            fv.append({
+              "team_id":g.get("team_id"),"school_id":g.get("school_id"),"school_name":g.get("school_name"),
+              "sport":g.get("sport"),"opponent":g.get("opponent"),"scheduled_at":g.get("scheduled_at"),
+              "team_score":g.get("team_score"),"opponent_score":g.get("opponent_score"),
+              "canonical_event_id":g.get("canonical_event_id"),"calculated_at":g.get("calculated_at"),
+              "conference_id":g.get("conference_id"),"rank":g.get("rank"),
+              "overall_record":g.get("overall_record"),"conference_record":g.get("conference_record"),
+              "data_trust":g.get("data_trust"),"conflict_count":g.get("conflict_count")
+            })
+          print("TODAY_FOOTBALL_VOLLEYBALL_FINALS="+json.dumps(fv,sort_keys=True,separators=(",",":")))
+
+          print("CONWAY_TEAM_STATUSES="+json.dumps(status,sort_keys=True,separators=(",",":")))
+          print("CONWAY_SCHOOL_TRUTH_TABLE="+str(school.get("truth_table")))
+          print("CONWAY_SCHOOL_GAME_COUNT="+str(len(school.get("games",[]))))
+          print("CONWAY_VOLLEYBALL_SCHEDULE="+json.dumps({
+            "truth_table":team.get("truth_table"),"record":team.get("record"),
+            "record_truth":team.get("record_truth"),"game_count":len(team.get("games",[])),
+            "finals":[g for g in team.get("games",[]) if str(g.get("status","")).upper()=="FINAL"]
+          },sort_keys=True,separators=(",",":")))
+          print("CONWAY_VOLLEYBALL_RECORD="+json.dumps(record,sort_keys=True,separators=(",",":")))
+          print("STANDINGS_OPTIONS="+json.dumps(options,sort_keys=True,separators=(",",":")))
+          print("STANDINGS="+json.dumps(standings,sort_keys=True,separators=(",",":")))
+          PY
