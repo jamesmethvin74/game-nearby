@@ -7,6 +7,9 @@ ALIAS="statewide-integrity-audit-result"
 WORKER="localbleachersar-sports-api"
 API_FALLBACK="https://${ALIAS}-${WORKER}.james-methvin74.workers.dev"
 API=""
+READY_PATH="/api/statewide-integrity-audit-ready"
+RUN_PATH="/api/statewide-integrity-audit-run"
+RESULT_PATH="/api/statewide-integrity-audit-result"
 SEASON="${AUDIT_SEASON:-2026}"
 SAMPLE_LIMIT="${AUDIT_SAMPLE_LIMIT:-1000}"
 EXEC_WRAPPER="src/_statewide-integrity-audit-exec.mjs"
@@ -43,10 +46,10 @@ function json(body,status=200){return new Response(JSON.stringify(body),{status,
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(request.method==="HEAD"&&url.pathname==="/ready"){
+    if(request.method==="HEAD"&&url.pathname==="/api/statewide-integrity-audit-ready"){
       return authorized(request)?new Response(null,{status:204,headers:{"cache-control":"no-store"}}):json({error:"not_found"},404);
     }
-    if(request.method==="GET"&&url.pathname==="/run"){
+    if(request.method==="GET"&&url.pathname==="/api/statewide-integrity-audit-run"){
       if(!authorized(request)) return json({error:"not_found"},404);
       const result=await buildStatewideDataIntegrityAudit(env,{season:SEASON,sampleLimit:SAMPLE_LIMIT});
       return json(result);
@@ -68,7 +71,7 @@ echo "STATEWIDE_AUDIT_PREVIEW_URL=$API"
 
 READY=""
 for ATTEMPT in $(seq 1 40); do
-  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head     -H "x-statewide-audit-token: $TOKEN" -H 'cache-control: no-store'     "$API/ready" || true)"
+  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head     -H "x-statewide-audit-token: $TOKEN" -H 'cache-control: no-store'     "$API$READY_PATH" || true)"
   if [ "$READY" = "204" ]; then
     break
   fi
@@ -80,7 +83,7 @@ if [ "$READY" != "204" ]; then
 fi
 
 OUT="$TMPDIR/audit.json"
-HTTP_STATUS="$(curl -sS --max-time 300 -o "$OUT" -w '%{http_code}'   -H "x-statewide-audit-token: $TOKEN" -H 'accept: application/json' -H 'cache-control: no-store'   "$API/run")"
+HTTP_STATUS="$(curl -sS --max-time 300 -o "$OUT" -w '%{http_code}'   -H "x-statewide-audit-token: $TOKEN" -H 'accept: application/json' -H 'cache-control: no-store'   "$API$RUN_PATH")"
 if [ "$HTTP_STATUS" != "200" ]; then
   echo "Statewide integrity audit failed: HTTP $HTTP_STATUS" >&2
   cat "$OUT" >&2 || true
@@ -112,4 +115,4 @@ NODE
 RESULT_UPLOAD_LOG="$TMPDIR/result-upload.log"
 wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars 2>&1 | tee "$RESULT_UPLOAD_LOG"
 
-echo "STATEWIDE_INTEGRITY_AUDIT_PUBLISHED url=$API season=$SEASON sampleLimit=$SAMPLE_LIMIT"
+echo "STATEWIDE_INTEGRITY_AUDIT_PUBLISHED url=$API$RESULT_PATH season=$SEASON sampleLimit=$SAMPLE_LIMIT"
