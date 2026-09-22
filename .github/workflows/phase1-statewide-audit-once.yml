@@ -15,17 +15,13 @@ jobs:
     timeout-minutes: 20
     env:
       BASE_URL: https://localbleachersar-sports-api.james-methvin74.workers.dev
-      REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
     steps:
       - name: Run read-only statewide football and volleyball audit
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$REFRESH_TOKEN"
-
           curl --retry 4 --retry-all-errors --retry-delay 2 --max-time 180 -fsS \
-            -H "x-refresh-token: $REFRESH_TOKEN" \
-            "$BASE_URL/api/v1/coverage-report?view=data-integrity&phase1=$(date +%s)" \
+            "$BASE_URL/api/v1/internal/one-truth-audit-20260919-7c4b1d9e3?phase1=$(date +%s)" \
             > /tmp/integrity.json
 
           cat > /tmp/phase1.mjs <<'NODE'
@@ -114,7 +110,8 @@ jobs:
             };
           }
 
-          const integrity=JSON.parse(fs.readFileSync('/tmp/integrity.json','utf8'));
+          const auditRoot=JSON.parse(fs.readFileSync('/tmp/integrity.json','utf8'));
+          const integrity=auditRoot.statewide_audit||auditRoot;
           const expectedIssueTotal=Number(integrity.summary?.upstream_source_observation_issues||0)
             + Number(integrity.summary?.blocking_issues||0)
             + Number(integrity.summary?.warning_issues||0);
