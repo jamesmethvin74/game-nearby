@@ -17,7 +17,7 @@ const LIVE_PIPELINE_REPAIR_EXPIRES_AT=Date.parse("2026-09-21T20:00:00Z");
 const CONWAY_VAN_BUREN_RECOVERY_PATH="/api/v1/internal/conway-van-buren-recovery-20260921-4f8c27d1";
 const CONWAY_VAN_BUREN_RECOVERY_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
 const FINAL_SUPPRESSION_AUDIT_PATH="/api/v1/internal/final-suppression-regression-audit-20260921-a31d6c84";
-const FINAL_SUPPRESSION_AUDIT_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
+const FINAL_SUPPRESSION_AUDIT_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");\nconst PHASE1_STATEWIDE_AUDIT_PATH="/api/v1/internal/phase1-statewide-integrity-audit-20260921-8d6c2f1a";\nconst PHASE1_STATEWIDE_AUDIT_EXPIRES_AT=Date.parse("2026-09-22T04:15:00Z");
 function publicApiCorsResponse(request,response) {
   const url=new URL(request.url);
   if (request.method!=="GET" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return response;
@@ -291,7 +291,7 @@ export default {
 
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
-    if (!protectedView && !oneShot && !livePipelineRepair && !conwayVanBurenRecovery && !finalSuppressionAudit) {
+    if (!protectedView && !oneShot && !livePipelineRepair && !conwayVanBurenRecovery && !finalSuppressionAudit && !phase1StatewideAudit) {
       const response=await app.fetch(request,env,ctx);
       return publicApiCorsResponse(request,response);
     }
@@ -304,7 +304,7 @@ export default {
       if (coverageView===DATA_INTEGRITY_VIEW) return await runDataIntegrityAudit(env);
       return await runRecordTruthAudit(env);
     } catch (error) {
-      if (coverageView===DATA_INTEGRITY_VIEW) {
+      if (coverageView===DATA_INTEGRITY_VIEW || phase1StatewideAudit) {
         console.error("statewide data integrity audit failed",error);
         return auditJson({error:"data_integrity_audit_failed",message:String(error?.message||error)},500,{integrity:true});
       }
