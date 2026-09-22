@@ -11,7 +11,7 @@ on:
       - ".github/workflows/backend-check.yml"
       - ".github/workflows/production-statewide-smoke.yml"
   push:
-    branches: [main]
+    branches: [main, feature/live-sports-pipeline-m1]
     paths:
       - "backend/**"
       - "live-data.js"
