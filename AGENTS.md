@@ -10,7 +10,8 @@ This repository already has an established production operating model. Do not re
 
 - **Production deploy:** Cloudflare Git integration from `feature/live-sports-pipeline-m1`. `backend/package.json` also exposes `npm run prod:deploy` / plain `wrangler deploy` for the project environment when an approved operation explicitly requires it.
 - **Production D1:** use Wrangler from the authenticated project environment, e.g. `wrangler d1 execute localbleachersar-sports --remote ...`, preferably through an existing approved script under `backend/scripts/`.
-- **Statewide read-only integrity audit:** from `backend/`, run **`npm run prod:audit:statewide`**. This is the canonical audit command. It executes the existing `buildStatewideDataIntegrityAudit()` against the remote production D1 binding through Wrangler remote development and prints the JSON result. It does not require the protected production HTTP token and does not deploy a new production route.
+- **Statewide read-only integrity audit, authenticated project shell:** from `backend/`, run **`npm run prod:audit:statewide`**. It executes `buildStatewideDataIntegrityAudit()` against the remote production D1 binding and prints JSON.
+- **Statewide read-only integrity audit, ChatGPT/connector runtime with no network-capable project shell:** use the **Cloudflare Git Build audit trampoline** documented in `backend/OPERATIONS.md`. Temporarily set `deploy:cloudflare` to `npm run prod:audit:publish`, commit that one change to the watched branch, let Cloudflare's own build environment execute Wrangler, retrieve the JSON from the stable preview alias, then immediately restore `deploy:cloudflare` to plain `wrangler deploy`. **Do not use GitHub Actions.**
 - **General read-only production verification:** run **`npm run prod:verify`** unless a more specific existing script is named by the task.
 - **Operational reference:** read `backend/OPERATIONS.md` before inventing any new execution mechanism.
 
@@ -28,9 +29,10 @@ When an approved production operation is requested:
 
 1. read this file;
 2. re-anchor the watched branch;
-3. use the named command/script in `backend/OPERATIONS.md`;
-4. execute the operation;
-5. return the result.
+3. choose the documented execution path that matches the runtime: authenticated shell or ChatGPT/no-shell Cloudflare Git Build trampoline;
+4. execute the named command/script;
+5. retrieve the result;
+6. restore any temporary `deploy:cloudflare` trampoline change before reporting completion.
 
 Do not spend the action budget rediscovering Cloudflare connector availability, protected Worker tokens, alternate HTTP transports, or GitHub Actions when a canonical Wrangler/project command already exists.
 

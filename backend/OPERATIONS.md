@@ -23,6 +23,44 @@ This is the durable production operations reference for agents and maintainers.
 7. Read-only production work must remain read-only.
 8. Do not create a new audit route merely to run an audit.
 
+## ChatGPT / connector runtime: statewide audit through Cloudflare Git Build
+
+Use this path when the agent can write GitHub through the connector but **cannot** run an authenticated network-capable project shell. This is the canonical ChatGPT execution path and avoids both GitHub Actions and protected Worker-token transport.
+
+The durable helper is:
+
+```bash
+npm run prod:audit:publish
+```
+
+That helper:
+
+1. runs inside the **Cloudflare Git Build** environment;
+2. creates an ephemeral preview execution worker bound to the configured production D1 database;
+3. invokes `buildStatewideDataIntegrityAudit()` exactly once;
+4. verifies the audit reports zero D1 rows written;
+5. replaces the execution preview with a read-only result worker at the stable alias:
+   `https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/`;
+6. removes its temporary local wrapper files before the build exits;
+7. does **not** deploy a new production Worker route;
+8. does **not** use `REFRESH_TOKEN`;
+9. does **not** use GitHub Actions.
+
+### Agent procedure
+
+The entire operation is:
+
+1. Read `AGENTS.md` and verify the watched-branch head.
+2. Through the GitHub connector, change only `backend/package.json`:
+   `"deploy:cloudflare": "npm run prod:audit:publish"`.
+3. Wait for the `cloudflare-workers-and-pages[bot]` status on PR #366 for that exact commit.
+4. On successful Cloudflare build, fetch the stable result alias above and retrieve the audit JSON.
+5. Immediately restore `"deploy:cloudflare": "wrangler deploy"` through the GitHub connector.
+
+The temporary deploy-command change is an execution trigger only. The helper itself publishes a preview result and **does not deploy the production Worker**. The restore commit returns the watched branch to the normal production deployment contract.
+
+Do not clone the repository into a generic ChatGPT shell. Do not test whether the generic runtime can reach GitHub. Do not inspect plugin surfacing. Do not substitute GitHub Actions.
+
 ## Canonical commands
 
 Run these from `backend/`.
