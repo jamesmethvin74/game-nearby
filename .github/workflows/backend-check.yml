@@ -73,3 +73,44 @@ jobs:
           if (sources.some(source=>source.authority_rank!==10 || source.expected_min_games<5 || source.collection_mode!=='team')) throw new Error('DragonFly source authority/safety/collection-mode configuration is wrong');
           console.log('VERIFIED D1 V2 plus statewide discovery/location/catalog-scope schema and triggers',sources);
           JS
+
+
+  scheduled-pipeline-regression:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check scheduled presentation pipeline syntax
+        run: >
+          node --check src/index.js &&
+          node --check src/canonical-observation-writer.js &&
+          node --check src/dragonfly-statewide.js &&
+          node --check src/dragonfly-certified-statewide.js &&
+          node --check src/scoped-cadence-runner.js &&
+          node --check src/milestone2-scheduled-worker.js &&
+          node --check src/one-truth-worker.js
+      - name: Run scheduled presentation pipeline regression tests
+        run: >
+          node --test
+          test/milestone2-scheduled-worker.test.js
+          test/m11-live-freshness.test.js
+          test/dragonfly-certified-statewide.test.js
+          test/dragonfly-statewide.test.js
+          test/canonical-final-score-monotonicity.test.js
+          test/final-score-preservation.test.js
+          test/record-rebuild.test.js
+          test/record-rebuild-db.test.js
+          test/record-rebuild-conference-db.test.js
+          test/immediate-standings-final.test.js
+          test/m10-conference-standings-truth.test.js
+          test/volleyball-live-results-standings.test.js
+          test/one-truth-contract.test.js
+          test/maxpreps-volleyball-result-collector-db.test.js
+          test/hootens-resilient-results.test.js
+          test/hootens-statewide-results.test.js
+          test/hootens-team-page-catchup.test.js

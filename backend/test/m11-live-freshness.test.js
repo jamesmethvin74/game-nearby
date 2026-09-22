@@ -62,8 +62,9 @@ test("M11 normal collectors preserve final -> record -> touched-conference stand
   const statewide = source("../src/dragonfly-certified-statewide.js");
   const standings = source("../src/calculated-standings.js");
 
-  assert.match(core, /await reconcileSourceGames\(env,source\.id\);[\s\S]*await recalculateRecord\(env,source\.team_id\);/);
-  assert.match(core, /async function recalculateRecord\(env,teamId\)[\s\S]*rebuildTeamRecord\(env,teamId\)/);
+  assert.match(core, /const touchedTeamIds=new Set\(\[String\(source\.team_id\)\]\)/);
+  assert.match(core, /await reconcileSourceGames\(env,source\.id,touchedTeamIds\);[\s\S]*await rebuildTeamRecords\(env,\[\.\.\.touchedTeamIds\],checkedAt\);/);
+  assert.match(core, /return \{sourceId:source\.id,status:"SUCCESS"[\s\S]*touchedTeamIds:\[\.\.\.touchedTeamIds\]\.sort\(\)/);
   assert.match(records, /rebuildStandingsForTeams\(env, \[teamId\], calculatedAt\)/);
   assert.match(records, /rebuildStandingsForTeams\(env, built\.map\(item => item\.team\.id\), calculatedAt\)/);
   assert.match(statewide, /rebuildTeamRecords\(env,rows\.touchedTeamIds/);
