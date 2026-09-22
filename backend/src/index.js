@@ -7,7 +7,7 @@ import { normalizeModernSidearmHtml } from "./sidearm-modern.js";
 import { fetchCollegeSourceMaterial, parseCollegeSourceBody } from "./college-source-runtime.js";
 import { collectionSafety, deriveSourceHealth, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { createSchoolIdentityResolver } from "./school-identity-resolution.js";
-import { rebuildTeamRecords } from "./record-rebuild.js";
+import { rebuildTeamRecord, rebuildTeamRecords } from "./record-rebuild.js";
 import { CANONICAL_EVENT_UPSERT_SQL } from "./canonical-observation-writer.js";
 import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 
@@ -540,6 +540,10 @@ async function reconcileMissingFutureGames(env,source,checkedAt){
     .bind(checkedAt,checkedAt,source.id,checkedAt).run();
 }
 
+
+async function recalculateRecord(env,teamId){
+  await rebuildTeamRecord(env,teamId);
+}
 
 async function recalculateStandingsIfComplete(env,conferenceId){
   if (!conferenceId) return;
