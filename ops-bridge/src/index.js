@@ -130,6 +130,24 @@ async function enrichFailureLogs(env, summary) {
   return summary;
 }
 
+
+async function directBuildLog(env, buildUuid) {
+  const payload = await cf(
+    env,
+    `/accounts/${env.CLOUDFLARE_ACCOUNT_ID}/builds/builds/${encodeURIComponent(buildUuid)}/logs`
+  );
+  const lines = flattenStrings(payload)
+    .map(sanitize)
+    .map(x => x.trim())
+    .filter(Boolean);
+  return {
+    source: "cloudflare_build_logs_direct",
+    build_uuid: buildUuid,
+    error_summary: errorSummary(payload),
+    log_tail: [...new Set(lines.slice(-120))]
+  };
+}
+
 async function buildForSha(env, sha) {
   const payload = await github(
     `/repos/${GITHUB_REPO}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`
@@ -160,6 +178,15 @@ export default {
           cloudflare_api_role: "optional_failed-build_log_enrichment_only",
           purpose: "deterministic Cloudflare Workers build truth for automation"
         });
+      }
+
+
+      if (url.pathname === "/v1/build-log") {
+        const buildUuid = (url.searchParams.get("build_id") || "").trim().toLowerCase();
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(buildUuid)) {
+          return json({ error: "build_id_query_required", example: "/v1/build-log?build_id=<cloudflare-build-uuid>" }, 400);
+        }
+        return json(await directBuildLog(env, buildUuid));
       }
 
       if (url.pathname === "/v1/latest") {
@@ -202,7 +229,7 @@ export default {
 
       return json({
         error: "not_found",
-        endpoints: ["/health", "/v1/latest", "/v1/build?sha=<git-sha>"]
+        endpoints: ["/health", "/v1/latest", "/v1/build?sha=<git-sha>", "/v1/build-log?build_id=<cloudflare-build-uuid>"]
       }, 404);
     } catch (error) {
       return json({
