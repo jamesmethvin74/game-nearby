@@ -297,7 +297,7 @@ export async function runHootensStatewideResults(env,{fetchFn=fetch,HTMLRewriter
     if(touched.size)await rebuildTeamRecords(env,[...touched],checkedAt);
     await saveState(env,{scoreboardUrl,signature,checkedAt,finals:finals.length,matched,unmatched:unmatched.length,status:"SUCCESS"});
     console.log("Hooten statewide football results",{scoreboardUrl,finals:finals.length,matched,unmatched:unmatched.length,touchedTeams:touched.size,selectorRowsRead:context.meta.rowsRead});
-    return {status:"SUCCESS",scoreboardUrl,finals:finals.length,matched,unmatched:unmatched.length,touchedTeams:touched.size,selectorRowsRead:context.meta.rowsRead,unmatchedSample:unmatched.slice(0,20)};
+    return {status:"SUCCESS",scoreboardUrl,finals:finals.length,matched,unmatched:unmatched.length,touchedTeams:touched.size,touchedTeamIds:[...touched].sort(),selectorRowsRead:context.meta.rowsRead,unmatchedSample:unmatched.slice(0,20)};
   }catch(error){
     const message=String(error?.message||error).slice(0,1000);
     if(scoreboardUrl)await saveState(env,{scoreboardUrl,signature:null,checkedAt,finals:0,matched:0,unmatched:0,status:"FAILURE",error:message}).catch(()=>{});

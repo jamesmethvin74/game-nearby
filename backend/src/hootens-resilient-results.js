@@ -426,7 +426,8 @@ export async function finalizeHootensResults(env, {
     unmatched,
     resilientMissingBefore: missing.length,
     resilientRepaired: repaired,
-    touchedTeams: touchedTeams.size,
+    touchedTeams: Math.max(Number(baseResult?.touchedTeams || 0), touchedTeams.size),
+    touchedTeamIds:[...new Set([...(baseResult?.touchedTeamIds||[]),...touchedTeams])].map(String).filter(Boolean).sort(),
     unmatchedSample: unresolved.slice(0, 20)
   };
 }

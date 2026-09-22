@@ -142,3 +142,12 @@ test("ONE_TRUTH freshness watermark advances after authoritative rebuild even wh
   assert.match(truth,/markTeamTruthCheckedStatement\(env,requested,refreshedAt\)/);
   assert.match(truth,/filter\(column => !\["row_hash","truth_generation","refreshed_at"\]\.includes\(column\)\)/);
 });
+
+
+test("scheduled ONE_TRUTH refresh consumes exact touched team IDs before stale fallback",()=>{
+  assert.match(worker,/result\?\.touchedTeamIds/);
+  assert.match(worker,/rebuildOneTruth\(env,\{teamIds:explicitTeamIds\}\)/);
+  const explicit=worker.indexOf("rebuildOneTruth(env,{teamIds:explicitTeamIds})");
+  const stale=worker.indexOf("staleOneTruthTeamIds(env,{limit:SCHEDULED_TRUTH_BATCH})");
+  assert.ok(explicit>=0 && stale>explicit);
+});

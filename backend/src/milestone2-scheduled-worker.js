@@ -15,6 +15,21 @@ import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 import { syncPublishedFootballConferenceMembership } from "./football-conference-membership.js";
 import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
+import { rebuildTeamRecords } from "./record-rebuild.js";
+
+export function scheduledTouchedTeamIds(...values){
+  const ids=new Set();
+  const visit=value=>{
+    if(!value) return;
+    if(Array.isArray(value)){for(const item of value) visit(item);return;}
+    if(typeof value!=="object") return;
+    if(Array.isArray(value.touchedTeamIds)) for(const id of value.touchedTeamIds) if(id!=null&&String(id).trim()) ids.add(String(id));
+    if(Array.isArray(value.outcomes)) visit(value.outcomes);
+    if(value.payload) visit(value.payload);
+  };
+  for(const value of values) visit(value);
+  return [...ids].sort();
+}
 
 export function m2StatewideKeysForPlan(plan){
   if (!plan) return [];
@@ -61,6 +76,7 @@ async function runCatalogMaintenance(env){
   await ensureStatewideSchema(env);
   const payloads=new Map();
   const catalogs=[];
+  const membershipTouchedTeamIds=new Set();
   for (const config of STATEWIDE_HIGH_SCHOOL_SPORTS) {
     try {
       const result=await syncCertifiedDragonFlySportCatalog(env,config);
@@ -87,6 +103,7 @@ async function runCatalogMaintenance(env){
       conferenceWrites:membership.conferenceWrites??0,
       teamWrites:membership.teamWrites??0
     });
+    for(const change of membership?.plan?.changes||[]) if(change?.team_id) membershipTouchedTeamIds.add(String(change.team_id));
   } catch (error) {
     console.error("weekly published football conference membership sync failed",String(error?.message||error));
   }
@@ -104,6 +121,7 @@ async function runCatalogMaintenance(env){
       conferenceWrites:membership.conferenceWrites??0,
       teamWrites:membership.teamWrites??0
     });
+    for(const change of membership?.plan?.changes||[]) if(change?.team_id) membershipTouchedTeamIds.add(String(change.team_id));
   } catch (error) {
     console.error("weekly published volleyball conference membership sync failed",String(error?.message||error));
   }
@@ -126,7 +144,8 @@ async function runCatalogMaintenance(env){
     console.error("weekly statewide school branding sync failed",String(error?.message||error));
   }
 
-  return payloads;
+  if(membershipTouchedTeamIds.size) await rebuildTeamRecords(env,[...membershipTouchedTeamIds],new Date().toISOString());
+  return {payloads,touchedTeamIds:[...membershipTouchedTeamIds].sort()};
 }
 
 async function ensureFridayFootballCatalog(env){
@@ -146,7 +165,7 @@ async function runStatewideSports(env,{keys,payloads=new Map(),reason="scheduled
     const config=statewideSportConfig(key);
     try {
       const result=await runCertifiedDragonFlyStatewideCollection(env,config,{payload:payloads.get(config.key)||null});
-      outcomes.push({key,status:result.status,events:result.rawEventCount,observations:result.observations,canonicalEvents:result.canonicalEvents,touchedTeams:result.touchedTeams,pagesFetched:result.pagesFetched});
+      outcomes.push({key,status:result.status,events:result.rawEventCount,observations:result.observations,canonicalEvents:result.canonicalEvents,touchedTeams:result.touchedTeams,touchedTeamIds:result.touchedTeamIds||[],pagesFetched:result.pagesFetched});
     } catch (error) {
       const message=String(error?.message||error);
       outcomes.push({key,status:"FAILURE",error:message});
@@ -227,7 +246,7 @@ async function runStatewideLiveResultsPass({env,plan,when}){
         acceptLegacySignature:key==="volleyball-girls",
         userAgent:`LocalBleachersAR-${key}-live/1.0`
       });
-      outcomes.push({key,status:result.status,events:result.rawEventCount,touchedTeams:result.touchedTeams??0,pagesFetched:result.pagesFetched,d1Writes:result.d1Writes??null});
+      outcomes.push({key,status:result.status,events:result.rawEventCount,touchedTeams:result.touchedTeams??0,touchedTeamIds:result.touchedTeamIds||[],pagesFetched:result.pagesFetched,d1Writes:result.d1Writes??null});
     } catch (error) {
       const message=String(error?.message||error);
       outcomes.push({key,status:"FAILURE",error:message});
@@ -283,14 +302,19 @@ async function runScheduledPlan(controller,env,ctx){
 
   console.log("Milestone 2 collection cadence plan",{scheduledAt:when.toISOString(),...plan});
   let payloads=new Map();
-  if (plan.runCatalogMaintenance) payloads=await runCatalogMaintenance(env);
+  let maintenanceTouchedTeamIds=[];
+  if (plan.runCatalogMaintenance) {
+    const maintenance=await runCatalogMaintenance(env);
+    payloads=maintenance.payloads;
+    maintenanceTouchedTeamIds=maintenance.touchedTeamIds;
+  }
 
   const statewideKeys=m2StatewideKeysForPlan(plan);
   if (plan.kind==="friday-football-results" && !payloads.has("football-boys")) {
     const footballPayload=await ensureFridayFootballCatalog(env);
     if (footballPayload) payloads.set("football-boys",footballPayload);
   }
-  if (statewideKeys.length) await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind});
+  const statewideSports=statewideKeys.length ? await runStatewideSports(env,{keys:statewideKeys,payloads,reason:plan.kind}) : [];
 
   const statewideLiveResults=await runStatewideLiveResultsPass({env,plan,when});
   const volleyballLiveResults=statewideLiveResults.find(item=>item.key==="volleyball-girls")||null;
@@ -305,15 +329,30 @@ async function runScheduledPlan(controller,env,ctx){
     const scoped=await runScopedCadence({core,env,ctx,controller,plan});
     if (scoped) {
       const integrity=await runIntegrityGatePass({env,plan,when});
-      return {...scoped,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,integrity};
+      const touchedTeamIds=scheduledTouchedTeamIds(
+        {touchedTeamIds:maintenanceTouchedTeamIds},statewideSports,statewideLiveResults,maxPrepsVolleyballResults,
+        hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,scoped,
+        {touchedTeamIds:integrity?.refresh_team_ids||[]}
+      );
+      return {...scoped,statewideSports:statewideKeys,statewideSportResults:statewideSports,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,integrity,touchedTeamIds};
     }
     const result=await core.scheduled({...controller,cron:`cadence:${plan.kind}`},env,ctx);
     const integrity=await runIntegrityGatePass({env,plan,when});
-    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,coreResult:result??null,integrity};
+    const touchedTeamIds=scheduledTouchedTeamIds(
+      {touchedTeamIds:maintenanceTouchedTeamIds},statewideSports,statewideLiveResults,maxPrepsVolleyballResults,
+      hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,
+      {touchedTeamIds:integrity?.refresh_team_ids||[]}
+    );
+    return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideSportResults:statewideSports,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,coreResult:result??null,integrity,touchedTeamIds};
   }
 
   const integrity=await runIntegrityGatePass({env,plan,when});
-  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,integrity};
+  const touchedTeamIds=scheduledTouchedTeamIds(
+    {touchedTeamIds:maintenanceTouchedTeamIds},statewideSports,statewideLiveResults,maxPrepsVolleyballResults,
+    hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,
+    {touchedTeamIds:integrity?.refresh_team_ids||[]}
+  );
+  return {status:"SUCCESS",plan:plan.kind,statewideSports:statewideKeys,statewideSportResults:statewideSports,statewideLiveResults,volleyballLiveResults,maxPrepsVolleyballResults,hootensFinalResults,hootensHistoricalCatchup,officialFinalResults,collegeLiveResults,integrity,touchedTeamIds};
 }
 
 export default {

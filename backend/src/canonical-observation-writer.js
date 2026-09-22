@@ -74,7 +74,11 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+          UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          OR excluded.team_score IS NULL
+          OR excluded.opponent_score IS NULL
+        )
         THEN games.status
         ELSE excluded.status
       END,
@@ -82,7 +86,11 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+          UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          OR excluded.team_score IS NULL
+          OR excluded.opponent_score IS NULL
+        )
         THEN games.team_score
         ELSE excluded.team_score
       END,
@@ -90,7 +98,11 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+          UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          OR excluded.team_score IS NULL
+          OR excluded.opponent_score IS NULL
+        )
         THEN games.opponent_score
         ELSE excluded.opponent_score
       END,
@@ -98,7 +110,11 @@ export async function upsertResolvedObservation(env,source,game,checkedAt,{oppon
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+          UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          OR excluded.team_score IS NULL
+          OR excluded.opponent_score IS NULL
+        )
         THEN games.result
         ELSE excluded.result
       END,

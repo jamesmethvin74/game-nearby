@@ -7,7 +7,7 @@ import { normalizeModernSidearmHtml } from "./sidearm-modern.js";
 import { fetchCollegeSourceMaterial, parseCollegeSourceBody } from "./college-source-runtime.js";
 import { collectionSafety, deriveSourceHealth, observationsLikelySameEvent, resolveCanonicalEvent } from "./schedule-authority-core.js";
 import { createSchoolIdentityResolver } from "./school-identity-resolution.js";
-import { rebuildTeamRecord } from "./record-rebuild.js";
+import { rebuildTeamRecords } from "./record-rebuild.js";
 import { CANONICAL_EVENT_UPSERT_SQL } from "./canonical-observation-writer.js";
 import { suppressionPreservingNotesSql } from "./current-schedule-truth.js";
 
@@ -224,7 +224,10 @@ export async function runDueCollections(env,{force=false,sourceId=null,sourceIds
     if (!due) { outcomes.push({sourceId:source.id,status:"SKIPPED"}); continue; }
     outcomes.push(await collectSource(env,source,reason,sharedFetches,getIdentityResolver));
   }
-  return {ok:outcomes.every(o=>!["FAILURE"].includes(o.status)),outcomes};
+  const touchedTeamIds=[...new Set(outcomes.flatMap(outcome=>
+    Array.isArray(outcome?.touchedTeamIds)?outcome.touchedTeamIds:[]
+  ).map(String).filter(Boolean))].sort();
+  return {ok:outcomes.every(o=>!["FAILURE"].includes(o.status)),outcomes,touchedTeamIds};
 }
 
 async function sourceIsDue(env,source){
@@ -281,7 +284,7 @@ async function collectSource(env,source,reason,sharedFetches=new Map(),getIdenti
         env.DB.prepare("UPDATE sources SET last_checked_at=?,last_successful_fetch_at=?,last_http_status=304,consecutive_failures=0,suspicious_game_count=0,updated_at=? WHERE id=?").bind(checkedAt,checkedAt,checkedAt,source.id),
         env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='NOT_MODIFIED',http_status=304 WHERE id=?").bind(checkedAt,run.id)
       ]);
-      return {sourceId:source.id,status:"NOT_MODIFIED",reason};
+      return {sourceId:source.id,status:"NOT_MODIFIED",reason,touchedTeamIds:[]};
     }
     const parsed=await parseSourceBody(fetched.body,source,fetched.contentType);
     const existing=await env.DB.prepare("SELECT COUNT(*) AS game_count FROM games WHERE source_id=?").bind(source.id).first();
@@ -289,20 +292,21 @@ async function collectSource(env,source,reason,sharedFetches=new Map(),getIdenti
     const safety=collectionSafety({parsedCount:parsed.length,expectedMinGames:source.expected_min_games,priorCount});
     if (!safety.safe) throw new Error(safety.reason);
     const identityResolver=await getIdentityResolver();
+    const touchedTeamIds=new Set([String(source.team_id)]);
     for (const game of parsed) {
       const gameId=await upsertGame(env,source,game,checkedAt,identityResolver);
-      await reconcileCanonicalGame(env,gameId);
+      await reconcileCanonicalGame(env,gameId,touchedTeamIds);
     }
     await reconcileMissingFutureGames(env,source,checkedAt);
-    await reconcileSourceGames(env,source.id);
-    await recalculateRecord(env,source.team_id);
+    await reconcileSourceGames(env,source.id,touchedTeamIds);
+    await rebuildTeamRecords(env,[...touchedTeamIds],checkedAt);
     await recalculateStandingsIfComplete(env,source.conference_id);
     await env.DB.batch([
       env.DB.prepare(`UPDATE sources SET etag=?,last_modified=?,last_successful_fetch_at=?,last_checked_at=?,last_failure_at=NULL,last_error=NULL,last_http_status=?,consecutive_failures=0,last_game_count=?,suspicious_game_count=0,updated_at=? WHERE id=?`)
         .bind(fetched.etag,fetched.lastModified,checkedAt,checkedAt,fetched.status,parsed.length,checkedAt,source.id),
       env.DB.prepare("UPDATE collection_runs SET finished_at=?,status='SUCCESS',http_status=?,games_seen=? WHERE id=?").bind(checkedAt,fetched.status,parsed.length,run.id)
     ]);
-    return {sourceId:source.id,status:"SUCCESS",gamesSeen:parsed.length,pagesFetched:fetched.pagesFetched,reason};
+    return {sourceId:source.id,status:"SUCCESS",gamesSeen:parsed.length,pagesFetched:fetched.pagesFetched,reason,touchedTeamIds:[...touchedTeamIds].sort()};
   } catch(error) {
     const finishedAt=new Date().toISOString();
     const message=String(error?.message||error).slice(0,1000);
@@ -410,7 +414,11 @@ export async function upsertGame(env,source,game,checkedAt,identityResolver){
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+            UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+            OR excluded.team_score IS NULL
+            OR excluded.opponent_score IS NULL
+          )
         THEN games.status
         ELSE excluded.status
       END,
@@ -418,7 +426,11 @@ export async function upsertGame(env,source,game,checkedAt,identityResolver){
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+            UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+            OR excluded.team_score IS NULL
+            OR excluded.opponent_score IS NULL
+          )
         THEN games.team_score
         ELSE excluded.team_score
       END,
@@ -426,7 +438,11 @@ export async function upsertGame(env,source,game,checkedAt,identityResolver){
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+            UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+            OR excluded.team_score IS NULL
+            OR excluded.opponent_score IS NULL
+          )
         THEN games.opponent_score
         ELSE excluded.opponent_score
       END,
@@ -434,7 +450,11 @@ export async function upsertGame(env,source,game,checkedAt,identityResolver){
         WHEN UPPER(COALESCE(games.status,''))='FINAL'
           AND games.team_score IS NOT NULL
           AND games.opponent_score IS NOT NULL
-          AND UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+          AND (
+            UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL'
+            OR excluded.team_score IS NULL
+            OR excluded.opponent_score IS NULL
+          )
         THEN games.result
         ELSE excluded.result
       END,
@@ -454,7 +474,7 @@ async function observationById(env,gameId){
     WHERE g.id=?`).bind(gameId).first();
 }
 
-export async function reconcileCanonicalGame(env,gameId){
+export async function reconcileCanonicalGame(env,gameId,touchedTeamIds=null){
   const seed=await observationById(env,gameId);
   if (!seed?.opponent_school_id) return null;
   const timeZone=seed.timezone||"America/Chicago";
@@ -499,12 +519,15 @@ export async function reconcileCanonicalGame(env,gameId){
     const member=await env.DB.prepare("SELECT 1 AS yes FROM canonical_event_members WHERE canonical_event_id=? LIMIT 1").bind(oldId).first();
     if (!member) await env.DB.prepare("DELETE FROM canonical_events WHERE id=?").bind(oldId).run();
   }
+  if(touchedTeamIds?.add) {
+    for(const candidate of related) if(candidate?.reporting_team_id) touchedTeamIds.add(String(candidate.reporting_team_id));
+  }
   return resolved.id;
 }
 
-async function reconcileSourceGames(env,sourceId){
+async function reconcileSourceGames(env,sourceId,touchedTeamIds=null){
   const {results}=await env.DB.prepare("SELECT id FROM games WHERE source_id=?").bind(sourceId).all();
-  for (const row of results) await reconcileCanonicalGame(env,row.id);
+  for (const row of results) await reconcileCanonicalGame(env,row.id,touchedTeamIds);
 }
 
 async function reconcileMissingFutureGames(env,source,checkedAt){
@@ -517,9 +540,6 @@ async function reconcileMissingFutureGames(env,source,checkedAt){
     .bind(checkedAt,checkedAt,source.id,checkedAt).run();
 }
 
-async function recalculateRecord(env,teamId){
-  await rebuildTeamRecord(env,teamId);
-}
 
 async function recalculateStandingsIfComplete(env,conferenceId){
   if (!conferenceId) return;

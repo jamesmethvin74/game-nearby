@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { collectionPlanAt } from "../src/collection-cadence.js";
-import { m2LiveStatewideKeysForPlan, m2StatewideKeysForPlan, shouldRunVolleyballLiveResults, shouldRunHootensTeamPageCatchup } from "../src/milestone2-scheduled-worker.js";
+import { m2LiveStatewideKeysForPlan, m2StatewideKeysForPlan, scheduledTouchedTeamIds, shouldRunVolleyballLiveResults, shouldRunHootensTeamPageCatchup } from "../src/milestone2-scheduled-worker.js";
 
 const ALL=["football-boys","basketball-boys","basketball-girls","soccer-boys","soccer-girls","volleyball-girls"];
 
@@ -131,4 +131,22 @@ test("scheduled integrity passes standings readiness only on bounded morning and
   const evening=collectionPlanAt(new Date("2026-09-04T04:00:00.000Z"));
   assert.equal(afternoon.runStandingsReadiness,false);
   assert.equal(evening.runStandingsReadiness,false);
+});
+
+
+test("scheduled touched-team propagation unions every collector path without duplicates",()=>{
+  assert.deepEqual(scheduledTouchedTeamIds(
+    [{touchedTeamIds:["df-a","df-b"]}],
+    {touchedTeamIds:["df-b","df-c"]},
+    {outcomes:[{payload:{touchedTeamIds:["df-d"]}},{payload:{touchedTeamIds:["df-e","df-a"]}}]},
+    {payload:{touchedTeamIds:["df-f"]}}
+  ),["df-a","df-b","df-c","df-d","df-e","df-f"]);
+});
+
+test("Milestone 2 carries exact touched team IDs through statewide and scoped scheduled results",()=>{
+  const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  const scoped=fs.readFileSync(fileURLToPath(new URL("../src/scoped-cadence-runner.js",import.meta.url)),"utf8");
+  assert.match(runner,/touchedTeamIds:result\.touchedTeamIds\|\|\[\]/);
+  assert.match(runner,/scheduledTouchedTeamIds\(/);
+  assert.match(scoped,/payload\?\.touchedTeamIds/);
 });

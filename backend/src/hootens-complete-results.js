@@ -638,6 +638,7 @@ export async function recoverHootensUnmatched(env, {
     createdTeams: beforeMissing.size,
     aliasesWritten,
     touchedTeams: Math.max(Number(baseResult.touchedTeams || 0), touchedTeams.size),
+    touchedTeamIds:[...new Set([...(baseResult?.touchedTeamIds||[]),...touchedTeams])].map(String).filter(Boolean).sort(),
     unmatchedSample: unresolved.slice(0, 20)
   };
 }

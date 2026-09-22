@@ -183,8 +183,20 @@ export const STATEWIDE_SQL={
     ON CONFLICT(source_id,source_event_key) DO UPDATE SET
       opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
       venue=excluded.venue,location_text=excluded.location_text,latitude=COALESCE(excluded.latitude,games.latitude),longitude=COALESCE(excluded.longitude,games.longitude),
-      home_away=excluded.home_away,conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,status=excluded.status,
-      team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,notes=${suppressionPreservingNotesSql("games","excluded")},source_url=excluded.source_url,
+      home_away=excluded.home_away,conference_game=excluded.conference_game,counts_for_record=excluded.counts_for_record,
+      status=CASE WHEN UPPER(COALESCE(games.status,''))='FINAL' AND games.team_score IS NOT NULL AND games.opponent_score IS NOT NULL
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.team_score IS NULL OR excluded.opponent_score IS NULL)
+        THEN games.status ELSE excluded.status END,
+      team_score=CASE WHEN UPPER(COALESCE(games.status,''))='FINAL' AND games.team_score IS NOT NULL AND games.opponent_score IS NOT NULL
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.team_score IS NULL OR excluded.opponent_score IS NULL)
+        THEN games.team_score ELSE excluded.team_score END,
+      opponent_score=CASE WHEN UPPER(COALESCE(games.status,''))='FINAL' AND games.team_score IS NOT NULL AND games.opponent_score IS NOT NULL
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.team_score IS NULL OR excluded.opponent_score IS NULL)
+        THEN games.opponent_score ELSE excluded.opponent_score END,
+      result=CASE WHEN UPPER(COALESCE(games.status,''))='FINAL' AND games.team_score IS NOT NULL AND games.opponent_score IS NOT NULL
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.team_score IS NULL OR excluded.opponent_score IS NULL)
+        THEN games.result ELSE excluded.result END,
+      notes=${suppressionPreservingNotesSql("games","excluded")},source_url=excluded.source_url,
       source_updated_at=excluded.source_updated_at,last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at,canonical_event_id=excluded.canonical_event_id`,
   upsertCanonical:`
     INSERT INTO canonical_events(id,sport,gender,season,participant_a_school_id,participant_b_school_id,home_school_id,away_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,conference_game,status,home_score,away_score,selected_source_id,trust_state,conflict_count,resolution_json,last_reconciled_at,updated_at)
@@ -200,8 +212,27 @@ export const STATEWIDE_SQL={
       home_school_id=excluded.home_school_id,away_school_id=excluded.away_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
       venue=COALESCE(excluded.venue,canonical_events.venue),location_text=COALESCE(excluded.location_text,canonical_events.location_text),
       latitude=COALESCE(excluded.latitude,canonical_events.latitude),longitude=COALESCE(excluded.longitude,canonical_events.longitude),conference_game=excluded.conference_game,
-      status=excluded.status,home_score=excluded.home_score,away_score=excluded.away_score,selected_source_id=excluded.selected_source_id,
-      trust_state=CASE WHEN canonical_events.trust_state='CONFLICT' THEN 'CONFLICT' ELSE excluded.trust_state END,
+      status=CASE WHEN canonical_events.status='FINAL' AND canonical_events.home_score IS NOT NULL AND canonical_events.away_score IS NOT NULL
+        AND canonical_events.home_school_id=excluded.home_school_id AND canonical_events.away_school_id=excluded.away_school_id
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        THEN canonical_events.status ELSE excluded.status END,
+      home_score=CASE WHEN canonical_events.status='FINAL' AND canonical_events.home_score IS NOT NULL AND canonical_events.away_score IS NOT NULL
+        AND canonical_events.home_school_id=excluded.home_school_id AND canonical_events.away_school_id=excluded.away_school_id
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        THEN canonical_events.home_score ELSE excluded.home_score END,
+      away_score=CASE WHEN canonical_events.status='FINAL' AND canonical_events.home_score IS NOT NULL AND canonical_events.away_score IS NOT NULL
+        AND canonical_events.home_school_id=excluded.home_school_id AND canonical_events.away_school_id=excluded.away_school_id
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        THEN canonical_events.away_score ELSE excluded.away_score END,
+      selected_source_id=CASE WHEN canonical_events.status='FINAL' AND canonical_events.home_score IS NOT NULL AND canonical_events.away_score IS NOT NULL
+        AND canonical_events.home_school_id=excluded.home_school_id AND canonical_events.away_school_id=excluded.away_school_id
+        AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        THEN canonical_events.selected_source_id ELSE excluded.selected_source_id END,
+      trust_state=CASE WHEN canonical_events.trust_state='CONFLICT' THEN 'CONFLICT'
+        WHEN canonical_events.status='FINAL' AND canonical_events.home_score IS NOT NULL AND canonical_events.away_score IS NOT NULL
+          AND canonical_events.home_school_id=excluded.home_school_id AND canonical_events.away_school_id=excluded.away_school_id
+          AND (UPPER(COALESCE(excluded.status,'SCHEDULED'))<>'FINAL' OR excluded.home_score IS NULL OR excluded.away_score IS NULL)
+        THEN canonical_events.trust_state ELSE excluded.trust_state END,
       conflict_count=CASE WHEN canonical_events.conflict_count>excluded.conflict_count THEN canonical_events.conflict_count ELSE excluded.conflict_count END,
       resolution_json=CASE WHEN canonical_events.trust_state='CONFLICT' THEN canonical_events.resolution_json ELSE excluded.resolution_json END,
       last_reconciled_at=excluded.last_reconciled_at,updated_at=excluded.updated_at`,
@@ -230,103 +261,81 @@ export function dragonFlyNativeCanonicalMappings(rows={}) {
 export async function reconcileDragonFlyNativeCanonicalAliases(env,rows,{
   sport="volleyball",gender="girls",season="2026",checkedAt=new Date().toISOString()
 }={}) {
-  const mappings=dragonFlyNativeCanonicalMappings(rows);
-  if(!mappings.length) return {mappings:0,game_reassignments:0,old_canonical_ids:0};
-  const json=JSON.stringify(mappings);
-  const old=await env.DB.prepare(`
-    WITH mapping(event_key,winner) AS (
-      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
+  const nativeMappings=dragonFlyNativeCanonicalMappings(rows);
+  const currentById=new Map((rows?.canonicals||[]).map(row=>[String(row.id),row]));
+  const eventKeyByCanonical=new Map();
+  for(const mapping of nativeMappings) if(!eventKeyByCanonical.has(String(mapping.canonical_event_id))) eventKeyByCanonical.set(String(mapping.canonical_event_id),String(mapping.event_key));
+  const current=[...currentById.values()].map(row=>({
+    current_id:String(row.id),event_key:eventKeyByCanonical.get(String(row.id))||null,
+    sport:String(row.sport||sport),gender:String(row.gender||gender),season:String(row.season||season),
+    participant_a_school_id:row.participant_a_school_id,participant_b_school_id:row.participant_b_school_id,
+    scheduled_at:row.scheduled_at
+  }));
+  if(!current.length) return {mappings:0,game_reassignments:0,old_canonical_ids:0,logical_aliases:0};
+  const candidates=await env.DB.prepare(`
+    WITH current AS (
+      SELECT json_extract(value,'$.current_id') current_id,json_extract(value,'$.event_key') event_key,
+        json_extract(value,'$.sport') sport,json_extract(value,'$.gender') gender,json_extract(value,'$.season') season,
+        json_extract(value,'$.participant_a_school_id') participant_a_school_id,json_extract(value,'$.participant_b_school_id') participant_b_school_id,
+        json_extract(value,'$.scheduled_at') scheduled_at
+      FROM json_each(?)
     )
-    SELECT DISTINCT g.canonical_event_id AS old_id,mapping.winner AS winner_id
-    FROM games g
-    JOIN teams t ON t.id=g.team_id
-    JOIN sources src ON src.id=g.source_id
-    JOIN mapping ON mapping.event_key=g.source_event_key
-    WHERE src.parser_type='dragonfly-public'
-      AND t.sport=? AND t.gender=? AND t.season=?
-      AND g.canonical_event_id IS NOT NULL
-      AND g.canonical_event_id<>mapping.winner
-  `).bind(json,sport,gender,season).all();
-  const oldMappings=(old?.results||[])
-    .filter(row=>row.old_id&&row.winner_id&&row.old_id!==row.winner_id)
-    .map(row=>({loser:String(row.old_id),winner:String(row.winner_id)}));
-
-  const update=await env.DB.prepare(`
-    WITH mapping(event_key,winner) AS (
-      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
-    )
-    UPDATE games
-    SET canonical_event_id=(SELECT winner FROM mapping WHERE event_key=games.source_event_key),
-        updated_at=?
-    WHERE id IN (
-      SELECT g.id
-      FROM games g
-      JOIN teams t ON t.id=g.team_id
-      JOIN sources src ON src.id=g.source_id
-      JOIN mapping ON mapping.event_key=g.source_event_key
-      WHERE src.parser_type='dragonfly-public'
-        AND t.sport=? AND t.gender=? AND t.season=?
-        AND COALESCE(g.canonical_event_id,'')<>mapping.winner
-    )
-  `).bind(json,checkedAt,sport,gender,season).run();
-
-  await env.DB.prepare(`
-    WITH mapping(event_key,winner) AS (
-      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
-    ),
-    matched AS (
-      SELECT g.id AS game_id,g.source_id,g.team_id,mapping.winner
-      FROM games g
-      JOIN teams t ON t.id=g.team_id
-      JOIN sources src ON src.id=g.source_id
-      JOIN mapping ON mapping.event_key=g.source_event_key
-      WHERE src.parser_type='dragonfly-public'
-        AND t.sport=? AND t.gender=? AND t.season=?
-    )
-    DELETE FROM canonical_event_members
-    WHERE game_id IN (SELECT game_id FROM matched)
-  `).bind(json,sport,gender,season).run();
-
-  await env.DB.prepare(`
-    WITH mapping(event_key,winner) AS (
-      SELECT json_extract(value,'$.event_key'),json_extract(value,'$.canonical_event_id') FROM json_each(?)
-    ),
-    matched AS (
-      SELECT g.id AS game_id,g.source_id,g.team_id,mapping.winner
-      FROM games g
-      JOIN teams t ON t.id=g.team_id
-      JOIN sources src ON src.id=g.source_id
-      JOIN mapping ON mapping.event_key=g.source_event_key
-      WHERE src.parser_type='dragonfly-public'
-        AND t.sport=? AND t.gender=? AND t.season=?
-    )
-    INSERT OR REPLACE INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at)
-    SELECT winner,game_id,source_id,team_id,? FROM matched
-  `).bind(json,sport,gender,season,checkedAt).run();
-
-  if(oldMappings.length) {
-    const oldJson=JSON.stringify(oldMappings);
-    await env.DB.prepare(`
-      WITH mapping(loser,winner) AS (
-        SELECT json_extract(value,'$.loser'),json_extract(value,'$.winner') FROM json_each(?)
+    SELECT current.current_id,ce.id candidate_id,ce.status,ce.home_score,ce.away_score,ce.home_school_id,ce.away_school_id,ce.trust_state,ce.updated_at
+    FROM current JOIN canonical_events ce
+      ON ce.id<>current.current_id AND ce.sport=current.sport AND ce.gender=current.gender AND ce.season=current.season
+     AND ce.participant_a_school_id=current.participant_a_school_id AND ce.participant_b_school_id=current.participant_b_school_id
+    WHERE
+      (current.sport='football' AND ABS((julianday(ce.scheduled_at)-julianday(current.scheduled_at))*1440.0)<=90)
+      OR (current.sport<>'football' AND ABS((julianday(ce.scheduled_at)-julianday(current.scheduled_at))*1440.0)<=5)
+      OR EXISTS (
+        SELECT 1 FROM canonical_event_members cem
+        JOIN games g ON g.id=cem.game_id JOIN sources src ON src.id=g.source_id
+        WHERE cem.canonical_event_id=ce.id AND src.parser_type='dragonfly-public'
+          AND current.event_key IS NOT NULL AND g.source_event_key=current.event_key
       )
-      UPDATE event_conflicts
-      SET canonical_event_id=(SELECT winner FROM mapping WHERE loser=event_conflicts.canonical_event_id)
-      WHERE canonical_event_id IN (SELECT loser FROM mapping)
-    `).bind(oldJson).run();
-    await env.DB.prepare(`
-      DELETE FROM canonical_events
-      WHERE id IN (SELECT json_extract(value,'$.loser') FROM json_each(?))
-        AND NOT EXISTS (SELECT 1 FROM canonical_event_members cem WHERE cem.canonical_event_id=canonical_events.id)
-        AND NOT EXISTS (SELECT 1 FROM event_conflicts ec WHERE ec.canonical_event_id=canonical_events.id)
-    `).bind(oldJson).run();
+  `).bind(JSON.stringify(current)).all();
+  const complete=row=>String(row?.status||"").toUpperCase()==="FINAL" && row?.home_score!=null && row?.away_score!=null && row?.home_school_id && row?.away_school_id;
+  const signature=row=>complete(row)?[[String(row.home_school_id),Number(row.home_score)],[String(row.away_school_id),Number(row.away_score)]]
+    .sort((a,b)=>a[0].localeCompare(b[0])).map(([id,value])=>`${id}:${value}`).join("|"):null;
+  const grouped=new Map();
+  for(const row of candidates?.results||[]){const key=String(row.current_id);if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(row);}
+  const proposals=new Map();
+  for(const [currentId,existingRows] of grouped){
+    const currentRow=currentById.get(currentId);
+    if(!currentRow || String(currentRow.trust_state||"").toUpperCase()==="CONFLICT") continue;
+    const eligible=existingRows.filter(row=>String(row.trust_state||"").toUpperCase()!=="CONFLICT");
+    const all=[currentRow,...eligible.map(row=>({id:String(row.candidate_id),...row}))];
+    const completeRows=all.filter(complete);
+    if(new Set(completeRows.map(signature).filter(Boolean)).size>1) continue;
+    const winner=complete(currentRow)?currentRow:(completeRows.sort((a,b)=>String(b.updated_at||"").localeCompare(String(a.updated_at||""))||String(a.id).localeCompare(String(b.id)))[0]||currentRow);
+    for(const row of all){const loser=String(row.id),winnerId=String(winner.id);if(loser===winnerId)continue;if(!proposals.has(loser))proposals.set(loser,new Set());proposals.get(loser).add(winnerId);}
   }
-
-  return {
-    mappings:mappings.length,
-    game_reassignments:Number(update?.meta?.rows_written||0),
-    old_canonical_ids:oldMappings.length
-  };
+  const oldMappings=[...proposals].filter(([,w])=>w.size===1).map(([loser,w])=>({loser,winner:[...w][0]})).filter(row=>row.loser!==row.winner);
+  if(!oldMappings.length) return {mappings:nativeMappings.length,game_reassignments:0,old_canonical_ids:0,logical_aliases:0};
+  const json=JSON.stringify(oldMappings);
+  const update=await env.DB.prepare(`
+    WITH mapping(loser,winner) AS (SELECT json_extract(value,'$.loser'),json_extract(value,'$.winner') FROM json_each(?))
+    UPDATE games SET canonical_event_id=(SELECT winner FROM mapping WHERE loser=games.canonical_event_id),updated_at=?
+    WHERE canonical_event_id IN (SELECT loser FROM mapping)
+  `).bind(json,checkedAt).run();
+  await env.DB.prepare(`DELETE FROM canonical_event_members WHERE canonical_event_id IN (SELECT json_extract(value,'$.loser') FROM json_each(?))`).bind(json).run();
+  await env.DB.prepare(`
+    WITH mapping(loser,winner) AS (SELECT json_extract(value,'$.loser'),json_extract(value,'$.winner') FROM json_each(?))
+    INSERT OR REPLACE INTO canonical_event_members(canonical_event_id,game_id,source_id,reporting_team_id,added_at)
+    SELECT g.canonical_event_id,g.id,g.source_id,g.team_id,? FROM games g WHERE g.canonical_event_id IN (SELECT winner FROM mapping)
+  `).bind(json,checkedAt).run();
+  await env.DB.prepare(`
+    WITH mapping(loser,winner) AS (SELECT json_extract(value,'$.loser'),json_extract(value,'$.winner') FROM json_each(?))
+    UPDATE event_conflicts SET canonical_event_id=(SELECT winner FROM mapping WHERE loser=event_conflicts.canonical_event_id)
+    WHERE canonical_event_id IN (SELECT loser FROM mapping)
+  `).bind(json).run();
+  await env.DB.prepare(`
+    DELETE FROM canonical_events
+    WHERE id IN (SELECT json_extract(value,'$.loser') FROM json_each(?))
+      AND NOT EXISTS (SELECT 1 FROM canonical_event_members cem WHERE cem.canonical_event_id=canonical_events.id)
+      AND NOT EXISTS (SELECT 1 FROM event_conflicts ec WHERE ec.canonical_event_id=canonical_events.id)
+  `).bind(json).run();
+  return {mappings:nativeMappings.length,game_reassignments:Number(update?.meta?.rows_written||update?.meta?.changes||0),old_canonical_ids:oldMappings.length,logical_aliases:oldMappings.length};
 }
 
 async function runJsonChunks(env,sql,rows,chunkSize){

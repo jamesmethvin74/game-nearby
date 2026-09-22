@@ -752,12 +752,20 @@ export default {
     try {
       await ensureOneTruthSchema(env);
 
+      const scheduledTeamIds=[...new Set(
+        (result?.touchedTeamIds||[]).map(String).filter(Boolean)
+      )];
       const repairTeamIds=[...new Set(
         (result?.integrity?.refresh_team_ids||[]).map(String).filter(Boolean)
       )];
-      if(repairTeamIds.length){
-        const repairRefresh=await rebuildOneTruth(env,{teamIds:repairTeamIds});
-        console.log("ONE_TRUTH_TB refreshed repaired teams",repairRefresh);
+      const explicitTeamIds=[...new Set([...scheduledTeamIds,...repairTeamIds])];
+      if(explicitTeamIds.length){
+        const explicitRefresh=await rebuildOneTruth(env,{teamIds:explicitTeamIds});
+        console.log("ONE_TRUTH_TB refreshed scheduled touched teams",{
+          ...explicitRefresh,
+          scheduled_team_ids:scheduledTeamIds,
+          integrity_team_ids:repairTeamIds
+        });
       }
 
       let batches=0;

@@ -354,7 +354,7 @@ export async function runCertifiedDragonFlyStatewideCollection(env,sportConfig,{
         canonicalEvents:Number(previousDetails.canonicalEvents||0),
         observations:Number(previousDetails.observations||0),
         sources:Number(previousDetails.sources||0),
-        touchedTeams:0,pagesFetched,chunkSize,signature
+        touchedTeams:0,touchedTeamIds:[],pagesFetched,chunkSize,signature
       };
     }
 
@@ -401,7 +401,7 @@ export async function runCertifiedDragonFlyStatewideCollection(env,sportConfig,{
     const recordRebuild=await rebuildTeamRecords(env,rows.touchedTeamIds,checkedAt);
     const details={
       feedCode:config.feedCode,pagesFetched,canonicalEvents:rows.canonicals.length,observations:rows.games.length,
-      sources:sourceHealth.length,touchedTeams:rows.touchedTeamIds.length,externalOpponentObservations:rows.externalOpponentObservations,
+      sources:sourceHealth.length,touchedTeams:rows.touchedTeamIds.length,touchedTeamIds:rows.touchedTeamIds,externalOpponentObservations:rows.externalOpponentObservations,
       skippedWithoutOpponent:rows.skippedWithoutOpponent,recordRebuild,chunkSize,signature,unchanged:false
     };
     await env.DB.prepare(`
@@ -414,7 +414,7 @@ export async function runCertifiedDragonFlyStatewideCollection(env,sportConfig,{
         consecutive_failures=0,last_error=NULL,details_json=excluded.details_json,updated_at=excluded.updated_at
     `).bind(config.stateId,config.feedUrl,checkedAt,checkedAt,rawEventCount,rows.games.length,sourceHealth.length,JSON.stringify(details),checkedAt).run();
 
-    return {status:"SUCCESS",config,rawEventCount,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,touchedTeams:rows.touchedTeamIds.length,pagesFetched,chunkSize,signature,recordRebuild};
+    return {status:"SUCCESS",config,rawEventCount,canonicalEvents:rows.canonicals.length,observations:rows.games.length,sources:sourceHealth.length,touchedTeams:rows.touchedTeamIds.length,touchedTeamIds:[...rows.touchedTeamIds].sort(),pagesFetched,chunkSize,signature,recordRebuild};
   } catch (error) {
     const message=String(error?.message||error).slice(0,1000);
     await env.DB.prepare(`

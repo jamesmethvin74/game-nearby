@@ -256,7 +256,7 @@ export async function runHootensTeamPageCatchup(env, {
   const loaded = await loadCandidates(env,checkedAt);
   const groups = selectBoundedTeamPageGroups(loaded.rows,maxTeamPages);
   if (!groups.length) {
-    return { status:"NO_GAPS",candidates:loaded.rows.length,eligibleCandidates:0,pagesAttempted:0,pagesFetched:0,repaired:0,touchedTeams:0,rowsRead:loaded.rowsRead,failures:[] };
+    return { status:"NO_GAPS",candidates:loaded.rows.length,eligibleCandidates:0,pagesAttempted:0,pagesFetched:0,repaired:0,touchedTeams:0,touchedTeamIds:[],rowsRead:loaded.rowsRead,failures:[] };
   }
 
   let pagesAttempted = 0;
@@ -308,6 +308,7 @@ export async function runHootensTeamPageCatchup(env, {
     pagesFetched,
     repaired,
     touchedTeams:touchedTeams.size,
+    touchedTeamIds:[...touchedTeams].sort(),
     rowsRead:loaded.rowsRead,
     failures
   };

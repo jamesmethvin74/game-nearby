@@ -387,6 +387,7 @@ export async function runMaxPrepsVolleyballResultFallback(env,{
     opponentSchoolsMaterialized,
     opponentIdentitiesLinked,
     touchedTeams:touched.size,
+    touchedTeamIds:[...touched].sort(),
     recordResult,
     writes:observations+sources.size+opponentSchoolsMaterialized+opponentIdentitiesLinked
   };

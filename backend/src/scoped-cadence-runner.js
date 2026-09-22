@@ -255,7 +255,7 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
 
   if (!results.length) {
     console.log("scoped cadence has no due sources", { kind: plan.kind, scope: plan.scope });
-    return { status:"SKIPPED", plan:plan.kind, scope:plan.scope, sources:0, selectorRowsRead:Number(selection.meta?.rows_read || 0), outcomes:[] };
+    return { status:"SKIPPED", plan:plan.kind, scope:plan.scope, sources:0, selectorRowsRead:Number(selection.meta?.rows_read || 0), outcomes:[], touchedTeamIds:[] };
   }
 
   const scopedEnv = internalEnv(env);
@@ -292,6 +292,9 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     }
   }
 
+  const touchedTeamIds=[...new Set(outcomes.flatMap(outcome=>
+    Array.isArray(outcome?.payload?.touchedTeamIds)?outcome.payload.touchedTeamIds:[]
+  ).map(String).filter(Boolean))].sort();
   return {
     status:"SUCCESS",
     plan:plan.kind,
@@ -300,7 +303,8 @@ export async function runScopedCadence({ core, env, ctx, controller, plan }) {
     providerGroups:groups.length,
     attemptedSources,
     selectorRowsRead:Number(selection.meta?.rows_read || 0),
-    outcomes
+    outcomes,
+    touchedTeamIds
   };
 }
 
