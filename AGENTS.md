@@ -67,3 +67,98 @@ Before claiming any external project service is unavailable:
    - genuinely unavailable.
 
 Never collapse those states into "no access."
+
+
+## Hard execution governor — mandatory
+
+These rules exist to prevent long diagnostic loops, stale-branch work, temporary-control-surface sprawl, and tasks that end in setup instead of results.
+
+### One operation at a time
+
+- Treat each user-requested task as **one concrete operation with one definition of done**.
+- Do not expand the task into adjacent diagnosis, cleanup, repair, verification, refactoring, or architecture work unless the user explicitly asks for that expansion.
+- If a task is read-only, remain read-only. Do not modify production code, schemas, routes, workflows, or endpoints merely to make the read-only task easier.
+- If the task is an audit, the deliverable is the audit result. If the task is a repair, the deliverable is the repaired production state and verification. If the task is a code change, the deliverable is the requested code change and its direct validation.
+
+### Five-action checkpoint
+
+- After at most **5 meaningful tool actions**, return control to the user with a concrete checkpoint unless the requested operation has already completed.
+- A checkpoint must state:
+  - what was actually completed;
+  - what evidence was obtained;
+  - what remains;
+  - the exact next operation.
+- Do not continue silently past this checkpoint.
+- Tool discovery, repeated access checks, and repeated re-reading of the same state count against this budget when they do not directly advance the requested operation.
+
+### Re-anchor before every write session
+
+- Before any repository or production write, verify the current head of `feature/live-sports-pipeline-m1`.
+- Never continue implementation from a stale repair branch, stale prompt SHA, or yesterday's checkpoint when the watched branch has advanced.
+- If the watched branch advanced, re-evaluate against the current head before writing.
+- Do not resurrect or reuse old diagnostic/repair branches as execution bases simply because they contain related work.
+
+### No temporary machinery by default
+
+Do not create a new:
+- branch;
+- pull request;
+- GitHub workflow;
+- internal Worker endpoint;
+- temporary API route;
+- schema object;
+- migration;
+- diagnostic harness;
+
+unless one of these is true:
+
+1. the user explicitly requested that artifact; or
+2. the requested operation is already approved, the established project path genuinely requires a temporary bounded HTTP-transport workflow, and the repository instructions explicitly permit that fallback.
+
+For read-only production audits, **do not modify backend source code to create a new audit route**. Use an existing protected audit surface. If the existing surface cannot be reached after the documented primary path and fallback are attempted, stop and report the exact blocker.
+
+Any permitted temporary transport must be removed immediately after the bounded operation completes.
+
+### No diagnostic loops
+
+- Once the next concrete action is known, execute it.
+- Do not spend more than two consecutive tool actions on access, authentication, connector surfacing, or transport.
+- After two such actions, use the documented fallback immediately.
+- Do not repeatedly inspect secrets, token masking, plugin availability, workflow configuration, or deployment plumbing after the project-supported path is already known.
+- Do not create probes whose only purpose is to investigate another probe.
+
+### Setup is not completion
+
+Never report a task complete merely because:
+- code was written;
+- a commit exists;
+- a branch or PR exists;
+- CI passed;
+- Cloudflare deployed;
+- an endpoint exists;
+- a workflow was created;
+- a repair is "ready to run."
+
+A production operation is complete only after the requested operation actually ran and the resulting production state was retrieved and verified.
+
+### Minimize control surfaces
+
+- Prefer the current watched branch plus existing durable project surfaces.
+- Do not leave behind one-shot workflows, expired routes, stale diagnostic PRs, or temporary repair branches as part of the normal operating model.
+- Historical artifacts must not be treated as current execution paths.
+- PR #366 remains the Cloudflare deployment-status anchor unless these repository instructions explicitly supersede it.
+
+### Communication discipline
+
+- Keep updates short and factual.
+- Report concrete results, not narration of routine browsing.
+- If blocked, report only after the primary documented path and documented fallback both fail.
+- A blocker report must include the exact operation, exact failure, fallback attempted, and why no remaining project-supported path can complete the operation.
+- Never disappear into an open-ended investigation after the user has approved a specific bounded operation.
+
+### Control-room discipline
+
+When the user designates a chat as a control room or coordination chat:
+- use it to maintain the current production checkpoint, completed operations, and the next atomic objective;
+- do not launch broader production work from it unless the user explicitly asks;
+- execution prompts should be narrow enough to complete within one bounded operation and the five-action checkpoint rule.
