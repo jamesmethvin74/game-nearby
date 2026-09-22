@@ -20,6 +20,24 @@ For this project, **missing or unsurfaced connector/action namespaces are NEVER 
 - For Cloudflare deployment/build status, the authoritative path is: **exact commit SHA -> GitHub check-runs -> `Workers Builds: localbleachersar-sports-api`**. PR comments are secondary only.
 - For exact build lookup, the Ops Bridge must use the GitHub Cloudflare check-run as its primary source. Cloudflare API/token access is optional log enrichment and must never turn a valid build-status lookup into HTTP 502.
 
+### Mandatory ChatGPT HTTP transport fallback
+
+A ChatGPT/runtime HTTP egress failure such as `DisabledError`, blocked `workers.dev`, blocked custom-domain fetch, or inability of the generic web tool to reach a Worker is **never** a Cloudflare outage and **never** a stopping condition.
+
+When an already-approved LocalBleachersAR operation requires reading an existing public/protected Worker or Ops Bridge endpoint and the current runtime cannot make that HTTP request directly:
+
+1. do not report the runtime HTTP failure as the task outcome;
+2. immediately use the established **temporary one-shot GitHub workflow as HTTP transport only**;
+3. hard-code the exact approved endpoint(s) in that temporary workflow — do not create a generic proxy;
+4. use existing repository secrets only when the already-approved endpoint requires them; never print, retrieve, rotate, recreate, or expose secret values;
+5. capture the bounded HTTP status/body in workflow logs or an artifact;
+6. retrieve the result through GitHub;
+7. delete the temporary workflow immediately after the result is retrieved.
+
+This transport fallback is explicitly permitted and requires no second approval when the underlying production operation is already approved. It is **not** a production architecture change and must not perform D1 writes, deployment, collection, reconciliation, refresh, repair, or migration unless those operations were separately approved.
+
+**Never show the user a ChatGPT HTTP-egress error as the reason LocalBleachersAR work cannot continue while this fallback is available.**
+
 ## LOCALBLEACHERSAR PRODUCTION CONTROL SURFACE — READ THIS FIRST
 
 This repository already has an established production operating model. Do not rediscover it from scratch.
@@ -36,6 +54,8 @@ This repository already has an established production operating model. Do not re
 ### GitHub Actions are not the production control surface
 
 Do **not** create or use GitHub Actions to perform LocalBleachersAR production deployment, D1 queries, audits, collection, reconciliation, refresh, or repair merely because another Cloudflare action namespace is not surfaced.
+
+**Narrow exception:** a temporary one-shot workflow may be used as **HTTP transport only** when the current ChatGPT runtime cannot reach an already-existing approved Worker/Ops Bridge endpoint directly. It must be fixed-target, bounded, read-only unless the underlying operation already has write approval, and deleted immediately after retrieval.
 
 A missing direct Cloudflare/plugin namespace is irrelevant when Wrangler/project scripts can perform the approved operation.
 

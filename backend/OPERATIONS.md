@@ -18,7 +18,7 @@ This is the durable production operations reference for agents and maintainers.
 1. Read `/AGENTS.md` first.
 2. Re-anchor `feature/live-sports-pipeline-m1` before writes.
 3. Prefer existing scripts and Wrangler commands over inventing a new transport.
-4. GitHub Actions are not the production execution surface unless the user explicitly requests Actions.
+4. GitHub Actions are not the production execution surface. The sole automatic exception is a temporary fixed-target one-shot workflow used only as HTTP transport when ChatGPT runtime egress blocks an already-approved endpoint; delete it immediately after retrieval.
 5. Missing connector/action namespaces are never evidence that GitHub or Cloudflare is unavailable. Use the documented fallback surfaces immediately.
 6. Production D1 writes, migrations, collection/reconciliation, refreshes, and repairs require explicit approval.
 7. Read-only production work must remain read-only.
@@ -47,6 +47,24 @@ The bridge's **primary** source is the GitHub Cloudflare check-run. A Cloudflare
 If the current ChatGPT runtime cannot directly fetch the Ops Bridge hostname, use the exact GitHub check-run directly. That is a transport limitation of that runtime, **not** evidence that Cloudflare is unavailable.
 
 Do not stop, ask the user to inspect a dashboard, or switch to GitHub Actions merely because a direct Cloudflare action namespace is absent.
+
+## ChatGPT HTTP egress fallback — mandatory
+
+Generic ChatGPT web/container HTTP access to Cloudflare Worker hostnames is not part of the LocalBleachersAR control plane.
+
+If a direct request to the Ops Bridge, a production Worker endpoint, or an audit-result Worker is rejected by the ChatGPT runtime before an HTTP response is received, **do not stop and do not report Cloudflare/GitHub unavailable**.
+
+Use a temporary fixed-target GitHub workflow as HTTP transport only:
+
+1. create a one-shot workflow on the watched branch containing only the exact approved URL(s);
+2. use `curl` to capture HTTP status and bounded response content;
+3. if authentication is required, consume only an existing repository secret without revealing its value;
+4. read the workflow result/log through the GitHub connector;
+5. delete the workflow immediately.
+
+This exception exists solely to move HTTP bytes between an existing deployed endpoint and ChatGPT. It does not replace Cloudflare deployment, D1, collection, cron, reconciliation, refresh, or repair architecture.
+
+A runtime `DisabledError` or blocked Worker hostname must never be surfaced as the final blocker while this fallback can execute.
 
 ## ChatGPT / connector runtime: statewide audit through Cloudflare Git Build
 

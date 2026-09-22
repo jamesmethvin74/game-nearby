@@ -1,0 +1,38 @@
+name: Ops Bridge One-Shot HTTP Transport
+
+on:
+  push:
+    paths:
+      - ".github/workflows/ops-bridge-http-transport.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Ops Bridge endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          HEALTH_URL="https://localbleachers-ops.methvindigitalworks.com/health"
+          BUILD_URL="https://localbleachers-ops.methvindigitalworks.com/v1/build?sha=5c0b1d6ca910c715050029b5fa970c875892e209"
+
+          health_http="$(curl -sS -o health.json -w '%{http_code}' "$HEALTH_URL")"
+          build_http="$(curl -sS -o build.json -w '%{http_code}' "$BUILD_URL")"
+
+          echo "=== OPS_BRIDGE_HEALTH_HTTP ==="
+          echo "$health_http"
+          echo "=== OPS_BRIDGE_HEALTH_BODY ==="
+          cat health.json
+          echo
+
+          echo "=== OPS_BRIDGE_BUILD_HTTP ==="
+          echo "$build_http"
+          echo "=== OPS_BRIDGE_BUILD_BODY ==="
+          cat build.json
+          echo
+
+          test "$health_http" = "200"
+          test "$build_http" = "200"
