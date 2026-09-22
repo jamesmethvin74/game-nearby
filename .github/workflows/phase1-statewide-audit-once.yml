@@ -1,0 +1,349 @@
+name: Phase 1 statewide factual integrity audit once
+
+on:
+  push:
+    branches: [audit/phase1-statewide-20260921]
+    paths:
+      - .github/workflows/phase1-statewide-audit-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://localbleachersar-sports-api.james-methvin74.workers.dev
+      REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+    steps:
+      - name: Run read-only statewide football and volleyball audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$REFRESH_TOKEN"
+
+          curl --retry 4 --retry-all-errors --retry-delay 2 --max-time 180 -fsS \
+            -H "x-refresh-token: $REFRESH_TOKEN" \
+            "$BASE_URL/api/v1/coverage-report?view=data-integrity&phase1=$(date +%s)" \
+            > /tmp/integrity.json
+
+          cat > /tmp/phase1.mjs <<'NODE'
+          import fs from 'node:fs';
+
+          const base=process.env.BASE_URL;
+          const targetSports=new Set(['football','volleyball']);
+          const text=v=>String(v??'').trim();
+          const sportOf=v=>text(v).toLowerCase();
+          const num=v=>v==null||v===''?null:Number(v);
+          const delay=ms=>new Promise(r=>setTimeout(r,ms));
+
+          async function getJson(path,{attempts=4,timeout=120000}={}){
+            let last;
+            for(let attempt=1;attempt<=attempts;attempt++){
+              try{
+                const response=await fetch(base+path,{
+                  headers:{'cache-control':'no-cache'},
+                  signal:AbortSignal.timeout(timeout)
+                });
+                if(!response.ok) throw new Error('HTTP '+response.status+' '+path);
+                return await response.json();
+              }catch(error){
+                last=error;
+                if(attempt<attempts) await delay(1000*attempt);
+              }
+            }
+            throw last;
+          }
+
+          async function mapLimit(items,limit,fn){
+            const out=new Array(items.length);
+            let index=0;
+            const workers=Array.from({length:Math.min(limit,items.length)},async()=>{
+              while(true){
+                const i=index++;
+                if(i>=items.length) return;
+                try{ out[i]=await fn(items[i],i); }
+                catch(error){ out[i]={__error:String(error?.message||error)}; }
+              }
+            });
+            await Promise.all(workers);
+            return out;
+          }
+
+          function recordText(w,l,t=0){
+            return Number(t||0)?`${Number(w||0)}-${Number(l||0)}-${Number(t||0)}`:`${Number(w||0)}-${Number(l||0)}`;
+          }
+
+          function deriveRecord(games){
+            let w=0,l=0,t=0,cw=0,cl=0,ct=0,finals=0,conferenceFinals=0;
+            for(const g of games||[]){
+              if(text(g.status).toUpperCase()!=='FINAL') continue;
+              if(g.team_score==null||g.opponent_score==null) continue;
+              if(Number(g.counts_for_record??1)===0) continue;
+              const a=Number(g.team_score), b=Number(g.opponent_score);
+              if(!Number.isFinite(a)||!Number.isFinite(b)) continue;
+              finals++;
+              const r=a>b?'W':a<b?'L':'T';
+              if(r==='W')w++; else if(r==='L')l++; else t++;
+              if(Number(g.conference_game??g.canonical_conference_game??0)===1){
+                conferenceFinals++;
+                if(r==='W')cw++; else if(r==='L')cl++; else ct++;
+              }
+            }
+            return {
+              wins:w,losses:l,ties:t,
+              conference_wins:cw,conference_losses:cl,conference_ties:ct,
+              finals,conference_finals:conferenceFinals,
+              display_overall_record:recordText(w,l,t),
+              display_conference_record:recordText(cw,cl,ct)
+            };
+          }
+
+          function issueView(i){
+            return {
+              code:i.code||null,severity:i.severity||null,surface:i.surface||null,
+              team_id:i.team_id||null,school_id:i.school_id||null,school_name:i.school_name||null,
+              sport:i.sport||null,opponent:i.opponent||null,scheduled_at:i.scheduled_at||null,
+              game_id:i.game_id||null,other_game_id:i.other_game_id||null,
+              canonical_event_id:i.canonical_event_id||null,
+              other_canonical_event_id:i.other_canonical_event_id||null,
+              detail:i.detail||null,
+              source_only_finals:i.source_only_finals||undefined,
+              truth_only_finals:i.truth_only_finals||undefined
+            };
+          }
+
+          const integrity=JSON.parse(fs.readFileSync('/tmp/integrity.json','utf8'));
+          const expectedIssueTotal=Number(integrity.summary?.upstream_source_observation_issues||0)
+            + Number(integrity.summary?.blocking_issues||0)
+            + Number(integrity.summary?.warning_issues||0);
+          const issueSample=Array.isArray(integrity.issues)?integrity.issues:[];
+          const issueSampleComplete=issueSample.length>=expectedIssueTotal;
+
+          const scopedIntegrityIssues=issueSample
+            .filter(i=>targetSports.has(sportOf(i.sport)))
+            .map(issueView);
+
+          const schoolsPayload=await getJson('/api/v1/schools?phase1='+Date.now());
+          const schools=(schoolsPayload.schools||[]).filter(s=>s.id);
+          const schoolIds=[...new Set(schools.map(s=>String(s.id)))];
+
+          const statuses=[];
+          for(let offset=0;offset<schoolIds.length;offset+=20){
+            const ids=schoolIds.slice(offset,offset+20);
+            const payload=await getJson('/api/v1/team-statuses?school_ids='+ids.map(encodeURIComponent).join(',')+'&phase1='+Date.now()+'-'+offset);
+            statuses.push(...(payload.team_statuses||[]));
+          }
+
+          const targetStatuses=statuses.filter(s=>
+            String(s.season||'2026')==='2026' && targetSports.has(sportOf(s.sport))
+          );
+          const statusByTeam=new Map(targetStatuses.map(s=>[String(s.team_id),s]));
+          const targetTeams=[...statusByTeam.keys()];
+
+          const surfaceProblems=[];
+          const teamDetails=new Map();
+          let visibleGameRows=0;
+
+          const detailResults=await mapLimit(targetTeams,6,async teamId=>{
+            const [schedulePayload,recordPayload]=await Promise.all([
+              getJson('/api/v1/teams/'+encodeURIComponent(teamId)+'/schedule?phase1='+Date.now()),
+              getJson('/api/v1/teams/'+encodeURIComponent(teamId)+'/record?phase1='+Date.now())
+            ]);
+            const games=(schedulePayload.games||[]).filter(g=>targetSports.has(sportOf(g.sport||statusByTeam.get(teamId)?.sport)));
+            const status=statusByTeam.get(teamId);
+            const record=recordPayload.record||null;
+            const derived=deriveRecord(games);
+            visibleGameRows+=games.length;
+            teamDetails.set(teamId,{games,status,record,derived});
+
+            if(!record){
+              surfaceProblems.push({code:'TEAM_RECORD_ENDPOINT_MISSING',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,detail:'Team record endpoint returned no record.'});
+            } else {
+              if(record.display_overall_record!==status?.display_overall_record){
+                surfaceProblems.push({code:'STATUS_RECORD_ENDPOINT_OVERALL_MISMATCH',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,detail:`status=${status?.display_overall_record}; record=${record.display_overall_record}`});
+              }
+              if(record.display_conference_record!==status?.display_conference_record){
+                surfaceProblems.push({code:'STATUS_RECORD_ENDPOINT_CONFERENCE_MISMATCH',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,detail:`status=${status?.display_conference_record}; record=${record.display_conference_record}`});
+              }
+            }
+
+            if(derived.display_overall_record!==status?.display_overall_record){
+              surfaceProblems.push({code:'VISIBLE_FINALS_VS_STATUS_OVERALL_MISMATCH',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,detail:`visible finals=${derived.display_overall_record}; status=${status?.display_overall_record}; countable_finals=${derived.finals}`});
+            }
+            if(derived.display_conference_record!==status?.display_conference_record){
+              surfaceProblems.push({code:'VISIBLE_FINALS_VS_STATUS_CONFERENCE_MISMATCH',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,detail:`visible conference finals=${derived.display_conference_record}; status=${status?.display_conference_record}; conference_finals=${derived.conference_finals}`});
+            }
+
+            for(const g of games){
+              if(text(g.status).toUpperCase()==='FINAL' && (g.team_score==null||g.opponent_score==null)){
+                surfaceProblems.push({code:'USER_VISIBLE_FINAL_MISSING_SCORE',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,opponent:g.opponent||null,scheduled_at:g.scheduled_at||null,game_id:g.id||g.game_id||null,canonical_event_id:g.canonical_event_id||null,detail:'Team schedule exposes FINAL without both scores.'});
+              }
+              const trust=text(g.data_trust).toUpperCase();
+              if(text(g.status).toUpperCase()==='FINAL' && (/QUARANTIN/.test(trust)||Number(g.conflict_count||0)>0)){
+                surfaceProblems.push({code:'USER_VISIBLE_UNTRUSTED_FINAL',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,opponent:g.opponent||null,scheduled_at:g.scheduled_at||null,game_id:g.id||g.game_id||null,canonical_event_id:g.canonical_event_id||null,detail:`FINAL is visible with data_trust=${g.data_trust||null}, conflict_count=${Number(g.conflict_count||0)}`});
+              }
+            }
+            return {team_id:teamId,games:games.length};
+          });
+
+          for(let i=0;i<detailResults.length;i++){
+            if(detailResults[i]?.__error){
+              const teamId=targetTeams[i], status=statusByTeam.get(teamId);
+              surfaceProblems.push({code:'TEAM_DETAIL_FETCH_FAILED',severity:'blocking',user_visible:true,team_id:teamId,school_id:status?.school_id||null,school_name:status?.school_name||null,sport:status?.sport||null,detail:detailResults[i].__error});
+            }
+          }
+
+          const groups=new Map();
+          for(const s of targetStatuses){
+            if(!s.conference_id) continue;
+            const key=sportOf(s.sport)+'|'+String(s.conference_id);
+            if(!groups.has(key)) groups.set(key,[]);
+            groups.get(key).push(s);
+          }
+
+          const standingsChecks=[];
+          for(const [key,members] of groups){
+            const [sport,conferenceId]=key.split('|');
+            const candidates=[conferenceId];
+            const stripped=conferenceId.replace(/-(football|volleyball)(?:-2026)?$/i,'');
+            if(stripped!==conferenceId) candidates.push(stripped);
+            let payload=null, used=null, lastError=null;
+            for(const c of [...new Set(candidates)]){
+              try{
+                const p=await getJson('/api/v1/standings?sport='+encodeURIComponent(sport)+'&conference='+encodeURIComponent(c)+'&phase1='+Date.now());
+                if(Array.isArray(p.standings)){ payload=p; used=c; if(p.standings.length) break; }
+              }catch(error){ lastError=String(error?.message||error); }
+            }
+            if(!payload){
+              for(const s of members) surfaceProblems.push({code:'STANDINGS_FETCH_FAILED',severity:'blocking',user_visible:true,team_id:s.team_id,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,detail:lastError||'No standings payload.'});
+              continue;
+            }
+            standingsChecks.push({sport,conference_id:conferenceId,requested_slug:used,rows:(payload.standings||[]).length});
+            for(const s of members){
+              const row=(payload.standings||[]).find(x=>String(x.team_id)===String(s.team_id))
+                || (payload.standings||[]).find(x=>String(x.school_id||'')===String(s.school_id||''));
+              if(!row){
+                surfaceProblems.push({code:'STANDING_ROW_MISSING',severity:'blocking',user_visible:true,team_id:s.team_id,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,detail:`No standings row in conference ${conferenceId}.`});
+                continue;
+              }
+              if((row.display_overall_record??null)!==(s.display_overall_record??null)){
+                surfaceProblems.push({code:'STATUS_STANDINGS_OVERALL_MISMATCH',severity:'blocking',user_visible:true,team_id:s.team_id,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,detail:`status=${s.display_overall_record}; standing=${row.display_overall_record}`});
+              }
+              if((row.display_conference_record??null)!==(s.display_conference_record??null)){
+                surfaceProblems.push({code:'STATUS_STANDINGS_CONFERENCE_MISMATCH',severity:'blocking',user_visible:true,team_id:s.team_id,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,detail:`status=${s.display_conference_record}; standing=${row.display_conference_record}`});
+              }
+              if((row.display_rank??null)!==(s.display_rank??null)){
+                surfaceProblems.push({code:'STATUS_STANDINGS_RANK_MISMATCH',severity:'blocking',user_visible:true,team_id:s.team_id,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,detail:`status rank=${s.display_rank??null}; standing rank=${row.display_rank??null}`});
+              }
+            }
+          }
+
+          const cardsPayload=await getJson('/api/v1/games?since=2026-08-01T00%3A00%3A00.000Z&until=2026-12-31T23%3A59%3A59.999Z&phase1='+Date.now(),{attempts:4,timeout:180000});
+          const cards=(cardsPayload.games||[]).filter(g=>targetSports.has(sportOf(g.sport)) && statusByTeam.has(String(g.team_id)));
+          const cardTeams=new Set();
+          for(const g of cards){
+            const teamId=String(g.team_id), s=statusByTeam.get(teamId);
+            cardTeams.add(teamId);
+            if(Number(g.wins||0)!==Number(s.wins||0)||Number(g.losses||0)!==Number(s.losses||0)||Number(g.ties||0)!==Number(s.ties||0)){
+              surfaceProblems.push({code:'HOME_CARD_OVERALL_RECORD_MISMATCH',severity:'blocking',user_visible:true,team_id:teamId,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,opponent:g.opponent||null,scheduled_at:g.scheduled_at||null,game_id:g.id||null,detail:`card=${recordText(g.wins,g.losses,g.ties)}; status=${s.display_overall_record}`});
+            }
+            if((g.rank??null)!==(s.rank??s.display_rank??null)){
+              surfaceProblems.push({code:'HOME_CARD_RANK_MISMATCH',severity:'blocking',user_visible:true,team_id:teamId,school_id:s.school_id||null,school_name:s.school_name||null,sport:s.sport,opponent:g.opponent||null,scheduled_at:g.scheduled_at||null,game_id:g.id||null,detail:`card rank=${g.rank??null}; status rank=${s.rank??s.display_rank??null}`});
+            }
+          }
+
+          const conwayTeamId='conway-volleyball-2026';
+          const conwayStatus=statusByTeam.get(conwayTeamId)||null;
+          const conwayDetail=teamDetails.get(conwayTeamId)||null;
+          const conwaySchool=await getJson('/api/v1/schools/conway/schedule?phase1='+Date.now());
+          const conwayGames=(conwaySchool.games||[]).filter(g=>String(g.team_id)===conwayTeamId || (sportOf(g.sport)==='volleyball'&&sportOf(g.gender)==='girls'));
+          const vanBuren=conwayGames.find(g=>String(g.scheduled_at||'').slice(0,10)==='2026-09-15' && /van\s*buren/i.test(String(g.opponent||'')))||null;
+          const republic=conwayGames.find(g=>/republic/i.test(String(g.opponent||'')))||null;
+          let conwayStanding=null;
+          if(conwayStatus?.conference_id){
+            const candidateSlugs=[String(conwayStatus.conference_id),String(conwayStatus.conference_id).replace(/-(football|volleyball)(?:-2026)?$/i,'')];
+            for(const c of [...new Set(candidateSlugs)]){
+              try{
+                const p=await getJson('/api/v1/standings?sport=volleyball&conference='+encodeURIComponent(c)+'&phase1='+Date.now());
+                conwayStanding=(p.standings||[]).find(x=>String(x.team_id)===conwayTeamId)||null;
+                if(conwayStanding) break;
+              }catch{}
+            }
+          }
+          const conwayCards=cards.filter(g=>String(g.team_id)===conwayTeamId);
+
+          const issueCounts={};
+          for(const i of scopedIntegrityIssues) issueCounts[i.code]=(issueCounts[i.code]||0)+1;
+          const surfaceCounts={};
+          for(const i of surfaceProblems) surfaceCounts[i.code]=(surfaceCounts[i.code]||0)+1;
+
+          const combined=[...scopedIntegrityIssues,...surfaceProblems];
+          const blocking=combined.filter(i=>String(i.severity||'blocking')==='blocking');
+          const affectedTeams=new Set(blocking.map(i=>i.team_id).filter(Boolean));
+          const affectedGames=new Set(blocking.flatMap(i=>[i.game_id,i.canonical_event_id]).filter(Boolean));
+
+          const teamCounts={
+            football:targetStatuses.filter(s=>sportOf(s.sport)==='football').length,
+            volleyball:targetStatuses.filter(s=>sportOf(s.sport)==='volleyball').length
+          };
+
+          const report={
+            marker:'LOCALBLEACHERSAR_PHASE1_STATEWIDE_FACTUAL_AUDIT_20260921',
+            audited_commit:'e68867c5d094021606b323c335a6965f14a8f6f0',
+            generated_at:new Date().toISOString(),
+            write_operations_performed:0,
+            integrity_audit:{
+              audit_version:integrity.audit_version,
+              generated_at:integrity.generated_at,
+              clean:integrity.clean,
+              d1:integrity.d1,
+              summary:integrity.summary,
+              source_surface:integrity.source_surface,
+              one_truth_surface:integrity.one_truth_surface,
+              source_vs_truth_summary:integrity.source_vs_truth?.summary||null,
+              issue_sample_complete:issueSampleComplete,
+              expected_issue_rows:expectedIssueTotal,
+              returned_issue_rows:issueSample.length,
+              football_volleyball_issue_counts:issueCounts,
+              football_volleyball_issues:scopedIntegrityIssues
+            },
+            coverage:{
+              schools_queried:schoolIds.length,
+              football_teams:teamCounts.football,
+              volleyball_teams:teamCounts.volleyball,
+              total_teams:targetStatuses.length,
+              team_schedule_endpoints_checked:targetTeams.length,
+              team_record_endpoints_checked:targetTeams.length,
+              visible_football_volleyball_game_rows_examined:visibleGameRows,
+              standings_groups_checked:standingsChecks.length,
+              home_nearby_card_rows_examined:cards.length,
+              home_nearby_card_teams_represented:cardTeams.size
+            },
+            surface_problem_counts:surfaceCounts,
+            surface_problems:surfaceProblems,
+            blocking_summary:{
+              total_blocking_issue_rows:blocking.length,
+              affected_teams:affectedTeams.size,
+              affected_games:affectedGames.size
+            },
+            conway_regression:{
+              status:conwayStatus,
+              record:conwayDetail?.record||null,
+              derived_from_visible_finals:conwayDetail?.derived||null,
+              standing:conwayStanding,
+              van_buren_sep_15:vanBuren,
+              republic,
+              home_nearby_cards:conwayCards.map(g=>({
+                id:g.id,canonical_event_id:g.canonical_event_id,scheduled_at:g.scheduled_at,
+                opponent:g.opponent,status:g.status,team_score:g.team_score,opponent_score:g.opponent_score,
+                wins:g.wins,losses:g.losses,ties:g.ties,rank:g.rank
+              }))
+            }
+          };
+
+          console.log('PHASE1_REPORT='+JSON.stringify(report));
+          NODE
+
+          node /tmp/phase1.mjs
