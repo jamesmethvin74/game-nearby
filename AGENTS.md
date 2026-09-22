@@ -2,6 +2,38 @@
 
 These rules are mandatory for any coding/operations agent working in this repository.
 
+## LOCALBLEACHERSAR PRODUCTION CONTROL SURFACE — READ THIS FIRST
+
+This repository already has an established production operating model. Do not rediscover it from scratch.
+
+### Canonical control surfaces
+
+- **Production deploy:** Cloudflare Git integration from `feature/live-sports-pipeline-m1`. `backend/package.json` also exposes `npm run prod:deploy` / plain `wrangler deploy` for the project environment when an approved operation explicitly requires it.
+- **Production D1:** use Wrangler from the authenticated project environment, e.g. `wrangler d1 execute localbleachersar-sports --remote ...`, preferably through an existing approved script under `backend/scripts/`.
+- **Statewide read-only integrity audit:** from `backend/`, run **`npm run prod:audit:statewide`**. This is the canonical audit command. It executes the existing `buildStatewideDataIntegrityAudit()` against the remote production D1 binding through Wrangler remote development and prints the JSON result. It does not require the protected production HTTP token and does not deploy a new production route.
+- **General read-only production verification:** run **`npm run prod:verify`** unless a more specific existing script is named by the task.
+- **Operational reference:** read `backend/OPERATIONS.md` before inventing any new execution mechanism.
+
+### GitHub Actions are not the production control surface
+
+Do **not** create or use GitHub Actions to perform LocalBleachersAR production deployment, D1 queries, audits, collection, reconciliation, refresh, or repair merely because another Cloudflare action namespace is not surfaced.
+
+A missing direct Cloudflare/plugin namespace is irrelevant when Wrangler/project scripts can perform the approved operation.
+
+GitHub remains the source-control/deployment-status surface. It is not the default production execution engine.
+
+### Do not make the user repeat this
+
+When an approved production operation is requested:
+
+1. read this file;
+2. re-anchor the watched branch;
+3. use the named command/script in `backend/OPERATIONS.md`;
+4. execute the operation;
+5. return the result.
+
+Do not spend the action budget rediscovering Cloudflare connector availability, protected Worker tokens, alternate HTTP transports, or GitHub Actions when a canonical Wrangler/project command already exists.
+
 ## Cloudflare access protocol — do not block on action namespaces
 
 Cloudflare is a known connected production service for this project. A missing or unsurfaced direct Cloudflare action namespace is **not** evidence that Cloudflare is unavailable and is **never** by itself a reason to stop work.
