@@ -10,7 +10,8 @@ This is the durable production operations reference for agents and maintainers.
 - D1 database: `localbleachersar-sports`
 - Wrangler config: `backend/wrangler.jsonc`
 - Production deployment: Cloudflare Git integration from the watched branch
-- Deployment-status anchor: PR #366 unless superseded in `AGENTS.md`
+- Authoritative deployment-status path: exact commit SHA -> GitHub check-runs -> `Workers Builds: localbleachersar-sports-api`
+- Ops Bridge: `https://localbleachers-ops.methvindigitalworks.com`
 
 ## Rules that matter most
 
@@ -18,10 +19,34 @@ This is the durable production operations reference for agents and maintainers.
 2. Re-anchor `feature/live-sports-pipeline-m1` before writes.
 3. Prefer existing scripts and Wrangler commands over inventing a new transport.
 4. GitHub Actions are not the production execution surface unless the user explicitly requests Actions.
-5. Do not interpret an unsurfaced Cloudflare plugin namespace as lack of Cloudflare access.
+5. Missing connector/action namespaces are never evidence that GitHub or Cloudflare is unavailable. Use the documented fallback surfaces immediately.
 6. Production D1 writes, migrations, collection/reconciliation, refreshes, and repairs require explicit approval.
 7. Read-only production work must remain read-only.
 8. Do not create a new audit route merely to run an audit.
+
+## Authoritative GitHub / Cloudflare availability contract
+
+Never use connector/plugin surfacing as the test for whether this project can use GitHub or Cloudflare.
+
+For build/deployment status:
+
+1. resolve the exact commit SHA;
+2. read that commit's GitHub check-runs;
+3. select `Workers Builds: localbleachersar-sports-api`;
+4. use its `status`, `conclusion`, Cloudflare Build ID (`external_id`), version ID when present, and `details_url`.
+
+The LocalBleachersAR Ops Bridge exposes the same exact-build truth at:
+
+```text
+GET https://localbleachers-ops.methvindigitalworks.com/health
+GET https://localbleachers-ops.methvindigitalworks.com/v1/build?sha=<git-sha>
+```
+
+The bridge's **primary** source is the GitHub Cloudflare check-run. A Cloudflare API token is optional and is used only to enrich failed builds with sanitized log detail. Missing/expired/under-permissioned Cloudflare API auth must not make an otherwise valid exact-build lookup fail.
+
+If the current ChatGPT runtime cannot directly fetch the Ops Bridge hostname, use the exact GitHub check-run directly. That is a transport limitation of that runtime, **not** evidence that Cloudflare is unavailable.
+
+Do not stop, ask the user to inspect a dashboard, or switch to GitHub Actions merely because a direct Cloudflare action namespace is absent.
 
 ## ChatGPT / connector runtime: statewide audit through Cloudflare Git Build
 
@@ -53,13 +78,13 @@ The entire operation is:
 1. Read `AGENTS.md` and verify the watched-branch head.
 2. Through the GitHub connector, change only `backend/package.json`:
    `"deploy:cloudflare": "npm run prod:audit:publish"`.
-3. Wait for the `cloudflare-workers-and-pages[bot]` status on PR #366 for that exact commit.
+3. Read that exact commit's GitHub check-runs and select `Workers Builds: localbleachersar-sports-api`; do not rely on PR #366 comments as the primary status source.
 4. On successful Cloudflare build, fetch the stable result alias above and retrieve the audit JSON.
 5. Immediately restore `"deploy:cloudflare": "wrangler deploy"` through the GitHub connector.
 
 The temporary deploy-command change is an execution trigger only. The helper itself publishes a preview result and **does not deploy the production Worker**. The restore commit returns the watched branch to the normal production deployment contract.
 
-Do not clone the repository into a generic ChatGPT shell. Do not test whether the generic runtime can reach GitHub. Do not inspect plugin surfacing. Do not substitute GitHub Actions.
+Do not clone the repository into a generic ChatGPT shell. Do not test connector/plugin surfacing as a prerequisite. Use the established GitHub repository surface and exact-commit Cloudflare check-run. Do not substitute GitHub Actions.
 
 ## Canonical commands
 
