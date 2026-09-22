@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 SEASON="${AUDIT_SEASON:-2026}"
 SAMPLE_LIMIT="${AUDIT_SAMPLE_LIMIT:-1000}"
 PORT="${AUDIT_PORT:-8797}"
+MAX_TIME="${AUDIT_MAX_TIME:-300}"
 HOST="127.0.0.1"
 WRAPPER=".statewide-integrity-audit-runtime-$$.mjs"
 LOG="$(mktemp)"
@@ -31,16 +32,28 @@ if ! [[ "${SAMPLE_LIMIT}" =~ ^[0-9]+$ ]] || [ "${SAMPLE_LIMIT}" -lt 1 ]; then
   exit 2
 fi
 
+if ! [[ "${MAX_TIME}" =~ ^[0-9]+$ ]] || [ "${MAX_TIME}" -lt 1 ]; then
+  echo "AUDIT_MAX_TIME must be a positive integer" >&2
+  exit 2
+fi
+
 cat > "${WRAPPER}" <<EOF
 import { buildStatewideDataIntegrityAudit } from "./src/statewide-data-integrity-audit.js";
 
 const SEASON = ${SEASON@Q};
 const SAMPLE_LIMIT = Number(${SAMPLE_LIMIT@Q});
+const READY = "/__localbleachersar_statewide_integrity_ready";
+const AUDIT = "/__localbleachersar_statewide_integrity_audit";
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method !== "GET" || url.pathname !== "/__localbleachersar_statewide_integrity_audit") {
+
+    if (request.method === "GET" && url.pathname === READY) {
+      return new Response(null, { status: 204, headers: { "cache-control": "no-store" } });
+    }
+
+    if (request.method !== "GET" || url.pathname !== AUDIT) {
       return new Response("not found", { status: 404 });
     }
 
@@ -74,7 +87,7 @@ WRANGLER_PID="$!"
 
 READY=0
 for _ in $(seq 1 30); do
-  if curl -fsS --max-time 3     "http://${HOST}:${PORT}/__localbleachersar_statewide_integrity_audit"     -o "${OUT}" 2>/dev/null; then
+  if curl -fsS --max-time 3     "http://${HOST}:${PORT}/__localbleachersar_statewide_integrity_ready"     -o /dev/null 2>/dev/null; then
     READY=1
     break
   fi
@@ -86,8 +99,17 @@ for _ in $(seq 1 30); do
 done
 
 if [ "${READY}" -ne 1 ]; then
-  echo "Statewide integrity audit did not become reachable through Wrangler remote dev" >&2
+  echo "Statewide integrity audit harness did not become ready through Wrangler remote dev" >&2
   cat "${LOG}" >&2
+  exit 1
+fi
+
+# Execute the statewide audit exactly once.
+HTTP_STATUS="$(curl -sS --max-time "${MAX_TIME}"   -o "${OUT}"   -w '%{http_code}'   "http://${HOST}:${PORT}/__localbleachersar_statewide_integrity_audit")"
+
+if [ "${HTTP_STATUS}" != "200" ]; then
+  echo "Statewide integrity audit failed: HTTP ${HTTP_STATUS}" >&2
+  cat "${OUT}" >&2 || true
   exit 1
 fi
 
