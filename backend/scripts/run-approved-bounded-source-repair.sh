@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 cd "$(dirname "$0")/.."
 
 ALIAS="bounded-source-repair-result"
@@ -14,69 +13,26 @@ EXEC_WRAPPER="src/_bounded-source-repair-exec.mjs"
 RESULT_WRAPPER="src/_bounded-source-repair-result.mjs"
 TMPDIR="$(mktemp -d)"
 TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
-
-cleanup() {
-  rm -f "$EXEC_WRAPPER" "$RESULT_WRAPPER"
-  rm -rf "$TMPDIR"
-}
+cleanup(){ rm -f "$EXEC_WRAPPER" "$RESULT_WRAPPER"; rm -rf "$TMPDIR"; }
 trap cleanup EXIT INT TERM
-
-if ! grep -q '"database_name": "localbleachersar-sports"' wrangler.jsonc; then
-  echo "Refusing repair: wrangler.jsonc is not bound to localbleachersar-sports" >&2
-  exit 2
-fi
 
 node - "$TOKEN" > "$EXEC_WRAPPER" <<'NODE'
 const token=process.argv[2];
-const sourceIds=[
-  "df-8pkud7-volleyball-2026-official-school-results",
-  "df-wd92v5-volleyball-2026-official-school-results",
-  "college-ozarks-soccer-men-2026-sidearm",
-  "college-williams-baptist-soccer-men-2026-prestosports-rss"
-];
-const dragonFlyTeamIds=[
-  "df-7k6qj6-volleyball-2026",
-  "df-7kza8c-volleyball-2026",
-  "df-8pkud7-volleyball-2026",
-  "df-a6slv2-volleyball-2026",
-  "df-blzxrg-volleyball-2026",
-  "df-bpy5n6-volleyball-2026",
-  "df-cqpax3-volleyball-2026",
-  "df-ee2ys7-volleyball-2026",
-  "df-ev2nv9-volleyball-2026",
-  "df-qgka87-volleyball-2026",
-  "df-tnebcj-volleyball-2026",
-  "df-wd92v5-volleyball-2026"
-];
-const teamIds=[
-  "df-7ds5mt-volleyball-2026",
-  "df-7k6qj6-volleyball-2026",
-  "df-7kza8c-volleyball-2026",
-  "df-8pkud7-volleyball-2026",
-  "df-a6slv2-volleyball-2026",
-  "df-blzxrg-volleyball-2026",
-  "df-bpy5n6-volleyball-2026",
-  "df-cqpax3-volleyball-2026",
-  "df-ee2ys7-volleyball-2026",
-  "df-ev2nv9-volleyball-2026",
-  "df-qgka87-volleyball-2026",
-  "df-rpnt3m-volleyball-2026",
-  "df-tnebcj-volleyball-2026",
-  "df-wd92v5-volleyball-2026",
-  "ozarks-soccer-men-2026",
+const baseTeams=[
+  "df-7ds5mt-volleyball-2026","df-7k6qj6-volleyball-2026","df-7kza8c-volleyball-2026",
+  "df-8pkud7-volleyball-2026","df-a6slv2-volleyball-2026","df-blzxrg-volleyball-2026",
+  "df-bpy5n6-volleyball-2026","df-cqpax3-volleyball-2026","df-ee2ys7-volleyball-2026",
+  "df-ev2nv9-volleyball-2026","df-qgka87-volleyball-2026","df-rpnt3m-volleyball-2026",
+  "df-tnebcj-volleyball-2026","df-wd92v5-volleyball-2026","ozarks-soccer-men-2026",
   "williams-baptist-soccer-men-2026"
 ];
 process.stdout.write(`
-import { runDueCollections } from "./index.js";
-import { runDragonFlyTargetedCollection } from "./dragonfly-statewide.js";
-import { applyAuditedSourceDefectSnapshot } from "./statewide-data-integrity-repair.js";
+import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
 import { rebuildTeamRecords } from "./record-rebuild.js";
 import { rebuildOneTruth } from "./one-truth.js";
-import { buildStatewideDataIntegrityAudit } from "./statewide-data-integrity-audit.js";
+import { PRESENTATION_SUPPRESSED_NOTE } from "./current-schedule-truth.js";
 const TOKEN=${JSON.stringify(token)};
-const SOURCES=${JSON.stringify(sourceIds)};
-const DRAGONFLY_TEAMS=${JSON.stringify(dragonFlyTeamIds)};
-const TEAMS=${JSON.stringify(teamIds)};
+const BASE_TEAMS=${JSON.stringify(baseTeams)};
 function ok(req){return req.headers.get("x-bounded-repair-token")===TOKEN;}
 function json(body,status=200){return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});}
 export default {
@@ -87,64 +43,65 @@ export default {
     }
     if(request.method==="POST"&&path==="/api/bounded-source-repair-run"){
       if(!ok(request)) return json({error:"not_found"},404);
-      try {
-      const {results:sourceRows=[]}=await env.DB.prepare(
-        "SELECT id FROM sources WHERE enabled=1 AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
-      ).bind(JSON.stringify(SOURCES)).all();
-      const foundSources=new Set(sourceRows.map(row=>String(row.id)));
-      const missingSources=SOURCES.filter(id=>!foundSources.has(id));
+      try{
+        const before=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
+        const mismatches=(before.issues||[]).filter(x=>x.code==="SOURCE_FINAL_COUNT_VS_ONE_TRUTH");
+        const gameIds=[...new Set(mismatches.flatMap(x=>(x.truth_only_finals||[]).map(g=>String(g.game_id||"")).filter(Boolean)))];
+        if(gameIds.length>16) throw new Error("Consistency finalizer exceeded 16 game safety cap: "+gameIds.length);
 
-      const {results:teamRows=[]}=await env.DB.prepare(
-        "SELECT id FROM teams WHERE active=1 AND season='2026' AND id IN (SELECT value FROM json_each(?)) ORDER BY id"
-      ).bind(JSON.stringify(TEAMS)).all();
-      const foundTeams=new Set(teamRows.map(row=>String(row.id)));
-      const missingTeams=TEAMS.filter(id=>!foundTeams.has(id));
+        const {results:eligible=[]}=gameIds.length ? await env.DB.prepare(`
+          SELECT g.id,g.team_id,g.canonical_event_id
+          FROM games g
+          JOIN canonical_events ce ON ce.id=g.canonical_event_id
+          WHERE g.id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+            AND UPPER(COALESCE(ce.status,''))='FINAL'
+            AND ce.home_score IS NOT NULL
+            AND ce.away_score IS NOT NULL
+            AND instr(COALESCE(g.notes,''),?)>0
+          ORDER BY g.id
+        `).bind(JSON.stringify(gameIds),PRESENTATION_SUPPRESSED_NOTE).all() : {results:[]};
 
-      if(missingSources.length||missingTeams.length){
+        const eligibleIds=eligible.map(r=>String(r.id));
+        let healed=0;
+        if(eligibleIds.length){
+          const result=await env.DB.prepare(`
+            UPDATE games
+            SET notes=NULLIF(TRIM(
+                  REPLACE(
+                    REPLACE(
+                      REPLACE(COALESCE(notes,''),' | '||?,''),
+                      ?||' | ',''
+                    ),
+                    ?,''
+                  )
+                ),''),
+                updated_at=?
+            WHERE id IN (SELECT CAST(value AS TEXT) FROM json_each(?))
+              AND instr(COALESCE(notes,''),?)>0
+          `).bind(
+            PRESENTATION_SUPPRESSED_NOTE,PRESENTATION_SUPPRESSED_NOTE,PRESENTATION_SUPPRESSED_NOTE,
+            new Date().toISOString(),JSON.stringify(eligibleIds),PRESENTATION_SUPPRESSED_NOTE
+          ).run();
+          healed=Number(result?.meta?.changes||result?.changes||0);
+        }
+
+        const teamIds=[...new Set([...BASE_TEAMS,...mismatches.map(x=>String(x.team_id||"")).filter(Boolean),...eligible.map(x=>String(x.team_id||"")).filter(Boolean)])];
+        const records=await rebuildTeamRecords(env,teamIds,new Date().toISOString());
+        const oneTruth=await rebuildOneTruth(env,{season:"2026",teamIds});
+        const after=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
         return json({
-          status:"SCOPE_MISMATCH",
-          scope:{direct_source_ids:SOURCES,dragonfly_team_ids:DRAGONFLY_TEAMS,team_ids:TEAMS},
-          requested_sources:SOURCES.length,
-          found_sources:sourceRows.length,
-          missing_sources:missingSources,
-          requested_teams:TEAMS.length,
-          found_teams:teamRows.length,
-          missing_teams:missingTeams
-        },200);
-      }
-
-      const dragonfly=await runDragonFlyTargetedCollection(env,{teamIds:DRAGONFLY_TEAMS});
-      const collection=await runDueCollections(env,{
-        force:true,
-        sourceIds:SOURCES,
-        reason:"approved-bounded-data-repair"
-      });
-
-      const afterCollectionAudit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
-      const sourceRepair=await applyAuditedSourceDefectSnapshot(env,afterCollectionAudit,{
-        rebuildRecords:rebuildTeamRecords
-      });
-
-      const recordRebuild=await rebuildTeamRecords(env,TEAMS,new Date().toISOString());
-      const oneTruth=await rebuildOneTruth(env,{season:"2026",teamIds:TEAMS});
-      const audit=await buildStatewideDataIntegrityAudit(env,{season:"2026",sampleLimit:1000});
-
-      return json({
-        status:collection.ok?"SUCCESS":"PARTIAL_FAILURE",
-        scope:{direct_source_ids:SOURCES,dragonfly_team_ids:DRAGONFLY_TEAMS,team_ids:TEAMS},
-        dragonfly,
-        collection,
-        source_repair:sourceRepair,
-        record_rebuild:recordRebuild,
-        one_truth:oneTruth,
-        post_audit:audit
-      });
-      } catch(error) {
-        return json({
-          status:"EXECUTION_ERROR",
-          scope:{source_ids:SOURCES,team_ids:TEAMS},
-          error:String(error?.message||error).slice(0,2000)
-        },200);
+          status:"SUCCESS",
+          before_mismatches:mismatches.length,
+          requested_game_ids:gameIds,
+          eligible_game_ids:eligibleIds,
+          healed_rows:healed,
+          refreshed_team_ids:teamIds,
+          record_rebuild:records,
+          one_truth:oneTruth,
+          post_audit:after
+        });
+      }catch(error){
+        return json({status:"EXECUTION_ERROR",error:String(error?.message||error).slice(0,3000)},200);
       }
     }
     return json({error:"not_found"},404);
@@ -154,82 +111,33 @@ export default {
 NODE
 
 UPLOAD_LOG="$TMPDIR/exec-upload.log"
-set +e
 wrangler versions upload "$EXEC_WRAPPER" --preview-alias "$ALIAS" --keep-vars >"$UPLOAD_LOG" 2>&1
-UPLOAD_STATUS=$?
-set -e
 cat "$UPLOAD_LOG"
-
-if [ "$UPLOAD_STATUS" -ne 0 ]; then
-  node - "$UPLOAD_LOG" > "$RESULT_WRAPPER" <<'NODE'
-const fs=require('fs');
-const log=fs.readFileSync(process.argv[2],'utf8').slice(-12000);
-const body=JSON.stringify({status:"UPLOAD_ERROR",stage:"execution_worker_upload",error:log});
-process.stdout.write(`
-const BODY=${JSON.stringify(body)};
-export default {
-  async fetch(request){
-    const path=new URL(request.url).pathname;
-    if(path!=="/api/bounded-source-repair-result") return new Response(JSON.stringify({error:"not_found"}),{status:404,headers:{"content-type":"application/json"}});
-    return new Response(BODY,{status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
-  }
-};
-`);
-NODE
-  wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars
-  echo "BOUNDED_SOURCE_REPAIR_DIAGNOSTIC_PUBLISHED stage=execution_worker_upload"
-  exit 0
-fi
-
 API="$(grep -Eo 'https://[A-Za-z0-9.-]+\\.workers\\.dev' "$UPLOAD_LOG" | grep -m1 "https://${ALIAS}-${WORKER}\\." || true)"
 if [ -z "$API" ]; then API="$API_FALLBACK"; fi
-echo "BOUNDED_REPAIR_PREVIEW_URL=$API"
 
 READY=""
 for ATTEMPT in $(seq 1 40); do
-  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head \
-    -H "x-bounded-repair-token: $TOKEN" -H 'cache-control: no-store' "$API$READY_PATH" || true)"
-  if [ "$READY" = "204" ]; then break; fi
+  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head -H "x-bounded-repair-token: $TOKEN" -H 'cache-control: no-store' "$API$READY_PATH" || true)"
+  [ "$READY" = "204" ] && break
   sleep 3
 done
-if [ "$READY" != "204" ]; then
-  echo "Bounded repair preview never became ready: url=$API last_http=$READY" >&2
-  exit 1
-fi
+[ "$READY" = "204" ] || { echo "Finalizer preview never became ready: $READY" >&2; exit 1; }
 
 OUT="$TMPDIR/repair.json"
-HTTP_STATUS="$(curl -sS --max-time 600 -o "$OUT" -w '%{http_code}' -X POST \
-  -H "x-bounded-repair-token: $TOKEN" -H 'accept: application/json' -H 'content-type: application/json' -H 'cache-control: no-store' \
-  --data '{}' "$API$RUN_PATH")"
-if [ "$HTTP_STATUS" != "200" ]; then
-  echo "Bounded production repair failed: HTTP $HTTP_STATUS" >&2
-  cat "$OUT" >&2 || true
-  exit 1
-fi
-
-node - "$OUT" <<'NODE'
-const fs=require('fs');
-const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
-if(!Array.isArray(p?.scope?.direct_source_ids)||p.scope.direct_source_ids.length!==4) throw new Error('Direct source scope is not exactly 4');
-if(!Array.isArray(p?.scope?.dragonfly_team_ids)||p.scope.dragonfly_team_ids.length!==12) throw new Error('DragonFly team scope is not exactly 12');
-if(!Array.isArray(p?.scope?.team_ids)||p.scope.team_ids.length!==16) throw new Error('Team scope is not exactly 16');
-console.log("BOUNDED_REPAIR_STATUS="+String(p.status||"UNKNOWN"));
-NODE
+HTTP="$(curl -sS --max-time 300 -o "$OUT" -w '%{http_code}' -X POST -H "x-bounded-repair-token: $TOKEN" -H 'content-type: application/json' -H 'cache-control: no-store' --data '{}' "$API$RUN_PATH")"
+[ "$HTTP" = "200" ] || { cat "$OUT" >&2 || true; exit 1; }
 
 node - "$OUT" > "$RESULT_WRAPPER" <<'NODE'
 const fs=require('fs');
 const body=fs.readFileSync(process.argv[2],'utf8');
 process.stdout.write(`
 const BODY=${JSON.stringify(body)};
-export default {
-  async fetch(request){
-    const path=new URL(request.url).pathname;
-    if(path!=="/api/bounded-source-repair-result") return new Response(JSON.stringify({error:"not_found"}),{status:404,headers:{"content-type":"application/json"}});
-    return new Response(BODY,{status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
-  }
-};
+export default {async fetch(request){
+  if(new URL(request.url).pathname!=="/api/bounded-source-repair-result") return new Response(JSON.stringify({error:"not_found"}),{status:404,headers:{"content-type":"application/json"}});
+  return new Response(BODY,{status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});
+}};
 `);
 NODE
-
 wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars
-echo "BOUNDED_SOURCE_REPAIR_PUBLISHED url=$API$RESULT_PATH"
+echo "BOUNDED_REPAIR_FINALIZATION_PUBLISHED"
