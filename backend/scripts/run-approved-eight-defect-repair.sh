@@ -1,90 +1,146 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PREVIEW_ALIAS="bounded-eight-defect-repair"
-API="https://${PREVIEW_ALIAS}-localbleachersar-sports-api.james-methvin74.workers.dev"
-WRAPPER="src/_bounded-eight-defect-repair.mjs"
-TOKEN="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
-TOKEN_ACTIVE=0
+cd "$(dirname "$0")/.."
+
+HOST="127.0.0.1"
+PORT="${EIGHT_DEFECT_REPAIR_PORT:-8798}"
+MAX_TIME="${EIGHT_DEFECT_REPAIR_MAX_TIME:-300}"
+WRAPPER=".eight-defect-repair-runtime-$$.mjs"
+LOG="$(mktemp)"
+OUT="$(mktemp)"
+WRANGLER_PID=""
 
 cleanup() {
-  if [ "$TOKEN_ACTIVE" = "1" ]; then
-    wrangler versions upload src/logo-bootstrap-worker.js --preview-alias "$PREVIEW_ALIAS" --keep-vars >/dev/null 2>&1 || true
+  if [ -n "${WRANGLER_PID}" ]; then
+    kill "${WRANGLER_PID}" >/dev/null 2>&1 || true
+    wait "${WRANGLER_PID}" >/dev/null 2>&1 || true
   fi
-  rm -f "$WRAPPER"
+  rm -f "${WRAPPER}" "${LOG}" "${OUT}"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
-node - "$TOKEN" > "$WRAPPER" <<'NODE'
-const token=process.argv[2];
-process.stdout.write(`import { runDueCollections } from "./index.js";
-import { ensureOneTruthSchema, rebuildOneTruth } from "./one-truth.js";
-const TOKEN=${JSON.stringify(token)};
-const SOURCE_IDS=${JSON.stringify([
+if ! grep -q '"database_name": "localbleachersar-sports"' wrangler.jsonc; then
+  echo "Refusing repair: backend/wrangler.jsonc is not bound to localbleachersar-sports" >&2
+  exit 2
+fi
+
+cat > "${WRAPPER}" <<'EOF'
+import { runDueCollections } from "./src/index.js";
+import { ensureOneTruthSchema, rebuildOneTruth } from "./src/one-truth.js";
+
+const SOURCE_IDS = [
   "college-arkansas-tech-volleyball-women-2026-sidearm",
   "college-ecclesia-soccer-men-2026-sidearm",
   "college-john-brown-volleyball-women-2026-sidearm",
   "college-ouachita-baptist-volleyball-women-2026-sidearm",
   "college-southern-arkansas-volleyball-women-2026-sidearm",
   "college-uam-volleyball-women-2026-sidearm"
-])};
-const FIXED_TEAM_IDS=["df-xatpsv-volleyball-2026","df-yj7aj5-volleyball-2026"];
-function json(body,status=200){return new Response(JSON.stringify(body),{status,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}});}
-export default {async fetch(request,env){
-  const url=new URL(request.url);
-  if(request.method!=="POST"||url.pathname!=="/run"||request.headers.get("x-bounded-repair-token")!==TOKEN) return json({error:"not_found"},404);
-  await ensureOneTruthSchema(env);
-  const collection=await runDueCollections(env,{force:true,sourceIds:SOURCE_IDS,reason:"approved-eight-defect-repair"});
-  if((collection.outcomes||[]).length!==SOURCE_IDS.length || collection.ok!==true) {
-    return json({status:"FAILURE",sourceIds:SOURCE_IDS,collection},500);
+];
+const FIXED_TEAM_IDS = [
+  "df-xatpsv-volleyball-2026",
+  "df-yj7aj5-volleyball-2026"
+];
+const READY="/__localbleachersar_eight_defect_ready";
+const RUN="/__localbleachersar_eight_defect_run";
+
+function json(body,status=200){
+  return new Response(JSON.stringify(body),{
+    status,
+    headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}
+  });
+}
+
+export default {
+  async fetch(request,env) {
+    const url=new URL(request.url);
+    if(request.method==="GET" && url.pathname===READY) return new Response(null,{status:204});
+    if(request.method!=="POST" || url.pathname!==RUN) return json({error:"not_found"},404);
+
+    await ensureOneTruthSchema(env);
+    const collection=await runDueCollections(env,{
+      force:true,
+      sourceIds:SOURCE_IDS,
+      reason:"approved-eight-defect-repair"
+    });
+
+    if((collection.outcomes||[]).length!==SOURCE_IDS.length || collection.ok!==true) {
+      return json({status:"FAILURE",sourceIds:SOURCE_IDS,collection},500);
+    }
+
+    const touchedTeamIds=[...new Set([
+      ...(collection.touchedTeamIds||[]),
+      ...FIXED_TEAM_IDS
+    ].map(String).filter(Boolean))].sort();
+
+    const oneTruth=await rebuildOneTruth(env,{teamIds:touchedTeamIds});
+
+    return json({
+      status:"SUCCESS",
+      sourceIds:SOURCE_IDS,
+      touchedTeamIds,
+      collection,
+      oneTruth
+    });
   }
-  const touched=[...new Set([...(collection.touchedTeamIds||[]),...FIXED_TEAM_IDS].map(String).filter(Boolean))].sort();
-  const oneTruth=await rebuildOneTruth(env,{teamIds:touched});
-  return json({status:"SUCCESS",sourceIds:SOURCE_IDS,touchedTeamIds:touched,collection,oneTruth});
-}};
-`);
-NODE
+};
+EOF
 
-wrangler versions upload "$WRAPPER" --preview-alias "$PREVIEW_ALIAS" --keep-vars
-TOKEN_ACTIVE=1
+npx wrangler dev "${WRAPPER}" \
+  --config wrangler.jsonc \
+  --remote \
+  --ip "${HOST}" \
+  --port "${PORT}" \
+  --local-protocol http \
+  >"${LOG}" 2>&1 &
+WRANGLER_PID="$!"
 
-READY=""
-for ATTEMPT in $(seq 1 20); do
-  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -X POST -H "x-bounded-repair-token: $TOKEN" "$API/not-run" || true)"
-  if [ "$READY" = "404" ]; then
+READY=0
+for _ in $(seq 1 30); do
+  if curl -fsS --max-time 3 "http://${HOST}:${PORT}/__localbleachersar_eight_defect_ready" -o /dev/null 2>/dev/null; then
+    READY=1
     break
   fi
-  sleep 3
+  if ! kill -0 "${WRANGLER_PID}" 2>/dev/null; then
+    cat "${LOG}" >&2
+    exit 1
+  fi
+  sleep 1
 done
-if [ "$READY" != "404" ]; then
-  echo "Bounded repair preview never became ready" >&2
+
+if [ "${READY}" -ne 1 ]; then
+  echo "Bounded eight-defect repair harness did not become ready through Wrangler remote dev" >&2
+  cat "${LOG}" >&2
   exit 1
 fi
 
-OUT="$(mktemp)"
-CODE="$(curl -sS --max-time 300 -o "$OUT" -w '%{http_code}' -X POST -H 'accept: application/json' -H 'content-type: application/json' -H "x-bounded-repair-token: $TOKEN" --data '{}' "$API/run")"
-if [ "$CODE" != "200" ]; then
-  echo "Bounded repair failed HTTP $CODE" >&2
-  cat "$OUT" >&2 || true
+HTTP_STATUS="$(curl -sS --max-time "${MAX_TIME}" -o "${OUT}" -w '%{http_code}' -X POST "http://${HOST}:${PORT}/__localbleachersar_eight_defect_run")"
+
+if [ "${HTTP_STATUS}" != "200" ]; then
+  echo "Bounded eight-defect repair failed: HTTP ${HTTP_STATUS}" >&2
+  cat "${OUT}" >&2 || true
+  cat "${LOG}" >&2 || true
   exit 1
 fi
 
-node - "$OUT" <<'NODE'
+node - "${OUT}" <<'NODE'
 const fs=require('fs');
 const p=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
 if(p.status!=="SUCCESS") throw new Error("Bounded repair did not return SUCCESS");
 if(!Array.isArray(p.sourceIds)||p.sourceIds.length!==6) throw new Error("Six-source scope violated");
-if((p.collection?.outcomes||[]).length!==6 || p.collection?.ok!==true) throw new Error("Collection scope/outcome failed");
+if((p.collection?.outcomes||[]).length!==6||p.collection?.ok!==true) throw new Error("Collection scope/outcome failed");
 console.log(JSON.stringify({
   status:p.status,
   sourceIds:p.sourceIds,
   touchedTeamIds:p.touchedTeamIds,
-  outcomes:(p.collection.outcomes||[]).map(x=>({sourceId:x.sourceId,status:x.status,gamesSeen:x.gamesSeen??null,touchedTeamIds:x.touchedTeamIds||[]})),
+  outcomes:(p.collection.outcomes||[]).map(x=>({
+    sourceId:x.sourceId,
+    status:x.status,
+    gamesSeen:x.gamesSeen??null,
+    touchedTeamIds:x.touchedTeamIds||[]
+  })),
   oneTruth:p.oneTruth
 }));
 NODE
 
-wrangler versions upload src/logo-bootstrap-worker.js --preview-alias "$PREVIEW_ALIAS" --keep-vars >/dev/null
-TOKEN_ACTIVE=0
-rm -f "$OUT"
 echo "BOUNDED_EIGHT_DEFECT_REPAIR_COMPLETE"
