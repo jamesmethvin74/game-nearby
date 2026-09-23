@@ -1,0 +1,21 @@
+name: Temporary post-repair audit result transport
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-post-repair-audit-result.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read post-repair statewide audit result
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/api/statewide-integrity-audit-result"
+          echo
