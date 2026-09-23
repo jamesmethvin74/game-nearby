@@ -13,7 +13,8 @@
     "prod:audit:statewide": "bash scripts/run-statewide-integrity-audit.sh",
     "prod:verify": "npm run prod:audit:statewide",
     "prod:deploy": "wrangler deploy",
-    "prod:audit:publish": "bash scripts/publish-statewide-integrity-audit-result.sh"
+    "prod:audit:publish": "bash scripts/publish-statewide-integrity-audit-result.sh",
+    "discover:official:rankone-ar": "node scripts/discover-rankone-arkansas-result-sources.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
