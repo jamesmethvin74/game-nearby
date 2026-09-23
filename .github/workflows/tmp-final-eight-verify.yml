@@ -1,0 +1,38 @@
+name: Temporary final eight-defect verification
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-final-eight-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify final audit and app-facing rows
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          audit="https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/api/statewide-integrity-audit-result"
+          curl -fsS --max-time 60 "$audit" > audit.json
+          node -e 'const fs=require("fs");const p=JSON.parse(fs.readFileSync("audit.json","utf8"));const original=new Set(["arkansas-tech-volleyball-women-2026","ecclesia-soccer-men-2026","john-brown-volleyball-women-2026","ouachita-baptist-volleyball-women-2026","southern-arkansas-volleyball-women-2026","uam-volleyball-women-2026","df-xatpsv-volleyball-2026","df-yj7aj5-volleyball-2026"]);const rem=(p.issues||[]).filter(x=>original.has(x.team_id)&&x.severity==="blocking").map(x=>({code:x.code,team_id:x.team_id,game_id:x.game_id||null}));console.log("AUDIT_SUMMARY="+JSON.stringify({generated_at:p.generated_at,clean:p.clean,summary:p.summary,original_eight_remaining:rem,current_source_vs_truth:p.source_vs_truth?.affected_teams||[]}));'
+          verify_schedule () {
+            team="$1"
+            target="$2"
+            mode="$3"
+            curl -fsS --max-time 30 "$api/api/v1/teams/$team/schedule" > one.json
+            node -e 'const fs=require("fs");const [team,target,mode]=process.argv.slice(1);const p=JSON.parse(fs.readFileSync("one.json","utf8"));const matches=(p.games||[]).filter(g=>g.id===target||g.canonical_event_id===target||g.source_id===target||String(g.id||"").includes(target));const out={team,truth_table:p.truth_table||null,record:p.record||null,target_matches:matches.map(g=>({id:g.id,canonical_event_id:g.canonical_event_id,status:g.status,team_score:g.team_score,opponent_score:g.opponent_score,result:g.result,opponent:g.opponent,calculated_at:g.calculated_at}))};if(mode==="suppressed"&&matches.length!==0){console.error(JSON.stringify(out));process.exit(2);}if(mode==="lake"&&!matches.some(g=>g.status==="FINAL"&&g.team_score===2&&g.opponent_score===3)){console.error(JSON.stringify(out));process.exit(3);}if(mode==="harmony"&&!matches.some(g=>g.status==="FINAL"&&g.team_score===3&&g.opponent_score===2)){console.error(JSON.stringify(out));process.exit(4);}console.log("APP_VERIFY="+JSON.stringify(out));' "$team" "$target" "$mode"
+          }
+          verify_schedule "arkansas-tech-volleyball-women-2026" "college-arkansas-tech-volleyball-women-2026-sidearm:native:7556" "suppressed"
+          verify_schedule "ecclesia-soccer-men-2026" "college-ecclesia-soccer-men-2026-sidearm:native:1087" "suppressed"
+          verify_schedule "john-brown-volleyball-women-2026" "college-john-brown-volleyball-women-2026-sidearm:native:7800" "suppressed"
+          verify_schedule "ouachita-baptist-volleyball-women-2026" "college-ouachita-baptist-volleyball-women-2026-sidearm:native:6606" "suppressed"
+          verify_schedule "southern-arkansas-volleyball-women-2026" "college-southern-arkansas-volleyball-women-2026-sidearm:native:14731" "suppressed"
+          verify_schedule "uam-volleyball-women-2026" "college-uam-volleyball-women-2026-sidearm:native:8981" "suppressed"
+          verify_schedule "df-xatpsv-volleyball-2026" "ce:volleyball:girls:2026:df-xatpsv:df-yj7aj5:20260921:df-69cd63338ab0aa4baf000004" "lake"
+          verify_schedule "df-yj7aj5-volleyball-2026" "ce:volleyball:girls:2026:df-xatpsv:df-yj7aj5:20260921:df-69cd63338ab0aa4baf000004" "harmony"
