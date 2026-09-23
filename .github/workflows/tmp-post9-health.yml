@@ -1,0 +1,21 @@
+name: Temporary post-9pm health proof
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-post9-health.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 60 "https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/health"
+          echo
