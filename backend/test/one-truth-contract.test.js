@@ -151,3 +151,9 @@ test("scheduled ONE_TRUTH refresh consumes exact touched team IDs before stale f
   const stale=worker.indexOf("staleOneTruthTeamIds(env,{limit:SCHEDULED_TRUTH_BATCH})");
   assert.ok(explicit>=0 && stale>explicit);
 });
+
+
+test("disabled statewide source timestamps participate in ONE_TRUTH staleness fallback",()=>{
+  assert.match(truth,/LEFT JOIN sources src ON src\.team_id=t\.id AND \(src\.enabled=1 OR src\.collection_mode='statewide'\)/);
+  assert.match(truth,/MAX\(COALESCE\(src\.last_successful_fetch_at,src\.updated_at,src\.created_at\)\) > ot\.refreshed_at/);
+});

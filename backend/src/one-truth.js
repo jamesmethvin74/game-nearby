@@ -812,7 +812,7 @@ async function staleRequestedTeamIds(env, teamIds = [], { season = DEFAULT_SEASO
       ot.refreshed_at AS truth_refreshed_at
     FROM teams t
     JOIN schools sch ON sch.id=t.school_id
-    LEFT JOIN sources src ON src.team_id=t.id AND src.enabled=1
+    LEFT JOIN sources src ON src.team_id=t.id AND (src.enabled=1 OR src.collection_mode='statewide')
     LEFT JOIN ${TABLE} ot ON ot.truth_id='TEAM:'||t.id
     WHERE t.active=1
       AND t.season=?

@@ -1,8 +1,6 @@
 import app from "./conference-membership-public-worker.js";
 import { runStatewideHighSchoolLogoCompletion, HIGH_SCHOOL_LOGO_BATCH_LIMIT } from "./statewide-logo-completion.js";
 import { runCollegeLogoCompletion, COLLEGE_LOGO_BATCH_LIMIT } from "./college-logo-bootstrap.js";
-import { collectionPlanAt } from "./collection-cadence.js";
-import { runVolleyballLiveResultProbe } from "./volleyball-live-results.js";
 import { planFinalMissingScoreRepair, executeFinalMissingScoreRepair } from "./final-missing-score-repair.js";
 import { readFinalMissingScoreEvidence } from "./final-missing-score-evidence.js";
 
@@ -38,21 +36,6 @@ async function options(request) {
   catch { return {}; }
 }
 
-async function runVolleyballLiveTick(controller, env) {
-  const scheduledTime = Number(controller?.scheduledTime);
-  const when = Number.isFinite(scheduledTime) ? new Date(scheduledTime) : new Date();
-  const plan = collectionPlanAt(when);
-  if (!plan?.runVolleyballLive) return null;
-  try {
-    const result = await runVolleyballLiveResultProbe(env, { now: when });
-    console.log("live statewide volleyball result probe", { plan:plan.kind, ...result });
-    return result;
-  } catch (error) {
-    console.error("live statewide volleyball result probe failed", { plan:plan.kind, error:String(error?.message || error) });
-    return { status:"FAILURE", error:String(error?.message || error) };
-  }
-}
-
 export default {
   async fetch(request, env, ctx) {
     const path = new URL(request.url).pathname;
@@ -84,7 +67,6 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
-    await runVolleyballLiveTick(controller, env);
     return app.scheduled(controller, env, ctx);
   }
 };

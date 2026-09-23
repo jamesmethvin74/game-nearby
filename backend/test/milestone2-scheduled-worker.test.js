@@ -150,3 +150,15 @@ test("Milestone 2 carries exact touched team IDs through statewide and scoped sc
   assert.match(runner,/scheduledTouchedTeamIds\(/);
   assert.match(scoped,/payload\?\.touchedTeamIds/);
 });
+
+
+test("logo wrapper does not pre-consume volleyball live changes before Milestone 2",()=>{
+  const logo=fs.readFileSync(fileURLToPath(new URL("../src/logo-bootstrap-worker.js",import.meta.url)),"utf8");
+  const milestone=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  assert.doesNotMatch(logo,/runVolleyballLiveResultProbe/);
+  assert.doesNotMatch(logo,/runVolleyballLiveTick/);
+  assert.doesNotMatch(logo,/collectionPlanAt/);
+  assert.match(logo,/async scheduled\(controller, env, ctx\) \{\s*return app\.scheduled\(controller, env, ctx\);\s*\}/);
+  assert.match(milestone,/runStatewideLiveResultProbe/);
+  assert.match(milestone,/touchedTeamIds:result\.touchedTeamIds\|\|\[\]/);
+});
