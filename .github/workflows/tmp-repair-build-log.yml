@@ -1,4 +1,4 @@
-name: Temporary Cloudflare repair build log reader
+name: Temporary Cloudflare repair build lookup
 
 on:
   push:
@@ -13,9 +13,8 @@ jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Read exact repair build log
+      - name: Read exact repair build metadata
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 60 "https://localbleachers-ops.methvindigitalworks.com/v1/build-log?build_id=cac01560-e736-4723-ad9e-fceb4b57eb54"
-          echo
+          curl -sS --max-time 60 -w '\nHTTP_STATUS=%{http_code}\n' "https://localbleachers-ops.methvindigitalworks.com/v1/build?sha=bdfde6b8bab43ba3e95527b36cb78b350609068c"
