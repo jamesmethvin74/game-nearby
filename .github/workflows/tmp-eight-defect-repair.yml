@@ -1,0 +1,59 @@
+name: Temporary bounded eight-defect repair transport
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-eight-defect-repair.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+    steps:
+      - name: Run bounded six-source refresh and exact ONE_TRUTH refresh
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          body='{"sourceIds":["college-arkansas-tech-volleyball-women-2026-sidearm","college-ecclesia-soccer-men-2026-sidearm","college-john-brown-volleyball-women-2026-sidearm","college-ouachita-baptist-volleyball-women-2026-sidearm","college-southern-arkansas-volleyball-women-2026-sidearm","college-uam-volleyball-women-2026-sidearm"]}'
+          echo "repair_started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          code="$(curl -sS --max-time 300 -o refresh.json -w '%{http_code}' -X POST             -H 'accept: application/json'             -H 'content-type: application/json'             -H "x-refresh-token: $REFRESH_TOKEN"             --data "$body"             "$base/api/v1/refresh")"
+          echo "refresh_http=$code"
+          if [ "$code" != "200" ]; then
+            cat refresh.json
+            exit 1
+          fi
+          cat refresh.json
+          echo
+          mapfile -t ids < <(node - <<'NODE'
+const fs=require('fs');
+const p=JSON.parse(fs.readFileSync('refresh.json','utf8'));
+const ids=new Set([...(p.touchedTeamIds||[]),"df-xatpsv-volleyball-2026","df-yj7aj5-volleyball-2026"]);
+for(const id of ids) if(id) console.log(id);
+NODE
+          )
+          echo "one_truth_refresh_team_count=${#ids[@]}"
+          printf 'one_truth_refresh_team_ids=%s\n' "${ids[*]}"
+          for id in "${ids[@]}"; do
+            enc="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$id")"
+            curl -fsS --max-time 60 "$base/api/v1/teams/$enc/record" >/tmp/one-truth-record.json
+            node - "$id" /tmp/one-truth-record.json <<'NODE'
+const fs=require('fs');
+const [id,path]=process.argv.slice(2);
+const p=JSON.parse(fs.readFileSync(path,'utf8'));
+console.log(JSON.stringify({
+  team_id:id,
+  truth_table:p.truth_table||null,
+  overall_record:p.record?.overall_record??null,
+  conference_record:p.record?.conference_record??null,
+  rank:p.record?.rank??null,
+  calculated_at:p.record?.calculated_at??null,
+  record_state:p.record?.record_state??null
+}));
+NODE
+          done
