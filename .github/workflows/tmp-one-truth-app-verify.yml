@@ -1,0 +1,36 @@
+name: Temporary app-facing ONE_TRUTH verification
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-one-truth-app-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read app-facing ONE_TRUTH endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          echo "observed_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "=== TEAM_STATUSES ==="
+          curl -fsS --max-time 30 "$base/api/v1/team-statuses?school_ids=df-8pkud7,df-qgka87"
+          echo
+          echo "=== HUNTSVILLE_SCHEDULE ==="
+          curl -fsS --max-time 30 "$base/api/v1/teams/df-8pkud7-volleyball-2026/schedule"
+          echo
+          echo "=== FARMINGTON_SCHEDULE ==="
+          curl -fsS --max-time 30 "$base/api/v1/teams/df-qgka87-volleyball-2026/schedule"
+          echo
+          echo "=== HUNTSVILLE_RECORD ==="
+          curl -fsS --max-time 30 "$base/api/v1/teams/df-8pkud7-volleyball-2026/record"
+          echo
+          echo "=== FARMINGTON_RECORD ==="
+          curl -fsS --max-time 30 "$base/api/v1/teams/df-qgka87-volleyball-2026/record"
+          echo
