@@ -1,0 +1,39 @@
+name: Temporary official source coverage
+on:
+  push:
+    paths:
+      - ".github/workflows/tmp-official-source-coverage.yml"
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read production official-source coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --max-time 30             "https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/sources"             -o /tmp/sources.json
+          python3 - <<'PY'
+          import json,re
+          data=json.load(open('/tmp/sources.json'))
+          rows=data.get('sources',[])
+          target=[]
+          for r in rows:
+              tid=str(r.get('team_id') or '')
+              if r.get('source_type')!='official-school': continue
+              if r.get('parser_type') not in ('mascot-media','rankone-public'): continue
+              sport=None
+              if '-volleyball-' in tid: sport='volleyball-girls'
+              elif '-basketball-' in tid:
+                  # Team ids do not encode gender consistently enough to split safely.
+                  sport='basketball'
+              target.append((tid,r.get('parser_type'),sport,r.get('source_url')))
+          print('TOTAL_ENABLED_SOURCES',len(rows))
+          print('OFFICIAL_TARGET_SOURCE_ROWS',len(target))
+          print('OFFICIAL_UNIQUE_TEAM_IDS',len({r[0] for r in target}))
+          from collections import Counter
+          print('BY_PARSER',json.dumps(Counter(r[1] for r in target),sort_keys=True))
+          print('BY_COARSE_SPORT',json.dumps(Counter(r[2] for r in target),sort_keys=True))
+          print('TEAM_IDS_BEGIN')
+          for row in sorted(target): print('\t'.join('' if x is None else str(x) for x in row))
+          print('TEAM_IDS_END')
+          PY
