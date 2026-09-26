@@ -7,6 +7,7 @@ ALIAS="dragonfly-raw-production-compare"
 WORKER="localbleachersar-sports-api"
 API_FALLBACK="https://${ALIAS}-${WORKER}.james-methvin74.workers.dev"
 API=""
+READY_PATH="/api/dragonfly-raw-production-compare-ready"
 RUN_PATH="/api/dragonfly-raw-production-compare"
 WRAPPER="src/_dragonfly-raw-production-compare.mjs"
 RESULT_WRAPPER="src/_dragonfly-raw-production-compare-result.mjs"
@@ -260,7 +261,11 @@ async function auditSport(env,code,now){
 export default {
   async fetch(request,env){
     const url=new URL(request.url);
-    if(request.method!=="GET"||url.pathname!=="/api/dragonfly-raw-production-compare"||request.headers.get("x-audit-token")!==TOKEN){
+    const authorized=request.headers.get("x-audit-token")===TOKEN;
+    if(request.method==="HEAD"&&url.pathname==="/api/dragonfly-raw-production-compare-ready"){
+      return authorized?new Response(null,{status:204,headers:{"cache-control":"no-store"}}):json({error:"not_found"},404);
+    }
+    if(request.method!=="GET"||url.pathname!=="/api/dragonfly-raw-production-compare"||!authorized){
       return json({error:"not_found"},404);
     }
     const now=new Date();
@@ -291,11 +296,11 @@ echo "DRAGONFLY_COMPARE_PREVIEW_URL=$API"
 
 READY=""
 for ATTEMPT in $(seq 1 40); do
-  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -H "x-audit-token: $TOKEN" -H 'cache-control: no-store' "$API$RUN_PATH" || true)"
-  if [ "$READY" = "200" ]; then break; fi
+  READY="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 --head -H "x-audit-token: $TOKEN" -H 'cache-control: no-store' "$API$READY_PATH" || true)"
+  if [ "$READY" = "204" ]; then break; fi
   sleep 3
 done
-if [ "$READY" != "200" ]; then
+if [ "$READY" != "204" ]; then
   echo "DragonFly comparison preview never became ready: url=$API last_http=$READY" >&2
   exit 1
 fi
