@@ -91,10 +91,18 @@ jobs:
             const normalizedFinalKeys=new Set(normalized.games
               .filter(g=>g.status==="FINAL" && g.team_score!==null && g.opponent_score!==null)
               .map(g=>String(g.source_event_key||"")));
-            const rawFinalScored=schedule.filter(finalWithBothUsable);
+            const inferredFinal=e=>providerStatusFinal(e)||participants(e).some(p=>p?.result && p.result.score!==undefined);
+            const rawFinalScored=schedule.filter(e=>inferredFinal(e)&&(participantPair(e)||resultsPair(e)||legacyPair(e)));
             const rawFinalIds=rawFinalScored.map(e=>clean(e?.eventId||e?.id)).filter(Boolean);
             const normalizedRawFinalIds=rawFinalIds.filter(id=>normalizedFinalKeys.has("native:"+safe(id)));
             const notNormalized=rawFinalScored.filter(e=>!normalizedFinalKeys.has("native:"+safe(clean(e?.eventId||e?.id))));
+            const scoredTeamIds=[...new Set(rawFinalScored.flatMap(e=>participants(e).map(p=>clean(p?.team?.teamId)).filter(Boolean)))].sort();
+            const scoredSchoolCodes=[...new Set(rawFinalScored.flatMap(e=>participants(e).map(p=>clean(p?.orgShortCode).toUpperCase()).filter(Boolean)))].sort();
+            const scoreSamples=rawFinalScored.slice(0,10).map(e=>({
+              eventId:clean(e?.eventId||e?.id),date:eventDate(e),status:explicitStatus(e),
+              participants:participants(e).map(p=>({name:clean(p?.name),teamId:clean(p?.team?.teamId),orgShortCode:clean(p?.orgShortCode).toUpperCase(),result:p?.result??null})),
+              results:e?.results??null
+            }));
             out.sports[config.feedCode]={
               pages:fetched.pageCount,
               total_events:schedule.length,
@@ -105,9 +113,20 @@ jobs:
               participant_result_events:schedule.filter(hasParticipantResult).length,
               results_array_events:schedule.filter(hasResultsArray).length,
               legacy_home_away_score_events:schedule.filter(hasLegacy).length,
-              explicit_final_with_both_usable_scores:rawFinalScored.length,
-              normalized_scored_final_events:normalizedRawFinalIds.length,
+              explicit_final_with_both_usable_scores:schedule.filter(finalWithBothUsable).length,
+              current_collector_inferred_final_events:schedule.filter(inferredFinal).length,
+              inferred_final_with_both_usable_scores:rawFinalScored.length,
+              participant_score_pair_events:schedule.filter(participantPair).length,
+              results_array_score_pair_events:schedule.filter(resultsPair).length,
+              legacy_score_pair_events:schedule.filter(legacyPair).length,
+              normalized_scored_final_events:normalizedFinalKeys.size,
+              inferred_scored_finals_normalized:normalizedRawFinalIds.length,
               scored_finals_not_normalized:notNormalized.length,
+              scored_final_participant_team_count:scoredTeamIds.length,
+              scored_final_school_code_count:scoredSchoolCodes.length,
+              scored_final_participant_team_ids:scoredTeamIds,
+              scored_final_school_codes:scoredSchoolCodes,
+              score_samples:scoreSamples,
               not_normalized_examples:notNormalized.slice(0,30).map(e=>({
                 eventId:clean(e?.eventId||e?.id),
                 date:eventDate(e),
