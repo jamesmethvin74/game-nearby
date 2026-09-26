@@ -1,0 +1,38 @@
+name: Temporary statewide audit result transport
+on:
+  push:
+    paths:
+      - ".github/workflows/statewide-audit-result-transport.yml"
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read fixed statewide audit result
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://statewide-integrity-audit-result-localbleachersar-sports-api.james-methvin74.workers.dev/api/statewide-integrity-audit-result"
+          curl -fsS --max-time 60 "$URL" -o /tmp/audit.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/audit.json'))
+          target={'volleyball','basketball'}
+          issues=[x for x in p.get('issues',[]) if x.get('sport') in target]
+          out={
+            'audit_version':p.get('audit_version'),
+            'generated_at':p.get('generated_at'),
+            'clean':p.get('clean'),
+            'summary':p.get('summary'),
+            'source_surface':p.get('source_surface'),
+            'one_truth_surface':p.get('one_truth_surface'),
+            'source_vs_truth_summary':(p.get('source_vs_truth') or {}).get('summary'),
+            'd1':p.get('d1'),
+            'target_sport_issues':issues,
+          }
+          print("AUDIT_RESULT_BEGIN")
+          print(json.dumps(out,separators=(',',':')))
+          print("AUDIT_RESULT_END")
+          PY
