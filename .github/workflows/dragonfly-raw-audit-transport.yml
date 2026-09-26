@@ -129,4 +129,5 @@ jobs:
           console.log(JSON.stringify(out));
           console.log("DRAGONFLY_RAW_AUDIT_END");
           NODE
-          node ./.dragonfly-raw-audit.mjs\n          rm -f ./.dragonfly-raw-audit.mjs
+          node ./.dragonfly-raw-audit.mjs
+          rm -f ./.dragonfly-raw-audit.mjs
