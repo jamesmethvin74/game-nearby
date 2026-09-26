@@ -1,8 +1,8 @@
 name: DragonFly Raw Audit Transport
 on:
   push:
-    paths:
-      - ".github/workflows/dragonfly-raw-audit-transport.yml"
+    branches:
+      - "feature/live-sports-pipeline-m1"
 permissions:
   contents: read
 jobs:
