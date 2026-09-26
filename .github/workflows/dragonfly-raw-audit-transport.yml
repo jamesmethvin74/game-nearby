@@ -14,7 +14,7 @@ jobs:
       - name: Fetch and audit fixed DragonFly statewide feeds
         shell: bash
         run: |
-          cat > /tmp/dragonfly-raw-audit.mjs <<'NODE'
+          cat > ./.dragonfly-raw-audit.mjs <<'NODE'
           import { fetchDragonFlyPagedPayload } from "./backend/src/dragonfly-feed.js";
           import { buildCertifiedStatewideRows } from "./backend/src/dragonfly-certified-statewide.js";
           import { STATEWIDE_HIGH_SCHOOL_SPORTS } from "./backend/src/statewide-sport-config.js";
@@ -129,4 +129,4 @@ jobs:
           console.log(JSON.stringify(out));
           console.log("DRAGONFLY_RAW_AUDIT_END");
           NODE
-          node /tmp/dragonfly-raw-audit.mjs
+          node ./.dragonfly-raw-audit.mjs\n          rm -f ./.dragonfly-raw-audit.mjs
