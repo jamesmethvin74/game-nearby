@@ -31,7 +31,7 @@ fi
 
 cat > "$WRAPPER" <<'NODE'
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
-import { buildCertifiedStatewideRows } from "./dragonfly-certified-statewide.js";
+import { buildCertifiedStatewideRows, collapseCertifiedProviderDuplicates } from "./dragonfly-certified-statewide.js";
 import { statewideSportConfig } from "./statewide-sport-config.js";
 
 const TOKEN="__AUDIT_TOKEN__";
@@ -132,6 +132,7 @@ async function auditSport(env,code,now){
   });
   const all=Array.isArray(fetched.payload?.schedule)?fetched.payload.schedule:[];
   const schedule=all.filter(e=>eventMatchesConfig(e,config));
+  const collapsedSchedule=collapseCertifiedProviderDuplicates(schedule,config);
 
   const mappingQuery=await env.DB.prepare(
     "SELECT tei.external_team_id,src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude "+
@@ -151,6 +152,9 @@ async function auditSport(env,code,now){
   const rawExplicitFinalUsable=schedule.filter(e=>isExplicitFinal(e)&&rawUsableScorePair(e));
   const rawExplicitFinalIds=[...new Set(rawExplicitFinalUsable.map(eventId).filter(Boolean))];
   const rawExplicitFinalNotNormalized=rawExplicitFinalUsable.filter(e=>!normalizedRawIds.has(safe(eventId(e))));
+  const rawUsableScored=schedule.filter(rawUsableScorePair);
+  const collapsedUsableScored=collapsedSchedule.filter(rawUsableScorePair);
+  const rawUsableNotNormalized=rawUsableScored.filter(e=>!normalizedRawIds.has(safe(eventId(e))));
 
   const gameQuery=await env.DB.prepare(
     "SELECT g.id,g.team_id,g.source_id,g.source_event_key,g.status,g.team_score,g.opponent_score,g.canonical_event_id,g.last_checked_at "+
@@ -233,6 +237,9 @@ async function auditSport(env,code,now){
     normalized_scored_final_observations:normalizedFinalObs.length,
     normalized_unique_scored_final_events:normalizedEventKeys.length,
     raw_explicit_scored_finals_not_normalized:rawExplicitFinalNotNormalized.length,
+    raw_usable_scored_events:rawUsableScored.length,
+    collapsed_usable_scored_events:collapsedUsableScored.length,
+    raw_usable_scored_events_not_normalized:rawUsableNotNormalized.length,
     d1:{
       statewide_game_rows:prodGames.length,
       normalized_scored_events_captured:eventRows.length-d1Missing.length,
@@ -244,6 +251,7 @@ async function auditSport(env,code,now){
       normalized_scored_events_missing:truthMissing.length
     },
     raw_not_normalized_examples:rawExplicitFinalNotNormalized.slice(0,40).map(rawExample),
+    raw_usable_not_normalized_examples:rawUsableNotNormalized.slice(0,40).map(rawExample),
     d1_missing_examples:d1Missing.slice(0,40),
     one_truth_missing_examples:truthMissing.slice(0,40)
   };
@@ -331,20 +339,19 @@ const feed={WVB:"WVB_Varsity",MBB:"MBB_Varsity",WBB:"WBB_Varsity"}[target];
 const s=p.sports?.[feed];
 if(!s) throw new Error("missing sport summary "+feed);
 const fields=[
-  [s.total_events,14],
-  [s.past_events,14],
-  [s.explicit_status_events,14],
-  [s.explicit_final_complete_events,13],
-  [s.any_score_result_structure_events,14],
-  [s.participant_result_events,14],
-  [s.results_array_events,14],
-  [s.legacy_home_away_score_events,14],
-  [s.explicit_final_with_both_usable_scores,13],
+  [s.raw_usable_scored_events,14],
+  [s.collapsed_usable_scored_events,14],
   [s.normalized_unique_scored_final_events,13],
-  [s.raw_explicit_scored_finals_not_normalized,13],
-  [s.certified_mappings,10],
-  [s.one_truth?.normalized_scored_events_missing,13]
-];
+  [s.raw_usable_scored_events_not_normalized,13],
+  [s.d1?.normalized_scored_events_missing,13],
+  [s.d1?.normalized_scored_events_captured,13],
+  [s.one_truth?.normalized_scored_events_missing,13],
+  [s.one_truth?.normalized_scored_events_captured,13],
+  [s.normalized_scored_final_observations,14],
+  [s.d1?.statewide_game_rows,15],
+  [s.one_truth?.game_rows,15],
+  [s.certified_mappings,10]
+]
 let packed=0n;
 for(const [raw,bits] of fields){
   const v=BigInt(Math.max(0,Number(raw)||0));
