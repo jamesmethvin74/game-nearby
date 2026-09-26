@@ -35,7 +35,7 @@ import { buildCertifiedStatewideRows } from "./dragonfly-certified-statewide.js"
 import { statewideSportConfig } from "./statewide-sport-config.js";
 
 const TOKEN="__AUDIT_TOKEN__";
-const TARGETS=["__TARGET_CODE__"];
+const TARGETS=["WVB","MBB","WBB"];
 
 const clean=v=>String(v??"").replace(/\s+/g," ").trim();
 const num=v=>{
@@ -272,7 +272,6 @@ export default {
 NODE
 
 sed -i "s/__AUDIT_TOKEN__/$TOKEN/" "$WRAPPER"
-sed -i "s/__TARGET_CODE__/$TARGET/" "$WRAPPER"
 node --check "$WRAPPER"
 
 UPLOAD_LOG="$TMPDIR/upload.log"
@@ -306,8 +305,9 @@ const fs=require("fs");
 const p=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
 if(Number(p.rows_written||0)!==0) throw new Error("audit must remain read-only");
 if(p.audit_version!=="dragonfly-raw-production-compare-v2") throw new Error("unexpected audit version");
-const target={WVB:"WVB_Varsity",MBB:"MBB_Varsity",WBB:"WBB_Varsity"}[process.env.AUDIT_TARGET||"WVB"];
-if(!p.sports?.[target]) throw new Error("missing "+target);
+for(const code of ["WVB_Varsity","MBB_Varsity","WBB_Varsity"]){
+  if(!p.sports?.[code]) throw new Error("missing "+code);
+}
 console.log("DRAGONFLY_PRODUCTION_COMPARE_SUMMARY="+JSON.stringify(p.sports));
 NODE
 
@@ -320,6 +320,9 @@ export default {async fetch(){return new Response(BODY,{status:200,headers:{"con
 `);
 NODE
 
+RESULT_UPLOAD_LOG="$TMPDIR/result-upload.log"
+wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$ALIAS" --keep-vars 2>&1 | tee "$RESULT_UPLOAD_LOG"
+
 SUMMARY_ALIAS="$(AUDIT_TARGET="$TARGET" node - "$OUT" <<'NODE'
 const fs=require("fs");
 const p=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
@@ -327,27 +330,33 @@ const target=process.env.AUDIT_TARGET||"WVB";
 const feed={WVB:"WVB_Varsity",MBB:"MBB_Varsity",WBB:"WBB_Varsity"}[target];
 const s=p.sports?.[feed];
 if(!s) throw new Error("missing sport summary "+feed);
-const vals=[
-  s.total_events,
-  s.past_events,
-  s.explicit_status_events,
-  s.explicit_final_complete_events,
-  s.any_score_result_structure_events,
-  s.participant_result_events,
-  s.results_array_events,
-  s.legacy_home_away_score_events,
-  s.explicit_final_with_both_usable_scores,
-  s.normalized_unique_scored_final_events,
-  s.normalized_scored_final_observations,
-  s.raw_explicit_scored_finals_not_normalized,
-  s.certified_mappings,
-  s.d1?.normalized_scored_events_missing,
-  s.one_truth?.normalized_scored_events_missing
-].map(v=>Math.max(0,Number(v)||0).toString(36));
-console.log(target.toLowerCase()+"-"+vals.join("-"));
+const fields=[
+  [s.total_events,14],
+  [s.past_events,14],
+  [s.explicit_status_events,14],
+  [s.explicit_final_complete_events,13],
+  [s.any_score_result_structure_events,14],
+  [s.participant_result_events,14],
+  [s.results_array_events,14],
+  [s.legacy_home_away_score_events,14],
+  [s.explicit_final_with_both_usable_scores,13],
+  [s.normalized_unique_scored_final_events,13],
+  [s.raw_explicit_scored_finals_not_normalized,13],
+  [s.certified_mappings,10],
+  [s.one_truth?.normalized_scored_events_missing,13]
+];
+let packed=0n;
+for(const [raw,bits] of fields){
+  const v=BigInt(Math.max(0,Number(raw)||0));
+  const max=(1n<<BigInt(bits))-1n;
+  if(v>max) throw new Error("summary value overflow");
+  packed=(packed<<BigInt(bits))|v;
+}
+const alias="z"+packed.toString(36);
+if(alias.length>35) throw new Error("summary alias too long: "+alias.length);
+console.log(alias);
 NODE
 )"
 echo "DRAGONFLY_SUMMARY_ALIAS=$SUMMARY_ALIAS"
-RESULT_UPLOAD_LOG="$TMPDIR/result-upload.log"
-wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$SUMMARY_ALIAS" --keep-vars 2>&1 | tee "$RESULT_UPLOAD_LOG"
+wrangler versions upload "$RESULT_WRAPPER" --preview-alias "$SUMMARY_ALIAS" --keep-vars >/dev/null
 echo "DRAGONFLY_PRODUCTION_COMPARE_PUBLISHED=$API$RUN_PATH"
