@@ -18,7 +18,9 @@ cat > "$WRAPPER" <<'NODE'
 import { fetchDragonFlyPagedPayload } from "./dragonfly-feed.js";
 import { buildCertifiedStatewideRows, collapseCertifiedProviderDuplicates } from "./dragonfly-certified-statewide.js";
 import { statewideSportConfig } from "./statewide-sport-config.js";
-import { rowIsOfficialSeasonContest } from "./schedule-response-normalizer.js";
+import { rowIsOfficialSeasonContest, resultEvidenceMatchesScheduleRow, scheduleRowsLikelyDuplicate } from "./schedule-response-normalizer.js";
+import { normalizeSchoolAlias, dateKeyInZone } from "./schedule-authority-core.js";
+import { evaluateFinalResultTruth } from "./final-result-truth.js";
 
 const TOKEN="__TOKEN__";
 const clean=v=>String(v??"").replace(/\s+/g," ").trim();
@@ -73,6 +75,11 @@ export default {
   ).bind(config.teamIdentityProvider,config.sport,config.gender,config.season).all();
   const mappings=mappingQuery.results||[];
   const mappingByExternal=new Map(mappings.map(m=>[String(m.external_team_id),m]));
+  const targetNameQuery=await env.DB.prepare(
+    "SELECT DISTINCT sch.name,sch.location_matched_name FROM teams t JOIN schools sch ON sch.id=t.school_id "+
+    "WHERE t.active=1 AND t.season=? AND t.sport='volleyball' AND t.gender='girls' AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'"
+  ).bind(config.season).all();
+  const targetNames=new Set((targetNameQuery.results||[]).flatMap(r=>[r.name,r.location_matched_name]).map(normalizeSchoolAlias).filter(Boolean));
   const rows=buildCertifiedStatewideRows(fetched.payload,mappings,config,{checkedAt:new Date().toISOString()});
   const normalizedFinals=rows.games.filter(scoredFinal);
   const normalizedIds=new Set(normalizedFinals.map(g=>clean(g.source_event_key).replace(/^native:/,"")));
@@ -90,7 +97,10 @@ export default {
     zero_mapped_participants:0,
     one_mapped_participant:0,
     two_plus_mapped_participants:0,
-    invalid_event_id_or_date:0
+    invalid_event_id_or_date:0,
+    no_target_name_match:0,
+    one_target_name_match:0,
+    two_plus_target_name_matches:0
   };
   const rawExamples=[];
   for(const e of rawMiss){
@@ -105,6 +115,10 @@ export default {
     else if(mapped===1) rawClasses.one_mapped_participant++;
     else rawClasses.two_plus_mapped_participants++;
     if(!id||!Number.isFinite(Date.parse(eventDate(e)))) rawClasses.invalid_event_id_or_date++;
+    const targetMatches=participants(e).filter(p=>targetNames.has(normalizeSchoolAlias(p?.name))).length;
+    if(targetMatches===0) rawClasses.no_target_name_match++;
+    else if(targetMatches===1) rawClasses.one_target_name_match++;
+    else rawClasses.two_plus_target_name_matches++;
     rawExamples.push({
       event_id:id,
       date:eventDate(e),
@@ -112,22 +126,22 @@ export default {
       participant_team_ids:participants(e).map(p=>clean(p?.team?.teamId)),
       participant_results:participants(e).map(p=>p?.result??null),
       results:Array.isArray(e?.results)?e.results:null,
-      mapped_participants:mapped,
+      mapped_participants:mapped,target_name_matches:targetMatches,
       participant_pair:pp,results_pair:rp,legacy_pair:lp,
       normalized_any:anyNormalizedIds.has(key)
     });
   }
 
   const gameQuery=await env.DB.prepare(
-    "SELECT g.id,g.team_id,g.source_id,g.source_event_key,g.status,g.team_score,g.opponent_score,g.canonical_event_id,g.notes,g.updated_at,g.last_checked_at,"+
+    "SELECT g.id,g.team_id,g.source_id,g.source_event_key,g.status,g.team_score,g.opponent_score,g.result,g.opponent,g.opponent_school_id,g.scheduled_at,g.scheduled_time_known,g.venue,g.location_text,g.home_away,g.conference_game,g.counts_for_record,g.canonical_event_id,g.notes,g.updated_at,g.last_checked_at,"+
     "src.last_successful_fetch_at,ce.status AS canonical_status,ce.home_score AS canonical_home_score,ce.away_score AS canonical_away_score,ce.trust_state AS canonical_trust_state,ce.conflict_count AS canonical_conflict_count,"+
-    "t.school_id,t.sport,t.gender,t.season,sch.name AS school_name "+
+    "t.school_id,t.sport,t.gender,t.season,sch.name AS school_name,sch.level AS school_level,src.source_type,src.parser_type "+
     "FROM games g JOIN teams t ON t.id=g.team_id JOIN schools sch ON sch.id=t.school_id JOIN sources src ON src.id=g.source_id "+
     "LEFT JOIN canonical_events ce ON ce.id=g.canonical_event_id "+
     "WHERE t.active=1 AND t.season=? AND t.sport='volleyball' AND t.gender='girls' AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide'"
   ).bind(config.season).all();
   const truthQuery=await env.DB.prepare(
-    "SELECT truth_id,row_type,team_id,game_id,canonical_event_id,status,team_score,opponent_score,refreshed_at,source_id,parser_type "+
+    "SELECT truth_id,row_type,team_id,game_id,canonical_event_id,status,team_score,opponent_score,result,opponent,opponent_school_id,scheduled_at,scheduled_time_known,refreshed_at,source_id,source_type,parser_type "+
     "FROM ONE_TRUTH_TB WHERE season=? AND sport='volleyball' AND gender='girls'"
   ).bind(config.season).all();
   const prod=gameQuery.results||[], truth=truthQuery.results||[];
@@ -141,6 +155,12 @@ export default {
     }
   }
 
+  const truthCandidate=r=>({
+    id:r.game_id||r.truth_id,team_id:r.team_id,canonical_event_id:r.canonical_event_id||null,
+    sport:"volleyball",gender:"girls",season:"2026",status:r.status,team_score:r.team_score,opponent_score:r.opponent_score,
+    result:null,opponent:r.opponent||"",opponent_school_id:r.opponent_school_id||null,scheduled_at:r.scheduled_at,
+    scheduled_time_known:Number(r.scheduled_time_known??1),source_id:r.source_id,parser_type:r.parser_type
+  });
   const missingObs=[];
   for(const expected of normalizedFinals){
     const d1=prodById.get(String(expected.id)); if(!d1) continue;
@@ -155,11 +175,24 @@ export default {
     const suppressed=clean(d1.notes).includes("Excluded from current LocalBleachers presentation")
       ||clean(d1.notes).includes("Removed from current statewide DragonFly schedule");
     const candidateForSeason={
-      level:"high-school",sport:"volleyball",season:"2026",parser_type:"dragonfly-public",
-      counts_for_record:1,notes:d1.notes,opponent:"",venue:"",location_text:"",
-      scheduled_at:expected.scheduled_at
+      id:d1.id,team_id:d1.team_id,school_id:d1.school_id,level:d1.school_level,sport:d1.sport,gender:d1.gender,season:d1.season,
+      parser_type:d1.parser_type,source_type:d1.source_type,source_id:d1.source_id,
+      counts_for_record:Number(d1.counts_for_record??1),notes:d1.notes,opponent:d1.opponent,opponent_school_id:d1.opponent_school_id,
+      venue:d1.venue,location_text:d1.location_text,scheduled_at:d1.scheduled_at,scheduled_time_known:Number(d1.scheduled_time_known??1),
+      canonical_event_id:d1.canonical_event_id,status:d1.status,team_score:d1.team_score,opponent_score:d1.opponent_score,result:d1.result
     };
     const filteredOfficial=!rowIsOfficialSeasonContest(candidateForSeason);
+    const logicalTruth=candidates.find(r=>{
+      const tc=truthCandidate(r);
+      return resultEvidenceMatchesScheduleRow(tc,candidateForSeason,{reportingSchoolId:d1.school_id})
+        ||scheduleRowsLikelyDuplicate(tc,candidateForSeason,{reportingSchoolId:d1.school_id});
+    })||null;
+    const logicalSameFinal=Boolean(logicalTruth)
+      && String(logicalTruth.status||"").toUpperCase()==="FINAL"
+      && Number(logicalTruth.team_score)===Number(d1.team_score)
+      && Number(logicalTruth.opponent_score)===Number(d1.opponent_score)
+      && evaluateFinalResultTruth(truthCandidate(logicalTruth)).state==="VERIFIED";
+    const preOfficial=Boolean(dateKeyInZone(d1.scheduled_at||"","America/Chicago")<"2026-08-24");
     const summary=teamSummary.get(String(expected.team_id));
     const stale=Boolean(summary)&&(
       Date.parse(d1.updated_at||d1.last_checked_at||"")>Date.parse(summary.refreshed_at||"")
@@ -169,7 +202,9 @@ export default {
     let klass="other";
     if(suppressed) klass="suppressed";
     else if(canonicalIncomplete) klass="canonical_incomplete_overrides_raw_final";
-    else if(filteredOfficial) klass="official_filter";
+    else if(filteredOfficial) klass=preOfficial?"pre_official_filter":"other_official_filter";
+    else if(logicalSameFinal) klass="logical_duplicate_same_final";
+    else if(logicalTruth) klass="logical_duplicate_conflict";
     else if(truthPresent) klass="truth_present_wrong_status_or_score";
     else if(stale) klass="stale_truth";
     missingObs.push({
@@ -182,7 +217,8 @@ export default {
       class:klass,
       d1:{status:d1.status,team_score:d1.team_score,opponent_score:d1.opponent_score,canonical_status:d1.canonical_status,canonical_home_score:d1.canonical_home_score,canonical_away_score:d1.canonical_away_score,notes:d1.notes,updated_at:d1.updated_at,source_checked_at:d1.last_successful_fetch_at},
       truth:truthRow?{game_id:truthRow.game_id,canonical_event_id:truthRow.canonical_event_id,status:truthRow.status,team_score:truthRow.team_score,opponent_score:truthRow.opponent_score,refreshed_at:truthRow.refreshed_at}:null,
-      team_refreshed_at:summary?.refreshed_at||null
+      team_refreshed_at:summary?.refreshed_at||null,
+      logical_truth:logicalTruth?{game_id:logicalTruth.game_id,canonical_event_id:logicalTruth.canonical_event_id,status:logicalTruth.status,team_score:logicalTruth.team_score,opponent_score:logicalTruth.opponent_score,opponent:logicalTruth.opponent,scheduled_at:logicalTruth.scheduled_at}:null
     });
   }
 
@@ -190,8 +226,8 @@ export default {
   for(const m of missingObs){
     const k=String(m.event_key||""); if(!eventMap.has(k))eventMap.set(k,[]); eventMap.get(k).push(m);
   }
-  const priority=["suppressed","canonical_incomplete_overrides_raw_final","official_filter","truth_present_wrong_status_or_score","stale_truth","other"];
-  const eventClasses={suppressed:0,canonical_incomplete_overrides_raw_final:0,official_filter:0,truth_present_wrong_status_or_score:0,stale_truth:0,other:0};
+  const priority=["suppressed","canonical_incomplete_overrides_raw_final","pre_official_filter","other_official_filter","logical_duplicate_same_final","logical_duplicate_conflict","truth_present_wrong_status_or_score","stale_truth","other"];
+  const eventClasses={suppressed:0,canonical_incomplete_overrides_raw_final:0,pre_official_filter:0,other_official_filter:0,logical_duplicate_same_final:0,logical_duplicate_conflict:0,truth_present_wrong_status_or_score:0,stale_truth:0,other:0};
   for(const items of eventMap.values()){
     let chosen="other";
     for(const p of priority){if(items.some(x=>x.class===p)){chosen=p;break;}}
@@ -248,11 +284,11 @@ SUMMARY_ALIAS="$(node - "$OUT" <<'NODE'
 const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
 const r=p.raw.classes,t=p.truth.classes;
 const fields=[
- [r.total,5],[r.present_but_unscored,5],[r.absent_from_normalizer,5],[r.results_array_only,5],[r.legacy_only,5],[r.participant_pair_present,5],
- [r.zero_mapped_participants,5],[r.one_mapped_participant,5],[r.two_plus_mapped_participants,5],[r.invalid_event_id_or_date,5],
+ [r.total,5],[r.no_target_name_match,5],[r.one_target_name_match,5],[r.two_plus_target_name_matches,5],
  [p.truth.missing_events,10],[p.truth.missing_observations,10],
- [t.suppressed,10],[t.canonical_incomplete_overrides_raw_final,10],[t.official_filter,10],[t.truth_present_wrong_status_or_score,10],[t.stale_truth,10],[t.other,10]
-];
+ [t.pre_official_filter,10],[t.other_official_filter,10],[t.logical_duplicate_same_final,10],[t.logical_duplicate_conflict,10],
+ [t.suppressed,10],[t.canonical_incomplete_overrides_raw_final,10],[t.truth_present_wrong_status_or_score,10],[t.stale_truth,10],[t.other,10]
+]
 let packed=0n;
 for(const [raw,bits] of fields){const v=BigInt(Math.max(0,Number(raw)||0));if(v>((1n<<BigInt(bits))-1n))throw new Error("overflow");packed=(packed<<BigInt(bits))|v;}
 const alias="z"+packed.toString(36);if(alias.length>35)throw new Error("alias too long "+alias.length);console.log(alias);
