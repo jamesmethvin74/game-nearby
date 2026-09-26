@@ -18,6 +18,8 @@ jobs:
           import { fetchDragonFlyPagedPayload } from "./backend/src/dragonfly-feed.js";
           import { buildCertifiedStatewideRows } from "./backend/src/dragonfly-certified-statewide.js";
           import { STATEWIDE_HIGH_SCHOOL_SPORTS } from "./backend/src/statewide-sport-config.js";
+          import { certifiedTargetSchoolIds } from "./backend/src/dragonfly-certified-sport-catalog.js";
+          import inventoryNames from "./backend/data/arkansas-high-school-team-inventory-names.json" with { type: "json" };
 
           const targets = STATEWIDE_HIGH_SCHOOL_SPORTS.filter(c =>
             ["WVB_Varsity","MBB_Varsity","WBB_Varsity"].includes(c.feedCode)
@@ -98,6 +100,9 @@ jobs:
             const notNormalized=rawFinalScored.filter(e=>!normalizedFinalKeys.has("native:"+safe(clean(e?.eventId||e?.id))));
             const scoredTeamIds=[...new Set(rawFinalScored.flatMap(e=>participants(e).map(p=>clean(p?.team?.teamId)).filter(Boolean)))].sort();
             const scoredSchoolCodes=[...new Set(rawFinalScored.flatMap(e=>participants(e).map(p=>clean(p?.orgShortCode).toUpperCase()).filter(Boolean)))].sort();
+            const certifiedTargets=certifiedTargetSchoolIds(config);
+            const scoredCertifiedCodes=scoredSchoolCodes.filter(code=>certifiedTargets.has(code));
+            const missingCertifiedCodes=[...certifiedTargets].filter(code=>!scoredSchoolCodes.includes(code)).sort();
             const scoreSamples=rawFinalScored.slice(0,10).map(e=>({
               eventId:clean(e?.eventId||e?.id),date:eventDate(e),status:explicitStatus(e),
               participants:participants(e).map(p=>({name:clean(p?.name),teamId:clean(p?.team?.teamId),orgShortCode:clean(p?.orgShortCode).toUpperCase(),result:p?.result??null})),
@@ -124,6 +129,10 @@ jobs:
               scored_finals_not_normalized:notNormalized.length,
               scored_final_participant_team_count:scoredTeamIds.length,
               scored_final_school_code_count:scoredSchoolCodes.length,
+              certified_target_count:certifiedTargets.size,
+              scored_final_certified_target_count:scoredCertifiedCodes.length,
+              scored_final_certified_targets:scoredCertifiedCodes.map(code=>({code,name:inventoryNames.certified_school_names?.[code]||code})),
+              missing_scored_final_certified_targets:missingCertifiedCodes.map(code=>({code,name:inventoryNames.certified_school_names?.[code]||code})),
               scored_final_participant_team_ids:scoredTeamIds,
               scored_final_school_codes:scoredSchoolCodes,
               score_samples:scoreSamples,
