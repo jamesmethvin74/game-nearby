@@ -80,6 +80,13 @@ export default {
     "WHERE t.active=1 AND t.season=? AND t.sport='volleyball' AND t.gender='girls' AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'"
   ).bind(config.season).all();
   const targetNames=new Set((targetNameQuery.results||[]).flatMap(r=>[r.name,r.location_matched_name]).map(normalizeSchoolAlias).filter(Boolean));
+  const schoolIdentityQuery=await env.DB.prepare(
+    "SELECT UPPER(sei.external_school_id) AS external_school_id,sei.school_id,t.id AS team_id "+
+    "FROM school_external_identities sei JOIN teams t ON t.school_id=sei.school_id JOIN schools sch ON sch.id=t.school_id "+
+    "WHERE sei.provider='dragonfly' AND t.active=1 AND t.season=? AND t.sport='volleyball' AND t.gender='girls' "+
+    "AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'"
+  ).bind(config.season).all();
+  const teamByExternalSchool=new Map((schoolIdentityQuery.results||[]).map(r=>[clean(r.external_school_id).toUpperCase(),r]));
   const rows=buildCertifiedStatewideRows(fetched.payload,mappings,config,{checkedAt:new Date().toISOString()});
   const normalizedFinals=rows.games.filter(scoredFinal);
   const normalizedIds=new Set(normalizedFinals.map(g=>clean(g.source_event_key).replace(/^native:/,"")));
@@ -100,7 +107,10 @@ export default {
     invalid_event_id_or_date:0,
     no_target_name_match:0,
     one_target_name_match:0,
-    two_plus_target_name_matches:0
+    two_plus_target_name_matches:0,
+    org_fallback_resolvable_events:0,
+    target_match_blank_team_id:0,
+    target_match_unmapped_team_id:0
   };
   const rawExamples=[];
   for(const e of rawMiss){
@@ -115,10 +125,18 @@ export default {
     else if(mapped===1) rawClasses.one_mapped_participant++;
     else rawClasses.two_plus_mapped_participants++;
     if(!id||!Number.isFinite(Date.parse(eventDate(e)))) rawClasses.invalid_event_id_or_date++;
-    const targetMatches=participants(e).filter(p=>targetNames.has(normalizeSchoolAlias(p?.name))).length;
+    const targetParticipants=participants(e).filter(p=>targetNames.has(normalizeSchoolAlias(p?.name)));
+    const targetMatches=targetParticipants.length;
     if(targetMatches===0) rawClasses.no_target_name_match++;
     else if(targetMatches===1) rawClasses.one_target_name_match++;
     else rawClasses.two_plus_target_name_matches++;
+    const fallbackParticipants=targetParticipants.filter(p=>teamByExternalSchool.has(clean(p?.orgShortCode).toUpperCase()));
+    if(fallbackParticipants.length) rawClasses.org_fallback_resolvable_events++;
+    for(const p of targetParticipants){
+      const teamId=clean(p?.team?.teamId);
+      if(!teamId) rawClasses.target_match_blank_team_id++;
+      else if(!mappingByExternal.has(teamId)) rawClasses.target_match_unmapped_team_id++;
+    }
     rawExamples.push({
       event_id:id,
       date:eventDate(e),
@@ -127,6 +145,8 @@ export default {
       participant_results:participants(e).map(p=>p?.result??null),
       results:Array.isArray(e?.results)?e.results:null,
       mapped_participants:mapped,target_name_matches:targetMatches,
+      target_org_short_codes:targetParticipants.map(p=>clean(p?.orgShortCode)),
+      fallback_resolvable:fallbackParticipants.length,
       participant_pair:pp,results_pair:rp,legacy_pair:lp,
       normalized_any:anyNormalizedIds.has(key)
     });
@@ -141,7 +161,7 @@ export default {
     "WHERE t.active=1 AND t.season=? AND t.sport='volleyball' AND t.gender='girls' AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide'"
   ).bind(config.season).all();
   const truthQuery=await env.DB.prepare(
-    "SELECT truth_id,row_type,team_id,game_id,canonical_event_id,status,team_score,opponent_score,result,opponent,opponent_school_id,scheduled_at,scheduled_time_known,refreshed_at,source_id,source_type,parser_type "+
+    "SELECT truth_id,row_type,team_id,game_id,canonical_event_id,status,team_score,opponent_score,result,opponent,opponent_school_id,scheduled_at,scheduled_time_known,counts_for_record,scored_finals,refreshed_at,source_id,source_type,parser_type "+
     "FROM ONE_TRUTH_TB WHERE season=? AND sport='volleyball' AND gender='girls'"
   ).bind(config.season).all();
   const prod=gameQuery.results||[], truth=truthQuery.results||[];
@@ -234,8 +254,42 @@ export default {
     eventClasses[chosen]++;
   }
 
+  const officialNormalizedFinalTeams=new Set(rows.games.filter(g=>scoredFinal(g)&&Number(g.counts_for_record??1)!==0).map(g=>g.team_id)).size;
+  const d1OfficialFinalTeams=new Set(prod.filter(g=>scoredFinal(g)&&Number(g.counts_for_record??1)!==0).map(g=>g.team_id)).size;
+  const truthOfficialFinalTeams=new Set(truth.filter(g=>g.row_type==="GAME"&&scoredFinal(g)&&Number(g.counts_for_record??1)!==0).map(g=>g.team_id)).size;
+
+  async function basketballReadiness(code){
+    const cfg=statewideSportConfig(code);
+    const [feed,mapq]=await Promise.all([
+      fetchDragonFlyPagedPayload(cfg.feedUrl,{headers:{"user-agent":"LocalBleachersAR-coverage-readiness/1.0","accept":"application/json"}}),
+      env.DB.prepare(
+        "SELECT tei.external_team_id,src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude "+
+        "FROM team_external_identities tei JOIN teams t ON t.id=tei.team_id JOIN schools sch ON sch.id=t.school_id "+
+        "JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide' AND src.id=t.id || '-dragonfly-statewide' "+
+        "WHERE tei.provider=? AND t.sport=? AND t.gender=? AND t.season=? AND t.active=1"
+      ).bind(cfg.teamIdentityProvider,cfg.sport,cfg.gender,cfg.season).all()
+    ]);
+    const maps=mapq.results||[];
+    const normalized=buildCertifiedStatewideRows(feed.payload,maps,cfg,{checkedAt:new Date().toISOString()});
+    return {
+      expected:cfg.expectedTargets,
+      mapped_teams:new Set(maps.map(m=>m.team_id)).size,
+      scheduled_teams:new Set(normalized.games.map(g=>g.team_id)).size,
+      raw_events:Array.isArray(feed.payload?.schedule)?feed.payload.schedule.length:0
+    };
+  }
+  const [mbb,wbb]=await Promise.all([basketballReadiness("MBB"),basketballReadiness("WBB")]);
+
   return json({
-    audit_version:"dragonfly-loss-trace-v1",
+    audit_version:"dragonfly-loss-trace-v2",
+    coverage:{
+      wvb_expected:config.expectedTargets,
+      wvb_mapped_teams:new Set(mappings.map(m=>m.team_id)).size,
+      wvb_normalized_official_scored_teams:officialNormalizedFinalTeams,
+      wvb_d1_official_scored_teams:d1OfficialFinalTeams,
+      wvb_truth_official_scored_teams:truthOfficialFinalTeams,
+      mbb,wbb
+    },
     raw:{classes:rawClasses,examples:rawExamples},
     truth:{
       missing_events:eventMap.size,
@@ -271,7 +325,7 @@ HTTP_STATUS="$(curl -sS --max-time 300 -o "$OUT" -w '%{http_code}' -H "x-audit-t
 node - "$OUT" <<'NODE'
 const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
 if(Number(p.rows_written||0)!==0) throw new Error("trace must be read-only");
-console.log("DRAGONFLY_LOSS_TRACE="+JSON.stringify({raw:p.raw.classes,truth:p.truth}));
+console.log("DRAGONFLY_LOSS_TRACE="+JSON.stringify({coverage:p.coverage,raw:p.raw.classes,truth:p.truth.classes}));
 NODE
 
 node - "$OUT" > "$RESULT_WRAPPER" <<'NODE'
@@ -282,12 +336,12 @@ NODE
 # Compact the essential classification counts into the final preview alias.
 SUMMARY_ALIAS="$(node - "$OUT" <<'NODE'
 const fs=require("fs");const p=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
-const r=p.raw.classes,t=p.truth.classes;
+const r=p.raw.classes,cv=p.coverage;
 const fields=[
- [r.total,5],[r.no_target_name_match,5],[r.one_target_name_match,5],[r.two_plus_target_name_matches,5],
- [p.truth.missing_events,10],[p.truth.missing_observations,10],
- [t.pre_official_filter,10],[t.other_official_filter,10],[t.logical_duplicate_same_final,10],[t.logical_duplicate_conflict,10],
- [t.suppressed,10],[t.canonical_incomplete_overrides_raw_final,10],[t.truth_present_wrong_status_or_score,10],[t.stale_truth,10],[t.other,10]
+ [cv.wvb_expected,9],[cv.wvb_mapped_teams,9],[cv.wvb_normalized_official_scored_teams,9],[cv.wvb_d1_official_scored_teams,9],[cv.wvb_truth_official_scored_teams,9],
+ [r.total,5],[r.org_fallback_resolvable_events,5],[r.target_match_blank_team_id,5],[r.target_match_unmapped_team_id,5],
+ [cv.mbb.expected,10],[cv.mbb.mapped_teams,10],[cv.mbb.scheduled_teams,10],
+ [cv.wbb.expected,10],[cv.wbb.mapped_teams,10],[cv.wbb.scheduled_teams,10]
 ]
 let packed=0n;
 for(const [raw,bits] of fields){const v=BigInt(Math.max(0,Number(raw)||0));if(v>((1n<<BigInt(bits))-1n))throw new Error("overflow");packed=(packed<<BigInt(bits))|v;}
