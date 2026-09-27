@@ -115,6 +115,49 @@ test("certified provider collapses revised football ids but preserves real volle
   assert.equal(collapseCertifiedProviderDuplicates([early,late],volleyball).length,2);
 });
 
+
+
+test("certified collector falls back to exact certified DragonFly school identity when teamId changes",()=>{
+  const config=statewideSportConfig("WVB");
+  const payload={timestamp:checkedAt,schedule:[event({
+    id:"vb-new-team-id",code:"WVB",
+    home:{name:"Arkansas School",org:"ARKAAA",teamId:"new-provider-team-id",result:{score:3,opponentScore:1,code:"W"}},
+    away:{name:"Memphis Prep",org:"TN123",teamId:"tn-vb",result:{score:1,opponentScore:3,code:"L"}}
+  })]};
+  const base=mapping("old-provider-team-id","ark-volleyball-girls-2026","ark-school");
+  const rows=buildCertifiedStatewideRows(payload,[base],config,{
+    checkedAt,
+    schoolMappings:[{...base,external_school_id:"ARKAAA"}]
+  });
+
+  assert.equal(rows.games.length,1);
+  assert.equal(rows.games[0].team_id,"ark-volleyball-girls-2026");
+  assert.equal(rows.games[0].status,"FINAL");
+  assert.equal(rows.games[0].team_score,3);
+  assert.equal(rows.games[0].opponent_score,1);
+  assert.equal(rows.games[0].result,"W");
+});
+
+test("certified school identity fallback fails closed when an orgShortCode maps to multiple teams",()=>{
+  const config=statewideSportConfig("WVB");
+  const payload={timestamp:checkedAt,schedule:[event({
+    id:"vb-ambiguous-school",code:"WVB",
+    home:{name:"Ambiguous School",org:"DUP",teamId:"new-provider-team-id",result:{score:3,opponentScore:0,code:"W"}},
+    away:{name:"Opponent",org:"OUT",teamId:"out-vb",result:{score:0,opponentScore:3,code:"L"}}
+  })]};
+  const first=mapping("old-a","a-volleyball-girls-2026","school-a");
+  const second=mapping("old-b","b-volleyball-girls-2026","school-b");
+  const rows=buildCertifiedStatewideRows(payload,[first,second],config,{
+    checkedAt,
+    schoolMappings:[
+      {...first,external_school_id:"DUP"},
+      {...second,external_school_id:"DUP"}
+    ]
+  });
+
+  assert.equal(rows.games.length,0);
+});
+
 test("certified Arkansas schedules retain games against an unmapped out-of-state opponent",()=>{
   const config=statewideSportConfig("MBB");
   const payload={timestamp:checkedAt,schedule:[event({

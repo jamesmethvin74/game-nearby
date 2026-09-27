@@ -140,9 +140,33 @@ function eventStatus(event,participants){
   return hasResult || /FINAL|COMPLETE/.test(explicit) ? "FINAL" : "SCHEDULED";
 }
 
-export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checkedAt=new Date().toISOString(),timeZone="America/Chicago"}={}){
+function uniqueCertifiedSchoolMappings(rows=[]){
+  const byExternalSchool=new Map();
+  const ambiguous=new Set();
+  for (const mapping of Array.isArray(rows)?rows:[]) {
+    const externalSchoolId=clean(mapping?.external_school_id).toUpperCase();
+    if (!externalSchoolId || ambiguous.has(externalSchoolId)) continue;
+    const existing=byExternalSchool.get(externalSchoolId);
+    if (existing && existing.team_id!==mapping.team_id) {
+      byExternalSchool.delete(externalSchoolId);
+      ambiguous.add(externalSchoolId);
+      continue;
+    }
+    byExternalSchool.set(externalSchoolId,mapping);
+  }
+  return byExternalSchool;
+}
+
+export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checkedAt=new Date().toISOString(),timeZone="America/Chicago",schoolMappings=[]}={}){
   const config=statewideSportConfig(sportConfig);
   const byExternalTeam=mappings instanceof Map?mappings:new Map(mappings.map(mapping=>[String(mapping.external_team_id),mapping]));
+  const byExternalSchool=uniqueCertifiedSchoolMappings(schoolMappings);
+  const mappingForParticipant=participant=>{
+    const externalTeamId=clean(participant?.team?.teamId);
+    return byExternalTeam.get(externalTeamId)
+      || byExternalSchool.get(clean(participant?.orgShortCode).toUpperCase())
+      || null;
+  };
   const games=[];
   const canonicals=[];
   const members=[];
@@ -162,7 +186,7 @@ export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checke
     const participants=Array.isArray(event?.participants)?event.participants:[];
     const mapped=participants.map((participant,index)=>{
       const externalTeamId=clean(participant?.team?.teamId);
-      const mapping=byExternalTeam.get(externalTeamId);
+      const mapping=mappingForParticipant(participant);
       return mapping?{participant,mapping,externalTeamId,index}:null;
     }).filter(Boolean);
     if (!mapped.length) continue;
@@ -201,7 +225,7 @@ export function buildCertifiedStatewideRows(payload,mappings,sportConfig,{checke
         continue;
       }
       const opponentExternalTeamId=clean(opponent?.team?.teamId);
-      const opponentMapping=byExternalTeam.get(opponentExternalTeamId) || null;
+      const opponentMapping=mappingForParticipant(opponent);
       const localCanonical=canonicalId && opponentMapping && opponentMapping.school_id!==item.mapping.school_id ? canonicalId : null;
       if (!opponentMapping) externalOpponentObservations++;
       const sourceId=item.mapping.source_id;
@@ -358,18 +382,30 @@ export async function runCertifiedDragonFlyStatewideCollection(env,sportConfig,{
       };
     }
 
-    const mappingResult=await env.DB.prepare(`
-      SELECT tei.external_team_id,src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude
-      FROM team_external_identities tei
-      JOIN teams t ON t.id=tei.team_id
-      JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'
-      JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide' AND src.id=t.id || '-dragonfly-statewide'
-      WHERE tei.provider=? AND t.sport=? AND t.gender=? AND t.season=? AND t.active=1
-    `).bind(config.teamIdentityProvider,config.sport,config.gender,config.season).all();
+    const [mappingResult,schoolMappingResult]=await Promise.all([
+      env.DB.prepare(`
+        SELECT tei.external_team_id,src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude
+        FROM team_external_identities tei
+        JOIN teams t ON t.id=tei.team_id
+        JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'
+        JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide' AND src.id=t.id || '-dragonfly-statewide'
+        WHERE tei.provider=? AND t.sport=? AND t.gender=? AND t.season=? AND t.active=1
+      `).bind(config.teamIdentityProvider,config.sport,config.gender,config.season).all(),
+      env.DB.prepare(`
+        SELECT UPPER(sei.external_school_id) AS external_school_id,
+          src.id AS source_id,src.source_url,t.id AS team_id,t.school_id,sch.name AS school_name,sch.latitude,sch.longitude
+        FROM school_external_identities sei
+        JOIN teams t ON t.school_id=sei.school_id
+        JOIN schools sch ON sch.id=t.school_id AND sch.catalog_scope='local' AND sch.level='high-school' AND sch.state='AR'
+        JOIN sources src ON src.team_id=t.id AND src.parser_type='dragonfly-public' AND src.collection_mode='statewide' AND src.id=t.id || '-dragonfly-statewide'
+        WHERE sei.provider='dragonfly' AND t.sport=? AND t.gender=? AND t.season=? AND t.active=1
+      `).bind(config.sport,config.gender,config.season).all()
+    ]);
     const mappings=mappingResult.results||[];
+    const schoolMappings=schoolMappingResult.results||[];
     if (mappings.length<minMappings) throw new Error(`Only ${mappings.length} certified ${config.feedCode} team mappings are available; minimum is ${minMappings}`);
 
-    const rows=buildCertifiedStatewideRows(workingPayload,mappings,config,{checkedAt});
+    const rows=buildCertifiedStatewideRows(workingPayload,mappings,config,{checkedAt,schoolMappings});
     if (rows.games.length<minObservations) {
       throw new Error(`Certified ${config.feedCode} normalization suspicious: ${rows.games.length} observations; minimum is ${minObservations}`);
     }

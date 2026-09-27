@@ -26,7 +26,7 @@ export const STATEWIDE_HIGH_SCHOOL_SPORTS=Object.freeze([
   config({key:"basketball-girls",feedCode:"WBB_Varsity",providerSportCode:"WBB",sport:"basketball",gender:"girls",teamCode:"WBB",expectedTargets:281,minEvents:500,firstOfficialContestDate:"2026-11-05",normalizationVersion:2}),
   config({key:"soccer-boys",feedCode:"MSO_Varsity",providerSportCode:"MSO",sport:"soccer",gender:"boys",teamCode:"MSO",expectedTargets:79,minEvents:75}),
   config({key:"soccer-girls",feedCode:"WSO_Varsity",providerSportCode:"WSO",sport:"soccer",gender:"girls",teamCode:"WSO",expectedTargets:77,minEvents:60}),
-  config({key:"volleyball-girls",feedCode:"WVB_Varsity",providerSportCode:"WVB",sport:"volleyball",gender:"girls",teamCode:"WVB",expectedTargets:185,minEvents:500})
+  config({key:"volleyball-girls",feedCode:"WVB_Varsity",providerSportCode:"WVB",sport:"volleyball",gender:"girls",teamCode:"WVB",expectedTargets:185,minEvents:500,normalizationVersion:2})
 ]);
 
 export const STATEWIDE_SPORT_BY_KEY=new Map(STATEWIDE_HIGH_SCHOOL_SPORTS.map(item=>[item.key,item]));
