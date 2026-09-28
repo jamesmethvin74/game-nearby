@@ -28,7 +28,7 @@ jobs:
             if(!res.ok) throw new Error(sport+"/"+conference+" HTTP "+res.status);
             const body=await res.json();
             const rows=Array.isArray(body.standings)?body.standings:[];
-            if(!rows.length) throw new Error(sport+"/"+conference+" returned no standings rows");
+            if(!rows.length){ out.push({sport,conference,conference_name:body.conference?.name||conference,row_count:0,sample:[]}); continue; }
             const picks=[0,Math.floor((rows.length-1)/2),rows.length-1]
               .filter((v,i,a)=>a.indexOf(v)===i)
               .map(i=>rows[i])
