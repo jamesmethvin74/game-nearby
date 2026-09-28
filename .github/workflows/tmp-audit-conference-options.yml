@@ -1,0 +1,29 @@
+name: Temporary audit transport - conference options
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-audit-conference-options.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch exact production conference option endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          curl -fsS --max-time 45 "$API/api/v1/standings/options?sport=volleyball" -o volleyball.json
+          curl -fsS --max-time 45 "$API/api/v1/standings/options?sport=football" -o football.json
+          echo '===VOLLEYBALL_OPTIONS==='
+          cat volleyball.json
+          echo
+          echo '===FOOTBALL_OPTIONS==='
+          cat football.json
+          echo
