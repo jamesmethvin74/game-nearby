@@ -1,0 +1,47 @@
+name: Temporary audit transport - standings sample
+
+on:
+  push:
+    branches: [feature/live-sports-pipeline-m1]
+    paths:
+      - ".github/workflows/tmp-audit-standings-sample.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Fetch exact production standings endpoints and sample teams
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const API="https://localbleachersar-sports-api.james-methvin74.workers.dev";
+          const endpoints=[["volleyball","6a-central"],["volleyball","6a-west"],["volleyball","5a-central"],["volleyball","5a-east"],["volleyball","5a-south"],["volleyball","5a-west"],["football","2a-region-1"],["football","2a-region-2"],["football","2a-region-3"],["football","2a-region-4"],["football","3a-region-1"],["football","3a-region-2"],["football","3a-region-3"],["football","3a-region-4"],["football","3a-region-7"],["football","3a-region-8"],["football","4a-region-1"],["football","4a-region-2"],["football","4a-region-3"],["football","4a-region-4"],["football","4a-region-7"],["football","4a-region-8"],["football","5a-central"],["football","5a-east"],["football","5a-south"],["football","5a-west"],["football","6a-east"],["football","6a-west"],["football","7a-central"],["football","7a-west"],["football","8-man--club-8-man-"],["football","8-man--east-8-man-"],["football","8-man--south-8-man-"],["football","8-man--west-8-man-"],["football","heartland-christian-8-man-"]];
+          const out=[];
+          for (const [sport,conference] of endpoints) {
+            const url=API+"/api/v1/standings?sport="+encodeURIComponent(sport)+"&conference="+encodeURIComponent(conference);
+            const res=await fetch(url,{headers:{accept:"application/json","cache-control":"no-store"}});
+            if(!res.ok) throw new Error(sport+"/"+conference+" HTTP "+res.status);
+            const body=await res.json();
+            const rows=Array.isArray(body.standings)?body.standings:[];
+            if(!rows.length) throw new Error(sport+"/"+conference+" returned no standings rows");
+            const picks=[0,Math.floor((rows.length-1)/2),rows.length-1]
+              .filter((v,i,a)=>a.indexOf(v)===i)
+              .map(i=>rows[i])
+              .map(r=>({
+                team_id:r.team_id,
+                school_id:r.school_id||null,
+                school_name:r.school_name||r.team_name||r.name||null,
+                rank:r.rank??null,
+                overall_record:r.overall_record||null,
+                conference_record:r.conference_record||null
+              }));
+            out.push({sport,conference,conference_name:body.conference?.name||conference,row_count:rows.length,sample:picks});
+          }
+          console.log("===STANDINGS_SAMPLE_JSON===");
+          console.log(JSON.stringify(out));
+          NODE
