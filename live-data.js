@@ -248,8 +248,8 @@
     const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString();
     const until = new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString();
     const params = new URLSearchParams({
-      lat: String(center.lat),
-      lon: String(center.lon),
+      lat: Number(center.lat).toFixed(3),
+      lon: Number(center.lon).toFixed(3),
       radius: String(radius),
       since,
       until
