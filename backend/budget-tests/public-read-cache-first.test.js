@@ -43,10 +43,16 @@ test("nearby cache keys preserve location and coarse date window", () => {
   assert.match(source, /legacyQuery = `lat=\$\{lat\}&lon=\$\{lon\}&radius=\$\{radius\}`/);
 });
 
-test("diagnostic requests bypass the public cache", () => {
-  assert.match(source, /x-localbleachers-debug/);
-  assert.match(source, /x-localbleachers-diagnostic/);
-  assert.match(source, /return null/);
+test("untrusted debug and diagnostic headers cannot bypass the public cache", () => {
+  const url="https://example.test/api/v1/schools";
+  const normal=cacheDescriptor(new Request(url));
+  const debug=cacheDescriptor(new Request(url,{headers:{"x-localbleachers-debug":"team-detail"}}));
+  const diagnostic=cacheDescriptor(new Request(url,{headers:{"x-localbleachers-diagnostic":"read-v1"}}));
+  assert.ok(normal);
+  assert.equal(debug?.freshKey.url,normal.freshKey.url);
+  assert.equal(diagnostic?.freshKey.url,normal.freshKey.url);
+  assert.doesNotMatch(source,/headers\.has\("x-localbleachers-debug"\)/);
+  assert.doesNotMatch(source,/headers\.has\("x-localbleachers-diagnostic"\)/);
 });
 
 test("school-level schedule cache is versioned away from pre-unified team-status payloads", () => {
