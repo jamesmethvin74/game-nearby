@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import {buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL, filterTargetedDragonFlyRows, dragonFlyNativeCanonicalMappings } from "../src/dragonfly-statewide.js";
+import {buildStatewideDragonFlyRows, statewideDragonFlySignature, STATEWIDE_SQL, filterTargetedDragonFlyRows, dragonFlyNativeCanonicalMappings, canMergeMaxPrepsFallbackCanonical } from "../src/dragonfly-statewide.js";
 
 const fixture=fileURLToPath(new URL("./fixtures/dragonfly-greenbrier-vilonia-2026.json",import.meta.url));
 const checkedAt="2026-08-31T20:00:00.000Z";
@@ -138,4 +138,22 @@ test("targeted DragonFly filtering writes only requested team observations",()=>
   assert.deepEqual(filtered.canonicals.map(row=>row.id),["ce-1"]);
   assert.deepEqual(filtered.members.map(row=>row.game_id),["a"]);
   assert.equal(filtered.sourceCounts.get("src-a"),1);
+});
+
+
+test("MaxPreps fallback converges into the single matching DragonFly volleyball final but protects rematches",()=>{
+  const current={
+    sport:"volleyball",status:"FINAL",home_school_id:"har-ber",away_school_id:"bentonville",
+    home_score:3,away_score:2,scheduled_at:"2026-09-01T23:30:00.000Z",
+    participant_a_school_id:"bentonville",participant_b_school_id:"har-ber"
+  };
+  const fallback={
+    status:"FINAL",home_school_id:"har-ber",away_school_id:"bentonville",
+    home_score:3,away_score:2,scheduled_at:"2026-09-01T12:00:00.000Z",scheduled_time_known:0,
+    candidate_has_maxpreps:1,candidate_has_dragonfly:0
+  };
+  assert.equal(canMergeMaxPrepsFallbackCanonical(current,fallback,{samePairDateDragonFlyCount:1}),true);
+  assert.equal(canMergeMaxPrepsFallbackCanonical(current,{...fallback,away_score:1},{samePairDateDragonFlyCount:1}),false);
+  assert.equal(canMergeMaxPrepsFallbackCanonical(current,fallback,{samePairDateDragonFlyCount:2}),false);
+  assert.equal(canMergeMaxPrepsFallbackCanonical(current,{...fallback,scheduled_time_known:1},{samePairDateDragonFlyCount:1}),false);
 });
