@@ -21,6 +21,8 @@ const NEARBY_DEFAULT_FUTURE_DAYS = 30;
 const NEARBY_MAX_WINDOW_MS = 125 * 24 * 60 * 60 * 1000;
 const NEARBY_MAX_ROWS = 5000;
 const NEARBY_COORDINATE_PRECISION = 1000;
+const NEARBY_CACHE_TTL_SECONDS = 5 * 60;
+const NEARBY_CACHE_BUCKET_MS = 15 * 60 * 1000;
 
 function roundedCoordinate(value) {
   return Math.round(Number(value) * NEARBY_COORDINATE_PRECISION) / NEARBY_COORDINATE_PRECISION;
@@ -52,6 +54,32 @@ function parseNearbyQuery(url, now = Date.now()) {
     since:new Date(sinceMs).toISOString(),
     until:new Date(untilMs).toISOString()
   };
+}
+
+function nearbyEdgeCache() {
+  try { return typeof caches !== "undefined" ? caches.default : null; }
+  catch { return null; }
+}
+
+function nearbyCacheRequest(request, query) {
+  const url=new URL(request.url);
+  const sinceBucket=Math.floor(Date.parse(query.since)/NEARBY_CACHE_BUCKET_MS);
+  const untilBucket=Math.floor(Date.parse(query.until)/NEARBY_CACHE_BUCKET_MS);
+  const params=new URLSearchParams({
+    lat:Number(query.lat).toFixed(3),
+    lon:Number(query.lon).toFixed(3),
+    radius:String(query.radius),
+    since_bucket:String(sinceBucket),
+    until_bucket:String(untilBucket)
+  });
+  return new Request(`${url.origin}/__localbleachers_cache__/one-truth-games-v1?${params.toString()}`);
+}
+
+function nearbyCachedResponse(response, marker) {
+  const headers=new Headers(response.headers);
+  headers.set("cache-control",`public, max-age=${NEARBY_CACHE_TTL_SECONDS}`);
+  headers.set("x-localbleachers-cache",marker);
+  return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
 }
 
 const ACCURACY_REPAIR_HIGH_SCHOOL_TEAMS = [
@@ -733,9 +761,17 @@ export default {
       if (path==="/api/v1/games") {
         const nearby=parseNearbyQuery(url);
         if (nearby.error) return json(nearby,400);
+        const cache=nearbyEdgeCache();
+        const cacheKey=cache ? nearbyCacheRequest(request,nearby) : null;
+        if (cache && cacheKey) {
+          const cached=await cache.match(cacheKey);
+          if (cached) return nearbyCachedResponse(cached,"one-truth-hit");
+        }
         const teamIds=await nearbyTeamIds(env,nearby);
         await ensureOneTruthFresh(env,{teamIds});
-        return json({games:await nearbyGames(env,nearby),truth_table:TABLE});
+        const response=nearbyCachedResponse(json({games:await nearbyGames(env,nearby),truth_table:TABLE}),"one-truth-miss");
+        if (cache && cacheKey && response.ok) await cache.put(cacheKey,response.clone());
+        return response;
       }
       if (path==="/api/v1/team-statuses") return teamStatusesResponse(request,env,ctx,url);
 
@@ -830,5 +866,6 @@ export {
   NEARBY_MAX_RADIUS_MILES,
   NEARBY_MAX_ROWS,
   NEARBY_MAX_WINDOW_MS,
+  nearbyCacheRequest,
   parseNearbyQuery
 };
