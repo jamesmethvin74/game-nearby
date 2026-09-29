@@ -466,7 +466,6 @@ export async function enrichMaxPrepsSchoolMascots(env, {
 }
 
 export async function getSchoolBrandingReport(env) {
-  await ensureSchoolBrandingSchema(env);
   const summary = await env.DB.prepare(`SELECT
     COUNT(*) AS target_schools,
     SUM(CASE WHEN b.logo_url IS NOT NULL THEN 1 ELSE 0 END) AS logo_schools,
