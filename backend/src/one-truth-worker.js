@@ -14,6 +14,46 @@ const BOOTSTRAP_BATCH = 64;
 const SCHEDULED_TRUTH_BATCH = 64;
 const MAX_SCHEDULED_TRUTH_BATCHES = 20;
 
+const NEARBY_DEFAULT_RADIUS_MILES = 25;
+const NEARBY_MAX_RADIUS_MILES = 100;
+const NEARBY_DEFAULT_PAST_HOURS = 6;
+const NEARBY_DEFAULT_FUTURE_DAYS = 30;
+const NEARBY_MAX_WINDOW_MS = 125 * 24 * 60 * 60 * 1000;
+const NEARBY_MAX_ROWS = 5000;
+const NEARBY_COORDINATE_PRECISION = 1000;
+
+function roundedCoordinate(value) {
+  return Math.round(Number(value) * NEARBY_COORDINATE_PRECISION) / NEARBY_COORDINATE_PRECISION;
+}
+
+function parseNearbyQuery(url, now = Date.now()) {
+  if (!url.searchParams.has("lat") || !url.searchParams.has("lon")) return {error:"location_required"};
+  const rawLat=Number(url.searchParams.get("lat"));
+  const rawLon=Number(url.searchParams.get("lon"));
+  if (!Number.isFinite(rawLat) || rawLat < -90 || rawLat > 90 || !Number.isFinite(rawLon) || rawLon < -180 || rawLon > 180) {
+    return {error:"invalid_location"};
+  }
+  const radiusRaw=url.searchParams.has("radius") ? Number(url.searchParams.get("radius")) : NEARBY_DEFAULT_RADIUS_MILES;
+  if (!Number.isFinite(radiusRaw) || radiusRaw < 1 || radiusRaw > NEARBY_MAX_RADIUS_MILES) {
+    return {error:"invalid_radius",max_radius_miles:NEARBY_MAX_RADIUS_MILES};
+  }
+  const sinceRaw=url.searchParams.get("since");
+  const untilRaw=url.searchParams.get("until");
+  const sinceMs=sinceRaw ? Date.parse(sinceRaw) : now-NEARBY_DEFAULT_PAST_HOURS*60*60*1000;
+  const untilMs=untilRaw ? Date.parse(untilRaw) : now+NEARBY_DEFAULT_FUTURE_DAYS*24*60*60*1000;
+  if (!Number.isFinite(sinceMs) || !Number.isFinite(untilMs) || untilMs <= sinceMs) return {error:"invalid_date_range"};
+  if (untilMs-sinceMs > NEARBY_MAX_WINDOW_MS) {
+    return {error:"date_range_too_large",max_days:Math.floor(NEARBY_MAX_WINDOW_MS/(24*60*60*1000))};
+  }
+  return {
+    lat:roundedCoordinate(rawLat),
+    lon:roundedCoordinate(rawLon),
+    radius:radiusRaw,
+    since:new Date(sinceMs).toISOString(),
+    until:new Date(untilMs).toISOString()
+  };
+}
+
 const ACCURACY_REPAIR_HIGH_SCHOOL_TEAMS = [
   "df-354bu3-volleyball-2026","df-7k6qj6-volleyball-2026","df-bf8zxn-volleyball-2026",
   "df-bjp5e4-volleyball-2026","df-cueaqq-volleyball-2026","df-jh2s9b-volleyball-2026",
@@ -286,24 +326,11 @@ async function teamIdsForConference(env, sport, conferenceCandidates = []) {
     .map(row=>String(row.team_id||""))
     .filter(Boolean);
 }
-async function nearbyTeamIds(env, url) {
-  const lat=Number(url.searchParams.get("lat"));
-  const lon=Number(url.searchParams.get("lon"));
-  const radius=Math.max(1,Number(url.searchParams.get("radius")||25));
-  const since=url.searchParams.get("since")||new Date(Date.now()-6*60*60*1000).toISOString();
-  const until=url.searchParams.get("until")||new Date(Date.now()+30*24*60*60*1000).toISOString();
-  const hasGeo=[lat,lon,radius].every(Number.isFinite);
-  const binds=[since,until];
-  let geoSql="";
-
-  if(hasGeo){
-    const latDelta=radius/69;
-    const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
-    const lonDelta=radius/(69*lonScale);
-    geoSql=" AND g.latitude BETWEEN ? AND ? AND g.longitude BETWEEN ? AND ?";
-    binds.push(lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta);
-  }
-
+async function nearbyTeamIds(env, query) {
+  const {lat,lon,radius,since,until}=query;
+  const latDelta=radius/69;
+  const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
+  const lonDelta=radius/(69*lonScale);
   const {results=[]}=await env.DB.prepare(`
     SELECT DISTINCT g.team_id
     FROM games g
@@ -313,10 +340,11 @@ async function nearbyTeamIds(env, url) {
       AND t.season='2026'
       AND sch.catalog_scope='local'
       AND g.scheduled_at BETWEEN ? AND ?
-      ${geoSql}
+      AND g.latitude BETWEEN ? AND ?
+      AND g.longitude BETWEEN ? AND ?
     ORDER BY g.team_id
     LIMIT 256
-  `).bind(...binds).all();
+  `).bind(since,until,lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta).all();
   return results.map(row=>String(row.team_id||"")).filter(Boolean);
 }
 
@@ -500,40 +528,34 @@ async function oneTruthAudit(env) {
   },200);
 }
 
-async function nearbyGames(env, url) {
-  const lat=Number(url.searchParams.get("lat"));
-  const lon=Number(url.searchParams.get("lon"));
-  const radius=Math.max(1,Number(url.searchParams.get("radius")||25));
-  const since=url.searchParams.get("since")||new Date(Date.now()-6*60*60*1000).toISOString();
-  const until=url.searchParams.get("until")||new Date(Date.now()+30*24*60*60*1000).toISOString();
-  const hasGeo=[lat,lon,radius].every(Number.isFinite);
-  const binds=[since,until];
-  let geoSql="";
-
-  if (hasGeo) {
-    const latDelta=radius/69;
-    const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
-    const lonDelta=radius/(69*lonScale);
-    geoSql=" AND latitude BETWEEN ? AND ? AND longitude BETWEEN ? AND ?";
-    binds.push(lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta);
-  }
+async function nearbyGames(env, query) {
+  const {lat,lon,radius,since,until}=query;
+  const latDelta=radius/69;
+  const lonScale=Math.max(0.2,Math.cos(lat*Math.PI/180));
+  const lonDelta=radius/(69*lonScale);
 
   const {results=[]}=await env.DB.prepare(`
     SELECT * FROM ${TABLE}
     WHERE row_type='GAME'
       AND scheduled_at BETWEEN ? AND ?
-      ${geoSql}
+      AND latitude BETWEEN ? AND ?
+      AND longitude BETWEEN ? AND ?
     ORDER BY scheduled_at,school_name,sport,gender,truth_id
-  `).bind(...binds).all();
+    LIMIT ?
+  `).bind(since,until,lat-latDelta,lat+latDelta,lon-lonDelta,lon+lonDelta,NEARBY_MAX_ROWS+1).all();
+
+  if (results.length>NEARBY_MAX_ROWS) {
+    const error=new Error("nearby_result_limit_exceeded");
+    error.code="NEARBY_RESULT_LIMIT_EXCEEDED";
+    throw error;
+  }
 
   return results
     .map(row => {
       const game=gameFromRow(row);
-      if (hasGeo) {
-        const distance=haversineMiles(lat,lon,Number(game.latitude),Number(game.longitude));
-        if (distance==null || distance>radius) return null;
-        game.distance_miles=distance;
-      }
+      const distance=haversineMiles(lat,lon,Number(game.latitude),Number(game.longitude));
+      if (distance==null || distance>radius) return null;
+      game.distance_miles=distance;
       return game;
     })
     .filter(Boolean);
@@ -709,9 +731,11 @@ export default {
       await ensureOneTruthSchema(env);
 
       if (path==="/api/v1/games") {
-        const teamIds=await nearbyTeamIds(env,url);
+        const nearby=parseNearbyQuery(url);
+        if (nearby.error) return json(nearby,400);
+        const teamIds=await nearbyTeamIds(env,nearby);
         await ensureOneTruthFresh(env,{teamIds});
-        return json({games:await nearbyGames(env,url),truth_table:TABLE});
+        return json({games:await nearbyGames(env,nearby),truth_table:TABLE});
       }
       if (path==="/api/v1/team-statuses") return teamStatusesResponse(request,env,ctx,url);
 
@@ -728,10 +752,12 @@ export default {
       if (path==="/api/v1/standings") return standingsResponse(request,env,ctx,url);
     } catch (error) {
       console.error("ONE_TRUTH_TB read failed",error);
+      if (error?.code==="NEARBY_RESULT_LIMIT_EXCEEDED") {
+        return json({error:"nearby_result_limit_exceeded",max_results:NEARBY_MAX_ROWS},413);
+      }
       return json({
         error:"one_truth_unavailable",
-        message:"Canonical presentation truth is temporarily unavailable.",
-        detail:String(error?.message||error)
+        message:"Canonical presentation truth is temporarily unavailable."
       },503);
     }
 
@@ -796,4 +822,13 @@ export default {
   }
 };
 
-export { TABLE as ONE_TRUTH_TABLE, BOOTSTRAP_PATH, AUDIT_PATH, ONE_SHOT_EXPIRES_AT };
+export {
+  TABLE as ONE_TRUTH_TABLE,
+  BOOTSTRAP_PATH,
+  AUDIT_PATH,
+  ONE_SHOT_EXPIRES_AT,
+  NEARBY_MAX_RADIUS_MILES,
+  NEARBY_MAX_ROWS,
+  NEARBY_MAX_WINDOW_MS,
+  parseNearbyQuery
+};
