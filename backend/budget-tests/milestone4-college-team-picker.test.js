@@ -15,7 +15,7 @@ test("M4 team follow UI exposes an explicit High School / College picker", () =>
 
 test("M4 team picker preserves the existing followed-school IDs rather than inventing college-specific follow storage", () => {
   assert.match(source, /followed\.includes\(school\.id\)/);
-  assert.match(source, /input type="checkbox" value="\$\{school\.id\}"/);
+  assert.match(source, /input type="checkbox" value="\\${esc\\(school\\.id\\)\\}"/);
   assert.doesNotMatch(source, /collegeFollowed|highSchoolFollowed/);
 });
 
