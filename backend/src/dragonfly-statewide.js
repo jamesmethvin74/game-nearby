@@ -258,6 +258,33 @@ export function dragonFlyNativeCanonicalMappings(rows={}) {
     .map(([event_key,canonical_event_id])=>({event_key,canonical_event_id}));
 }
 
+function canonicalFinalSignature(row) {
+  if (String(row?.status || "").toUpperCase() !== "FINAL" || row?.home_score == null || row?.away_score == null || !row?.home_school_id || !row?.away_school_id) return null;
+  return [[String(row.home_school_id),Number(row.home_score)],[String(row.away_school_id),Number(row.away_score)]]
+    .sort((a,b)=>a[0].localeCompare(b[0]))
+    .map(([id,value])=>`${id}:${value}`)
+    .join("|");
+}
+
+function canonicalPairDateKey(row,timeZone="America/Chicago") {
+  const participants=[String(row?.participant_a_school_id||""),String(row?.participant_b_school_id||"")].sort();
+  const date=dateKeyInZone(row?.scheduled_at,timeZone);
+  return participants[0] && participants[1] && date ? `${participants[0]}|${participants[1]}|${date}` : "";
+}
+
+export function canMergeMaxPrepsFallbackCanonical(currentDragonFly,candidate,{
+  samePairDateDragonFlyCount=1,timeZone="America/Chicago"
+}={}) {
+  if(String(currentDragonFly?.sport||"").toLowerCase()!=="volleyball") return false;
+  if(Number(samePairDateDragonFlyCount)!==1) return false;
+  if(Number(candidate?.candidate_has_maxpreps||0)!==1 || Number(candidate?.candidate_has_dragonfly||0)!==0) return false;
+  if(Number(candidate?.scheduled_time_known||0)!==0) return false;
+  if(dateKeyInZone(currentDragonFly?.scheduled_at,timeZone)!==dateKeyInZone(candidate?.scheduled_at,timeZone)) return false;
+  const currentSignature=canonicalFinalSignature(currentDragonFly);
+  const candidateSignature=canonicalFinalSignature(candidate);
+  return Boolean(currentSignature && candidateSignature && currentSignature===candidateSignature);
+}
+
 export async function reconcileDragonFlyNativeCanonicalAliases(env,rows,{
   sport="volleyball",gender="girls",season="2026",checkedAt=new Date().toISOString()
 }={}) {
@@ -280,13 +307,31 @@ export async function reconcileDragonFlyNativeCanonicalAliases(env,rows,{
         json_extract(value,'$.scheduled_at') scheduled_at
       FROM json_each(?)
     )
-    SELECT current.current_id,ce.id candidate_id,ce.status,ce.home_score,ce.away_score,ce.home_school_id,ce.away_school_id,ce.trust_state,ce.updated_at
+    SELECT current.current_id,ce.id candidate_id,ce.status,ce.home_score,ce.away_score,ce.home_school_id,ce.away_school_id,
+      ce.scheduled_at,ce.scheduled_time_known,ce.trust_state,ce.updated_at,
+      EXISTS (
+        SELECT 1 FROM canonical_event_members cem
+        JOIN games g ON g.id=cem.game_id JOIN sources src ON src.id=g.source_id
+        WHERE cem.canonical_event_id=ce.id AND src.parser_type='maxpreps-scores'
+      ) AS candidate_has_maxpreps,
+      EXISTS (
+        SELECT 1 FROM canonical_event_members cem
+        JOIN games g ON g.id=cem.game_id JOIN sources src ON src.id=g.source_id
+        WHERE cem.canonical_event_id=ce.id AND src.parser_type='dragonfly-public'
+      ) AS candidate_has_dragonfly,
+      EXISTS (
+        SELECT 1 FROM canonical_event_members cem
+        JOIN games g ON g.id=cem.game_id JOIN sources src ON src.id=g.source_id
+        WHERE cem.canonical_event_id=ce.id AND src.parser_type='dragonfly-public'
+          AND current.event_key IS NOT NULL AND g.source_event_key=current.event_key
+      ) AS same_native_event
     FROM current JOIN canonical_events ce
       ON ce.id<>current.current_id AND ce.sport=current.sport AND ce.gender=current.gender AND ce.season=current.season
      AND ce.participant_a_school_id=current.participant_a_school_id AND ce.participant_b_school_id=current.participant_b_school_id
     WHERE
       (current.sport='football' AND ABS((julianday(ce.scheduled_at)-julianday(current.scheduled_at))*1440.0)<=90)
       OR (current.sport<>'football' AND ABS((julianday(ce.scheduled_at)-julianday(current.scheduled_at))*1440.0)<=5)
+      OR (current.sport='volleyball' AND ABS((julianday(ce.scheduled_at)-julianday(current.scheduled_at))*1440.0)<=1080)
       OR EXISTS (
         SELECT 1 FROM canonical_event_members cem
         JOIN games g ON g.id=cem.game_id JOIN sources src ON src.id=g.source_id
@@ -297,13 +342,30 @@ export async function reconcileDragonFlyNativeCanonicalAliases(env,rows,{
   const complete=row=>String(row?.status||"").toUpperCase()==="FINAL" && row?.home_score!=null && row?.away_score!=null && row?.home_school_id && row?.away_school_id;
   const signature=row=>complete(row)?[[String(row.home_school_id),Number(row.home_score)],[String(row.away_school_id),Number(row.away_score)]]
     .sort((a,b)=>a[0].localeCompare(b[0])).map(([id,value])=>`${id}:${value}`).join("|"):null;
+  const currentPairDateCounts=new Map();
+  for(const row of currentById.values()){
+    const key=canonicalPairDateKey(row);
+    if(key) currentPairDateCounts.set(key,(currentPairDateCounts.get(key)||0)+1);
+  }
   const grouped=new Map();
   for(const row of candidates?.results||[]){const key=String(row.current_id);if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(row);}
   const proposals=new Map();
   for(const [currentId,existingRows] of grouped){
     const currentRow=currentById.get(currentId);
     if(!currentRow || String(currentRow.trust_state||"").toUpperCase()==="CONFLICT") continue;
-    const eligible=existingRows.filter(row=>String(row.trust_state||"").toUpperCase()!=="CONFLICT");
+    const eligible=existingRows.filter(row=>{
+      if(String(row.trust_state||"").toUpperCase()==="CONFLICT") return false;
+      const minutes=Math.abs(Date.parse(row.scheduled_at)-Date.parse(currentRow.scheduled_at))/60000;
+      const currentSport=String(currentRow.sport||sport).toLowerCase();
+      if(Number(row.same_native_event||0)===1) return true;
+      if(currentSport==="football") return Number.isFinite(minutes) && minutes<=90;
+      if(Number.isFinite(minutes) && minutes<=5) return true;
+      if(currentSport!=="volleyball") return false;
+      const key=canonicalPairDateKey(currentRow);
+      return canMergeMaxPrepsFallbackCanonical(currentRow,row,{
+        samePairDateDragonFlyCount:currentPairDateCounts.get(key)||0
+      });
+    });
     const all=[currentRow,...eligible.map(row=>({id:String(row.candidate_id),...row}))];
     const completeRows=all.filter(complete);
     if(new Set(completeRows.map(signature).filter(Boolean)).size>1) continue;
