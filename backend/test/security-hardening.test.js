@@ -12,6 +12,7 @@ import m8Worker, {
 import {
   NEARBY_MAX_RADIUS_MILES,
   NEARBY_MAX_ROWS,
+  nearbyCacheRequest,
   parseNearbyQuery
 } from "../src/one-truth-worker.js";
 import { getSchoolBrandingReport } from "../src/school-branding.js";
@@ -81,6 +82,22 @@ test("nearby query rejects missing/extreme inputs before D1 work", () => {
     parseNearbyQuery(new URL(`https://local.test/api/v1/games?lat=35.09&lon=-92.44&radius=25&since=${since}&until=${until}`)).error,
     "date_range_too_large"
   );
+});
+
+test("ONE_TRUTH nearby cache key is shared and ignores forged debug headers", () => {
+  const query = {
+    lat:35.089,
+    lon:-92.442,
+    radius:25,
+    since:"2026-09-29T16:00:00.000Z",
+    until:"2027-01-27T22:00:00.000Z"
+  };
+  const normal=nearbyCacheRequest(new Request("https://local.test/api/v1/games"),query);
+  const debug=nearbyCacheRequest(new Request("https://local.test/api/v1/games",{headers:{"x-localbleachers-debug":"team-detail"}}),query);
+  const diagnostic=nearbyCacheRequest(new Request("https://local.test/api/v1/games",{headers:{"x-localbleachers-diagnostic":"read-v1"}}),query);
+  assert.equal(debug.url,normal.url);
+  assert.equal(diagnostic.url,normal.url);
+  assert.match(normal.url,/one-truth-games-v1/);
 });
 
 test("normal UI nearby window remains valid and location is minimized to three decimals", () => {
