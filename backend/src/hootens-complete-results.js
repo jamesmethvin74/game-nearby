@@ -41,6 +41,19 @@ export function recoveryAlias(value) {
   return text;
 }
 
+export function sameRecoveredHootenFinal(existing,{
+  opponentSchoolId=null,opponentName="",teamScore,opponentScore,scheduledAt
+}={}, {maxHours=36}={}) {
+  if(String(existing?.status||"").toUpperCase()!=="FINAL") return false;
+  if(Number(existing?.team_score)!==Number(teamScore) || Number(existing?.opponent_score)!==Number(opponentScore)) return false;
+  const opponentMatches=opponentSchoolId
+    ? String(existing?.opponent_school_id||"")===String(opponentSchoolId)
+    : recoveryAlias(existing?.opponent)===recoveryAlias(opponentName);
+  if(!opponentMatches) return false;
+  const left=Date.parse(existing?.scheduled_at),right=Date.parse(scheduledAt);
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left-right)<=Number(maxHours)*3600000;
+}
+
 function addUnique(map, key, value) {
   if (!key) return;
   if (!map.has(key)) map.set(key, value);
@@ -451,24 +464,45 @@ async function updateRawAnchor(env, anchor, teamScore, opponentScore, checkedAt,
 }
 
 async function upsertFallbackFinal(env, source, { final, school, opponentSchool, opponentName, teamScore, opponentScore, schedule, checkedAt }) {
-  const dateKey = schedule.iso.slice(0, 10);
-  const sourceEventKey = `${final.sourceEventKey}:fallback:${dateKey}:${school.school_id}`;
+  const sourceEventKey = `${final.sourceEventKey}:fallback:${schedule.iso.slice(0,10)}:${school.school_id}`;
   const id = `${source.id}:${sourceEventKey}`;
+  const nearby = await env.DB.prepare(`
+    SELECT g.id,g.opponent,g.opponent_school_id,g.scheduled_at,g.status,g.team_score,g.opponent_score
+    FROM games g JOIN sources src ON src.id=g.source_id
+    WHERE g.team_id=? AND src.parser_type='hootens-statewide' AND g.canonical_event_id IS NULL
+      AND datetime(g.scheduled_at) BETWEEN datetime(?,'-36 hours') AND datetime(?,'+36 hours')
+    ORDER BY ABS((julianday(g.scheduled_at)-julianday(?))*24.0),g.id
+  `).bind(school.team_id,schedule.iso,schedule.iso,schedule.iso).all();
+  const existing=(nearby.results||[]).find(row=>sameRecoveredHootenFinal(row,{
+    opponentSchoolId:opponentSchool?.school_id||null,
+    opponentName,teamScore,opponentScore,scheduledAt:schedule.iso
+  }));
   const conferenceGame = Boolean(opponentSchool?.conference_id && school.conference_id && opponentSchool.conference_id === school.conference_id) ? 1 : 0;
+  if(existing){
+    await env.DB.prepare(`
+      UPDATE games SET opponent=?,opponent_school_id=?,scheduled_at=?,scheduled_time_known=0,home_away='unknown',
+        conference_game=?,counts_for_record=1,status='FINAL',team_score=?,opponent_score=?,result=?,
+        notes=?,source_url=?,source_updated_at=?,last_checked_at=?,updated_at=? WHERE id=?
+    `).bind(
+      opponentName,opponentSchool?.school_id||null,schedule.iso,conferenceGame,teamScore,opponentScore,resultCode(teamScore,opponentScore),
+      "Hooten's statewide scoreboard final; recovered team-page date reused existing adjacent fallback",
+      source.source_url,checkedAt,checkedAt,checkedAt,existing.id
+    ).run();
+    return existing.id;
+  }
   await env.DB.prepare(`
     INSERT INTO games(id,team_id,source_id,source_event_key,opponent,opponent_school_id,scheduled_at,scheduled_time_known,venue,location_text,latitude,longitude,home_away,conference_game,counts_for_record,status,team_score,opponent_score,result,notes,source_url,source_updated_at,last_checked_at,updated_at,canonical_event_id)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+    VALUES(?,?,?,?,?,?,?,0,NULL,?,NULL,NULL,'unknown',?,1,'FINAL',?,?,?,?,?,?,?,?,NULL)
     ON CONFLICT(source_id,source_event_key) DO UPDATE SET
-      opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,scheduled_time_known=excluded.scheduled_time_known,
-      venue=excluded.venue,location_text=excluded.location_text,home_away=excluded.home_away,conference_game=excluded.conference_game,
-      counts_for_record=excluded.counts_for_record,status=excluded.status,team_score=excluded.team_score,opponent_score=excluded.opponent_score,
-      result=excluded.result,notes=excluded.notes,source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,
+      opponent=excluded.opponent,opponent_school_id=excluded.opponent_school_id,scheduled_at=excluded.scheduled_at,
+      status='FINAL',team_score=excluded.team_score,opponent_score=excluded.opponent_score,result=excluded.result,
+      notes=excluded.notes,source_url=excluded.source_url,source_updated_at=excluded.source_updated_at,
       last_checked_at=excluded.last_checked_at,updated_at=excluded.updated_at
   `).bind(
-    id, school.team_id, source.id, sourceEventKey, opponentName, opponentSchool?.school_id || null, schedule.iso, 0,
-    null, schedule.locationText || null, null, null, "unknown", conferenceGame, 1, "FINAL", teamScore, opponentScore,
-    resultCode(teamScore, opponentScore), "Hooten's statewide scoreboard final; schedule date recovered from Hooten team page",
-    source.source_url, checkedAt, checkedAt, checkedAt
+    id,school.team_id,source.id,sourceEventKey,opponentName,opponentSchool?.school_id||null,schedule.iso,
+    schedule.locationText||null,conferenceGame,teamScore,opponentScore,resultCode(teamScore,opponentScore),
+    "Hooten's statewide scoreboard final; schedule date recovered from Hooten team page",
+    source.source_url,checkedAt,checkedAt,checkedAt
   ).run();
   return id;
 }
