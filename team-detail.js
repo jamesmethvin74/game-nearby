@@ -1,4 +1,7 @@
 (() => {
+  const security = window.LocalBleachersSecurity;
+  const esc = value => security.escapeHtml(value);
+  const safeUrl = (value, fallback = "") => security.safeHttpUrl(value, fallback);
   const state = { schoolId: null, sport: null, gender: null, logo: "", loading: false, error: "" };
   const scheduleCache = new Map();
 
@@ -134,22 +137,23 @@
     const status = unifiedStatus();
 
     const logoEl = dialog.querySelector("#teamDetailLogo");
-    logoEl.innerHTML = state.logo
-      ? `<img src="${state.logo}" alt="${school.subtitle || school.name} logo" referrerpolicy="no-referrer" />`
-      : `<span>${school.short || "★"}</span>`;
+    const safeLogo = safeUrl(state.logo);
+    logoEl.innerHTML = safeLogo
+      ? `<img src="${esc(safeLogo)}" alt="${esc(school.subtitle || school.name)} logo" referrerpolicy="no-referrer" />`
+      : `<span>${esc(school.short || "★")}</span>`;
     dialog.querySelector("#teamDetailSchool").textContent = school.name;
     dialog.querySelector("#teamDetailMascot").textContent = `${school.subtitle || ""}${state.sport ? `${school.subtitle ? " · " : ""}${sportLabel(state.sport, state.gender)}` : ""}`;
 
     dialog.querySelector("#teamDetailSports").innerHTML = groups.map(group =>
-      `<button type="button" class="team-detail-sport${active && group.key === active.key ? " active" : ""}" data-sport="${group.sport}" data-gender="${group.gender}">${sportLabel(group.sport, group.gender)}</button>`
+      `<button type="button" class="team-detail-sport${active && group.key === active.key ? " active" : ""}" data-sport="${esc(group.sport)}" data-gender="${esc(group.gender)}">${esc(sportLabel(group.sport, group.gender))}</button>`
     ).join("");
 
     dialog.querySelector("#teamDetailStatus").innerHTML = `
-      <div class="team-detail-stat"><small>Overall</small><strong>${status.overall}</strong></div>
-      <div class="team-detail-stat"><small>Conference</small><strong>${status.conference}</strong></div>
-      <div class="team-detail-stat"><small>Standing</small><strong>${status.standing}<br><span style="font-size:.66rem;color:var(--pitch-muted)">${status.conferenceName}</span></strong></div>`;
+      <div class="team-detail-stat"><small>Overall</small><strong>${esc(status.overall)}</strong></div>
+      <div class="team-detail-stat"><small>Conference</small><strong>${esc(status.conference)}</strong></div>
+      <div class="team-detail-stat"><small>Standing</small><strong>${esc(status.standing)}<br><span style="font-size:.66rem;color:var(--pitch-muted)">${esc(status.conferenceName)}</span></strong></div>`;
 
-    const source = selectedEvents.find(e => e.sourceUrl)?.sourceUrl || "";
+    const source = safeUrl(selectedEvents.find(e => e.sourceUrl)?.sourceUrl || "");
     const sourceLink = dialog.querySelector("#teamDetailSource");
     sourceLink.href = source || "#";
     sourceLink.hidden = !source;
@@ -158,11 +162,11 @@
     if (state.loading && !scheduleCache.has(state.schoolId)) {
       scheduleEl.innerHTML = `<div class="team-detail-empty">Loading full schedule…</div>`;
     } else if (state.error && !selectedEvents.length) {
-      scheduleEl.innerHTML = `<div class="team-detail-empty">Schedule could not be loaded right now. ${state.error}</div>`;
+      scheduleEl.innerHTML = `<div class="team-detail-empty">Schedule could not be loaded right now. ${esc(state.error)}</div>`;
     } else if (selectedEvents.length) {
       scheduleEl.innerHTML = selectedEvents.map(event => `<div class="team-detail-game">
-          <div><strong>${event.home ? "vs." : "at"} ${event.opponent}</strong><div class="meta">${displayDate(event.date)} · ${event.venue}${event.notes ? ` · ${event.notes}` : ""}</div></div>
-          <div class="team-detail-home">${event.home ? "Home" : "Away"}${scoreLabel(event) ? `<span class="team-detail-result">${scoreLabel(event)}</span>` : ""}</div>
+          <div><strong>${event.home ? "vs." : "at"} ${esc(event.opponent)}</strong><div class="meta">${esc(displayDate(event.date))} · ${esc(event.venue)}${event.notes ? ` · ${esc(event.notes)}` : ""}</div></div>
+          <div class="team-detail-home">${event.home ? "Home" : "Away"}${scoreLabel(event) ? `<span class="team-detail-result">${esc(scoreLabel(event))}</span>` : ""}</div>
         </div>`).join("");
     } else {
       scheduleEl.innerHTML = `<div class="team-detail-empty">No schedule loaded for this sport yet.</div>`;
