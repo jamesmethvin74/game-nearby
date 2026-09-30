@@ -1,5 +1,4 @@
 import app from "./one-truth-worker.js";
-// SECURITY_DEPLOYMENT_MARKER_20260930
 import { buildStatewideRecordTruthAudit } from "./m8-final-audit/record-truth-audit.js";
 import { finalizeRecordTruthAudit } from "./m8-final-audit/record-truth-audit-output.js";
 import { buildM8CompletenessReport } from "./m8-final-audit/m8-completeness-report.js";
