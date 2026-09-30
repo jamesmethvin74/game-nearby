@@ -19,7 +19,7 @@ jobs:
           set -u
           BASE="https://localbleachersar-sports-api.james-methvin74.workers.dev"
           OPS="https://localbleachers-ops.methvindigitalworks.com"
-          TARGET_SHA="d5751d9becde0db1ee27fc570121cd4ac39f97e6"
+          TARGET_SHA="3842e0dcd1efed5bada7dedc8af251182cf51fd6"
 
           request() {
             local label="$1"
