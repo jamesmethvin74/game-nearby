@@ -81,3 +81,5 @@ test("recovered Hooten team-page date reuses an adjacent resilient fallback for 
     scheduledAt:"2026-09-05T12:00:01.000Z"
   }),false);
 });
+
+// SECURITY_DEPLOYMENT_TEST_MARKER_20260930
