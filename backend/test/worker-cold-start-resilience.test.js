@@ -42,10 +42,15 @@ test("nearby games use a minimal bounded read that returns card record fields", 
   assert.doesNotMatch(worker, /LEFT JOIN canonical_events ce ON ce\.id=g\.canonical_event_id/);
 });
 
-test("explicit branding report remains allowed to refresh branding on demand", () => {
-  assert.match(worker, /path==="\/api\/v1\/branding\/report"/);
-  assert.match(worker, /await syncMaxPrepsSchoolBranding\(env\)/);
-  assert.match(worker, /enrichMaxPrepsSchoolMascots\(env,\{limit:12\}\)/);
+test("branding report is read-only while scheduled maintenance owns branding writes", () => {
+  assert.ok(worker.includes('path==="/api/v1/branding/report"'));
+  const brandingStart = worker.indexOf('path==="/api/v1/branding/report"');
+  const gamesStart = worker.indexOf('path==="/api/v1/games"', brandingStart);
+  const brandingBlock = worker.slice(brandingStart, gamesStart);
+  assert.match(brandingBlock, /getSchoolBrandingReport\(env\)/);
+  assert.doesNotMatch(brandingBlock, /syncMaxPrepsSchoolBranding|enrichMaxPrepsSchoolMascots/);
+  assert.match(worker, /await\s+syncMaxPrepsSchoolBranding\(env\)/);
+  assert.match(worker, /enrichMaxPrepsSchoolMascots\(env,\{limit:20\}\)/);
 });
 
 test("authoritative statewide ingest still rebuilds and persists team records", () => {

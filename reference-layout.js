@@ -1,4 +1,7 @@
 (() => {
+  const security = window.LocalBleachersSecurity;
+  const esc = value => security.escapeHtml(value);
+  const safeUrl = (value, fallback = "") => security.safeHttpUrl(value, fallback);
   const MASCOTS = {
     uca: { icon: "🐻", label: "Bears", className: "uca", mark: "assets/team-uca.webp" },
     conway: { icon: "🐯", label: "Wampus Cats", className: "conway", mark: "https://5starassets.blob.core.windows.net/article-photos/2482279/5a127846-cdce-4734-8209-7e28b361eb10_640x480.jpg" },
@@ -15,28 +18,36 @@
   const timingLabel = (event) => {const date=new Date(event.date),today=new Date();if(sameLocalDate(date,today))return "GAME TODAY";const tomorrow=new Date(today);tomorrow.setDate(tomorrow.getDate()+1);if(sameLocalDate(date,tomorrow))return "GAME TOMORROW";return "NEXT GAME";};
   const mascotBadge = (event) => {
     const mascot=MASCOTS[event.teamId];
-    if(!mascot)return `<div class="team-badge">${badgeFor(event.teamId)}</div>`;
-    if(mascot.mark)return `<div class="team-badge team-mascot mascot-${mascot.className}"><img class="team-mark-img" src="${mascot.mark}" alt="${mascot.label} logo" referrerpolicy="no-referrer" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false" /><span class="team-mark-fallback" role="img" aria-label="${mascot.label} mascot" hidden>${mascot.icon}</span></div>`;
-    return `<div class="team-badge team-mascot mascot-${mascot.className}"><span role="img" aria-label="${mascot.label} mascot">${mascot.icon}</span></div>`;
+    if(!mascot)return `<div class="team-badge">${esc(badgeFor(event.teamId))}</div>`;
+    if(mascot.mark)return `<div class="team-badge team-mascot mascot-${esc(mascot.className)}"><img class="team-mark-img" src="${esc(safeUrl(mascot.mark))}" alt="${esc(mascot.label)} logo" referrerpolicy="no-referrer" loading="lazy" onerror="this.hidden=true;this.nextElementSibling.hidden=false" /><span class="team-mark-fallback" role="img" aria-label="${esc(mascot.label)} mascot" hidden>${esc(mascot.icon)}</span></div>`;
+    return `<div class="team-badge team-mascot mascot-${esc(mascot.className)}"><span role="img" aria-label="${esc(mascot.label)} mascot">${esc(mascot.icon)}</span></div>`;
   };
   const statusFor = (event) => typeof getTeamStatus==="function"?getTeamStatus(event):{overall:"—",conference:"—",standing:"Not posted",conferenceName:"Conference"};
-  const miniStatus = (status) => `<div class="mini-status" aria-label="Team record and standing"><span>${status.overall} overall</span><span>${status.conference} conf.</span><span>${status.standing}</span></div>`;
+  const miniStatus = (status) => `<div class="mini-status" aria-label="Team record and standing"><span>${esc(status.overall)} overall</span><span>${esc(status.conference)} conf.</span><span>${esc(status.standing)}</span></div>`;
 
   eventCard = function(event, priority=false){
-    const dist=haversineMiles(center,event),matchup=`${event.home?"vs.":"at"} ${event.opponent}`,locationClass=event.home?"home-game":"away-game";
-    const ticket=event.ticketUrl?`<a class="ticket-action" href="${event.ticketUrl}" target="_blank" rel="noopener">🎟 Tickets</a>`:"";
-    const genderLabel=event.gender?`${capitalize(event.gender)} `:"";
+    const dist=haversineMiles(center,event);
+    const locationClass=event.home?"home-game":"away-game";
+    const team=esc(event.team);
+    const opponent=esc(event.opponent);
+    const venue=esc(event.venue);
+    const notes=event.notes?esc(event.notes):"";
+    const sport=esc(capitalize(event.sport));
+    const genderLabel=event.gender?`${esc(capitalize(event.gender))} `:"";
+    const matchup=`${event.home?"vs.":"at"} ${opponent}`;
+    const ticketUrl=safeUrl(event.ticketUrl);
+    const ticket=ticketUrl?`<a class="ticket-action" href="${esc(ticketUrl)}" target="_blank" rel="noopener">🎟 Tickets</a>`:"";
     const status=statusFor(event);
-    const detailAttrs=`data-team-id="${event.teamId}" data-sport="${event.sport}" data-gender="${event.gender||""}" role="button" tabindex="0" aria-label="View ${event.team} schedule and results"`;
+    const detailAttrs=`data-team-id="${esc(event.teamId)}" data-sport="${esc(event.sport)}" data-gender="${esc(event.gender||"")}" role="button" tabindex="0" aria-label="View ${team} schedule and results"`;
     const scheduleCue=`<div class="card-schedule-link">View schedule &amp; results <span aria-hidden="true">›</span></div>`;
     if(!priority){
       return `<article class="event-card ${locationClass}">
         <div class="event-main team-detail-trigger" ${detailAttrs}>
           ${mascotBadge(event)}
           <div>
-            <div class="event-title">${event.team}</div>
-            <div class="matchup-line">${genderLabel}${capitalize(event.sport)} · ${matchup}</div>
-            <div class="event-meta">◷ ${compactDate(event.date)} <span class="venue-dot">•</span> ⌖ ${event.venue}</div>
+            <div class="event-title">${team}</div>
+            <div class="matchup-line">${genderLabel}${sport} · ${matchup}</div>
+            <div class="event-meta">◷ ${esc(compactDate(event.date))} <span class="venue-dot">•</span> ⌖ ${venue}</div>
             ${miniStatus(status)}
             ${scheduleCue}
           </div>
@@ -49,20 +60,21 @@
       <div class="event-main team-detail-trigger" ${detailAttrs}>
         ${mascotBadge(event)}
         <div>
-          <div class="event-title">${event.team}</div>
-          <div class="matchup-line">${genderLabel}${capitalize(event.sport)} · ${matchup}</div>
-          <div class="event-meta">◷ ${compactDate(event.date)} <span class="venue-dot">•</span> ⌖ ${event.venue}${event.notes?` · ${event.notes}`:""}</div>
+          <div class="event-title">${team}</div>
+          <div class="matchup-line">${genderLabel}${sport} · ${matchup}</div>
+          <div class="event-meta">◷ ${esc(compactDate(event.date))} <span class="venue-dot">•</span> ⌖ ${venue}${notes?` · ${notes}`:""}</div>
           ${scheduleCue}
         </div>
         <div class="compact-distance">${dist.toFixed(1)} mi</div>
       </div>
       <div class="team-status" aria-label="Record and standings">
-        <div class="status-cell"><span class="status-label">Overall</span><span class="status-value">${status.overall}</span></div>
-        <div class="status-cell"><span class="status-label">Conference</span><span class="status-value">${status.conference}</span></div>
-        <div class="status-cell"><span class="status-label">Standing</span><span class="status-value conference">${status.standing} · ${status.conferenceName}</span></div>
+        <div class="status-cell"><span class="status-label">Overall</span><span class="status-value">${esc(status.overall)}</span></div>
+        <div class="status-cell"><span class="status-label">Conference</span><span class="status-value">${esc(status.conference)}</span></div>
+        <div class="status-cell"><span class="status-label">Standing</span><span class="status-value conference">${esc(status.standing)} · ${esc(status.conferenceName)}</span></div>
       </div>
-      <div class="event-actions"><a href="${directionsUrl(event)}" target="_blank" rel="noopener">🚗 Directions</a>${ticket}<a href="${calendarUrl(event)}" target="_blank" rel="noopener">▦ Add to Calendar</a></div>
+      <div class="event-actions"><a href="${esc(directionsUrl(event))}" target="_blank" rel="noopener">🚗 Directions</a>${ticket}<a href="${esc(calendarUrl(event))}" target="_blank" rel="noopener">▦ Add to Calendar</a></div>
     </article>`;
+
   };
   render();
 })();

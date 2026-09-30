@@ -20,27 +20,88 @@ const FINAL_SUPPRESSION_AUDIT_PATH="/api/v1/internal/final-suppression-regressio
 const FINAL_SUPPRESSION_AUDIT_EXPIRES_AT=Date.parse("2026-09-21T23:30:00Z");
 const PHASE1_STATEWIDE_AUDIT_PATH="/api/v1/internal/phase1-statewide-integrity-audit-20260921-8d6c2f1a";
 const PHASE1_STATEWIDE_AUDIT_EXPIRES_AT=Date.parse("2026-09-22T04:15:00Z");
-function publicApiCorsResponse(request,response) {
+
+const PROTECTED_OPERATIONAL_PATHS=new Set([
+  "/api/v1/sources",
+  "/api/v1/conflicts",
+  "/api/v1/coverage-report",
+  "/api/v1/d1-budget",
+  "/api/v1/branding/report"
+]);
+const PUBLIC_ERROR_PRIVATE_KEYS=new Set(["message","detail","diagnostic","stack","sql","cause"]);
+
+function isProtectedOperationalPath(pathname) {
+  return PROTECTED_OPERATIONAL_PATHS.has(String(pathname||""));
+}
+
+function isPublicApiRead(request) {
   const url=new URL(request.url);
-  if (request.method!=="GET" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return response;
+  return request.method==="GET"
+    && url.pathname.startsWith("/api/v1/")
+    && !url.pathname.startsWith("/api/v1/internal/")
+    && !isProtectedOperationalPath(url.pathname);
+}
+
+function applyApiSecurityHeaders(response) {
+  const headers=new Headers(response.headers);
+  headers.set("x-content-type-options","nosniff");
+  headers.set("referrer-policy","no-referrer");
+  headers.set("permissions-policy","geolocation=(), camera=(), microphone=(), payment=(), usb=()");
+  headers.set("x-frame-options","DENY");
+  headers.set("content-security-policy","default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+  headers.set("strict-transport-security","max-age=31536000");
+  return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+}
+
+function sanitizePublicErrorBody(value) {
+  if (Array.isArray(value)) return value.map(sanitizePublicErrorBody);
+  if (!value || typeof value!=="object") return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key])=>!PUBLIC_ERROR_PRIVATE_KEYS.has(String(key).toLowerCase()))
+    .map(([key,item])=>[key,sanitizePublicErrorBody(item)]));
+}
+
+async function sanitizePublicErrorResponse(request,response) {
+  if (!isPublicApiRead(request) || response.status<500) return response;
+  const type=String(response.headers.get("content-type")||"").toLowerCase();
+  if (!type.includes("application/json")) return response;
+  try {
+    const body=sanitizePublicErrorBody(await response.clone().json());
+    const headers=new Headers(response.headers);
+    headers.delete("content-length");
+    headers.set("content-type","application/json; charset=utf-8");
+    return new Response(JSON.stringify(body),{status:response.status,statusText:response.statusText,headers});
+  } catch {
+    return response;
+  }
+}
+
+function privateJson(body,status=200) {
+  return applyApiSecurityHeaders(new Response(JSON.stringify(body),{
+    status,
+    headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"}
+  }));
+}
+function publicApiCorsResponse(request,response) {
+  if (!isPublicApiRead(request)) return applyApiSecurityHeaders(response);
   const headers=new Headers(response.headers);
   headers.set("access-control-allow-origin","*");
   headers.set("access-control-allow-methods","GET, OPTIONS");
   headers.set("x-localbleachers-api-cors","outer-public-read-v1");
   headers.delete("vary");
-  return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
+  return applyApiSecurityHeaders(new Response(response.body,{status:response.status,statusText:response.statusText,headers}));
 }
 
 function publicApiOptions(request) {
   const url=new URL(request.url);
-  if (request.method!=="OPTIONS" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/")) return null;
-  return new Response(null,{status:204,headers:{
+  if (request.method!=="OPTIONS" || !url.pathname.startsWith("/api/v1/") || url.pathname.startsWith("/api/v1/internal/") || isProtectedOperationalPath(url.pathname)) return null;
+  return applyApiSecurityHeaders(new Response(null,{status:204,headers:{
     "access-control-allow-origin":"*",
     "access-control-allow-methods":"GET, OPTIONS",
     "access-control-allow-headers":"content-type",
     "cache-control":"no-store",
     "x-localbleachers-api-cors":"outer-public-read-v1"
-  }});
+  }}));
 }
 
 function authorizedAudit(request,env) {
@@ -48,7 +109,7 @@ function authorizedAudit(request,env) {
 }
 
 function auditJson(body,status=200,{integrity=false}={}) {
-  return new Response(JSON.stringify(body),{
+  return applyApiSecurityHeaders(new Response(JSON.stringify(body),{
     status,
     headers:{
       "content-type":"application/json; charset=utf-8",
@@ -56,7 +117,7 @@ function auditJson(body,status=200,{integrity=false}={}) {
       "x-localbleachers-record-truth-audit":"record-truth-v1",
       ...(integrity?{"x-localbleachers-data-integrity-audit":"statewide-data-integrity-v1"}:{})
     }
-  });
+  }));
 }
 
 async function runRecordTruthAudit(env) {
@@ -294,11 +355,17 @@ export default {
       && url.pathname===PHASE1_STATEWIDE_AUDIT_PATH
       && Date.now()<=PHASE1_STATEWIDE_AUDIT_EXPIRES_AT;
 
+    if (isProtectedOperationalPath(url.pathname)) {
+      if (request.method==="OPTIONS") return privateJson({error:"not_found"},404);
+      if (request.method==="GET" && !authorizedAudit(request,env)) return privateJson({error:"not_found"},404);
+    }
+
     const optionsResponse=publicApiOptions(request);
     if (optionsResponse) return optionsResponse;
     if (!protectedView && !oneShot && !livePipelineRepair && !conwayVanBurenRecovery && !finalSuppressionAudit && !phase1StatewideAudit) {
       const response=await app.fetch(request,env,ctx);
-      return publicApiCorsResponse(request,response);
+      const sanitized=await sanitizePublicErrorResponse(request,response);
+      return publicApiCorsResponse(request,sanitized);
     }
     if (protectedView && !authorizedAudit(request,env)) return auditJson({error:"not_found"},404,{integrity:coverageView===DATA_INTEGRITY_VIEW});
 
@@ -323,4 +390,13 @@ export default {
   }
 };
 
-export { DATA_INTEGRITY_VIEW, FINAL_AUDIT_EXPIRES_AT, FINAL_AUDIT_PATH };
+export {
+  DATA_INTEGRITY_VIEW,
+  FINAL_AUDIT_EXPIRES_AT,
+  FINAL_AUDIT_PATH,
+  PROTECTED_OPERATIONAL_PATHS,
+  applyApiSecurityHeaders,
+  isProtectedOperationalPath,
+  sanitizePublicErrorBody,
+  sanitizePublicErrorResponse
+};

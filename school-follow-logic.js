@@ -166,10 +166,11 @@ renderTeamChoices = function() {
   }
 
   ensureTeamSearchStyle();
+  const esc=window.LocalBleachersSecurity.escapeHtml;
   const rows = SCHOOL_REGISTRY.map(school => {
     const searchText = `${school.name} ${school.providerName || ""} ${school.subtitle || ""} ${school.city || ""} ${school.state || ""}`.toLowerCase();
     const level = school.level === "college" ? "college" : "high-school";
-    return `<label class="team-choice" data-team-level="${level}" data-team-search="${searchText.replace(/&/g,"&amp;").replace(/"/g,"&quot;")}"><span><strong>${school.name}</strong><small style="display:block;color:var(--muted);margin-top:3px">${schoolChoiceDetail(school)}</small></span><input type="checkbox" value="${school.id}" ${followed.includes(school.id)?"checked":""}></label>`;
+    return `<label class="team-choice" data-team-level="${level}" data-team-search="${esc(searchText)}"><span><strong>${esc(school.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${esc(schoolChoiceDetail(school))}</small></span><input type="checkbox" value="${esc(school.id)}" ${followed.includes(school.id)?"checked":""}></label>`;
   }).join("");
 
   const selectedLevel = savedTeamLevel();
@@ -187,6 +188,7 @@ renderTeamChoices = function() {
   search?.addEventListener("input", apply);
   search?.addEventListener("search", apply);
   apply();
+
 };
 
 function homeEventSource() {

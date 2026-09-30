@@ -79,7 +79,6 @@ function descriptor(origin, basePath, freshTtl, staleTtl, legacyBasePath = baseP
 
 function cacheDescriptor(request) {
   if (request.method !== "GET") return null;
-  if (request.headers.has("x-localbleachers-debug") || request.headers.has("x-localbleachers-diagnostic")) return null;
   const url = new URL(request.url);
   const path = url.pathname;
   const origin = url.origin;

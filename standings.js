@@ -110,6 +110,10 @@
     return Boolean(key && favorites.some(item => favoriteKey(item.sport, item.conferenceId) === key));
   }
 
+  function safeHttpUrl(value) {
+    return window.LocalBleachersSecurity?.safeHttpUrl?.(value, "") || "";
+  }
+
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, char => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
@@ -281,7 +285,7 @@
     tableWrap.hidden = rows.length === 0;
     card.setAttribute("aria-busy","false");
     updated.textContent = payload?.retrieved_at ? `Updated ${new Date(payload.retrieved_at).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}` : "";
-    const presentationSourceUrl = conference.presentation_source_url || conference.source_url || "";
+    const presentationSourceUrl = safeHttpUrl(conference.presentation_source_url || conference.source_url || "");
     if (presentationSourceUrl) { sourceLink.href=presentationSourceUrl; source.hidden=false; } else source.hidden=true;
     renderFavorites();
   }

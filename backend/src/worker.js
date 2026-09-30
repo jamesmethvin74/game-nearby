@@ -358,11 +358,10 @@ export default {
 
     if (request.method==="GET" && path==="/api/v1/branding/report") {
       try {
-        await syncMaxPrepsSchoolBranding(env);
-        defer(ctx,enrichMaxPrepsSchoolMascots(env,{limit:12}).catch(error=>console.error("school mascot enrichment failed",error)));
         return publicJson(request,await getSchoolBrandingReport(env));
       } catch (error) {
-        return publicJson(request,{error:"branding_report_failed",message:String(error?.message||error)},500);
+        console.error("branding report read failed",error);
+        return publicJson(request,{error:"branding_report_failed"},500);
       }
     }
 
@@ -371,8 +370,7 @@ export default {
         return publicJson(request,await listNearbyGamesBounded(request,env,url));
       } catch (error) {
         console.error("bounded nearby games query failed",error);
-        const diagnostic=request.headers.get("x-localbleachers-diagnostic")==="read-v1";
-        return publicJson(request,{error:"nearby_games_failed",...(diagnostic?{diagnostic:String(error?.message||error)}:{})},500);
+        return publicJson(request,{error:"nearby_games_failed"},500);
       }
     }
 
