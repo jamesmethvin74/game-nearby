@@ -1,0 +1,89 @@
+name: ScoreStream WVB gap audit transport
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/scorestream-wvb-gap-audit.yml
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch fixed 52-team production WVB schedules
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request, urllib.error
+          from concurrent.futures import ThreadPoolExecutor, as_completed
+          from datetime import datetime, timezone
+
+          API="https://localbleachersar-sports-api.james-methvin74.workers.dev"
+          sample=[
+            "BENTONVILLE HIGH SCHOOL","Bentonville West High School","Fayetteville High School","Har-Ber High School",
+            "Rogers High School","Rogers Heritage High School","Springdale High School","Farmington High School",
+            "Prairie Grove High School","Siloam Springs High School",
+            "CONWAY HIGH SCHOOL","Bryant High School","CABOT HIGH SCHOOL","North Little Rock High School",
+            "Little Rock Central High School","Little Rock Southwest High School","Pulaski Academy High School",
+            "Little Rock Christian Academy","GREENBRIER HIGH SCHOOL","VILONIA HIGH SCHOOL",
+            "Jonesboro High School","BROOKLAND HIGH SCHOOL","Batesville High School","Nettleton High School",
+            "Valley View High School","Paragould High School","Cave City High School","Pocahontas High School",
+            "Greene County Tech High School","Rivercrest High School",
+            "MOUNTAIN HOME HIGH SCHOOL","HARRISON HIGH SCHOOL","COTTER HIGH SCHOOL","VALLEY SPRINGS HIGH SCHOOL",
+            "BERGMAN HIGH SCHOOL","FLIPPIN HIGH SCHOOL","Huntsville High School","BERRYVILLE HIGH SCHOOL",
+            "Greenwood High School","VAN BUREN HIGH SCHOOL","Russellville High School","Paris High School",
+            "CHARLESTON HIGH SCHOOL","HACKETT HIGH SCHOOL","Lavaca High School","Alma High School",
+            "Mena High School","Magnolia High School","CAMDEN FAIRVIEW HIGH SCHOOL","Genoa Central High School",
+            "NASHVILLE HIGH SCHOOL","Arkadelphia High School"
+          ]
+          def get_json(url):
+            req=urllib.request.Request(url,headers={"Accept":"application/json","User-Agent":"LocalBleachersAR-audit/1.0"})
+            with urllib.request.urlopen(req,timeout=25) as r:
+              return json.load(r)
+          schools=get_json(API+"/api/v1/schools").get("schools",[])
+          def norm(s): return "".join(ch.lower() for ch in str(s or "") if ch.isalnum())
+          by_name={norm(s.get("name")):s for s in schools}
+          now=datetime(2026,10,1,23,20,tzinfo=timezone.utc)
+          def audit(name):
+            s=by_name.get(norm(name))
+            if not s: return {"school":name,"error":"school_not_found"}
+            sid=s["id"]; tid=sid+"-volleyball-2026"
+            try:
+              payload=get_json(API+"/api/v1/teams/"+urllib.parse.quote(tid,safe="")+"/schedule")
+            except urllib.error.HTTPError as e:
+              return {"school":name,"school_id":sid,"team_id":tid,"error":"http_"+str(e.code)}
+            games=payload.get("games",[])
+            finals=[g for g in games if str(g.get("status","")).upper()=="FINAL"]
+            future=[]
+            for g in games:
+              raw=g.get("scheduled_at") or g.get("canonical_scheduled_at")
+              try:
+                dt=datetime.fromisoformat(str(raw).replace("Z","+00:00"))
+                if dt.astimezone(timezone.utc)>now: future.append(g)
+              except: pass
+            missing=[g for g in finals if g.get("team_score") is None or g.get("opponent_score") is None]
+            return {
+              "school":name,"school_id":sid,"team_id":tid,
+              "games":len(games),"finals":len(finals),"future":len(future),
+              "finals_missing_score":len(missing),
+              "record":payload.get("record"),
+              "games_detail":[{
+                "id":g.get("canonical_event_id") or g.get("id"),
+                "date":g.get("scheduled_at") or g.get("canonical_scheduled_at"),
+                "opponent":g.get("opponent"),
+                "status":g.get("status"),
+                "team_score":g.get("team_score"),
+                "opponent_score":g.get("opponent_score")
+              } for g in games]
+            }
+          rows=[]
+          with ThreadPoolExecutor(max_workers=8) as ex:
+            fut={ex.submit(audit,n):n for n in sample}
+            for f in as_completed(fut): rows.append(f.result())
+          rows.sort(key=lambda r:r["school"].lower())
+          print("AUDIT_JSON_START")
+          print(json.dumps({"sample_size":len(sample),"rows":rows},separators=(",",":")))
+          print("AUDIT_JSON_END")
+          PY
