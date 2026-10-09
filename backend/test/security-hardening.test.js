@@ -135,11 +135,12 @@ test("branding report executes reads only", async () => {
   assert.equal(report.summary.targetSchools, 0);
 });
 
-test("scheduled catalog maintenance still owns branding synchronization and mascot enrichment", async () => {
+test("scheduled catalog maintenance does not automate MaxPreps branding access", async () => {
   const scheduled = await readFile(new URL("../src/milestone2-scheduled-worker.js", import.meta.url), "utf8");
   const cadence = await readFile(new URL("../src/collection-cadence.js", import.meta.url), "utf8");
-  assert.match(scheduled, /syncMaxPrepsSchoolBranding/);
-  assert.match(scheduled, /enrichMaxPrepsSchoolMascots/);
+  assert.doesNotMatch(scheduled, /syncMaxPrepsSchoolBranding/);
+  assert.doesNotMatch(scheduled, /enrichMaxPrepsSchoolMascots/);
+  assert.match(scheduled, /automated_maxpreps_collection_disabled/);
   assert.match(scheduled, /if\s*\(plan\.runCatalogMaintenance\)/);
   assert.match(cadence, /weekly-catalog-maintenance/);
   assert.match(cadence, /runCatalogMaintenance:\s*true/);
