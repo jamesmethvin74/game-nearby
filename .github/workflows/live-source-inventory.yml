@@ -1,0 +1,18 @@
+name: Live source inventory transport
+on:
+  push:
+    branches:
+      - feature/live-sports-pipeline-m1
+    paths:
+      - .github/workflows/live-source-inventory.yml
+permissions:
+  contents: read
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch enabled production sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 60             -H 'accept: application/json'             'https://localbleachersar-sports-api.james-methvin74.workers.dev/api/v1/sources'             | python3 -c 'import sys,json,collections; d=json.load(sys.stdin); s=d.get("sources",[]); print("SOURCE_SUMMARY_START"); print(json.dumps({"count":len(s),"by_parser":collections.Counter(x.get("parser_type") for x in s),"by_type":collections.Counter(x.get("source_type") for x in s),"sources":[{"id":x.get("id"),"parser_type":x.get("parser_type"),"source_type":x.get("source_type"),"url":x.get("source_url"),"last_success":x.get("last_successful_fetch_at"),"last_checked":x.get("last_checked_at"),"http":x.get("last_http_status")} for x in s]},default=lambda o:dict(o))); print("SOURCE_SUMMARY_END")'
