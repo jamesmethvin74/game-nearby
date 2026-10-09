@@ -2,7 +2,6 @@ import app from "./public-cors-worker.js";
 import core from "./index.js";
 import { ensureStatewideSchema } from "./schema-bootstrap.js";
 import { syncArkansasSchoolLocations } from "./arkansas-school-locations.js";
-import { syncMaxPrepsSchoolBranding, enrichMaxPrepsSchoolMascots } from "./school-branding.js";
 import { collectionPlanAt } from "./collection-cadence.js";
 import { runScopedCadence } from "./scoped-cadence-runner.js";
 import { syncCertifiedDragonFlySportCatalog } from "./dragonfly-certified-sport-catalog.js";
@@ -11,7 +10,6 @@ import { runStatewideLiveResultProbe } from "./statewide-live-results.js";
 import { STATEWIDE_HIGH_SCHOOL_SPORTS, statewideSportConfig } from "./statewide-sport-config.js";
 import { runResilientHootensStatewideResults } from "./hootens-resilient-results.js";
 import { runHootensTeamPageCatchup } from "./hootens-team-page-catchup.js";
-import { datesForMaxPrepsVolleyballFallback, runMaxPrepsVolleyballResultFallback } from "./maxpreps-volleyball-result-collector.js";
 import { syncPublishedVolleyballConferenceMembership } from "./volleyball-conference-membership.js";
 import { syncPublishedFootballConferenceMembership } from "./football-conference-membership.js";
 import { runStatewideIntegrityGate } from "./statewide-integrity-gate.js";
@@ -136,13 +134,9 @@ async function runCatalogMaintenance(env){
     console.error("weekly statewide school location sync failed",String(error?.message||error));
   }
 
-  try {
-    const branding=await syncMaxPrepsSchoolBranding(env);
-    const mascots=await enrichMaxPrepsSchoolMascots(env,{limit:20});
-    console.log("weekly statewide school branding",{branding,mascots});
-  } catch (error) {
-    console.error("weekly statewide school branding sync failed",String(error?.message||error));
-  }
+  // Automated MaxPreps access is intentionally disabled. Existing stored branding
+  // remains available, but scheduled collection must not fetch MaxPreps pages.
+  console.log("weekly statewide school branding",{status:"SKIPPED",reason:"automated_maxpreps_collection_disabled"});
 
   if(membershipTouchedTeamIds.size) await rebuildTeamRecords(env,[...membershipTouchedTeamIds],new Date().toISOString());
   return {payloads,touchedTeamIds:[...membershipTouchedTeamIds].sort()};
@@ -257,29 +251,6 @@ async function runStatewideLiveResultsPass({env,plan,when}){
   return outcomes;
 }
 
-async function runMaxPrepsVolleyballFallbackPass({env,plan,when}){
-  const dates=datesForMaxPrepsVolleyballFallback(plan,when);
-  if(!dates.length) return null;
-  try {
-    const result=await runMaxPrepsVolleyballResultFallback(env,{dates,now:when});
-    console.log("MaxPreps volleyball result fallback",{
-      status:result.status,
-      dates:result.dates,
-      pagesFetched:result.pagesFetched,
-      parsedFinals:result.parsedFinals,
-      matchedFinals:result.matchedFinals,
-      touchedTeams:result.touchedTeams,
-      writes:result.writes
-    });
-    return result;
-  } catch(error) {
-    const message=String(error?.message||error);
-    console.error("MaxPreps volleyball result fallback failed",message);
-    return {status:"FAILURE",dates,error:message};
-  }
-}
-
-
 async function runIntegrityGatePass({env,plan,when}){
   if(!plan?.runIntegrityGate) return null;
   try {
@@ -318,7 +289,7 @@ async function runScheduledPlan(controller,env,ctx){
 
   const statewideLiveResults=await runStatewideLiveResultsPass({env,plan,when});
   const volleyballLiveResults=statewideLiveResults.find(item=>item.key==="volleyball-girls")||null;
-  const maxPrepsVolleyballResults=await runMaxPrepsVolleyballFallbackPass({env,plan,when});
+  const maxPrepsVolleyballResults=null; // automated MaxPreps collection disabled
 
   const hootensFinalResults=await runHootensFinalResultsPass({env,plan});
   const hootensHistoricalCatchup=await runHootensHistoricalCatchupPass({env,plan,when});

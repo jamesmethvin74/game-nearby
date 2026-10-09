@@ -9,6 +9,7 @@ export const MAXPREPS_ARKANSAS_FOOTBALL_SCHOOLS = "https://www.maxpreps.com/ar/f
 export const MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS = "https://www.maxpreps.com/ar/basketball/schools/";
 export const MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS = "https://www.maxpreps.com/ar/volleyball/schools/";
 export const HIGH_SCHOOL_LOGO_BATCH_LIMIT = 25;
+export const MAXPREPS_AUTOMATED_COLLECTION_ENABLED = false;
 
 const ALL_CURATED_SCHOOL_BRANDING_IDENTITIES = [
   ...CURATED_SCHOOL_BRANDING_IDENTITIES,
@@ -33,15 +34,6 @@ function curatedIdentityForSchool(school) {
     return identity;
   }
   return null;
-}
-
-async function fetchDirectory(sourceUrl, fetchFn) {
-  const response = await fetchFn(sourceUrl, {
-    headers: { "user-agent": "LocalBleachersAR-logo-completion/1.0", accept: "text/html" },
-    redirect: "follow"
-  });
-  if (!response.ok) throw new Error(`${sourceUrl} HTTP ${response.status}`);
-  return parseMaxPrepsSchoolDirectory(await response.text());
 }
 
 export function buildHighSchoolLogoCandidates({
@@ -94,7 +86,6 @@ export function buildHighSchoolLogoCandidates({
 }
 
 export async function runStatewideHighSchoolLogoCompletion(env, {
-  fetchFn = fetch,
   now = new Date(),
   limit = HIGH_SCHOOL_LOGO_BATCH_LIMIT
 } = {}) {
@@ -115,24 +106,13 @@ export async function runStatewideHighSchoolLogoCompletion(env, {
   const missingSchools = rawSchools.filter(isSchoolCatalogVisible);
   if (!missingSchools.length) return { status:"COMPLETE", missingBefore:0, candidates:0, written:0, unresolved:[] };
 
-  const sourceUrls = [
-    MAXPREPS_ARKANSAS_ALL_SCHOOLS,
-    MAXPREPS_ARKANSAS_FOOTBALL_SCHOOLS,
-    MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS,
-    MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS
-  ];
-  const directoryResults = await Promise.allSettled(sourceUrls.map(sourceUrl => fetchDirectory(sourceUrl, fetchFn)));
-  const entriesAt = index => directoryResults[index].status === "fulfilled" ? directoryResults[index].value : [];
-  const allSchoolEntries = entriesAt(0);
-  const footballEntries = entriesAt(1);
-  const basketballEntries = entriesAt(2);
-  const volleyballEntries = entriesAt(3);
-  const sourceFailures = directoryResults
-    .map((result, index) => result.status === "rejected" ? {
-      sourceUrl: sourceUrls[index],
-      error: String(result.reason?.message || result.reason)
-    } : null)
-    .filter(Boolean);
+  // Do not automate requests to MaxPreps. Retain the directory constants and
+  // parsers for reference/testing, but production logo completion is curated-only.
+  const allSchoolEntries = [];
+  const footballEntries = [];
+  const basketballEntries = [];
+  const volleyballEntries = [];
+  const sourceFailures = [];
 
   const candidates = buildHighSchoolLogoCandidates({
     schools: missingSchools,

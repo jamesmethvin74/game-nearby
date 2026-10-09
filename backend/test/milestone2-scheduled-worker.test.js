@@ -162,3 +162,11 @@ test("logo wrapper does not pre-consume volleyball live changes before Milestone
   assert.match(milestone,/runStatewideLiveResultProbe/);
   assert.match(milestone,/touchedTeamIds:result\.touchedTeamIds\|\|\[\]/);
 });
+
+
+test("scheduled pipeline does not automate MaxPreps access",()=>{
+  const runner=fs.readFileSync(fileURLToPath(new URL("../src/milestone2-scheduled-worker.js",import.meta.url)),"utf8");
+  assert.doesNotMatch(runner,/syncMaxPrepsSchoolBranding|enrichMaxPrepsSchoolMascots/);
+  assert.doesNotMatch(runner,/runMaxPrepsVolleyballResultFallback|datesForMaxPrepsVolleyballFallback/);
+  assert.match(runner,/automated_maxpreps_collection_disabled/);
+});

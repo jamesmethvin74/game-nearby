@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
   HIGH_SCHOOL_LOGO_BATCH_LIMIT,
+  MAXPREPS_AUTOMATED_COLLECTION_ENABLED,
   MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS,
   MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS,
   buildHighSchoolLogoCandidates
@@ -19,10 +20,13 @@ import {
   logoBootstrapReadiness
 } from "../src/logo-bootstrap-worker.js";
 
-test("high-school logo completion is bounded and uses basketball plus volleyball directories", () => {
+test("high-school logo completion is bounded while automated MaxPreps fetching is disabled", () => {
   assert.equal(HIGH_SCHOOL_LOGO_BATCH_LIMIT, 25);
+  assert.equal(MAXPREPS_AUTOMATED_COLLECTION_ENABLED, false);
   assert.equal(MAXPREPS_ARKANSAS_BASKETBALL_SCHOOLS, "https://www.maxpreps.com/ar/basketball/schools/");
   assert.equal(MAXPREPS_ARKANSAS_VOLLEYBALL_SCHOOLS, "https://www.maxpreps.com/ar/volleyball/schools/");
+  const source = fs.readFileSync(new URL("../src/statewide-logo-completion.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /fetchDirectory\(|sourceUrls\.map\(/);
 });
 
 test("reviewed lower-grade identities cannot re-enter logo completion", () => {
